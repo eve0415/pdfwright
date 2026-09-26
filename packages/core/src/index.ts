@@ -21,3 +21,4 @@ export {
   pdfString,
 } from './object/pdfObject.ts';
 export type { PdfObject } from './object/pdfObject.ts';
+export { serializeObject } from './serialize/serializeObject.ts';
