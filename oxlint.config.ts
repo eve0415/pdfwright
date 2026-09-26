@@ -106,6 +106,12 @@ export default defineConfig({
   },
   overrides: [
     {
+      files: ['packages/core/src/hash/md5.ts', 'packages/core/src/flate/**/*.ts'],
+      rules: {
+        'no-bitwise': 'off',
+      },
+    },
+    {
       files: ['scripts/**/*.ts', '**/*.config.ts'],
       rules: {
         'import/no-nodejs-modules': 'off',
