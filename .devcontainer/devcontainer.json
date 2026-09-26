@@ -1,0 +1,11 @@
+{
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1.1.2": {
+      "extensions": "github/gh-stack",
+      "installDirectlyFromGitHubRelease": true,
+      "version": "latest"
+    }
+  },
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:5.2.1-24-trixie",
+  "name": "pdfwright"
+}
