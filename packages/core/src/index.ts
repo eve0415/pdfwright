@@ -5,4 +5,6 @@ export { PdfwrightError } from './error/pdfwrightError.ts';
 export { UnsupportedFeatureError } from './error/unsupportedFeatureError.ts';
 export { ValidationError } from './error/validationError.ts';
 export type { PdfwrightErrorCode } from './error/pdfwrightError.ts';
+export { add, compare, equals, formatLength, inch, mm, multiply, negate, pt, subtract } from './length/length.ts';
+export type { Length } from './length/length.ts';
 export { DEFAULT_FRACTION_DIGITS, formatInteger, formatNumber } from './number/formatNumber.ts';
