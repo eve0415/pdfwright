@@ -17,6 +17,7 @@ const projects = (): TestProjectInlineConfiguration[] => {
   return [
     { test: project('node') },
     {
+      optimizeDeps: { include: ['fflate', 'pako'] },
       test: {
         ...project('browser'),
         browser: { enabled: true, headless: true, provider: playwright(), instances: [{ browser: 'chromium' }] },

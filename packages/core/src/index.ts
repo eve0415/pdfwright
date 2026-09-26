@@ -9,6 +9,9 @@ export { add, compare, equals, formatLength, inch, mm, multiply, negate, pt, sub
 export type { Length } from './length/length.ts';
 export { DEFAULT_FRACTION_DIGITS, formatInteger, formatNumber } from './number/formatNumber.ts';
 export { md5 } from './hash/md5.ts';
+export { adler32 } from './flate/adler32.ts';
+export { inflateRaw, inflateZlib } from './flate/inflate.ts';
+export type { FlateWarning } from './flate/inflate.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
