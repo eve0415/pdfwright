@@ -10,6 +10,8 @@ export type { Length } from './length/length.ts';
 export { DEFAULT_FRACTION_DIGITS, formatInteger, formatNumber } from './number/formatNumber.ts';
 export { md5 } from './hash/md5.ts';
 export { adler32 } from './flate/adler32.ts';
+export { deflateRaw, deflateZlib } from './flate/deflate.ts';
+export type { DeflateOptions } from './flate/deflate.ts';
 export { inflateRaw, inflateZlib } from './flate/inflate.ts';
 export type { FlateWarning } from './flate/inflate.ts';
 export {
