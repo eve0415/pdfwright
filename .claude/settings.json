@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "pdfwright": {
+      "source": {
+        "source": "directory",
+        "path": "./.claude/plugins"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "tsc-lsp@pdfwright": true
+  }
+}

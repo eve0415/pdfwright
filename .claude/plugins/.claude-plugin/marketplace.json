@@ -1,0 +1,31 @@
+{
+  "name": "pdfwright",
+  "description": "Claude Code plugins for working in the pdfwright repository.",
+  "owner": {
+    "name": "eve0415"
+  },
+  "plugins": [
+    {
+      "name": "tsc-lsp",
+      "description": "The workspace's TypeScript language server, started as tsc --lsp --stdio.",
+      "source": "./",
+      "strict": false,
+      "lspServers": {
+        "typescript": {
+          "command": "${CLAUDE_PROJECT_DIR}/node_modules/.bin/tsc",
+          "args": ["--lsp", "--stdio"],
+          "extensionToLanguage": {
+            ".ts": "typescript",
+            ".tsx": "typescriptreact",
+            ".mts": "typescript",
+            ".cts": "typescript",
+            ".js": "javascript",
+            ".jsx": "javascriptreact",
+            ".mjs": "javascript",
+            ".cjs": "javascript"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -134,3 +134,13 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# pnpm content-addressable store, created at the root of the volume that holds the repository
+.pnpm-store/
+
+# Vitest attachments, including browser-mode failure screenshots
+.vitest/

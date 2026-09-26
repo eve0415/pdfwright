@@ -7,5 +7,6 @@
     }
   },
   "image": "mcr.microsoft.com/devcontainers/typescript-node:5.2.1-24-trixie",
-  "name": "pdfwright"
+  "name": "pdfwright",
+  "postCreateCommand": "git submodule update --init --recursive && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps --only-shell chromium"
 }

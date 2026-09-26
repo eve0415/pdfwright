@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      # anti-slop is a submodule, and oxlint fails to start without it.
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+
+      - name: Lint
+        run: pnpm exec oxlint
+
+      - name: Check formatting
+        run: pnpm exec oxfmt --check
+
+      - name: Check that type-aware linting reaches every package
+        run: pnpm run check:type-aware-coverage
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+
+      # isolatedDeclarations errors (TS9xxx) surface here, when tsdown emits declarations, and not in the type-aware lint.
+      - name: Build
+        run: pnpm run build
+
+  test:
+    name: Test (${{ matrix.runtime }})
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: node
+            command: pnpm exec vitest run --project node --project workers
+          - runtime: browser
+            command: pnpm exec vitest run --project browser
+          - runtime: bun
+            command: pnpm run test:bun
+          - runtime: deno
+            command: pnpm run test:deno
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm and Node.js
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+
+      # ubuntu-24.04-arm ships neither Chromium nor the shared libraries it links against.
+      - name: Install Playwright's system dependencies
+        if: matrix.runtime == 'browser'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Install the Playwright browser
+        if: matrix.runtime == 'browser'
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Test
+        run: ${{ matrix.command }}
+
+  workflows:
+    name: Workflows
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: zizmor@1.30.1
+
+      # The token enables zizmor's online audits, which need no more than contents: read.
+      - name: Audit workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor .github/workflows/
+
+      # zizmor audits workflows for security, not validity: a `needs` edge to a missing job passes it, and GitHub then rejects the whole file.
+      - name: Check workflows
+        env:
+          VERSION: 1.7.12
+          SHA256: 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
+        run: |
+          set -euo pipefail
+          archive=actionlint_${VERSION}_linux_arm64.tar.gz
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+          echo "${SHA256}  ${archive}" | sha256sum --check --strict
+          tar xzf "${archive}" actionlint
+          ./actionlint
+
+  # The single required check: it fails when any job it needs failed or was cancelled.
+  ci:
+    name: CI
+    runs-on: ubuntu-24.04-arm
+    if: always()
+    needs:
+      - lint
+      - build
+      - test
+      - workflows
+    permissions: {}
+
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

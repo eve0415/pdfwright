@@ -1,0 +1,37 @@
+{
+  "name": "pdfwright-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "oxlint && oxfmt --check && pnpm run check:type-aware-coverage && pnpm test && pnpm run test:bun && pnpm run test:deno && pnpm run build",
+    "lint": "status=0; oxlint --fix --fix-suggestions --fix-dangerously || status=1; oxfmt || status=1; pnpm run check:type-aware-coverage || status=1; exit \"$status\"",
+    "test": "vitest run",
+    "test:bun": "bun --bun node_modules/vitest/vitest.mjs run --project bun",
+    "test:deno": "deno run -A node_modules/vitest/vitest.mjs run --project deno",
+    "build": "pnpm --recursive --filter=./packages/* run build",
+    "check:type-aware-coverage": "node scripts/assertTypeAwareCoverage.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "https://pkg.pr.new/@cloudflare/vitest-plugin@7b89dc48f3f4b0dfba5df352bcbdf8e2cbcff30e",
+    "@oxlint/plugins": "1.85.0",
+    "@types/node": "24.13.6",
+    "@vitest/browser": "5.0.2",
+    "@vitest/browser-playwright": "5.0.2",
+    "bun": "npm:bun@1.4.2",
+    "deno": "npm:deno@2.9.6",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "playwright": "1.63.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.21.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.6.0"
+}

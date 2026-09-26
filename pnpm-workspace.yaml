@@ -1,0 +1,19 @@
+packages:
+  - packages/*
+
+saveExact: true
+
+# The Vitest 5 build of @cloudflare/vitest-plugin is the pkg.pr.new preview of https://github.com/cloudflare/workers-sdk/pull/15500, which declares its miniflare and wrangler siblings as pkg.pr.new URLs that pnpm rejects as exotic subdependencies.
+# These pin both to registry releases instead, the pair that wrangler itself declares, so they are needed only while the plugin comes from that preview.
+overrides:
+  '@cloudflare/vitest-plugin>miniflare': 5.20260923.0-alpha
+  '@cloudflare/vitest-plugin>wrangler': 4.140.0
+
+allowBuilds:
+  bun: true
+  deno: false
+  esbuild: false
+  workerd: false
+
+catalog:
+  tsdown: 0.23.0

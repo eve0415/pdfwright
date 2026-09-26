@@ -1,0 +1,35 @@
+{
+  "name": "@pdfwright/illustrator",
+  "version": "0.0.0",
+  "description": "The Adobe Illustrator interoperability package of pdfwright, a TypeScript PDF library for print production.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eve0415/pdfwright.git",
+    "directory": "packages/illustrator"
+  },
+  "files": [
+    "dist",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:"
+  }
+}
