@@ -197,6 +197,9 @@ importers:
       deno:
         specifier: npm:deno@2.9.6
         version: 2.9.6
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       node:
         specifier: runtime:24.21.0
         version: runtime:24.21.0
@@ -209,6 +212,9 @@ importers:
       oxlint-tsgolint:
         specifier: 7.0.2003
         version: 7.0.2003
+      pako:
+        specifier: 3.0.2
+        version: 3.0.2
       playwright:
         specifier: 1.63.0
         version: 1.63.0
@@ -1792,6 +1798,9 @@ packages:
       vite-plus:
         optional: true
 
+  pako@3.0.2:
+    resolution: {integrity: sha512-uBv6IT2aT1A78iU6dpNEbf6+CyhlV/6g9JlJs9kpgjFGFhruIICVRysF/W0SLzXg5+hCl+KroH7e4YUyfEmgLg==}
+
   path-to-regexp@6.3.0:
     resolution: {integrity: sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ==}
 
@@ -3071,6 +3080,8 @@ snapshots:
       '@oxlint/binding-win32-ia32-msvc': 1.85.0
       '@oxlint/binding-win32-x64-msvc': 1.85.0
       oxlint-tsgolint: 7.0.2003
+
+  pako@3.0.2: {}
 
   path-to-regexp@6.3.0: {}
 

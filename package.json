@@ -19,9 +19,11 @@
     "@vitest/browser-playwright": "5.0.2",
     "bun": "npm:bun@1.4.2",
     "deno": "npm:deno@2.9.6",
+    "fflate": "0.8.3",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2003",
+    "pako": "3.0.2",
     "playwright": "1.63.0",
     "typescript": "7.0.2",
     "vitest": "5.0.2"
