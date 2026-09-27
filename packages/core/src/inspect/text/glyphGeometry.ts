@@ -1,7 +1,7 @@
 import type { Quad } from '../../content/clip.ts';
 import type { GraphicsState } from '../../content/interpreter.ts';
 import type { Matrix } from '../../content/matrix.ts';
-import type { FontGlyph, FontModel } from '../../font/fontModel.ts';
+import type { FontGlyph, FontModel, Rectangle } from '../../font/fontModel.ts';
 
 import { glyphDisplacement } from '../../content/interpreter.ts';
 import { multiply, transformPoint } from '../../content/matrix.ts';
@@ -24,12 +24,43 @@ export const textRenderingMatrix = (state: GraphicsState, textMatrix: Matrix): M
 // The linear part of a matrix applied to a vector.
 const transformVector = ([a, b, c, d]: Matrix, x: number, y: number): readonly [number, number] => [a * x + c * y, b * x + d * y];
 
-// A glyph-space vertical extent in text space: its two edges transformed by the font's glyph matrix and put in order there, since a FontMatrix may flip the y axis.
-const textExtent = (font: FontModel): readonly [number, number] => {
-  const { descent, ascent } = font.verticalExtent;
-  const low = transformPoint(font.glyphMatrix, 0, descent)[1] - transformPoint(font.glyphMatrix, 0, 0)[1];
-  const high = transformPoint(font.glyphMatrix, 0, ascent)[1] - transformPoint(font.glyphMatrix, 0, 0)[1];
-  return [Math.min(low, high), Math.max(low, high)];
+// The y range of glyph-space corners in text space: transformed by the font's glyph matrix and put in order there, since a FontMatrix may flip the y axis or rotate.
+const textRange = (font: FontModel, corners: readonly (readonly [number, number])[]): readonly [number, number] => {
+  const ys = corners.map(([x, y]) => transformPoint(font.glyphMatrix, x, y)[1]);
+  return [Math.min(...ys), Math.max(...ys)];
+};
+
+const hasArea = ([left, bottom, right, top]: Rectangle): boolean => right > left && top > bottom;
+
+/**
+ * The vertical extent of a horizontal glyph's box in text space, and whether it is the default guess.
+ * A Type 3 glyph takes its d1 bounding box (ISO 32000-1:2008, 9.6.5, Table 113), else the font's FontBBox (Table 112), both in glyph space; a d1 box without area, which Chromium writes for spaces, is not used. Other glyphs take the font's descent and ascent.
+ */
+interface TextExtent {
+  readonly range: readonly [number, number];
+  readonly estimated: boolean;
+}
+
+const textExtent = (font: FontModel, glyph: FontGlyph | undefined): TextExtent => {
+  const box = glyph?.type3Box !== undefined && hasArea(glyph.type3Box) ? glyph.type3Box : font.type3?.fontBBox;
+  if (box !== undefined) {
+    const [left, bottom, right, top] = box;
+    const corners = [
+      [left, bottom],
+      [right, bottom],
+      [right, top],
+      [left, top],
+    ] as const;
+    return { range: textRange(font, corners), estimated: false };
+  }
+  const { descent, ascent, estimated } = font.verticalExtent;
+  return {
+    range: textRange(font, [
+      [0, descent],
+      [0, ascent],
+    ]),
+    estimated,
+  };
 };
 
 const quadOf = (matrix: Matrix, corners: readonly (readonly [number, number])[]): Quad => {
@@ -41,12 +72,14 @@ const quadOf = (matrix: Matrix, corners: readonly (readonly [number, number])[])
 interface TextBox {
   readonly corners: readonly (readonly [number, number])[];
   readonly displacement: readonly [number, number] | undefined;
+  readonly estimated: boolean;
 }
 
 // Horizontal writing: the glyph's origin is text-space (0, 0) and its box spans the width w0 and the font's descent to ascent.
 const horizontalBox = (font: FontModel, glyph: FontGlyph | undefined, state: GraphicsState): TextBox => {
   const width = glyph?.width ?? 0;
-  const [descent, ascent] = textExtent(font);
+  const { range, estimated } = textExtent(font, glyph);
+  const [descent, ascent] = range;
   return {
     corners: [
       [0, descent],
@@ -55,6 +88,7 @@ const horizontalBox = (font: FontModel, glyph: FontGlyph | undefined, state: Gra
       [0, ascent],
     ],
     displacement: glyph === undefined ? undefined : glyphDisplacement(glyph, 0, state),
+    estimated,
   };
 };
 
@@ -71,6 +105,7 @@ const verticalBox = (glyph: FontGlyph | undefined, state: GraphicsState): TextBo
         [0, 0],
       ],
       displacement: undefined,
+      estimated: false,
     };
   }
   const left = -metrics.vx;
@@ -83,6 +118,7 @@ const verticalBox = (glyph: FontGlyph | undefined, state: GraphicsState): TextBo
       [left, 0],
     ],
     displacement: glyphDisplacement(glyph, 1, state),
+    estimated: false,
   };
 };
 
@@ -104,6 +140,6 @@ export const glyphGeometry = (
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
     fontSize: Math.hypot(trm[2], trm[3]),
-    extentEstimated: font.writingMode === 0 && font.verticalExtent.estimated,
+    extentEstimated: box.estimated,
   };
 };

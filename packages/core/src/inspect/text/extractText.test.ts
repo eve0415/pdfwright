@@ -106,6 +106,20 @@ const vertical = (cidFont: string): readonly TestObject[] => [
 ];
 const boxes = (shown: readonly PageGlyph[]): unknown[] => shown.map(glyph => [glyph.writingMode, round(glyph.origin), round(glyph.advance), round(glyph.quad)]);
 
+// A Type 3 font whose code 97 (a) is 1000 glyph units wide and drawn by one procedure.
+const type3Glyphs = (content: string, { matrix, bbox = '0 0 0 0', procedure }: { matrix: string; bbox?: string; procedure: string }): readonly PageGlyph[] =>
+  glyphs(
+    content,
+    [
+      {
+        number: 105,
+        body: `<</Type/Font/Subtype/Type3/FontBBox[${bbox}]/FontMatrix[${matrix}]/CharProcs<</a 106 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>`,
+      },
+      { number: 106, body: streamBody('', procedure) },
+    ],
+    '/Font<</T 105 0 R>>',
+  );
+
 const shownIn = (content: string, cidFont = ''): readonly PageGlyph[] => glyphs(content, vertical(cidFont), '/Font<</V 105 0 R>>');
 
 describe('text extraction', () => {
@@ -366,6 +380,61 @@ describe('text extraction', () => {
       expect(origins(shownIn('BT /V 20 Tf 80 200 Td [<0041> -500 <0041>] TJ ET'))).toStrictEqual([
         [80, 200],
         [80, 190],
+      ]);
+    });
+  });
+
+  describe('type 3 glyphs', () => {
+    it('boxes a glyph by its d1 bounding box through the font matrix', () => {
+      // 9.6.5, Table 113: d1's operands are "wx wy llx lly urx ury"; Table 112: glyph space maps to text space by FontMatrix.
+      const glyph = one(
+        type3Glyphs('BT /T 10 Tf 100 200 Td (a) Tj ET', { matrix: '0.001 0 0 0.001 0 0', procedure: '1000 0 0 -100 800 700 d1 0 0 800 700 re f' }),
+      );
+      expect([round(glyph.origin), round(glyph.advance), round(glyph.quad), glyph.extentEstimated]).toStrictEqual([
+        [100, 200],
+        [10, 0],
+        [100, 199, 110, 199, 110, 207, 100, 207],
+        false,
+      ]);
+    });
+
+    it('puts the box in order after a font matrix that flips the y axis, as Chromium writes it', () => {
+      // Chromium writes FontMatrix [.001 0 0 -.001 0 0], a FontBBox with its top below its bottom, and a y-flipped text matrix under a y-flipped CTM.
+      const content = '1 0 0 -1 0 800 cm BT /T 10 Tf 1 0 0 -1 50 100 Tm (a) Tj ET';
+      const glyph = one(
+        type3Glyphs(content, { matrix: '.001 0 0 -.001 0 0', bbox: '100 120 900 -880', procedure: '1000 0 100 -880 900 120 d1 100 -880 800 1000 re f' }),
+      );
+      expect([round(glyph.origin), round(glyph.advance), round(glyph.quad)]).toStrictEqual([
+        [50, 700],
+        [10, 0],
+        [50, 698.8, 60, 698.8, 60, 708.8, 50, 708.8],
+      ]);
+    });
+
+    it('takes the horizontal component of a width under a rotated font matrix', () => {
+      // Table 112, Widths: "If FontMatrix specifies a rotation, only the horizontal component of the transformed width shall be used."
+      const glyph = one(
+        type3Glyphs('BT /T 10 Tf 100 200 Td (a) Tj ET', {
+          matrix: '0.000866 0.0005 -0.0005 0.000866 0 0',
+          procedure: '1000 0 0 0 800 700 d1 0 0 800 700 re f',
+        }),
+      );
+      expect([round(glyph.advance), round(glyph.quad)]).toStrictEqual([
+        [8.66, 0],
+        [100, 200, 108.66, 200, 108.66, 210.062, 100, 210.062],
+      ]);
+    });
+
+    it('falls back to the FontBBox for a d0 procedure and for an empty d1 box', () => {
+      const d0 = one(
+        type3Glyphs('BT /T 10 Tf 100 200 Td (a) Tj ET', { matrix: '0.001 0 0 0.001 0 0', bbox: '0 -300 1000 900', procedure: '1000 0 d0 0 0 800 700 re f' }),
+      );
+      const space = one(
+        type3Glyphs('BT /T 10 Tf 100 200 Td (a) Tj ET', { matrix: '0.001 0 0 0.001 0 0', bbox: '0 -300 1000 900', procedure: '224 0 0 0 0 0 d1' }),
+      );
+      expect([round(d0.quad), round(space.quad)]).toStrictEqual([
+        [100, 197, 110, 197, 110, 209, 100, 209],
+        [100, 197, 110, 197, 110, 209, 100, 209],
       ]);
     });
   });
