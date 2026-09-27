@@ -43,6 +43,21 @@ export class ByteSource {
     return this.segments[index]?.[offset - (this.starts[index] ?? 0)];
   }
 
+  /** Last occurrence of a byte pattern, including one crossing segment boundaries. */
+  lastIndexOf(pattern: readonly number[]): number {
+    if (pattern.length === 0) return this.length;
+    let base = this.length;
+    for (let index = this.segments.length - 1; index >= 0; index--) {
+      const segment = this.segments[index] ?? new Uint8Array();
+      base -= segment.length;
+      for (let local = segment.lastIndexOf(pattern[0] ?? 0); local >= 0; local = local === 0 ? -1 : segment.lastIndexOf(pattern[0] ?? 0, local - 1)) {
+        const candidate = base + local;
+        if (pattern.every((byte, offset) => this.byteAt(candidate + offset) === byte)) return candidate;
+      }
+    }
+    return -1;
+  }
+
   /** The segment that holds `offset`, without copying. */
   window(offset: number): LexWindow {
     const index = this.segmentIndex(Math.min(Math.max(offset, 0), this.length - 1));

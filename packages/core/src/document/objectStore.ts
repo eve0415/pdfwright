@@ -50,6 +50,7 @@ const cost = (object: StoredObject, source: ByteSource): number => {
 
 // Decoded object streams kept at once; each is decoded again on demand after eviction.
 const DECODED_STREAMS = 4;
+const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
 
 /** The objects of a source file: resolved lazily from their byte spans and kept in a bounded cache. */
 export class ObjectStore {
@@ -61,6 +62,7 @@ export class ObjectStore {
   private readonly resolving = new Set<number>();
   private readonly duplicateKeys = new Set<number>();
   private readonly decoded = new Map<number, DecodedObjectStream>();
+  private lastEndstream: number | undefined;
 
   constructor(source: ByteSource, index: ObjectIndex, context: StoreContext) {
     this.source = source;
@@ -140,6 +142,11 @@ export class ObjectStore {
     if (warning.code === 'duplicate-key') this.duplicateKeys.add(objectNumber);
   }
 
+  private endstreamHint(): number {
+    this.lastEndstream ??= this.source.lastIndexOf(ENDSTREAM);
+    return this.lastEndstream;
+  }
+
   /** Whether a dictionary in the object, as parsed from the source, holds a key more than once (ISO 32000-1:2008, 7.3.7: "Multiple entries in the same dictionary shall not have the same key"). */
   hasDuplicateKeys(objectNumber: number): boolean {
     return this.duplicateKeys.has(objectNumber);
@@ -164,6 +171,7 @@ export class ObjectStore {
           ...lexContext,
           maxNesting: this.context.maxNesting,
           resolveLength: (number, generation) => this.resolveLength(number, generation),
+          lastEndstream: () => this.endstreamHint(),
         }),
       );
       if (parsed.objectNumber !== objectNumber || parsed.generation !== entry.generation) {

@@ -45,6 +45,17 @@ const lastSection = (sections: readonly number[]): number => sections.at(-1) ?? 
 
 const data = (value: PdfObject): string => (value.kind === 'stream' ? new TextDecoder().decode(value.data) : '');
 
+class SearchGuard extends Uint8Array {
+  override indexOf(searchElement: number, fromIndex?: number): number {
+    if (searchElement === 0x65) throw new Error('searched past the last endstream');
+    return super.indexOf(searchElement, fromIndex);
+  }
+}
+
+const ignore = (): void => {
+  // The stream error is the only result under test.
+};
+
 describe('object store', () => {
   it('resolves an indirect Length that follows the stream', () => {
     const { store, warnings } = storeOf([
@@ -59,6 +70,30 @@ describe('object store', () => {
       const { store, warnings } = storeOf([{ number: 1, body: `<</Length ${reference}>>\nstream\nabc\nendstream` }]);
       expect([data(store.resolve(1, 0)), warnings.map(warning => warning.code)]).toStrictEqual(['abc', ['stream-length-recovered']]);
     }
+  });
+
+  it('rejects a stream after the last endstream without searching the remaining file', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: streamBody('', 'valid') },
+          { number: 2, body: '<</Length 999>>\nstream\ninvalid' },
+        ],
+      },
+    ]);
+    const entries = [...pdf.offsets].map(([objectNumber, location]) => ({ objectNumber, type: 'file' as const, location, generation: 0 }));
+    const context = {
+      warn: ignore,
+      names: new Map(),
+      maxNesting: 256,
+      maxDecodedBytes: 1_048_576,
+      maxObjectStreamMembers: 1000,
+      generationMismatch: 'error' as const,
+      parsedObjectCacheBytes: 1_048_576,
+    };
+    const store = new ObjectStore(new ByteSource(new SearchGuard(pdf.bytes)), ObjectIndex.fromEntries(entries), context);
+    expect(() => store.parse(2)).toThrow(ParseError);
   });
 
   it('resolves free and absent objects to null and caches parsed objects', () => {

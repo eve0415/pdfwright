@@ -32,7 +32,7 @@ export interface IndirectObjectContext extends LexContext {
   /** Resolves an indirect stream Length (ISO 32000-1:2008, 7.3.10, EXAMPLE 3); undefined when it cannot be resolved. */
   readonly resolveLength?: (objectNumber: number, generation: number) => number | undefined;
   /** Offset of the last endstream keyword in the source, when known, so that a stream starting after it fails at once. */
-  readonly lastEndstream?: number;
+  readonly lastEndstream?: number | (() => number);
 }
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
@@ -114,7 +114,8 @@ const followedByEndobj = (lexer: Lexer, endstream: number): boolean => {
 // Readers recover a stream whose Length is missing or wrong by searching for endstream. Data can contain the bytes "endstream", so of the first two occurrences the one followed by endobj is preferred, else the first; looking no further keeps the search linear when endobj keywords are missing.
 const searchEndstream = (lexer: Lexer, dataStart: number, context: IndirectObjectContext): number => {
   const { bytes } = lexer;
-  if (context.lastEndstream !== undefined && lexer.base + dataStart > context.lastEndstream) {
+  const lastEndstream = typeof context.lastEndstream === 'function' ? context.lastEndstream() : context.lastEndstream;
+  if (lastEndstream !== undefined && lexer.base + dataStart > lastEndstream) {
     throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
   }
   const found: number[] = [];

@@ -65,4 +65,9 @@ describe('segmented byte source', () => {
     const end = source.copy(70, 1000);
     expect([end.bytes.length, end.final]).toStrictEqual([text.length - 70, true]);
   });
+
+  it('finds the last pattern across segment boundaries', () => {
+    const source = new ByteSource(chunked(encode('endstream abc endstream'), 3));
+    expect(source.lastIndexOf([...encode('endstream')])).toBe(14);
+  });
 });
