@@ -10,6 +10,7 @@ import { align } from './alignment.ts';
 import { TEXT_FOLDS, foldText } from './folds.ts';
 import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
+import { hasVerticalAlternate } from './verticalAlternates.ts';
 
 export interface MatchTextOptions {
   /** Which glyphs count; by default those that are visible or only empty, not covered, whose core box is not entirely hidden, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox. */
@@ -60,8 +61,17 @@ export type TextDifference =
     }
   /** An intended variation selector that only an ActualText span, not the glyph's own text, carries. */
   | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
-  /** A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn. */
-  | { readonly kind: 'glyph-disagrees'; readonly text: string; readonly expectedGid: number; readonly drawnGid: number; readonly glyphs: readonly number[] }
+  /**
+   * A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn, `expectedGid`.
+   * `expectedGid` is undefined when the cmap does not list the glyph's folded text but maps its own text, before folds, to the glyph drawn: the font tells the two characters apart.
+   */
+  | {
+      readonly kind: 'glyph-disagrees';
+      readonly text: string;
+      readonly expectedGid: number | undefined;
+      readonly drawnGid: number;
+      readonly glyphs: readonly number[];
+    }
   /**
    * Glyphs of a Type 0 font with a CIDFontType2 descendant whose embedded TrueType program has no usable Unicode cmap, so that the program gives no evidence that the glyph drawn is the one the text names.
    * Chromium's hwid substitution changes the glyph without an ActualText span, and a subset whose only glyphs are such alternates keeps a cmap table without subtables.
@@ -202,6 +212,8 @@ interface Settings {
   readonly cmaps: ReadonlyMap<string, EmbeddedCmap>;
   /** The keys of fonts whose embedded program has no usable cmap. */
   readonly uncheckable: ReadonlySet<string>;
+  /** The compared glyphs set upright in a vertical column. */
+  readonly upright: ReadonlySet<number>;
 }
 
 class FoundText {
@@ -256,6 +268,10 @@ class FoundText {
     return equivalent;
   }
 
+  /**
+   * Checks a glyph's folded text against the embedded cmap of its font. A character with vertical alternates (Vertical_Orientation Tu or Tr) may be drawn with a glyph other than the one the cmap gives when it is set upright in a vertical column, as Chromium stacks such text.
+   * When the cmap lists the glyph's own character for the glyph drawn but not the folded one, the font tells them apart, since Chromium's subset cmap lists every character of a retained glyph, so the glyph is not the folded character; a character with vertical alternates is exempt, as those glyphs are drawn without cmap entries.
+   */
   private check(glyph: PageGlyph, text: string): void {
     if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
       const glyphs = this.unchecked.get(glyph.font);
@@ -266,12 +282,22 @@ class FoundText {
     const cmap = this.settings.cmaps.get(glyph.font);
     if (cmap === undefined || glyph.gid === undefined) return;
     const evidence = cmapEvidence(cmap, glyph.gid, text);
-    if (evidence.kind === 'confirmed') {
-      this.confirmed.add(glyph.index);
-      return;
-    }
-    if (evidence.kind === 'disagrees') {
-      this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: evidence.expected, drawnGid: glyph.gid, glyphs: [glyph.index] });
+    const [character, ...rest] = Array.from(text, value => value.codePointAt(0) ?? 0);
+    const single = character !== undefined && rest.length === 0 ? character : undefined;
+    const alternate = single !== undefined && hasVerticalAlternate(single);
+    if (evidence.kind === 'confirmed') this.confirmed.add(glyph.index);
+    else if (evidence.kind === 'disagrees') {
+      if (!(alternate && this.settings.upright.has(glyph.index))) {
+        this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: evidence.expected, drawnGid: glyph.gid, glyphs: [glyph.index] });
+      }
+    } else if (
+      single !== undefined &&
+      !alternate &&
+      glyph.text !== null &&
+      glyph.text !== text &&
+      cmapEvidence(cmap, glyph.gid, glyph.text).kind === 'confirmed'
+    ) {
+      this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: undefined, drawnGid: glyph.gid, glyphs: [glyph.index] });
     }
   }
 
@@ -577,7 +603,40 @@ const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   selectors: choice('variationSelectors', options.variationSelectors, ['require-glyph-evidence', 'ignore']),
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
   uncheckable: new Set(page.fonts.filter(font => font.cmapMissing).map(font => font.key)),
+  upright: new Set(),
 });
+
+// A glyph read after another lies in the same column when its origin is between half an em and two ems further down the first glyph's vertical axis and less than half an em across it.
+const COLUMN_STEP: readonly [number, number] = [0.5, 2];
+const COLUMN_OFFSET = 0.5;
+
+const direction = (x: number, y: number): readonly [number, number] | undefined => {
+  const length = Math.hypot(x, y);
+  return length === 0 ? undefined : [x / length, y / length];
+};
+
+/** The glyphs that, with the glyph read before or after them, are stacked down a column upright, as Chromium sets upright text in vertical writing one Td per glyph. */
+const uprightInColumns = (glyphs: readonly PageGlyph[]): Set<number> => {
+  const upright = new Set<number>();
+  for (const [position, first] of glyphs.entries()) {
+    const next = glyphs[position + 1];
+    if (next === undefined || !first.positionKnown || !next.positionKnown) continue;
+    const { quad } = first;
+    const [x0, y0, x1, y1] = quad;
+    const [x3, y3] = [quad[6], quad[7]];
+    const [up, along] = [direction(x3 - x0, y3 - y0), direction(x1 - x0, y1 - y0)];
+    if (up === undefined || along === undefined) continue;
+    const [dx, dy] = [next.origin[0] - first.origin[0], next.origin[1] - first.origin[1]];
+    const down = -(dx * up[0] + dy * up[1]);
+    const across = dx * along[0] + dy * along[1];
+    const size = first.fontSize;
+    if (down >= COLUMN_STEP[0] * size && down <= COLUMN_STEP[1] * size && Math.abs(across) < COLUMN_OFFSET * size) {
+      upright.add(first.index);
+      upright.add(next.index);
+    }
+  }
+  return upright;
+};
 
 const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): void => {
   for (const unit of units) {
@@ -613,7 +672,7 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
   const ordered = orderGlyphs(page.glyphs.filter(options.select ?? defaultSelection(page)), options.order ?? 'content');
   const runs = duplicates === 'collapse' ? duplicateRuns(ordered) : undefined;
   const selected = runs?.at(-1) ?? ordered;
-  const found = new FoundText(settings);
+  const found = new FoundText({ ...settings, upright: uprightInColumns(selected) });
   readUnits(found, page, unitsOf(page, selected, settings.actualText));
   const keep = (character: string): boolean =>
     !(settings.whitespace === 'ignore' && WHITE_SPACE.test(character)) && !(settings.selectors === 'ignore' && isSelector(character.codePointAt(0) ?? 0));

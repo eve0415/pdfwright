@@ -509,9 +509,40 @@ describe('text matching', () => {
     });
 
     it('says nothing about a glyph whose text the cmap does not list', () => {
-      // Chromium's subsets keep only reverse-mapped characters in cmap, so a vertical alternate's text is absent from it.
+      // Chromium's subsets keep only reverse-mapped characters in cmap, so a vertical alternate's text is absent from it; 、 is Tu in Unicode's VerticalOrientation.txt.
       const result = match({ texts: ['Ａ', null, null, null, null, '︑'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(6)} ET` }, '、');
       expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
+    });
+
+    it('reports a glyph whose own character the cmap maps to it but whose folded character it does not list', () => {
+      // Chromium's subset cmap lists every code point of a retained glyph, so a font that maps U+2F2D but not U+5C71 to the glyph draws the radical, not 山.
+      const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f2d, 1]] });
+      expect(summaryOf({ texts: ['⼭'], program: radical, content: line(1) }, '山')).toStrictEqual([
+        'unverified',
+        '山',
+        [{ kind: 'glyph-disagrees', text: '山', expectedGid: undefined, drawnGid: 1, glyphs: [0] }],
+      ]);
+    });
+
+    it('accepts a vertical alternate the cmap maps away from only when the geometry sets it upright in a column', () => {
+      // Glyph 3 is the horizontal 、 the cmap lists and glyph 4 its vertical alternate, whose ToUnicode is 、 too; Chromium stacks upright glyphs down a column one Td at a time.
+      const both = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, box, box, box, box],
+        characters: [
+          [0x5c71, 1],
+          [0x7530, 2],
+          [0x3001, 3],
+        ],
+      });
+      const texts = ['山', '田', '、', '、'];
+      const column = `BT /T 10 Tf 100 700 Td ${show(1)} 0 -10 Td ${show(4)} 0 -10 Td ${show(2)} ET`;
+      const disagrees = { kind: 'glyph-disagrees', text: '、', expectedGid: 3, drawnGid: 4, glyphs: [1] };
+      expect([
+        statusOf({ texts, program: both, content: column }, '山、田'),
+        summaryOf({ texts, program: both, content: `BT /T 10 Tf 100 700 Td ${show(1, 4, 2)} ET` }, '山、田')[2],
+        summaryOf({ texts, program: both, content: `BT /T 10 Tf 100 700 Td ${show(4)} ET` }, '、')[2],
+      ]).toStrictEqual(['match', [disagrees], [{ ...disagrees, glyphs: [0] }]]);
     });
 
     it('accepts a substituted character the embedded cmap maps to exactly the glyph drawn, and no other', () => {
