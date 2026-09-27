@@ -7,7 +7,7 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 
 import { decodeStream } from './decodeStream.ts';
 
@@ -18,6 +18,13 @@ const stream = (data: Uint8Array, entries: [string, PdfDirectObject][]): PdfStre
   dictionary: new PdfDictionaryEntries(entries.map(([key, value]) => [pdfName(key).bytes, value])),
   data,
 });
+
+const ignore = (): void => {
+  // Warnings are not under test here.
+};
+
+// Resolves every reference to the name ASCIIHexDecode.
+const deref = (value: PdfDirectObject | undefined): PdfObject | undefined => (value?.kind === 'reference' ? pdfName('ASCIIHexDecode') : value);
 
 interface Decoded {
   data: Uint8Array;
@@ -84,5 +91,19 @@ describe('stream decoding', () => {
     expect(() => decode(jbig2)).toThrow(UnsupportedFeatureError);
     expect(() => decode(numeric)).toThrow(ParseError);
     expect(() => decode(large, 100)).toThrow(ResourceLimitError);
+  });
+
+  it('applies filters in order, accepts abbreviations and follows indirect filters when given a resolver', () => {
+    const hex = new TextEncoder().encode([...deflateZlib(text)].map(byte => byte.toString(16).padStart(2, '0')).join(''));
+    const chained = stream(hex, [['Filter', pdfArray([pdfName('AHx'), pdfName('FlateDecode')])]]);
+    expect(decode(chained).data).toStrictEqual(text);
+    const indirect = stream(hex, [['Filter', pdfReference(9, 0)]]);
+    expect(decodeStream(indirect, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(deflateZlib(text));
+    expect(() => decode(indirect)).toThrow(ParseError);
+  });
+
+  it('refuses Crypt-filtered data', () => {
+    const crypt = stream(text, [['Filter', pdfName('Crypt')]]);
+    expect(() => decode(crypt)).toThrow(UnsupportedFeatureError);
   });
 });

@@ -9,19 +9,34 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+import { decodeAscii85 } from './ascii85.ts';
+import { decodeAsciiHex } from './asciiHex.ts';
+import { decodeLzw } from './lzw.ts';
 import { undoPredictor } from './predictor.ts';
+import { decodeRunLength } from './runLength.ts';
 
 export interface DecodeContext {
   /** Largest decoded size accepted, in bytes; larger output throws ResourceLimitError. */
   readonly maxDecodedBytes: number;
   readonly warn: (warning: LoadWarning) => void;
+  /** Follows indirect references in Filter and DecodeParms; without it they must be direct. */
+  readonly deref?: (value: PdfDirectObject | undefined) => PdfObject | undefined;
 }
 
 type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
 
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
-const FLATE = 'FlateDecode';
+// ISO 32000-1:2008, Table 94 gives the abbreviations for inline images; readers accept them in stream dictionaries too.
+const NAMES: ReadonlyMap<string, string> = new Map([
+  ['AHx', 'ASCIIHexDecode'],
+  ['A85', 'ASCII85Decode'],
+  ['LZW', 'LZWDecode'],
+  ['Fl', 'FlateDecode'],
+  ['RL', 'RunLengthDecode'],
+  ['CCF', 'CCITTFaxDecode'],
+  ['DCT', 'DCTDecode'],
+]);
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
@@ -29,9 +44,11 @@ const latin1 = (bytes: Uint8Array): string => {
   return text;
 };
 
-const asList = (value: PdfDirectObject | undefined): (PdfDirectObject | undefined)[] => {
-  if (value === undefined) return [];
-  return value.kind === 'array' ? value.items : [value];
+const asList = (value: PdfDirectObject | undefined, context: DecodeContext): (PdfObject | undefined)[] => {
+  const deref = context.deref ?? ((item: PdfDirectObject | undefined): PdfObject | undefined => item);
+  const resolved = deref(value);
+  if (resolved === undefined || resolved.kind === 'null') return [];
+  return resolved.kind === 'array' ? resolved.items.map(item => deref(item)) : [resolved];
 };
 
 const integerParameter = (parameters: PdfDictionaryEntries | undefined, key: string, fallback: number): number => {
@@ -67,17 +84,53 @@ const inflate = (data: Uint8Array, context: DecodeContext): Uint8Array => {
  * Decodes a stream's data through the filters its dictionary names (ISO 32000-1:2008, 7.4.1: "The filters shall be applied in the order given").
  * Filters that are not implemented throw UnsupportedFeatureError; decoded output above maxDecodedBytes throws ResourceLimitError.
  */
+interface FilterStep {
+  readonly name: string;
+  readonly parameters: PdfDictionaryEntries | undefined;
+}
+
+const applyFilter = ({ name, parameters }: FilterStep, data: Uint8Array, context: DecodeContext): Uint8Array => {
+  const limit = context.maxDecodedBytes;
+  switch (name) {
+    case 'FlateDecode': {
+      return undoPredictor(inflate(data, context), predictorParameters(parameters));
+    }
+    case 'LZWDecode': {
+      const decoded = decodeLzw(data, { earlyChange: integerParameter(parameters, 'EarlyChange', 1), maxOutputBytes: limit });
+      return undoPredictor(decoded, predictorParameters(parameters));
+    }
+    case 'ASCIIHexDecode': {
+      return decodeAsciiHex(data, limit);
+    }
+    case 'ASCII85Decode': {
+      return decodeAscii85(data, limit);
+    }
+    case 'RunLengthDecode': {
+      return decodeRunLength(data, limit);
+    }
+    case 'Crypt': {
+      // ISO 32000-1:2008, 7.4.10: Crypt filters need the document's security handler; pdfwright does not decrypt.
+      throw new UnsupportedFeatureError('the Crypt filter needs decryption, which pdfwright does not perform');
+    }
+    default: {
+      throw new UnsupportedFeatureError(`the ${name} filter is not supported for decoding`);
+    }
+  }
+};
+
+/**
+ * Decodes a stream's data through the filters its dictionary names (ISO 32000-1:2008, 7.4.1: "The filters shall be applied in the order given").
+ * Filters that are not implemented throw UnsupportedFeatureError; decoded output above maxDecodedBytes throws ResourceLimitError.
+ */
 export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Array => {
-  const filters = asList(stream.dictionary.get(FILTER));
-  const parameters = asList(stream.dictionary.get(DECODE_PARMS));
+  const filters = asList(stream.dictionary.get(FILTER), context);
+  const parameters = asList(stream.dictionary.get(DECODE_PARMS), context);
   let { data } = stream;
   for (const [index, filter] of filters.entries()) {
     if (filter?.kind !== 'name') throw new ParseError('a stream filter is not a name', 0);
     const name = latin1(filter.bytes);
     const parameter = parameters[index];
-    const entries = parameter?.kind === 'dictionary' ? parameter.entries : undefined;
-    if (name !== FLATE) throw new UnsupportedFeatureError(`the ${name} filter is not supported for decoding`);
-    data = undoPredictor(inflate(data, context), predictorParameters(entries));
+    data = applyFilter({ name: NAMES.get(name) ?? name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);
     if (data.length > context.maxDecodedBytes) {
       throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
     }
