@@ -59,10 +59,71 @@ const canonical = (value: PdfDirectObject): string => {
 
 const operatorText = (lexer: Lexer, token: Token): string => new TextDecoder('latin1').decode(lexer.bytes.subarray(token.start, token.end));
 
-// ISO 32000-1:2008, 8.9.7: "Unless the image uses ASCIIHexDecode or ASCII85Decode as one of its filters, the ID operator shall be followed by a single white-space character, and the next character shall be interpreted as the first byte of image data." The data, up to the white space before EI, is compared as raw bytes.
-const inlineImageData = (lexer: Lexer): string => {
+const inlineParameter = (values: readonly PdfDirectObject[], names: readonly string[]): PdfDirectObject | undefined => {
+  for (let index = 0; index + 1 < values.length; index += 2) {
+    const key = values[index];
+    if (key?.kind === 'name' && names.includes(new TextDecoder('latin1').decode(key.bytes))) return values[index + 1];
+  }
+  return undefined;
+};
+
+const COMPONENTS = new Map([
+  ['G', 1],
+  ['DeviceGray', 1],
+  ['RGB', 3],
+  ['DeviceRGB', 3],
+  ['CMYK', 4],
+  ['DeviceCMYK', 4],
+  ['I', 1],
+  ['Indexed', 1],
+]);
+
+const imageComponents = (mask: PdfDirectObject | undefined, space: PdfDirectObject | undefined): number | undefined => {
+  if (mask?.kind === 'boolean' && mask.value) return 1;
+  return space?.kind === 'name' ? COMPONENTS.get(new TextDecoder('latin1').decode(space.bytes)) : undefined;
+};
+
+const imageBits = (mask: PdfDirectObject | undefined, bits: PdfDirectObject | undefined): number | undefined => {
+  if (bits?.kind === 'integer') return bits.value;
+  return mask?.kind === 'boolean' && mask.value ? 1 : undefined;
+};
+
+// ISO 32000-1:2008, 8.9.3 pads each sample row to a byte boundary; 8.9.7, Table 93 gives inline image width, height, bits, colour space and filter keys.
+const unfilteredImageLength = (parameters: readonly PdfDirectObject[]): number | undefined => {
+  if (parameters.length % 2 !== 0 || inlineParameter(parameters, ['F', 'Filter']) !== undefined) return undefined;
+  const width = inlineParameter(parameters, ['W', 'Width']);
+  const height = inlineParameter(parameters, ['H', 'Height']);
+  const mask = inlineParameter(parameters, ['IM', 'ImageMask']);
+  const bits = inlineParameter(parameters, ['BPC', 'BitsPerComponent']);
+  const space = inlineParameter(parameters, ['CS', 'ColorSpace']);
+  const components = imageComponents(mask, space);
+  const perComponent = imageBits(mask, bits);
+  if (width?.kind !== 'integer' || height?.kind !== 'integer' || components === undefined || perComponent === undefined) return undefined;
+  if (width.value <= 0 || height.value <= 0 || ![1, 2, 4, 8, 16].includes(perComponent)) return undefined;
+  const rowBits = width.value * components * perComponent;
+  const length = Math.ceil(rowBits / 8) * height.value;
+  return Number.isSafeInteger(rowBits) && Number.isSafeInteger(length) ? length : undefined;
+};
+
+const exactInlineEnd = (bytes: Uint8Array, start: number, length: number): number | undefined => {
+  if (start + length >= bytes.length) return undefined;
+  let end = start + length;
+  while (end < bytes.length && isWhitespace(bytes[end] ?? 0)) end++;
+  return end > start + length && bytes[end] === 0x45 && bytes[end + 1] === 0x49 && (end + 2 >= bytes.length || isWhitespace(bytes[end + 2] ?? 0))
+    ? end + 2
+    : undefined;
+};
+
+// ISO 32000-1:2008, 8.9.7: "Unless the image uses ASCIIHexDecode or ASCII85Decode as one of its filters, the ID operator shall be followed by a single white-space character, and the next character shall be interpreted as the first byte of image data."
+const inlineImageData = (lexer: Lexer, parameters: readonly PdfDirectObject[]): string => {
   const { bytes } = lexer;
   const start = lexer.position + (isWhitespace(bytes[lexer.position] ?? 0) ? 1 : 0);
+  const length = unfilteredImageLength(parameters);
+  const exact = length === undefined ? undefined : exactInlineEnd(bytes, start, length);
+  if (exact !== undefined && length !== undefined) {
+    lexer.seek(exact);
+    return hex(bytes.subarray(start, start + length));
+  }
   for (let position = start; position + 1 < bytes.length; position++) {
     if (
       bytes[position] === 0x45 &&
@@ -87,17 +148,23 @@ export const contentOperations = (bytes: Uint8Array, maxNesting: number): string
   const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
   const operations: string[] = [];
   let operands: string[] = [];
+  let imageParameters: PdfDirectObject[] = [];
   for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
     if (token.kind === 'keyword' && token.keyword !== 'true' && token.keyword !== 'false' && token.keyword !== 'null') {
       lexer.next();
       const operator = operatorText(lexer, token);
-      if (operator === 'ID') operands.push(`ID${inlineImageData(lexer)}`);
+      if (operator === 'ID') operands.push(`ID${inlineImageData(lexer, imageParameters)}`);
       operations.push(`${operands.join(' ')} ${operator}`);
       operands = [];
+      imageParameters = [];
     } else if (token.kind === 'invalid' || token.kind === 'arrayClose' || token.kind === 'dictionaryClose') {
       lexer.next();
       operands.push(`?${hex(bytes.subarray(token.start, token.end))}`);
-    } else operands.push(canonical(parseObject(lexer, maxNesting)));
+    } else {
+      const value = parseObject(lexer, maxNesting);
+      operands.push(canonical(value));
+      imageParameters.push(value);
+    }
   }
   if (operands.length > 0) operations.push(operands.join(' '));
   return operations;

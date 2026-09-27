@@ -131,6 +131,12 @@ describe('page content comparison', () => {
     expect([same.length, same[0] === first, other[1] === same[1], other[2] === same[2]]).toStrictEqual([3, true, false, true]);
   });
 
+  it('keeps an EI sequence inside unfiltered inline image samples', () => {
+    const operations = contentOperations(latin1Bytes('BI /W 6 /H 1 /BPC 8 /CS /G ID\nA EI B EI Q'), 32);
+    expect(operations).toHaveLength(3);
+    expect(operations[1]).toContain('412045492042');
+  });
+
   it('keeps the first byte of ASCII base-85 inline image data that follows ID directly', () => {
     const [, direct] = contentOperations(latin1Bytes('BI /F /A85 ID<~9j~> EI'), 32);
     const [, spaced] = contentOperations(latin1Bytes('BI /F /A85 ID\n<~9j~> EI'), 32);
