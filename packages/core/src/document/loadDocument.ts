@@ -2,7 +2,6 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { LoadWarning } from '../parse/loadWarning.ts';
 import type { LoadedPage } from './loadedPage.ts';
-import type { ObjectStore } from './objectStore.ts';
 import type { PageEntry } from './pageTree.ts';
 import type { DocumentStructure, LoadSession, ReadStructure } from './readStructure.ts';
 
@@ -11,8 +10,8 @@ import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { locateHeader } from '../xref/locate.ts';
-import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
 
+import { EditedObjects } from './editedObjects.ts';
 import { createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
 import { enumeratePages } from './pageTree.ts';
@@ -41,13 +40,20 @@ export interface LoadedDocument {
   readonly pageCount: number;
   /** The page at a 0-based index; InvalidArgumentError when out of range. */
   page: (index: number) => LoadedPage;
-  /** A fresh parse of the object on every call; null for free and absent objects. */
+  /** A fresh copy of the object on every call, changes included; null for free and absent objects. */
   get: (reference: PdfReference) => PdfObject;
+  /** Replaces an object in use, keeping its number and generation. */
+  set: (reference: PdfReference, value: PdfObject) => void;
+  /** Deletes an object in use; saving marks its entry free. */
+  delete: (reference: PdfReference) => void;
+  /** Adds a new object, numbered above every number the file uses. */
+  object: (value: PdfObject) => PdfReference;
   /** A fresh copy of the document catalog. */
   catalog: () => PdfDictionaryEntries;
 }
 
 const ROOT = pdfName('Root').bytes;
+const SIZE = pdfName('Size').bytes;
 const PAGES = pdfName('Pages').bytes;
 
 const count = (value: number | undefined, fallback: number, name: string): number => {
@@ -74,12 +80,12 @@ interface LoadedParts {
 class LoadedPdf implements LoadedDocument {
   readonly structure: DocumentStructure;
   readonly warnings: readonly LoadWarning[];
-  private readonly store: ObjectStore;
+  private readonly objects: EditedObjects;
   private readonly pages: readonly PageEntry[];
 
   constructor(parts: LoadedParts) {
     this.structure = parts.read.structure;
-    this.store = parts.read.store;
+    this.objects = new EditedObjects(parts.read.store, parts.read.structure.trailer.get(SIZE));
     this.warnings = parts.warnings;
     this.pages = parts.pages;
   }
@@ -93,15 +99,23 @@ class LoadedPdf implements LoadedDocument {
     if (!Number.isSafeInteger(index) || entry === undefined) {
       throw new InvalidArgumentError(`page index ${String(index)} is outside 0 to ${String(this.pages.length - 1)}`);
     }
-    return createLoadedPage(this.store, entry, index);
+    return createLoadedPage(this.objects, entry, index);
   }
 
   get(reference: PdfReference): PdfObject {
-    // Resolving first applies the generation rules; the value returned is a fresh parse the caller may change freely.
-    const resolved = this.store.resolve(reference.objectNumber, reference.generation);
-    const entry = this.store.index.get(reference.objectNumber);
-    if (resolved.kind === 'null' || (entry.type !== IN_FILE && entry.type !== COMPRESSED)) return { kind: 'null' };
-    return this.store.parse(reference.objectNumber)?.value ?? { kind: 'null' };
+    return this.objects.get(reference);
+  }
+
+  set(reference: PdfReference, value: PdfObject): void {
+    this.objects.set(reference, value);
+  }
+
+  delete(reference: PdfReference): void {
+    this.objects.delete(reference);
+  }
+
+  object(value: PdfObject): PdfReference {
+    return this.objects.add(value);
   }
 
   catalog(): PdfDictionaryEntries {
