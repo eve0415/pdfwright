@@ -93,6 +93,15 @@ describe('splicing managed properties into an existing packet', () => {
     expect(new TextDecoder().decode(result?.bytes)).toBe(`<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="${RDF}" >${description}\n</r:RDF></x:xmpmeta>`);
   });
 
+  it('checks the result in time linear in the number of properties', () => {
+    const repeated = '<pdf:X>1</pdf:X>'.repeat(80_000);
+    const source = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${repeated}</rdf:Description></rdf:RDF>`;
+    const started = performance.now();
+    const result = splice(source);
+    const elapsed = performance.now() - started;
+    expect([result?.transcoded, elapsed < 1000]).toStrictEqual([false, true]);
+  });
+
   it('re-encodes a packet in another encoding as UTF-8', () => {
     const source = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about=""/></rdf:RDF>`;
     const utf16 = Uint8Array.from([0xff, 0xfe, ...[...encode(source)].flatMap(byte => [byte, 0])]);

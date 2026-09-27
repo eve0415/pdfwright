@@ -68,10 +68,13 @@ const withSpaceBefore = (text: string, start: number): number => {
 const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | undefined>): boolean => {
   const read = readXmp(bytes);
   if (!read.ok) return false;
+  // Each occurrence is appended in place, so that a packet repeating one name many times is still checked in linear time.
   const found = new Map<string, XmpValue[]>();
   for (const property of read.packet.properties) {
     const name = key(property.namespace, property.localName);
-    found.set(name, [...(found.get(name) ?? []), property.value]);
+    const occurrences = found.get(name);
+    if (occurrences === undefined) found.set(name, [property.value]);
+    else occurrences.push(property.value);
   }
   if ([...LEGACY.keys()].some(name => found.has(name))) return false;
   return [...expected].every(([name, value]) => {
