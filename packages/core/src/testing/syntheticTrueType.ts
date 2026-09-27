@@ -1,5 +1,5 @@
 // Writes minimal TrueType programs whose glyphs are rectangles of known metrics, so that tests can embed fonts without third-party font data.
-// The tables and their fields follow the OpenType specification's chapters on each table; checksums and the head checkSumAdjustment follow its "Calculating checksums" section.
+// The tables and their fields follow the OpenType specification's chapters on each table, and the checksums and the head checkSumAdjustment follow its description of table checksums.
 
 /** One glyph: its advance width, its rectangle in font units (none for an empty glyph), and its vertical advance and top side bearing. */
 export interface SyntheticGlyph {
