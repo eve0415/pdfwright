@@ -136,6 +136,11 @@ describe('annotated parser', () => {
     expect(text(node.value)).toBe('<</A#20B 1 0 R/C[0.242187 792]/D<</E(x)>>>>');
   });
 
+  it('ends a number span at the number, not at the white space after it', () => {
+    const source = '[1 2 ]';
+    expect(spans(annotated(source), source)).toStrictEqual(['[1 2 ]', '1', '2']);
+  });
+
   it('keeps every occurrence of a duplicate key while the value uses the last', () => {
     const source = '<</K 1/K 2>>';
     const node = annotated(source);

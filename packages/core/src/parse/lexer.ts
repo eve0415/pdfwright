@@ -133,8 +133,13 @@ export class Lexer {
     this.peeked = undefined;
   }
 
+  /** The next token, without consuming it; `position` stays where it is. */
   peek(): Token {
-    this.peeked ??= this.read();
+    if (this.peeked === undefined) {
+      const { position } = this;
+      this.peeked = this.read();
+      this.position = position;
+    }
     return this.peeked;
   }
 

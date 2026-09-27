@@ -160,6 +160,9 @@ describe('pdf lexer', () => {
 
   it('peeks without consuming and seeks to an offset', () => {
     const source = lexer('1 0 R');
+    source.next();
+    const peeked = source.peek();
+    expect([source.position, peeked]).toStrictEqual([1, { kind: 'integer', value: 0, start: 2, end: 3 }]);
     expect(source.peek()).toBe(source.next());
     source.seek(4);
     expect(source.next()).toStrictEqual({ kind: 'keyword', keyword: 'R', start: 4, end: 5 });
