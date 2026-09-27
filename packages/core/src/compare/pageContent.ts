@@ -7,7 +7,6 @@ import { ParseError } from '../error/parseError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
-import { IN_FILE } from '../xref/objectIndex.ts';
 
 import { operationHashes } from './contentTokens.ts';
 
@@ -28,21 +27,6 @@ const contentReferences = (document: DocumentInternals, page: PageEntry): PdfDir
   const references = resolved?.kind === 'array' ? [...resolved.items] : [contents];
   // ISO 32000-1:2008, 7.3.10: a reference to a missing object is a reference to null, which contributes no content.
   return references.filter(reference => document.objects.deref(reference)?.kind !== 'null');
-};
-
-// Two unchanged objects at the same position of the same buffer are the same bytes, which is the common case when a document is compared with a save of itself.
-const sameSource = (left: DocumentInternals, right: DocumentInternals, [a, b]: readonly [PdfDirectObject, PdfDirectObject]): boolean => {
-  if (a.kind !== 'reference' || b.kind !== 'reference' || a.objectNumber !== b.objectNumber || a.generation !== b.generation) return false;
-  if (left.objects.changes.has(a.objectNumber) || right.objects.changes.has(b.objectNumber)) return false;
-  const entryA = left.objects.store.index.get(a.objectNumber);
-  const entryB = right.objects.store.index.get(b.objectNumber);
-  if (entryA.type !== IN_FILE || entryB.type !== IN_FILE) return false;
-  const windowA = left.objects.store.source.window(entryA.location);
-  const windowB = right.objects.store.source.window(entryB.location);
-  return (
-    windowA.bytes.buffer === windowB.bytes.buffer &&
-    windowA.bytes.byteOffset + entryA.location - windowA.base === windowB.bytes.byteOffset + entryB.location - windowB.base
-  );
 };
 
 type Decoded = { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly reason: string };
@@ -88,12 +72,11 @@ interface PageSides {
 }
 
 /**
- * Compares the content of one page, however it is split across streams or compressed: by source identity, then by decoded bytes, then operation by operation.
+ * Compares the content of one page, however it is split across streams or compressed: by decoded bytes, then operation by operation.
  */
 export const comparePageContent = (page: number, sides: PageSides, differences: PdfDifference[]): void => {
   const left = contentReferences(sides.a, sides.pageA);
   const right = contentReferences(sides.b, sides.pageB);
-  if (left.length === right.length && left.every((reference, index) => sameSource(sides.a, sides.b, [reference, right[index] ?? reference]))) return;
   const decoded: Record<Side, Decoded> = { a: joinedContent(sides.a, left), b: joinedContent(sides.b, right) };
   for (const side of ['a', 'b'] as const) {
     const result = decoded[side];

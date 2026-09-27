@@ -6,7 +6,6 @@ import type { ValuePath, ValueSummary } from './pdfDifference.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
-import { IN_FILE } from '../xref/objectIndex.ts';
 
 import { operationHashes } from './contentTokens.ts';
 import { decodeForComparison } from './pageContent.ts';
@@ -47,7 +46,10 @@ const latin1 = (bytes: Uint8Array): string => {
   return text;
 };
 
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length === right.length && left.every((byte, index) => byte === right[index]);
+// A view of the same bytes, as unchanged stream data is after a save that shares the source buffer, is equal without a byte comparison.
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
+  left.length === right.length &&
+  ((left.buffer === right.buffer && left.byteOffset === right.byteOffset) || left.every((byte, index) => byte === right[index]));
 
 const serializedText = (value: PdfDirectObject): string => {
   try {
@@ -118,23 +120,6 @@ export class ValueGraph {
     return true;
   }
 
-  // Two unchanged objects at the same position of the same buffer are equal without being parsed.
-  private sameSource(left: Value, right: Value): boolean {
-    if (left?.kind !== 'reference' || right?.kind !== 'reference' || left.objectNumber !== right.objectNumber || left.generation !== right.generation) {
-      return false;
-    }
-    if (this.a.objects.changes.has(left.objectNumber) || this.b.objects.changes.has(right.objectNumber)) return false;
-    const entryA = this.a.objects.store.index.get(left.objectNumber);
-    const entryB = this.b.objects.store.index.get(right.objectNumber);
-    if (entryA.type !== IN_FILE || entryB.type !== IN_FILE) return false;
-    const windowA = this.a.objects.store.source.window(entryA.location);
-    const windowB = this.b.objects.store.source.window(entryB.location);
-    return (
-      windowA.bytes.buffer === windowB.bytes.buffer &&
-      windowA.bytes.byteOffset + entryA.location - windowA.base === windowB.bytes.byteOffset + entryB.location - windowB.base
-    );
-  }
-
   // A pair of references already under comparison counts as equal.
   private seen(left: Value, right: Value): boolean {
     if (left?.kind !== 'reference' || right?.kind !== 'reference') return false;
@@ -155,7 +140,7 @@ export class ValueGraph {
   }
 
   compare(left: Value, right: Value, path: ValuePath): void {
-    if (this.sameSource(left, right) || this.samePage(left, right, path) || this.seen(left, right)) return;
+    if (this.samePage(left, right, path) || this.seen(left, right)) return;
     const a = this.resolveA(left);
     const b = this.resolveB(right);
     if (a?.kind === 'dictionary' && b?.kind === 'dictionary') this.entries({ left: a.entries, right: b.entries, path });

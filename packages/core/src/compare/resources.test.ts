@@ -6,25 +6,26 @@ import { describe, expect, it } from 'vitest';
 import { cmyk } from '../document/color.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { deflateZlib } from '../flate/deflate.ts';
+import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { compareDocuments } from './compareDocuments.ts';
 
-const load = (resources: string, extra: readonly TestObject[] = []): ReturnType<typeof loadDocument> =>
-  loadDocument(
-    buildPdf([
-      {
-        xref: 'classic',
-        objects: [
-          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
-          { number: 3, body: `<</Type/Page/Parent 2 0 R/Resources ${resources}>>` },
-          ...extra,
-        ],
-        trailer: '/Root 1 0 R',
-      },
-    ]).bytes,
-  );
+const pdfBytes = (resources: string, extra: readonly TestObject[] = []): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/Resources ${resources}>>` },
+        ...extra,
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+const load = (resources: string, extra: readonly TestObject[] = []): ReturnType<typeof loadDocument> => loadDocument(pdfBytes(resources, extra));
 
 const kinds = (differences: readonly PdfDifference[]): string[] => differences.map(difference => difference.kind);
 
@@ -57,6 +58,29 @@ describe('resource and font comparison', () => {
     expect(differences).toMatchObject([
       { kind: 'page-resources', page: 0, path: ['Resources', 'ColorSpace'], a: { kind: 'absent' }, b: { kind: 'dictionary' } },
     ]);
+  });
+
+  it('descends into referenced objects whose own bytes a save left in place', () => {
+    const objects = [{ number: 7, body: '<</ColorSpace 9 0 R/Font<</F1 8 0 R>>>>' }, { number: 9, body: '<<>>' }, helvetica];
+    const bytes = pdfBytes('7 0 R', objects);
+    const edited = loadDocument(bytes);
+    const spot = edited.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 1) });
+    edited.page(0).appendContent(builder => {
+      builder.fillColor(spot, 1);
+    });
+    const saved = loadDocument(edited.save().chunks);
+    const { differences } = compareDocuments(loadDocument(bytes), saved, { include: ['resources'] });
+    expect(differences).toMatchObject([{ kind: 'page-resources', page: 0, path: ['Resources', 'ColorSpace', 'CS1'], a: { kind: 'absent' } }]);
+  });
+
+  it('reports a change to an object that an unchanged resource dictionary references', () => {
+    const objects = [{ number: 7, body: '<</Font<</F1 8 0 R>>>>' }, helvetica];
+    const bytes = pdfBytes('7 0 R', objects);
+    const edited = loadDocument(bytes);
+    const font = { kind: 'reference', objectNumber: 8, generation: 0 } as const;
+    edited.set(font, { kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('Subtype').bytes, pdfName('TrueType')]]) });
+    const { differences } = compareDocuments(loadDocument(bytes), edited, { include: ['resources'] });
+    expect(differences).toContainEqual(expect.objectContaining({ kind: 'page-resources', path: ['Resources', 'Font', 'F1', 'Subtype'] }));
   });
 
   it('reports fonts added to a page and to the document', () => {
