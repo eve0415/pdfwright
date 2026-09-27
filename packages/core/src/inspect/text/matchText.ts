@@ -143,6 +143,8 @@ interface FoundCluster {
   readonly glyphs: readonly number[];
   /** Whether the cluster's variation selectors come from ActualText only. */
   readonly variantFromActualText: boolean;
+  /** The text without the variation selectors only ActualText gives, which an intended text without them compares with; the text itself when there are none. */
+  readonly plain: string;
   readonly failure: { readonly kind: 'missing-glyph' } | { readonly kind: 'unmapped'; readonly reason: GlyphTextReason } | undefined;
 }
 
@@ -278,10 +280,18 @@ class FoundText {
     return variantConfirmed(cmap, glyph.gid, [base, selector]);
   }
 
-  private push(text: string, glyphs: readonly number[], variantFromActualText: (cluster: string) => boolean): void {
+  // Adds the clusters of a text; `plainOf` gives a cluster without the variation selectors only ActualText gives it.
+  private push(text: string, glyphs: readonly number[], plainOf: (cluster: string) => string): void {
     for (const cluster of clusters(text, character => this.keep(character))) {
-      this.clusters.push({ text: cluster.text, glyphs, variantFromActualText: variantFromActualText(cluster.text), failure: undefined });
+      const plain = plainOf(cluster.text);
+      const variantFromActualText = plain !== cluster.text;
+      this.clusters.push({ text: cluster.text, plain, glyphs, variantFromActualText, failure: undefined });
     }
+  }
+
+  /** Displays a cluster without the variation selectors only ActualText gives, as it was compared. */
+  showPlain(cluster: FoundCluster): void {
+    this.displayed.set(cluster, cluster.plain);
   }
 
   /** The compared text, with each cluster as it is displayed. */
@@ -323,10 +333,11 @@ class FoundText {
     const failure = glyphFailure(glyph);
     if (failure === null) return;
     if (failure !== undefined) {
-      this.clusters.push({ text: failure.kind === 'missing-glyph' ? (glyph.text ?? REPLACEMENT) : REPLACEMENT, glyphs, variantFromActualText: false, failure });
+      const shown = failure.kind === 'missing-glyph' ? (glyph.text ?? REPLACEMENT) : REPLACEMENT;
+      this.clusters.push({ text: shown, plain: shown, glyphs, variantFromActualText: false, failure });
       return;
     }
-    this.push(this.read(glyph, glyph.text ?? ''), glyphs, () => false);
+    this.push(this.read(glyph, glyph.text ?? ''), glyphs, cluster => cluster);
   }
 
   /**
@@ -339,7 +350,8 @@ class FoundText {
     const failures = glyphs.map(glyph => glyphFailure(glyph)).filter(found => isFailure(found));
     const failure = failures.find(found => found.kind === 'missing-glyph') ?? failures[0];
     if (failure !== undefined) {
-      this.clusters.push({ text: failure.kind === 'missing-glyph' ? text : REPLACEMENT, glyphs: indexes, variantFromActualText: false, failure });
+      const shown = failure.kind === 'missing-glyph' ? text : REPLACEMENT;
+      this.clusters.push({ text: shown, plain: shown, glyphs: indexes, variantFromActualText: false, failure });
       return;
     }
     const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text))).join('');
@@ -351,11 +363,13 @@ class FoundText {
         .map(cluster => cluster.text)
         .join('');
     if (comparable(text, lacking) === comparable(glyphText, () => false) || this.spanByCmap(glyphs, { glyphText, text: comparable(text, () => false) })) {
-      this.push(text, indexes, cluster => (cluster.match(SELECTORS) ?? []).some(selector => lacking(selector)) && !this.variantByCmap(glyphs, cluster));
+      this.push(text, indexes, cluster =>
+        this.variantByCmap(glyphs, cluster) ? cluster : cluster.replaceAll(SELECTORS, selector => (lacking(selector) ? '' : selector)),
+      );
       return;
     }
     this.notes.push({ kind: 'actual-text-disagrees', actualText: text, glyphText, span: index, glyphs: indexes });
-    this.push(glyphText, indexes, () => false);
+    this.push(glyphText, indexes, cluster => cluster);
   }
 
   /** Notes a span with no compared glyph between compared glyphs, unless its text is only white space that is ignored. */
@@ -406,7 +420,9 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
       flush();
       const want = intended[step.intended];
       const have = found[step.found];
-      if (want !== undefined && have?.variantFromActualText === true) {
+      // A cluster matched by its text without the selectors only ActualText gives is compared as the glyphs show it.
+      if (have !== undefined && have.text !== want?.text) text.showPlain(have);
+      else if (want !== undefined && have?.variantFromActualText === true) {
         differences.push({ kind: 'variant-unverified', intended: want.text, intendedIndex: want.offset, glyphs: have.glyphs });
       }
     } else if (step.kind === 'missing') {
@@ -593,7 +609,8 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
   const wanted = clusters(intended, keep);
   const steps = align(wanted.length, found.clusters.length, (a, b) => {
     const have = found.clusters[b];
-    return have !== undefined && have.failure === undefined && have.text === wanted[a]?.text;
+    const want = wanted[a]?.text;
+    return have !== undefined && have.failure === undefined && (have.text === want || have.plain === want);
   });
   const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
   const incomplete: TextDifference[] = page.complete ? [] : [{ kind: 'page-incomplete' }];

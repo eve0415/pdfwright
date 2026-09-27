@@ -409,7 +409,10 @@ describe('text matching', () => {
         [{ kind: 'variant-unverified', intended: '葛󠄀', intendedIndex: 0, glyphs: [0] }],
       ]);
       expect(statusOf({ texts: ['葛󠄀', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛󠄀城')).toBe('match');
-      expect(statusOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛城')).toBe('mismatch');
+    });
+
+    it('compares a span whose variation selector neither the glyphs nor the intended text carry as the text of its glyphs', () => {
+      expect(summaryOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛城')).toStrictEqual(['match', '葛城', []]);
     });
 
     it('does not set aside a variation selector the glyphs have and the span lacks, or one on another glyph', () => {
