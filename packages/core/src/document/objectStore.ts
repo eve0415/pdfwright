@@ -2,19 +2,30 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { ByteSource } from '../parse/byteSource.ts';
 import type { FileSource } from '../parse/indirectObject.ts';
 import type { ObjectIndex } from '../xref/objectIndex.ts';
-import type { XrefContext } from '../xref/xrefStream.ts';
+import type { DecodedObjectStream, ObjectStreamContext } from '../xref/objectStream.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { parseIndirectObject } from '../parse/indirectObject.ts';
 import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
+import { decodeObjectStream, parseMember } from '../xref/objectStream.ts';
 
-export interface StoreContext extends XrefContext {
+export interface StoreContext extends ObjectStreamContext {
   readonly generationMismatch: 'error' | 'null';
   /** Approximate budget for parsed objects kept in memory, in bytes. */
   readonly parsedObjectCacheBytes: number;
 }
 
-export type IndirectSource = FileSource;
+/** Where a compressed object's value is: its span in the decoded object stream. */
+export interface CompressedSource {
+  readonly kind: 'compressed';
+  readonly streamNumber: number;
+  readonly index: number;
+  readonly valueStart: number;
+  readonly valueEnd: number;
+  readonly clean: boolean;
+}
+
+export type IndirectSource = FileSource | CompressedSource;
 
 export interface StoredObject {
   readonly objectNumber: number;
@@ -28,9 +39,12 @@ const HEAP_PER_SOURCE_BYTE = 40;
 
 const cost = (object: StoredObject): number => {
   const { source } = object;
-  const end = source.stream?.dictionaryEnd ?? source.valueEnd;
+  const end = source.kind === 'file' ? (source.stream?.dictionaryEnd ?? source.valueEnd) : source.valueEnd;
   return HEAP_PER_SOURCE_BYTE * (end - source.valueStart) + 128;
 };
+
+// Decoded object streams kept at once; each is decoded again on demand after eviction.
+const DECODED_STREAMS = 4;
 
 /** The objects of a source file: resolved lazily from their byte spans and kept in a bounded cache. */
 export class ObjectStore {
@@ -40,6 +54,7 @@ export class ObjectStore {
   private readonly cache = new Map<number, StoredObject>();
   private cached = 0;
   private readonly resolving = new Set<number>();
+  private readonly decoded = new Map<number, DecodedObjectStream>();
 
   constructor(source: ByteSource, index: ObjectIndex, context: StoreContext) {
     this.source = source;
@@ -59,16 +74,65 @@ export class ObjectStore {
 
   // ISO 32000-1:2008, 7.3.10, EXAMPLE 3: a stream's Length may be an indirect object, even one that follows the stream. A Length whose resolution is already in progress cannot be used.
   private resolveLength(objectNumber: number, generation: number): number | undefined {
-    if (this.resolving.has(objectNumber)) return undefined;
     const entry = this.index.get(objectNumber);
+    // ISO 32000-1:2008, 7.5.7 forbids storing "An object representing the value of the Length entry in an object stream dictionary" in an object stream; such a Length is read as unresolvable.
+    if (this.resolving.has(objectNumber) || (entry.type === COMPRESSED && this.resolving.has(entry.location))) return undefined;
     if ((entry.type !== IN_FILE && entry.type !== COMPRESSED) || (entry.type === IN_FILE && entry.generation !== generation)) return undefined;
     const value = this.load(objectNumber)?.value;
     return value?.kind === 'integer' && value.value >= 0 ? value.value : undefined;
   }
 
+  /** The decoded object stream `objectNumber`, from a small cache of recently decoded streams. */
+  objectStream(objectNumber: number): DecodedObjectStream {
+    const hit = this.decoded.get(objectNumber);
+    if (hit !== undefined) {
+      this.decoded.delete(objectNumber);
+      this.decoded.set(objectNumber, hit);
+      return hit;
+    }
+    const entry = this.index.get(objectNumber);
+    // Table 18, type 2: "The generation number of the object stream shall be implicitly 0."
+    if (entry.type !== IN_FILE || entry.generation !== 0) {
+      throw new ParseError(`object stream ${String(objectNumber)} has no in-file entry with generation 0`, 0);
+    }
+    this.resolving.add(objectNumber);
+    try {
+      const object = this.load(objectNumber);
+      const stream = decodeObjectStream(objectNumber, object?.value ?? { kind: 'null' }, this.context);
+      this.decoded.set(objectNumber, stream);
+      for (const number of this.decoded.keys()) {
+        if (this.decoded.size <= DECODED_STREAMS) break;
+        this.decoded.delete(number);
+      }
+      return stream;
+    } finally {
+      this.resolving.delete(objectNumber);
+    }
+  }
+
+  private parseCompressed(objectNumber: number, streamNumber: number, index: number): StoredObject {
+    const stream = this.objectStream(streamNumber);
+    let clean = true;
+    const value = parseMember(
+      stream,
+      { objectNumber, index },
+      {
+        ...this.context,
+        warn: warning => {
+          clean = false;
+          this.context.warn(warning);
+        },
+      },
+    );
+    const member = stream.members[index];
+    const source: CompressedSource = { kind: 'compressed', streamNumber, index, valueStart: member?.start ?? 0, valueEnd: member?.end ?? 0, clean };
+    return { objectNumber, generation: 0, value, source };
+  }
+
   /** Parses an object from its span, bypassing the cache; undefined for free and absent object numbers. */
   parse(objectNumber: number): StoredObject | undefined {
     const entry = this.index.get(objectNumber);
+    if (entry.type === COMPRESSED) return this.parseCompressed(objectNumber, entry.location, entry.generation);
     if (entry.type !== IN_FILE) return undefined;
     this.resolving.add(objectNumber);
     try {
