@@ -1,3 +1,4 @@
+import type { InvalidObjectReason } from '../object/pdfObject.ts';
 import type { LoadWarning } from './loadWarning.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
@@ -8,7 +9,7 @@ import { WindowEndError } from './windowEndError.ts';
 
 export type Keyword = 'true' | 'false' | 'null' | 'obj' | 'endobj' | 'stream' | 'endstream' | 'R' | 'xref' | 'trailer' | 'startxref' | 'other';
 
-export type InvalidTokenReason = 'malformed-number' | 'integer-out-of-range' | 'real-out-of-range' | 'stray-delimiter';
+export type InvalidTokenReason = Exclude<InvalidObjectReason, 'unknown-keyword'> | 'stray-delimiter';
 
 export type Token =
   | { kind: 'integer'; value: number; start: number; end: number }

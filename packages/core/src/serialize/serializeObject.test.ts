@@ -28,6 +28,22 @@ describe('object serialization', () => {
     expect(write(array)).toBe('[1 /X null]');
   });
 
+  it('writes invalid tokens verbatim, separated from what precedes them', () => {
+    const bytes = new TextEncoder().encode('--300');
+    const invalid = { kind: 'invalid', bytes, reason: 'malformed-number' } as const;
+    const entries = new PdfDictionaryEntries([[pdfName('Count').bytes, invalid]]);
+    const array = pdfArray([pdfInteger(1), invalid]);
+    expect(write(array)).toBe('[1 --300]');
+    expect(write(pdfDictionary(entries))).toBe('<</Count --300>>');
+  });
+
+  it('rejects invalid tokens that are not one run of regular characters', () => {
+    for (const text of ['', '1 2', '1/2', '(x)', '%', '\n']) {
+      const bytes = new TextEncoder().encode(text);
+      expect(() => write({ kind: 'invalid', bytes, reason: 'malformed-number' })).toThrow(InvalidArgumentError);
+    }
+  });
+
   it('escapes names without losing their original bytes', () => {
     const special = pdfNameFromBytes(new Uint8Array([0x41, 0x23, 0x20, 0xff]));
     const shiftJis = pdfNameFromBytes(new Uint8Array([0x82, 0xa0]));

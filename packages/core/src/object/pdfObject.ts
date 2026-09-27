@@ -8,6 +8,9 @@ import { PdfDictionaryEntries } from './pdfDictionaryEntries.ts';
 
 export { PdfDictionaryEntries } from './pdfDictionaryEntries.ts';
 
+/** Why a parser kept a token as raw bytes instead of reading it as an object. */
+export type InvalidObjectReason = 'malformed-number' | 'integer-out-of-range' | 'real-out-of-range' | 'unknown-keyword';
+
 // ISO 32000-1:2008, 7.3.8.1: "All streams shall be indirect objects", so array items and dictionary values are direct objects only.
 export type PdfDirectObject =
   | { kind: 'null' }
@@ -18,7 +21,9 @@ export type PdfDirectObject =
   | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex' }
   | { kind: 'array'; items: PdfDirectObject[] }
   | { kind: 'dictionary'; entries: PdfDictionaryEntries }
-  | { kind: 'reference'; objectNumber: number; generation: number };
+  | { kind: 'reference'; objectNumber: number; generation: number }
+  // A token a parser read but could not interpret; its bytes are one run of regular characters and are written back verbatim.
+  | { kind: 'invalid'; bytes: Uint8Array; reason: InvalidObjectReason };
 
 export type PdfObject = PdfDirectObject | { kind: 'stream'; dictionary: PdfDictionaryEntries; data: Uint8Array };
 

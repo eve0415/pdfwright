@@ -7,6 +7,7 @@ import { formatInteger, formatNumber } from '../number/formatNumber.ts';
 import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { isRegular } from '../parse/characterClass.ts';
 
 export interface SerializeOptions {
   fractionDigits: number;
@@ -67,7 +68,18 @@ const writeString = (writer: ByteWriter, bytes: Uint8Array, encoding: 'literal' 
 };
 
 const needsSpace = (object: PdfDirectObject): boolean =>
-  object.kind === 'null' || object.kind === 'boolean' || object.kind === 'integer' || object.kind === 'real' || object.kind === 'reference';
+  object.kind === 'null' ||
+  object.kind === 'boolean' ||
+  object.kind === 'integer' ||
+  object.kind === 'real' ||
+  object.kind === 'reference' ||
+  object.kind === 'invalid';
+
+const writeInvalid = (writer: ByteWriter, bytes: Uint8Array): void => {
+  // ISO 32000-1:2008, 7.2.2: "A sequence of consecutive regular characters comprises a single token." Anything else would change the tokens around it.
+  if (bytes.length === 0 || !bytes.every(byte => isRegular(byte))) throw new InvalidArgumentError('an invalid token must be one run of regular characters');
+  writer.writeBytes(bytes);
+};
 
 const writeDirectObject = (writer: ByteWriter, object: PdfDirectObject, options: SerializeOptions): void => {
   switch (object.kind) {
@@ -120,6 +132,10 @@ const writeDirectObject = (writer: ByteWriter, object: PdfDirectObject, options:
     }
     case 'reference': {
       writer.writeAscii(`${formatInteger(object.objectNumber)} ${formatInteger(object.generation)} R`);
+      break;
+    }
+    case 'invalid': {
+      writeInvalid(writer, object.bytes);
       break;
     }
     default: {
