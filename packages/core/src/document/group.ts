@@ -18,45 +18,33 @@ export interface GroupOptions {
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray';
 }
 
+/** A transparency group form XObject created by, and usable only in, the document that returned it. */
 export interface PdfGroup {
   readonly kind: 'PdfGroup';
-  readonly id: number;
-  readonly owner: symbol;
+  readonly pieceInfo: (input: PieceInfoInput) => void;
+}
+
+export interface GroupAttributes {
   readonly bbox: PdfRect;
   readonly isolated: boolean;
   readonly knockout: boolean;
   readonly colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
-  inheritedWhiteFill: boolean;
-  inheritedWhiteStroke: boolean;
-  pieceInfo: (input: PieceInfoInput) => void;
 }
 
-export const createGroup = (
-  ...[id, owner, options, fractionDigits, setPieceInfo]: [number, symbol, GroupOptions, number, (input: PieceInfoInput) => void]
-): PdfGroup => {
+export const groupAttributes = (options: GroupOptions, fractionDigits: number): GroupAttributes => {
   if (options.colorSpace !== undefined && options.isolated !== true) throw new ValidationError('a transparency group colour space requires isolated: true');
   const bbox = rect(...options.bbox);
   const [left, bottom, right, top] = bbox.map(value => Number(formatLength(value, fractionDigits)));
   if (left === undefined || bottom === undefined || right === undefined || top === undefined || left >= right || bottom >= top) {
     throw new ValidationError('transparency group bounding box must have non-zero area after rounding');
   }
-  const group: PdfGroup = {
-    kind: 'PdfGroup',
-    id,
-    owner,
-    bbox,
-    isolated: options.isolated ?? false,
-    knockout: options.knockout ?? false,
-    colorSpace: options.colorSpace,
-    inheritedWhiteFill: false,
-    inheritedWhiteStroke: false,
-    pieceInfo: setPieceInfo,
-  };
-  return group;
+  return { bbox, isolated: options.isolated ?? false, knockout: options.knockout ?? false, colorSpace: options.colorSpace };
 };
 
 // ISO 32000-1:2008, 8.10.2, Table 95 defines form XObjects; 11.6.6, Table 147 defines transparency group attributes.
-export const groupObject = (...[group, content, resources, pieceInfo]: [PdfGroup, Uint8Array, PdfDirectObject, PieceInfoRecord | undefined]): PdfObject => {
+export const groupObject = (
+  ...[group, content, resources, pieceInfo]: [GroupAttributes, Uint8Array, PdfDirectObject, PieceInfoRecord | undefined]
+): PdfObject => {
   const attributes = new PdfDictionaryEntries([
     [pdfName('S').bytes, pdfName('Transparency')],
     [pdfName('I').bytes, { kind: 'boolean', value: group.isolated }],

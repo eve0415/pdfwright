@@ -81,4 +81,24 @@ describe('transparency groups', () => {
       }).not.toThrow();
     });
   });
+
+  it('returns a frozen handle exposing only its kind and page-piece setter', () => {
+    const document = createDocument();
+    const group = document.group({ bbox: rect(pt(0), pt(0), pt(20), pt(20)) }, content => {
+      content.path(path => path.rect(0, 0, 20, 20));
+    });
+    expect([Object.isFrozen(group), Object.keys(group).toSorted()]).toStrictEqual([true, ['kind', 'pieceInfo']]);
+    const forged = { kind: 'PdfGroup', pieceInfo: (): void => undefined } as const;
+    const foreign = createDocument().group({ bbox: rect(pt(0), pt(0), pt(20), pt(20)) }, content => {
+      content.path(path => path.rect(0, 0, 20, 20));
+    });
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.draw(content => {
+      for (const handle of [forged, foreign]) {
+        expect(() => {
+          content.group(handle, [1, 0, 0, 1, 0, 0]);
+        }).toThrow(ValidationError);
+      }
+    });
+  });
 });

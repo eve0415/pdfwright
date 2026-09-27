@@ -40,10 +40,17 @@ export interface InheritedWhitePaint {
   stroke: boolean;
 }
 
+// What a finished content stream tells a caller that places it as a form.
+export interface ContentSummary {
+  readonly inheritedWhite: InheritedWhitePaint;
+  readonly colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
+}
+
 export interface ContentHooks {
   registerGraphicsState?: (options: GraphicsStateOptions) => string;
   registerSeparation?: (separation: Separation) => string;
   registerImage?: (image: PdfImage) => string;
+  groupSummary?: (group: PdfGroup) => ContentSummary;
   registerGroup?: (group: PdfGroup) => string;
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
   maxDepth?: number;
@@ -77,9 +84,20 @@ export interface ContentBuilder {
   graphicsState: (options: GraphicsStateOptions) => void;
   image: (image: PdfImage, matrix: [ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber]) => void;
   group: (group: PdfGroup, matrix: [ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber], options?: PaintOptions) => void;
-  inheritedWhitePaint: () => InheritedWhitePaint;
-  finish: () => Uint8Array;
 }
+
+export interface FinishedContent {
+  readonly data: Uint8Array;
+  readonly summary: ContentSummary;
+}
+
+// The drawing operations go to the caller's callback; finish stays with the document, which calls it once the callback returns.
+export interface ContentSession {
+  readonly content: ContentBuilder;
+  readonly finish: () => FinishedContent;
+}
+
+const EMPTY_SUMMARY: ContentSummary = { inheritedWhite: { fill: false, stroke: false }, colorSpace: undefined };
 
 const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
   // ISO 32000-1:2008, 8.4.5, Table 58 makes OP set both overprint flags unless op is also supplied; this writer writes both explicitly.
@@ -106,8 +124,13 @@ const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGra
   return normalized;
 };
 
-export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentBuilder => {
+export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentSession => {
   const commands: string[] = [];
+  let finished = false;
+  const push = (command: string): void => {
+    if (finished) throw new ValidationError('content can be drawn only inside its draw callback');
+    commands.push(command);
+  };
   let depth = 0;
   let state: CurrentGraphicsState = {
     fillColor: { kind: 'DeviceGray', components: [0] },
@@ -125,7 +148,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const inheritedWhite = { fill: false, stroke: false };
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
   const emit = (operator: string, operands: ContentNumber[] = []): void => {
-    commands.push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
+    push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
   };
   const nonnegative = (value: ContentNumber, name: string): void => {
     if (Number(number(value)) < 0) throw new ValidationError(`${name} must be non-negative`);
@@ -142,7 +165,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const paintColor = (color: DeviceColor | Separation, tint: number | undefined, stroking: boolean): void => {
     if (color.kind === 'Separation') {
       if (tint === undefined || !Number.isFinite(tint) || tint < 0 || tint > 1) throw new ValidationError('separation tint must be in [0, 1]');
-      commands.push(`/${separationName(color)} ${stroking ? 'CS' : 'cs'}\n`);
+      push(`/${separationName(color)} ${stroking ? 'CS' : 'cs'}\n`);
       emit(stroking ? 'SCN' : 'scn', [tint]);
       return;
     }
@@ -196,7 +219,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       return pathBuilder;
     },
   };
-  return {
+  const content: ContentBuilder = {
     save: (): void => {
       // ISO 32000-1:2008, Annex C, Table C.1 limits graphics state nesting to 28 levels.
       if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
@@ -261,7 +284,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
         throw new ValidationError('dash array must contain a positive length after rounding');
       }
       nonnegative(phase, 'dash phase');
-      commands.push(`[${array.map(value => number(value)).join(' ')}] ${number(phase)} d\n`);
+      push(`[${array.map(value => number(value)).join(' ')}] ${number(phase)} d\n`);
     },
     fillColor: (color, tint): void => {
       state.fillColor = color;
@@ -287,7 +310,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
         name = hooks.registerGraphicsState?.(normalized) ?? `GS${localStates.size + 1}`;
         localStates.set(key, name);
       }
-      commands.push(`/${name} gs\n`);
+      push(`/${name} gs\n`);
     },
     image: (image, matrix): void => {
       if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
@@ -299,18 +322,19 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       // ISO 32000-1:2008, 8.9.4 paints an image XObject into the unit square under the current transformation matrix.
       emit('q');
       emit('cm', matrix);
-      commands.push(`/${name} Do\n`);
+      push(`/${name} Do\n`);
       emit('Q');
     },
     group: (group, matrix, options): void => {
       if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
-      const inheritedOverprint = (group.inheritedWhiteFill && state.overprintFill) || (group.inheritedWhiteStroke && state.overprintStroke);
+      const summary = hooks.groupSummary?.(group) ?? EMPTY_SUMMARY;
+      const inheritedOverprint = (summary.inheritedWhite.fill && state.overprintFill) || (summary.inheritedWhite.stroke && state.overprintStroke);
       // ISO 32000-1:2008, 8.10.1 makes a form inherit the graphics state at Do; 8.6.7 and Table 148 leave zero DeviceCMYK components unchanged under OPM 1.
       if (
         inheritedOverprint &&
         state.overprintMode === 1 &&
         (hooks.colorSpace === undefined || hooks.colorSpace === 'DeviceCMYK') &&
-        (group.colorSpace === undefined || group.colorSpace === 'DeviceCMYK') &&
+        (summary.colorSpace === undefined || summary.colorSpace === 'DeviceCMYK') &&
         options?.acknowledgeInvisibleOverprint !== true
       ) {
         throw new ValidationError(
@@ -324,13 +348,17 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       }
       emit('q');
       emit('cm', matrix);
-      commands.push(`/${name} Do\n`);
+      push(`/${name} Do\n`);
       emit('Q');
     },
-    inheritedWhitePaint: (): InheritedWhitePaint => ({ ...inheritedWhite }),
-    finish: (): Uint8Array => {
+  };
+  Object.freeze(content);
+  return {
+    content,
+    finish: (): FinishedContent => {
       if (depth !== 0) throw new ValidationError('graphics state save and restore must be balanced');
-      return new TextEncoder().encode(commands.join(''));
+      finished = true;
+      return { data: new TextEncoder().encode(commands.join('')), summary: { inheritedWhite: { ...inheritedWhite }, colorSpace: hooks.colorSpace } };
     },
   };
 };

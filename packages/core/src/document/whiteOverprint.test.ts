@@ -7,7 +7,7 @@ import { createContentBuilder } from './contentBuilder.ts';
 
 describe('white overprint guard', () => {
   it('rejects direct zero DeviceCMYK fill under OPM 1 unless acknowledged', () => {
-    const content = createContentBuilder(5);
+    const { content } = createContentBuilder(5);
     content.fillColor(cmyk(0, 0, 0, 0));
     content.graphicsState({ overprintFill: true, overprintMode: 1 });
     expect(() => {
@@ -19,7 +19,7 @@ describe('white overprint guard', () => {
   });
 
   it('checks the painting operation flag and restores state across q/Q', () => {
-    const content = createContentBuilder(5);
+    const { content } = createContentBuilder(5);
     content.strokeColor(cmyk(0, 0, 0, 0));
     content.graphicsState({ overprintFill: true, overprintMode: 1 });
     expect(() => {
@@ -37,7 +37,7 @@ describe('white overprint guard', () => {
   });
 
   it('allows OPM 0, nonzero colour, and non-CMYK colours', () => {
-    const content = createContentBuilder(5);
+    const { content } = createContentBuilder(5);
     content.fillColor(cmyk(0, 0, 0, 0));
     content.graphicsState({ overprintFill: true, overprintMode: 0 });
     expect(() => {
@@ -55,7 +55,7 @@ describe('white overprint guard', () => {
   });
 
   it('allows zero DeviceCMYK in an RGB page group', () => {
-    const content = createContentBuilder(5, { colorSpace: 'DeviceRGB' });
+    const { content } = createContentBuilder(5, { colorSpace: 'DeviceRGB' });
     content.fillColor(cmyk(0, 0, 0, 0));
     content.graphicsState({ overprintFill: true, overprintMode: 1 });
     expect(() => {
@@ -64,7 +64,7 @@ describe('white overprint guard', () => {
   });
 
   it('checks fill and stroke separately for a combined paint', () => {
-    const content = createContentBuilder(5);
+    const { content } = createContentBuilder(5);
     content.fillColor(cmyk(0, 0, 0, 0));
     content.strokeColor(cmyk(0, 0, 0, 1));
     content.graphicsState({ overprintFill: true, overprintMode: 1 });

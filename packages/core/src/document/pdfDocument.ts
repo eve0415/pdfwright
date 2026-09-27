@@ -1,10 +1,10 @@
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
-import type { ContentBuilder, ContentHooks, GraphicsStateOptions } from './contentBuilder.ts';
+import type { ContentBuilder, ContentHooks, ContentSummary, GraphicsStateOptions } from './contentBuilder.ts';
 import type { DocumentInfo } from './documentInfo.ts';
-import type { GroupOptions, PdfGroup } from './group.ts';
-import type { ImageOptions, PdfImage } from './image.ts';
+import type { GroupAttributes, GroupOptions, PdfGroup } from './group.ts';
+import type { ImageOptions, ImageRecord, PdfImage } from './image.ts';
 import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
 import type { Separation, SeparationOptions } from './separation.ts';
@@ -20,8 +20,8 @@ import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
 import { documentInfoDictionary } from './documentInfo.ts';
-import { createGroup, groupObject } from './group.ts';
-import { createImage, imageObject, softMaskObject } from './image.ts';
+import { groupAttributes, groupObject } from './group.ts';
+import { createImageRecord, imageObject, softMaskObject } from './image.ts';
 import { pieceInfoRecord } from './pieceInfo.ts';
 import { rect } from './rect.ts';
 import { colorantKey, createSeparation, separationObject } from './separation.ts';
@@ -60,8 +60,8 @@ export interface PdfPage {
 interface ResourceRecord {
   graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
   separations: Map<string, { name: string; separation: Separation }>;
-  images: Map<number, { name: string; image: PdfImage }>;
-  groups: Map<number, { name: string; group: PdfGroup }>;
+  images: Map<ImageRecord, string>;
+  groups: Map<GroupRecord, string>;
 }
 
 interface PageRecord extends ResourceRecord {
@@ -71,13 +71,16 @@ interface PageRecord extends ResourceRecord {
 }
 
 interface GroupRecord extends ResourceRecord {
-  handle: PdfGroup;
+  attributes: GroupAttributes;
   content: Uint8Array;
+  summary: ContentSummary;
   pieceInfo?: PieceInfoRecord;
 }
 
-interface GroupRecordHolder {
-  record?: GroupRecord;
+// Handles are opaque: each document maps the handles it issued to their records, so a handle from another document or built by hand has no record.
+interface DocumentRecords {
+  images: WeakMap<PdfImage, ImageRecord>;
+  groups: WeakMap<PdfGroup, GroupRecord>;
 }
 
 interface ImageObjectNumbers {
@@ -92,8 +95,8 @@ interface PageBuildContext {
 }
 
 interface ResourceNumbers {
-  imageNumbers: Map<number, ImageObjectNumbers>;
-  groupNumbers: Map<number, number>;
+  imageNumbers: Map<ImageRecord, ImageObjectNumbers>;
+  groupNumbers: Map<GroupRecord, number>;
 }
 
 const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEntries => {
@@ -145,7 +148,21 @@ const isolateContent = (data: Uint8Array): Uint8Array => {
   return isolated;
 };
 
-const createContentHooks = (resources: ResourceRecord, owner: symbol, colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray'): ContentHooks => ({
+const imageRecord = (records: DocumentRecords, image: PdfImage): ImageRecord => {
+  const record = records.images.get(image);
+  if (record === undefined) throw new ValidationError('image was not created by this document');
+  return record;
+};
+
+const groupRecord = (records: DocumentRecords, group: PdfGroup): GroupRecord => {
+  const record = records.groups.get(group);
+  if (record === undefined) throw new ValidationError('group was not created by this document, or its render callback has not returned');
+  return record;
+};
+
+const createContentHooks = (
+  ...[resources, records, colorSpace]: [ResourceRecord, DocumentRecords, 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined]
+): ContentHooks => ({
   colorSpace,
   registerGraphicsState: stateOptions => {
     const key = JSON.stringify([
@@ -172,26 +189,27 @@ const createContentHooks = (resources: ResourceRecord, owner: symbol, colorSpace
     return name;
   },
   registerImage: image => {
-    if (image.owner !== owner) throw new ValidationError('image belongs to a different document');
-    const existing = resources.images.get(image.id);
-    if (existing !== undefined) return existing.name;
+    const record = imageRecord(records, image);
+    const existing = resources.images.get(record);
+    if (existing !== undefined) return existing;
     const name = `Im${resources.images.size + 1}`;
-    resources.images.set(image.id, { name, image });
+    resources.images.set(record, name);
     return name;
   },
+  groupSummary: group => groupRecord(records, group).summary,
   registerGroup: group => {
-    if (group.owner !== owner) throw new ValidationError('group belongs to a different document');
-    const existing = resources.groups.get(group.id);
-    if (existing !== undefined) return existing.name;
+    const record = groupRecord(records, group);
+    const existing = resources.groups.get(record);
+    if (existing !== undefined) return existing;
     const name = `Fm${resources.groups.size + 1}`;
-    resources.groups.set(group.id, { name, group });
+    resources.groups.set(record, name);
     return name;
   },
 });
 
-const allocateImageNumbers = (images: readonly PdfImage[], firstNumber: number): Map<number, ImageObjectNumbers> => {
+const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: number): Map<ImageRecord, ImageObjectNumbers> => {
   let nextNumber = firstNumber;
-  const numbersByImage = new Map<number, ImageObjectNumbers>();
+  const numbersByImage = new Map<ImageRecord, ImageObjectNumbers>();
   for (const image of images) {
     const numbers: ImageObjectNumbers = { parent: nextNumber };
     if (image.softMask !== undefined) {
@@ -199,15 +217,15 @@ const allocateImageNumbers = (images: readonly PdfImage[], firstNumber: number):
       numbers.parent = nextNumber;
     }
     nextNumber++;
-    numbersByImage.set(image.id, numbers);
+    numbersByImage.set(image, numbers);
   }
   return numbersByImage;
 };
 
-const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<number, number> => {
+const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<GroupRecord, number> => {
   let nextNumber = firstNumber;
-  const numbers = new Map<number, number>();
-  for (const group of groups) numbers.set(group.handle.id, nextNumber++);
+  const numbers = new Map<GroupRecord, number>();
+  for (const group of groups) numbers.set(group, nextNumber++);
   return numbers;
 };
 
@@ -226,15 +244,15 @@ const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfDir
   }
   if (record.images.size > 0 || record.groups.size > 0) {
     const xObjects = new PdfDictionaryEntries();
-    for (const image of record.images.values()) {
-      const number = numbers.imageNumbers.get(image.image.id)?.parent;
+    for (const [image, name] of record.images) {
+      const number = numbers.imageNumbers.get(image)?.parent;
       if (number === undefined) throw new ValidationError('image reference is missing');
-      xObjects.set(pdfName(image.name).bytes, pdfReference(number, 0));
+      xObjects.set(pdfName(name).bytes, pdfReference(number, 0));
     }
-    for (const group of record.groups.values()) {
-      const number = numbers.groupNumbers.get(group.group.id);
+    for (const [group, name] of record.groups) {
+      const number = numbers.groupNumbers.get(group);
       if (number === undefined) throw new ValidationError('group reference is missing');
-      xObjects.set(pdfName(group.name).bytes, pdfReference(number, 0));
+      xObjects.set(pdfName(name).bytes, pdfReference(number, 0));
     }
     resources.set(pdfName('XObject').bytes, pdfDictionary(xObjects));
   }
@@ -285,9 +303,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined = undefined;
   const documentSeparations = new Map<string, Separation>();
-  const images: PdfImage[] = [];
+  const images: ImageRecord[] = [];
   const groups: GroupRecord[] = [];
-  const owner = Symbol('pdfwright document');
+  const records: DocumentRecords = { images: new WeakMap(), groups: new WeakMap() };
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
 
   return {
@@ -302,27 +320,28 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       documentPieceInfo = pieceInfoRecord(modificationDate, input.data);
     },
     group: (groupOptions, render): PdfGroup => {
-      const groupState: GroupRecordHolder = {};
-      const handle = createGroup(groups.length + 1, owner, groupOptions, fractionDigits, input => {
-        if (groupState.record === undefined) throw new ValidationError('group is not ready for page-piece data');
-        groupState.record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
+      const attributes = groupAttributes(groupOptions, fractionDigits);
+      const handle: PdfGroup = Object.freeze({
+        kind: 'PdfGroup',
+        pieceInfo: (input: PieceInfoInput): void => {
+          groupRecord(records, handle).pieceInfo = pieceInfoRecord(input.lastModified, input.data);
+        },
       });
       const resources = createResourceRecord();
-      const content = createContentBuilder(fractionDigits, createContentHooks(resources, owner, handle.colorSpace));
-      render(content);
-      const data = content.finish();
-      const inherited = content.inheritedWhitePaint();
-      handle.inheritedWhiteFill = inherited.fill;
-      handle.inheritedWhiteStroke = inherited.stroke;
-      const record: GroupRecord = { handle, content: data, ...resources };
-      groupState.record = record;
+      const session = createContentBuilder(fractionDigits, createContentHooks(resources, records, attributes.colorSpace));
+      render(session.content);
+      const { data, summary } = session.finish();
+      const record: GroupRecord = { attributes, content: data, summary, ...resources };
+      records.groups.set(handle, record);
       groups.push(record);
       return handle;
     },
     image: (imageOptions): PdfImage => {
-      const image = createImage(images.length + 1, owner, imageOptions);
-      images.push(image);
-      return image;
+      const record = createImageRecord(imageOptions);
+      const handle: PdfImage = Object.freeze({ kind: 'PdfImage' });
+      records.images.set(handle, record);
+      images.push(record);
+      return handle;
     },
     separation: (separationOptions): Separation => {
       const separation = createSeparation(separationOptions, options.colorantPolicy?.asciiOnly === true);
@@ -353,11 +372,11 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       pages.push(record);
       return {
         draw: (render): void => {
-          const hooks = createContentHooks(record, owner, normalized.group?.colorSpace);
+          const hooks = createContentHooks(record, records, normalized.group?.colorSpace);
           hooks.maxDepth = 27;
-          const content = createContentBuilder(fractionDigits, hooks);
-          render(content);
-          record.contents.push(isolateContent(content.finish()));
+          const session = createContentBuilder(fractionDigits, hooks);
+          render(session.content);
+          record.contents.push(isolateContent(session.finish().data));
         },
         pieceInfo: (input): void => {
           record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
@@ -408,7 +427,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         }
       }
       for (const image of images) {
-        const numbers = imageNumbers.get(image.id);
+        const numbers = imageNumbers.get(image);
         if (numbers === undefined) throw new ValidationError('image reference is missing');
         if (image.softMask !== undefined) {
           if (numbers.mask === undefined) throw new ValidationError('soft mask reference is missing');
@@ -417,10 +436,10 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         objects.push({ objectNumber: numbers.parent, generation: 0, value: imageObject(image, numbers.mask) });
       }
       for (const record of groups) {
-        const number = groupNumbers.get(record.handle.id);
+        const number = groupNumbers.get(record);
         if (number === undefined) throw new ValidationError('group reference is missing');
         const resources = pageResources(record, resourceNumbers) ?? pdfDictionary();
-        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, record.pieceInfo) });
+        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.attributes, record.content, resources, record.pieceInfo) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
       if (options.info !== undefined) {

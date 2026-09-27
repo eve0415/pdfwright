@@ -15,12 +15,12 @@ describe('device colours and graphics state', () => {
     expect(() => cmyk(0, 0, 0, 1.01)).toThrow(ValidationError);
     expect(() => rgb(-0.1, 0, 0)).toThrow(ValidationError);
     expect(() => gray(Number.NaN)).toThrow(ValidationError);
-    const builder = createContentBuilder(5);
+    const { content: builder, finish } = createContentBuilder(5);
     builder.fillColor(cmyk(0, 0.1, 0.2, 0.3));
     builder.strokeColor(rgb(1, 0.5, 0));
     builder.fillColor(gray(0.25));
     builder.strokeColor(cmyk(0, 0, 0, 1));
-    expect(ascii(builder.finish())).toBe('0 0.1 0.2 0.3 k\n1 0.5 0 RG\n0.25 g\n0 0 0 1 K\n');
+    expect(ascii(finish().data)).toBe('0 0.1 0.2 0.3 k\n1 0.5 0 RG\n0.25 g\n0 0 0 1 K\n');
   });
 
   it('deduplicates ExtGState by value per page and names first use', () => {

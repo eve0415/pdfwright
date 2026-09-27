@@ -20,15 +20,28 @@ export interface ImageOptions {
   softMask?: { width: number; height: number; samples: Uint8Array };
 }
 
-export interface PdfImage extends ImageOptions {
+/** An image XObject created by, and usable only in, the document that returned it. */
+export interface PdfImage {
   readonly kind: 'PdfImage';
-  readonly id: number;
-  readonly owner: symbol;
+}
+
+export interface SoftMaskRecord {
+  readonly width: number;
+  readonly height: number;
+  readonly samples: Uint8Array;
+}
+
+export interface ImageRecord {
+  readonly width: number;
+  readonly height: number;
+  readonly colorSpace: ImageColorSpace;
+  readonly samples: Uint8Array;
+  readonly softMask: SoftMaskRecord | undefined;
 }
 
 const validDimension = (value: number): boolean => Number.isSafeInteger(value) && value > 0;
 
-export const createImage = (id: number, owner: symbol, options: ImageOptions): PdfImage => {
+export const createImageRecord = (options: ImageOptions): ImageRecord => {
   // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image dimensions, colour space, and bits per component.
   const { width, height, colorSpace, samples, softMask } = options;
   if (!validDimension(width) || !validDimension(height)) throw new ValidationError('image dimensions must be positive integers');
@@ -40,13 +53,17 @@ export const createImage = (id: number, owner: symbol, options: ImageOptions): P
   ) {
     throw new ValidationError('soft mask sample length does not match its dimensions');
   }
-  const image: PdfImage = { kind: 'PdfImage', id, owner, width, height, colorSpace, bitsPerComponent: 8, samples: Uint8Array.from(samples) };
-  if (softMask !== undefined) image.softMask = { width: softMask.width, height: softMask.height, samples: Uint8Array.from(softMask.samples) };
-  return image;
+  return {
+    width,
+    height,
+    colorSpace,
+    samples: Uint8Array.from(samples),
+    softMask: softMask === undefined ? undefined : { width: softMask.width, height: softMask.height, samples: Uint8Array.from(softMask.samples) },
+  };
 };
 
 // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image XObject dictionaries; 11.6.5, Table 145 requires a grayscale soft-mask image.
-export const imageObject = (image: PdfImage, softMaskObjectNumber?: number): PdfObject => {
+export const imageObject = (image: ImageRecord, softMaskObjectNumber?: number): PdfObject => {
   const colorSpace = typeof image.colorSpace === 'string' ? pdfName(image.colorSpace) : separationObject(image.colorSpace);
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('XObject')],
@@ -65,7 +82,7 @@ export const imageObject = (image: PdfImage, softMaskObjectNumber?: number): Pdf
   return { kind: 'stream', dictionary, data: deflateZlib(image.samples) };
 };
 
-export const softMaskObject = (mask: NonNullable<ImageOptions['softMask']>): PdfObject => {
+export const softMaskObject = (mask: SoftMaskRecord): PdfObject => {
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('XObject')],
     [pdfName('Subtype').bytes, pdfName('Image')],
