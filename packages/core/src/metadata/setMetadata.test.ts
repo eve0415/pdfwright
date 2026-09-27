@@ -1,7 +1,7 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
-import type { MetadataInput } from './setMetadata.ts';
+import type { MetadataInput } from './resolveMetadata.ts';
 
 import { describe, expect, it } from 'vitest';
 

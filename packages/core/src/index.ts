@@ -93,7 +93,8 @@ export type { DocumentInfo, InfoValue, TextString } from './metadata/documentInf
 export { readMetadata } from './metadata/readMetadata.ts';
 export type { ComponentPacket, DocumentMetadata } from './metadata/readMetadata.ts';
 export { setMetadata } from './metadata/setMetadata.ts';
-export type { MetadataChange, MetadataInput, ReconciledValue, SetMetadataOptions } from './metadata/setMetadata.ts';
+export type { MetadataChange, SetMetadataOptions } from './metadata/setMetadata.ts';
+export type { MetadataInput, ReconciledValue } from './metadata/resolveMetadata.ts';
 export type { CreatedMetadataOptions } from './metadata/createdMetadata.ts';
 export type { Agreement, LegacyValue, MappedKey, MappedProperty } from './metadata/mapping.ts';
 export type { MetadataFinding, MetadataFindingCode } from './metadata/metadataFinding.ts';
