@@ -83,7 +83,7 @@ export const addVarnishPlate = (input: Uint8Array): VarnishEdit => {
 
 `extractText` reads the glyphs a page shows with their text, positions and visibility, and `matchText` compares them with the text the page is meant to show, such as a customer's name on a keyring proof. A caller checking a print proof extracts with `annotations: 'printable'` and treats any status but `match` as a rejection. `unverified` means the text agrees only on evidence a person must check, such as ActualText that the glyphs do not confirm, a glyph the font program does not confirm, glyphs a clip or cover cuts into, or a page that could not be read in full.
 
-`match` does not prove that the shapes are right. `matchText`'s documentation lists what it cannot see, among them optional content, alpha near zero, and a half-width glyph whose ToUnicode claims the full-width character, as the CSS `font-feature-settings: "hwid"` draws in Chromium, when the font's embedded cmap does not list that character. A proof's own CSS decides whether such features apply.
+`match` does not prove that the shapes are right. `matchText`'s documentation lists what it cannot see, among them optional content, alpha near zero, and a glyph whose ToUnicode claims another character than the one it shows, as CSS `font-feature-settings` values can make Chromium draw, when the font's embedded cmap does not list that character; of these, only half-width forms of full-width characters, as `"hwid"` draws, are caught, by their width. A proof's own CSS decides whether such features apply.
 
 ## Development
 

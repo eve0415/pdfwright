@@ -33,13 +33,13 @@ const code = (value: number): string => hex([Math.floor(value / 256), value % 25
  * An Identity-H font, T, whose ToUnicode maps code n + 1 to texts[n] (nothing for null), every glyph 1000 thousandths wide with descent −120 and ascent 880.
  * Code 0 selects CID 0, the .notdef glyph.
  */
-const cidFont = (texts: readonly (string | null)[], program?: Uint8Array): readonly TestObject[] => {
+const cidFont = (texts: readonly (string | null)[], { program, widths = '' }: { program?: Uint8Array; widths?: string } = {}): readonly TestObject[] => {
   const entries = texts.flatMap((text, index) => (text === null ? [] : [`<${code(index + 1)}> <${utf16(text)}>`]));
   return [
     { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
     {
       number: 106,
-      body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000/FontDescriptor 111 0 R>>',
+      body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000${widths}/FontDescriptor 111 0 R>>`,
     },
     {
       number: 107,
@@ -66,6 +66,8 @@ interface Proof {
   readonly resources?: string;
   readonly objects?: readonly TestObject[];
   readonly entries?: string;
+  /** A W array for the descendant font, such as `/W[2[500]]`. */
+  readonly widths?: string;
 }
 
 const show = (...codes: readonly number[]): string => `<${codes.map(value => code(value)).join('')}> Tj`;
@@ -73,10 +75,10 @@ const show = (...codes: readonly number[]): string => `<${codes.map(value => cod
 /** Shows codes 1…n of the font in one line at 10 points from (100, 700). */
 const line = (count: number): string => `BT /T 10 Tf 100 700 Td ${show(...Array.from({ length: count }, (_, index) => index + 1))} ET`;
 
-const page = ({ texts, program, content, resources = '', objects = [], entries = '' }: Proof): PageText => {
+const page = ({ texts, program, content, resources = '', objects = [], entries = '', widths }: Proof): PageText => {
   const bytes = textPdfBytes({
     pages: [{ content, resources: `/Font<</T 105 0 R>>${resources}`, entries }],
-    objects: [...cidFont(texts, program), ...objects],
+    objects: [...cidFont(texts, program === undefined ? { widths: widths ?? '' } : { program, widths: widths ?? '' }), ...objects],
   });
   return extractText(loadDocument(bytes), 0);
 };
@@ -512,6 +514,21 @@ describe('text matching', () => {
       // Chromium's subsets keep only reverse-mapped characters in cmap, so a vertical alternate's text is absent from it; 、 is Tu in Unicode's VerticalOrientation.txt.
       const result = match({ texts: ['Ａ', null, null, null, null, '︑'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(6)} ET` }, '、');
       expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
+    });
+
+    it('reports a glyph half an em wide whose text is a full-width or wide character, as hwid draws beside other text', () => {
+      // Chromium's hwid alternates keep ToUnicode U+FF21 but are 500 thousandths wide in W; palt and other positioning features leave W at 1000.
+      // A subset that keeps only the alternate has no U+FF21 in its cmap; a half-width A is no evidence, and in a font that shows such characters at proportional widths, as Ｂ at 700 here, nor is a half-em Ａ.
+      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c71, 1]] });
+      const texts = ['山', 'Ａ', 'A', 'Ｂ'];
+      const proof = { texts, program: unlisted, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 3)} ET`, widths: '/W[2[500]3[500]]' };
+      expect(summaryOf(proof, '山ＡA')).toStrictEqual([
+        'unverified',
+        '山ＡA',
+        [{ kind: 'glyph-disagrees', text: 'Ａ', expectedGid: undefined, drawnGid: 2, glyphs: [1] }],
+      ]);
+      const proportional = { ...proof, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 3, 4)} ET`, widths: '/W[2[500]3[500]4[700]]' };
+      expect(statusOf(proportional, '山ＡAＢ')).toBe('match');
     });
 
     it('reports a glyph whose own character the cmap maps to it but whose folded character it does not list', () => {

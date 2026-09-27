@@ -81,6 +81,8 @@ export interface PageGlyph {
   readonly origin: readonly [number, number];
   /** The glyph's own displacement, without the TJ numbers after it. */
   readonly advance: readonly [number, number];
+  /** The horizontal displacement w0 the font gives the code (ISO 32000-1:2008, 9.2.4), in text space, where the em is 1; undefined when the font gives none. */
+  readonly width: number | undefined;
   /** The advance box's corners: origin side bottom, far side bottom, far side top, origin side top. */
   readonly quad: Quad;
   /** The length of the text-space unit along the glyph's vertical axis on the page, which is Tfs scaled by the text matrix and the CTM. */
@@ -326,6 +328,7 @@ class TextCollector {
         writingMode: font.writingMode,
         origin: geometry.origin,
         advance: geometry.advance,
+        width: glyph?.width,
         quad: geometry.quad,
         fontSize: geometry.fontSize,
         renderMode: state.renderMode,

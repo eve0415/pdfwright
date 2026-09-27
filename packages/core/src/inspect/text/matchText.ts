@@ -8,6 +8,7 @@ import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
 
 import { align } from './alignment.ts';
 import { TEXT_FOLDS, foldText } from './folds.ts';
+import { isFullWidthOrWide } from './fullWidth.ts';
 import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 import { hasVerticalAlternate } from './verticalAlternates.ts';
@@ -64,6 +65,7 @@ export type TextDifference =
   /**
    * A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn, `expectedGid`.
    * `expectedGid` is undefined when the cmap does not list the glyph's folded text but maps its own text, before folds, to the glyph drawn: the font tells the two characters apart.
+   * The glyph also disagrees when the cmap cannot confirm it and its width is half an em while its ToUnicode character is full-width or wide, the width of a half-width form such as Chromium's hwid draws.
    */
   | {
       readonly kind: 'glyph-disagrees';
@@ -203,6 +205,32 @@ const isFailure = (failure: GlyphFailure | null | undefined): failure is GlyphFa
 
 const SELECTORS = /[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu;
 
+// A CJK font draws full-width and wide characters one em wide and their half-width forms half an em wide, to within these many ems; Chromium's W arrays give 1 and 0.5 exactly for Noto Sans JP, with or without palt, halt, vpal, vhal and text-spacing-trim.
+const FULL_EM_TOLERANCE = 0.02;
+const HALF_EM_TOLERANCE = 0.1;
+
+// The ToUnicode character of a composite font's glyph when it is one full-width or wide character.
+const wideCharacter = (glyph: PageGlyph): number | undefined => {
+  if (glyph.cid === undefined || glyph.toUnicode === null) return undefined;
+  const [character, ...rest] = Array.from(glyph.toUnicode, value => value.codePointAt(0) ?? 0);
+  return character !== undefined && rest.length === 0 && isFullWidthOrWide(character) ? character : undefined;
+};
+
+// Whether a glyph whose ToUnicode character is full-width or wide is half an em wide.
+const halfWidthOfWide = (glyph: PageGlyph): boolean =>
+  wideCharacter(glyph) !== undefined && glyph.width !== undefined && Math.abs(glyph.width - 0.5) <= HALF_EM_TOLERANCE;
+
+/** The fonts that show a full-width or wide character at a width neither one em nor half an em, so that a half-em width says nothing about which glyph is drawn. */
+const proportionalFonts = (glyphs: readonly PageGlyph[]): Set<string> => {
+  const fonts = new Set<string>();
+  for (const glyph of glyphs) {
+    const { width } = glyph;
+    if (wideCharacter(glyph) === undefined || width === undefined) continue;
+    if (Math.abs(width - 1) > FULL_EM_TOLERANCE && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) fonts.add(glyph.font);
+  }
+  return fonts;
+};
+
 interface Settings {
   readonly actualText: 'checked' | 'ignore';
   readonly whitespace: 'ignore' | 'exact';
@@ -214,6 +242,8 @@ interface Settings {
   readonly uncheckable: ReadonlySet<string>;
   /** The compared glyphs set upright in a vertical column. */
   readonly upright: ReadonlySet<number>;
+  /** The keys of Type 0 fonts that show a full-width or wide character at a width other than one em or half an em, as proportional fonts do. */
+  readonly proportional: ReadonlySet<string>;
 }
 
 class FoundText {
@@ -270,7 +300,7 @@ class FoundText {
 
   /**
    * Checks a glyph's folded text against the embedded cmap of its font. A character with vertical alternates (Vertical_Orientation Tu or Tr) may be drawn with a glyph other than the one the cmap gives when it is set upright in a vertical column, as Chromium stacks such text.
-   * When the cmap lists the glyph's own character for the glyph drawn but not the folded one, the font tells them apart, since Chromium's subset cmap lists every character of a retained glyph, so the glyph is not the folded character; a character with vertical alternates is exempt, as those glyphs are drawn without cmap entries.
+   * A single character the cmap does not list, other than one with vertical alternates, is checked by `unlisted`.
    */
   private check(glyph: PageGlyph, text: string): void {
     if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
@@ -290,14 +320,18 @@ class FoundText {
       if (!(alternate && this.settings.upright.has(glyph.index))) {
         this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: evidence.expected, drawnGid: glyph.gid, glyphs: [glyph.index] });
       }
-    } else if (
-      single !== undefined &&
-      !alternate &&
-      glyph.text !== null &&
-      glyph.text !== text &&
-      cmapEvidence(cmap, glyph.gid, glyph.text).kind === 'confirmed'
-    ) {
-      this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: undefined, drawnGid: glyph.gid, glyphs: [glyph.index] });
+    } else if (single !== undefined && !alternate) this.unlisted(glyph, { text, cmap, character: single });
+  }
+
+  /**
+   * Checks a glyph whose one folded character the cmap does not list. When the cmap maps the glyph's own character, before folds, to the glyph drawn, the font tells the two apart, since Chromium's subset cmap lists every character of a retained glyph, so the glyph is not the folded character.
+   * When the glyph is half an em wide while its ToUnicode character is full-width or wide, it is a half-width form, as Chromium's hwid draws without a span, unless its font shows such characters at proportional widths.
+   */
+  private unlisted(glyph: PageGlyph, { text, cmap, character }: { text: string; cmap: EmbeddedCmap; character: number }): void {
+    if (glyph.gid === undefined) return;
+    const own = glyph.text !== null && glyph.text !== text && cmapEvidence(cmap, glyph.gid, glyph.text).kind === 'confirmed';
+    if (own || (halfWidthOfWide(glyph) && !this.settings.proportional.has(glyph.font))) {
+      this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: own ? undefined : cmap.glyph(character), drawnGid: glyph.gid, glyphs: [glyph.index] });
     }
   }
 
@@ -604,6 +638,7 @@ const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
   uncheckable: new Set(page.fonts.filter(font => font.cmapMissing).map(font => font.key)),
   upright: new Set(),
+  proportional: proportionalFonts(page.glyphs),
 });
 
 // A glyph read after another lies in the same column when its origin is between half an em and two ems further down the first glyph's vertical axis and less than half an em across it.
@@ -665,7 +700,7 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
  * - Boxes are boxes, not ink, tested at a grid of points: a clip or rectangle that hides ink only between the points or outside the core box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
  * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
  * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
- * - A half-width glyph whose ToUnicode claims the full-width character, as Chromium's hwid feature draws without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too.
+ * - A glyph whose ToUnicode claims another character than the one it shows, as Chromium's hwid, pwid and similar features draw without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too; only a half-width form of a full-width or wide character is caught then, by its width, and not in a font that shows such characters at proportional widths.
  * - Optional content is not evaluated: text and covering fills in an optional content group count as printed whether the group is on or off.
  * - Annotations drawn over the text count only when the page was extracted with `annotations: 'printable'`, which a caller checking a print proof passes to `extractText`; with the default `'none'` they are not read.
  * - Alpha is tested only for 0: text at an alpha near zero counts as visible. `PageGlyph.fillAlpha` and `strokeAlpha` give the alpha of each glyph for a caller to set its own bound.
