@@ -68,6 +68,15 @@ const indexOfPattern = (bytes: Uint8Array, pattern: readonly number[], from: num
   return -1;
 };
 
+const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
+
+const lastIndexOfPattern = (bytes: Uint8Array, pattern: readonly number[]): number => {
+  for (let position = bytes.lastIndexOf(pattern[0] ?? 0); position >= 0; position = position === 0 ? -1 : bytes.lastIndexOf(pattern[0] ?? 0, position - 1)) {
+    if (matchesAt(bytes, position, pattern)) return position;
+  }
+  return -1;
+};
+
 const isBoundary = (byte: number | undefined): boolean => byte === undefined || !isRegular(byte);
 
 const skipDigitsBack = (bytes: Uint8Array, end: number): number => {
@@ -107,9 +116,12 @@ class Scanner {
   readonly catalogs: number[] = [];
   readonly objectStreams: { object: ParsedIndirectObject; position: number }[] = [];
 
+  private readonly lastEndstream: number;
+
   constructor(source: ByteSource, context: ObjectStreamContext) {
     // A reconstruction scans one contiguous buffer; a source held as several segments is joined for it.
     this.bytes = source.segments.length === 1 ? (source.segments[0] ?? new Uint8Array()) : source.copy(0, source.length).bytes;
+    this.lastEndstream = lastIndexOfPattern(this.bytes, ENDSTREAM);
     this.source = new ByteSource(this.bytes);
     this.context = context;
   }
@@ -123,7 +135,7 @@ class Scanner {
   private parseObjectAt(offset: number): ParsedIndirectObject | undefined {
     try {
       return this.source.parseAt(offset, quiet, (window, local, context) =>
-        parseIndirectObject(window, local, { ...context, maxNesting: this.context.maxNesting }),
+        parseIndirectObject(window, local, { ...context, maxNesting: this.context.maxNesting, lastEndstream: this.lastEndstream }),
       );
     } catch (error: unknown) {
       // A match that does not parse as an object is not one; the scan goes on after its keyword.

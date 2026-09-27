@@ -31,6 +31,8 @@ export interface IndirectObjectContext extends LexContext {
   readonly maxNesting: number;
   /** Resolves an indirect stream Length (ISO 32000-1:2008, 7.3.10, EXAMPLE 3); undefined when it cannot be resolved. */
   readonly resolveLength?: (objectNumber: number, generation: number) => number | undefined;
+  /** Offset of the last endstream keyword in the source, when known, so that a stream starting after it fails at once. */
+  readonly lastEndstream?: number;
 }
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
@@ -103,21 +105,26 @@ const followedByEndobj = (lexer: Lexer, endstream: number): boolean => {
   return matchesAt(lexer, position, ENDOBJ);
 };
 
-// Readers recover a stream whose Length is missing or wrong by searching for endstream; the first one followed by endobj is preferred, since data can contain the bytes "endstream".
-const searchEndstream = (lexer: Lexer, dataStart: number): number => {
+// Readers recover a stream whose Length is missing or wrong by searching for endstream. Data can contain the bytes "endstream", so of the first two occurrences the one followed by endobj is preferred, else the first; looking no further keeps the search linear when endobj keywords are missing.
+const searchEndstream = (lexer: Lexer, dataStart: number, context: IndirectObjectContext): number => {
   const { bytes } = lexer;
-  let first: number | undefined = undefined;
-  for (let position = bytes.indexOf(ENDSTREAM[0] ?? 0, dataStart); ; position = bytes.indexOf(ENDSTREAM[0] ?? 0, position + 1)) {
+  if (context.lastEndstream !== undefined && lexer.base + dataStart > context.lastEndstream) {
+    throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+  }
+  const found: number[] = [];
+  for (let position = bytes.indexOf(ENDSTREAM[0] ?? 0, dataStart); found.length < 2; position = bytes.indexOf(ENDSTREAM[0] ?? 0, position + 1)) {
     if (position < 0) {
       lexer.atEnd(bytes.length);
-      if (first === undefined) throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
-      return first;
+      break;
     }
     if (matchesAt(lexer, position, ENDSTREAM)) {
       if (followedByEndobj(lexer, position)) return position;
-      first ??= position;
+      found.push(position);
     }
   }
+  const [first] = found;
+  if (first === undefined) throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+  return first;
 };
 
 interface StreamStart {
@@ -130,7 +137,7 @@ const streamExtent = (lexer: Lexer, { dictionary, keywordEnd }: StreamStart, con
   const length = declaredLength(dictionary, context);
   const endstream = length === undefined ? undefined : endstreamAfterData(lexer, dataStart + length);
   if (length !== undefined && endstream !== undefined) return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
-  const found = searchEndstream(lexer, dataStart);
+  const found = searchEndstream(lexer, dataStart, context);
   let dataEnd = found;
   // One end-of-line marker before endstream is not part of the data (Table 5, Length).
   if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0a) dataEnd--;

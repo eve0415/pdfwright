@@ -111,6 +111,8 @@ describe('indirect object parser', () => {
     expect(data(parse('1 0 obj <<>> stream\nx endstream y\nendstream endobj'))).toBe('x endstream y');
     expect(data(parse('1 0 obj <<>> stream\nx\n\nendstream'))).toBe('x\n');
     expect(data(parse('1 0 obj <<>> stream\nx\rendstream 2 0 obj'))).toBe('x');
+    const missingEndobj = '1 0 obj <<>> stream\nx\nendstream\n2 0 obj <<>> stream\ny\nendstream\n3 0 obj <<>> stream\nz\nendstream endobj';
+    expect(data(parse(missingEndobj))).toBe('x');
   });
 
   it('rejects stream data with no endstream', () => {
