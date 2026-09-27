@@ -3,6 +3,7 @@ import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { ContentOperations } from './contentTokens.ts';
 import type { PdfDifference } from './pdfDifference.ts';
+import type { ResolvedTexts } from './resolvedText.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -11,7 +12,7 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { readOperations } from './contentTokens.ts';
-import { encodingText, sameText, valueText } from './resolvedText.ts';
+import { sameText } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
 
@@ -83,19 +84,16 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   ((left.buffer === right.buffer && left.byteOffset === right.byteOffset) || left.every((byte, index) => byte === right[index]));
 
 // Streams with the same stored bytes under the same resolved filters hold the same content, without decoding.
-const sameStored = (
-  sides: { readonly a: DocumentInternals; readonly b: DocumentInternals },
-  [left, right]: readonly [PdfDirectObject, PdfDirectObject | undefined],
-): boolean => {
+const sameStored = (sides: Pick<PageSides, 'a' | 'b' | 'texts'>, [left, right]: readonly [PdfDirectObject, PdfDirectObject | undefined]): boolean => {
   const streamA = sides.a.objects.deref(left);
   const streamB = sides.b.objects.deref(right);
   // Table 30 allows only streams; two identical values of another kind contribute the same, whatever a reader makes of them.
-  if (streamA?.kind !== 'stream' && streamB?.kind !== 'stream') return sameText(valueText(sides.a, streamA), valueText(sides.b, streamB));
+  if (streamA?.kind !== 'stream' && streamB?.kind !== 'stream') return sameText(sides.texts.a.value(streamA), sides.texts.b.value(streamB));
   return (
     streamA?.kind === 'stream' &&
     streamB?.kind === 'stream' &&
     sameBytes(streamA.data, streamB.data) &&
-    sameText(encodingText(sides.a, streamA), encodingText(sides.b, streamB))
+    sameText(sides.texts.a.encoding(streamA), sides.texts.b.encoding(streamB))
   );
 };
 
@@ -119,6 +117,7 @@ interface PageSides {
   readonly b: DocumentInternals;
   readonly pageA: PageEntry;
   readonly pageB: PageEntry;
+  readonly texts: { readonly a: ResolvedTexts; readonly b: ResolvedTexts };
 }
 
 // Operations compare as exact text; a difference records how many operations each side has and how many they share at the start and at the end.

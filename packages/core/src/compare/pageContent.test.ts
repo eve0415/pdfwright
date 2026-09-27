@@ -89,6 +89,20 @@ describe('page content comparison', () => {
     expect([content(compareDocuments(dictionary, same)), content(compareDocuments(dictionary, other)).length]).toStrictEqual([[], 2]);
   });
 
+  it('resolves filter parameters that share objects or nest deeply without repeated work or call stack', () => {
+    const shared = Array.from({ length: 40 }, (_, index): TestObject => ({
+      number: 10 + index,
+      body: `[${String(11 + index)} 0 R ${String(11 + index)} 0 R]`,
+    }));
+    const nested = Array.from({ length: 20 }, (_, index): TestObject => ({
+      number: 60 + index,
+      body: `${'['.repeat(250)}${String(61 + index)} 0 R${']'.repeat(250)}`,
+    }));
+    const streams = [{ number: 4, body: streamBody('/DecodeParms[10 0 R 60 0 R]', '0 0 m') }, ...shared, ...nested];
+    const [one, two] = [document('4 0 R', streams), document('4 0 R', streams)];
+    expect(content(compareDocuments(one, two))).toStrictEqual([]);
+  });
+
   it('reads content streams that refer to missing objects as empty', () => {
     const missing = document('[4 0 R 9 0 R]', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S 0.50 g') }]);
     expect(content(compareDocuments(single, missing))).toStrictEqual([]);

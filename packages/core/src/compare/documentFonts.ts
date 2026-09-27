@@ -2,12 +2,12 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { FontIdentity } from './pdfDifference.ts';
+import type { ResolvedTexts } from './resolvedText.ts';
 
 import { md5 } from '../hash/md5.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { decodeForComparison } from './pageContent.ts';
-import { resolvedText } from './resolvedText.ts';
 
 const SUBTYPE = pdfName('Subtype').bytes;
 const BASE_FONT = pdfName('BaseFont').bytes;
@@ -41,10 +41,12 @@ const referenceKey = (value: PdfDirectObject): string | undefined =>
  */
 export class DocumentFonts {
   private readonly document: DocumentInternals;
+  private readonly texts: ResolvedTexts;
   private readonly identities = new Map<string, FontIdentity>();
 
-  constructor(document: DocumentInternals) {
+  constructor(document: DocumentInternals, texts: ResolvedTexts) {
     this.document = document;
+    this.texts = texts;
   }
 
   resolve(value: PdfDirectObject | undefined): PdfObject | undefined {
@@ -70,7 +72,7 @@ export class DocumentFonts {
     const encoding = this.resolve(font.get(ENCODING));
     if (encoding === undefined || encoding.kind === 'name') return nameOf(encoding);
     if (encoding.kind !== 'stream') {
-      const text = resolvedText(this.document, encoding);
+      const text = this.texts.text(encoding);
       return hex(md5(latin1Bytes(text)));
     }
     const decoded = decodeForComparison(this.document, encoding);

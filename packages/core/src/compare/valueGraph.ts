@@ -11,7 +11,7 @@ import { serializeObject } from '../serialize/serializeObject.ts';
 import { readOperations } from './contentTokens.ts';
 import { duplicateKeys } from './duplicateKeys.ts';
 import { decodeForComparison } from './pageContent.ts';
-import { encodingText, sameText } from './resolvedText.ts';
+import { ResolvedTexts, sameText } from './resolvedText.ts';
 
 export interface Mismatch {
   readonly path: ValuePath;
@@ -94,6 +94,8 @@ export interface GraphContext {
   readonly pagesB: ReadonlyMap<string, number>;
   /** Reference pairs whose whole graphs compared equal, by value and by stored bytes, so that an object many pages share is compared once. */
   readonly settled: { readonly value: Set<string>; readonly raw: Set<string> };
+  /** Resolved texts of each document's objects, worked out once per comparison. */
+  readonly texts: { readonly a: ResolvedTexts; readonly b: ResolvedTexts };
 }
 
 export const graphContext = (a: DocumentInternals, b: DocumentInternals): GraphContext => ({
@@ -102,6 +104,7 @@ export const graphContext = (a: DocumentInternals, b: DocumentInternals): GraphC
   pagesA: pageNumbers(a),
   pagesB: pageNumbers(b),
   settled: { value: new Set(), raw: new Set() },
+  texts: { a: new ResolvedTexts(a), b: new ResolvedTexts(b) },
 });
 
 type StreamObject = Extract<PdfObject, { kind: 'stream' }>;
@@ -329,7 +332,7 @@ export class ValueGraph {
   // Stream data is equal as raw bytes under the same resolved filters, else as decoded bytes; a form's content compares operation by operation (ISO 32000-1:2008, 8.10).
   private data([left, right]: readonly [StreamObject, StreamObject], path: Where): void {
     const { a, b } = this.context;
-    if (sameBytes(left.data, right.data) && sameText(encodingText(a, left), encodingText(b, right))) return;
+    if (sameBytes(left.data, right.data) && sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right))) return;
     if (this.raw) {
       this.report.mismatch({
         path: pathOf(path),

@@ -98,7 +98,7 @@ class Comparison {
 
   constructor(sides: Sides, include: ReadonlySet<DifferenceArea>) {
     this.sides = graphContext(sides.a, sides.b);
-    this.documentFonts = { a: new DocumentFonts(sides.a), b: new DocumentFonts(sides.b) };
+    this.documentFonts = { a: new DocumentFonts(sides.a, this.sides.texts.a), b: new DocumentFonts(sides.b, this.sides.texts.b) };
     this.include = include;
   }
 
