@@ -139,6 +139,15 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
 
 const createResourceRecord = (): ResourceRecord => ({ graphicsStates: new Map(), separations: new Map(), images: new Map(), groups: new Map() });
 
+const isolateContent = (data: Uint8Array): Uint8Array => {
+  // ISO 32000-1:2008, 8.4.2 defines q and Q as saving and restoring the entire graphics state.
+  const isolated = new Uint8Array(data.length + 4);
+  isolated.set([0x71, 0x0a], 0);
+  isolated.set(data, 2);
+  isolated.set([0x51, 0x0a], data.length + 2);
+  return isolated;
+};
+
 const createContentHooks = (resources: ResourceRecord, owner: symbol, colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray'): ContentHooks => ({
   colorSpace,
   registerGraphicsState: stateOptions => {
@@ -347,9 +356,11 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       pages.push(record);
       return {
         draw: (render): void => {
-          const content = createContentBuilder(fractionDigits, createContentHooks(record, owner, normalized.group?.colorSpace));
+          const hooks = createContentHooks(record, owner, normalized.group?.colorSpace);
+          hooks.maxDepth = 27;
+          const content = createContentBuilder(fractionDigits, hooks);
           render(content);
-          record.contents.push(content.finish());
+          record.contents.push(isolateContent(content.finish()));
         },
         pieceInfo: (input): void => {
           record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);

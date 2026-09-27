@@ -1,12 +1,49 @@
 import { describe, expect, it } from 'vitest';
 
+import { ValidationError } from '../error/validationError.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { mm, pt } from '../length/length.ts';
 
+import { cmyk } from './color.ts';
 import { createDocument } from './pdfDocument.ts';
 
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
 describe('minimal PDF document', () => {
+  it('reserves one graphics state level for each isolated draw stream', () => {
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: [pt(0), pt(0), pt(20), pt(20)] });
+    page.draw(content => {
+      for (let index = 0; index < 27; index++) content.save();
+      expect(() => {
+        content.save();
+      }).toThrow(ValidationError);
+      for (let index = 0; index < 27; index++) content.restore();
+    });
+  });
+
+  it('isolates graphics state between separate draw streams', () => {
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: [pt(0), pt(0), pt(20), pt(20)] });
+    page.draw(content => {
+      content.graphicsState({ overprintFill: true, overprintMode: 1 });
+    });
+    page.draw(content => {
+      content.fillColor(cmyk(0, 0, 0, 0));
+      content.path(path => path.rect(0, 0, 20, 20));
+      content.fill('nonzero');
+    });
+    const bytes = document.save().toBytes();
+    const pdf = ascii(bytes);
+    const starts = [...pdf.matchAll(/\nstream\n/gu)].map(match => match.index + 8);
+    const streams = starts.map(start => {
+      const compressed = bytes.subarray(start, pdf.indexOf('\nendstream', start));
+      return ascii(inflateZlib(compressed).data);
+    });
+    expect(streams[0]).toBe('q\n/GS1 gs\nQ\n');
+    expect(streams[1]).toBe('q\n0 0 0 0 k\n0 0 20 20 re\nf\nQ\n');
+  });
+
   it('writes empty A4 pages with exact media boxes and no contents', () => {
     const document = createDocument();
     const mediaBox = [pt(0), pt(0), mm(210), mm(297)] as const;

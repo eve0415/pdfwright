@@ -65,6 +65,6 @@ describe('content builder', () => {
     const end = text.indexOf('\nendstream', start);
     const compressed = bytes.subarray(start, end);
     const decoded = inflateZlib(compressed).data;
-    expect(ascii(decoded)).toBe('0 0 10 10 re\nf\n');
+    expect(ascii(decoded)).toBe('q\n0 0 10 10 re\nf\nQ\n');
   });
 });

@@ -46,6 +46,7 @@ export interface ContentHooks {
   registerImage?: (image: PdfImage) => string;
   registerGroup?: (group: PdfGroup) => string;
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
+  maxDepth?: number;
 }
 
 export interface PathBuilder {
@@ -195,7 +196,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   return {
     save: (): void => {
       // ISO 32000-1:2008, Annex C, Table C.1 limits graphics state nesting to 28 levels.
-      if (depth === 28) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
       depth++;
       stack.push({ ...state });
       emit('q');
@@ -278,7 +279,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       commands.push(`/${name} gs\n`);
     },
     image: (image, matrix): void => {
-      if (depth === 28) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
       let name = localImages.get(image);
       if (name === undefined) {
         name = hooks.registerImage?.(image) ?? `Im${localImages.size + 1}`;
@@ -291,7 +292,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       emit('Q');
     },
     group: (group, matrix, options): void => {
-      if (depth === 28) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
       const inheritedOverprint = (group.inheritedWhiteFill && state.overprintFill) || (group.inheritedWhiteStroke && state.overprintStroke);
       // ISO 32000-1:2008, 8.10.1 makes a form inherit the graphics state at Do; 8.6.7 and Table 148 leave zero DeviceCMYK components unchanged under OPM 1.
       if (
