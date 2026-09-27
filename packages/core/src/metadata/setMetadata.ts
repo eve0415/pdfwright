@@ -178,8 +178,10 @@ const resolveValues = (state: MetadataState, input: MetadataInput): ResolvedInpu
   return { values, reconciled: resolver.reconciled };
 };
 
+// An identifier may be written as text or, as XMP Part 1 7.5 allows for a URI simple value, as rdf:resource.
 const packetText = (packet: ReadPacket | undefined, name: string): string | undefined => {
   const value = packet?.properties.find(property => property.namespace === XMP_MM_NAMESPACE && property.localName === name)?.value;
+  if (value?.kind === 'uri') return value.uri;
   return value?.kind === 'text' ? value.text : undefined;
 };
 

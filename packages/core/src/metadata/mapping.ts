@@ -100,10 +100,10 @@ export const MAPPED_ROWS: readonly Row[] = [
 const find = (packet: XmpPacket | undefined, namespace: string, name: string): XmpProperty | undefined =>
   packet?.properties.find(property => property.namespace === namespace && property.localName === name);
 
-/** The text a value maps to one Info string: a simple value's text, the x-default or else the first item of an alternative, the first item of any other array. */
+/** The text a value maps to one Info string: a simple value's text, the x-default or else the first item of an alternative, the first item of any other array; a URI or an opaque value maps to none. */
 export const comparableText = (value: XmpValue): string | undefined => {
   if (value.kind === 'text') return value.text;
-  if (value.kind === 'opaque') return undefined;
+  if (value.kind === 'opaque' || value.kind === 'uri') return undefined;
   return (value.type === 'Alt' ? value.items.find(item => item.language === 'x-default') : undefined)?.text ?? value.items[0]?.text;
 };
 

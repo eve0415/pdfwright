@@ -12,9 +12,10 @@ export interface XmpArrayItem {
   readonly language: string | undefined;
 }
 
-/** A property value as far as metadata mapping reads it: simple text, an array of simple items, or anything else, which is never interpreted. */
+/** A property value as far as metadata mapping reads it: simple text, a URI, an array of simple items, or anything else, which is never interpreted. */
 export type XmpValue =
   | { readonly kind: 'text'; readonly text: string; readonly language: string | undefined }
+  | { readonly kind: 'uri'; readonly uri: string }
   | { readonly kind: 'array'; readonly type: 'Alt' | 'Seq' | 'Bag'; readonly items: readonly XmpArrayItem[] }
   | { readonly kind: 'opaque' };
 
@@ -196,11 +197,16 @@ const arrayValue = (element: XmlElement): XmpValue => {
   return { kind: 'array', type, items };
 };
 
-// XMP Part 1 7.5: a simple value is the element content, "only character data, entity references, character references, and CDATA sections"; a URI value (rdf:resource), a parseType, qualifiers or nested elements make the value opaque here.
+const isLanguage = (attribute: Attribute): boolean => attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang';
+
+// XMP Part 1 7.5: a simple value is the element content, "only character data, entity references, character references, and CDATA sections", and "The element content for an XMP property with a URI simple value shall be empty. The value shall be provided as the value of an rdf:resource attribute"; a parseType, other qualifiers or nested elements make the value opaque here.
 const elementValue = (element: XmlElement): XmpValue => {
   if (element.children.length > 0) return isBlank(element) ? arrayValue(element) : { kind: 'opaque' };
-  const plain = element.attributes.every(attribute => isDeclaration(attribute) || (attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang'));
-  return plain ? { kind: 'text', text: element.text.join(''), language: language(element.language) } : { kind: 'opaque' };
+  const others = element.attributes.filter(attribute => !isDeclaration(attribute) && !isLanguage(attribute));
+  if (others.length === 0) return { kind: 'text', text: element.text.join(''), language: language(element.language) };
+  const [resource] = others;
+  const uri = others.length === 1 && resource?.namespace === RDF_NAMESPACE && resource.localName === 'resource' && element.text.join('') === '';
+  return uri ? { kind: 'uri', uri: resource.value } : { kind: 'opaque' };
 };
 
 interface Subjects {

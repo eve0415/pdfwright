@@ -60,7 +60,7 @@ const encodingFindings = (bytes: Uint8Array): readonly string[] => {
 };
 
 describe('reading XMP packets', () => {
-  it('reads simple, attribute, language alternative, ordered and opaque properties', () => {
+  it('reads simple, attribute, URI, language alternative, ordered and opaque properties', () => {
     const text = packet(
       `<rdf:Description rdf:about="" ${DC} ${XMP} xmp:CreatorTool="Tool &amp; Co">` +
         '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Title</rdf:li><rdf:li xml:lang="ja">題</rdf:li></rdf:Alt></dc:title>' +
@@ -99,7 +99,7 @@ describe('reading XMP packets', () => {
       ],
       ['http://ns.adobe.com/xap/1.0/CreateDate', 'element', { kind: 'text', text: '2024-01-01T00:00:00Z', language: undefined }],
       ['http://ns.adobe.com/xap/1.0/Thumbnails', 'element', { kind: 'opaque' }],
-      ['http://ns.adobe.com/xap/1.0/BaseURL', 'element', { kind: 'opaque' }],
+      ['http://ns.adobe.com/xap/1.0/BaseURL', 'element', { kind: 'uri', uri: 'http://example.com/' }],
       ['http://purl.org/dc/elements/1.1/empty', 'element', { kind: 'text', text: '', language: undefined }],
     ]);
   });

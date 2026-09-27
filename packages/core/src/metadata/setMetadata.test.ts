@@ -211,6 +211,13 @@ describe('setting document metadata', () => {
     expect(setMetadata(load('', [], ''), INPUT, { documentId: { value: 'uuid:given' } }).documentId).toBe('uuid:given');
   });
 
+  it('keeps a DocumentID written as a URI', () => {
+    const document = load('/Metadata 4 0 R', [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('<xmpMM:DocumentID rdf:resource="uuid:resource"/>')) },
+    ]);
+    expect(setMetadata(document, INPUT).documentId).toBe('uuid:resource');
+  });
+
   it('derives the DocumentID from a file identifier held indirectly', () => {
     const first = `<${'0123456789abcdef'.repeat(2)}>`;
     const array = load('', [{ number: 4, body: `[${first}<00>]` }], '/ID 4 0 R');
