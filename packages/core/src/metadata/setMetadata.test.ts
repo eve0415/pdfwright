@@ -455,6 +455,18 @@ describe('setting document metadata', () => {
     ]).toStrictEqual([6, [], 7, [4]]);
   });
 
+  it('preserves a document packet shared through a direct dictionary in the catalog', () => {
+    const document = load('/Metadata 4 0 R/Extra<</Metadata 4 0 R>>', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) }]);
+    setMetadata(document, INPUT);
+    const component = document.get(pdfReference(4, 0));
+    const metadata = readMetadata(saved(document));
+    expect([
+      metadata.xmp?.reference.objectNumber,
+      metadata.packets.components.map(item => [item.owner.objectNumber, item.reference.objectNumber]),
+    ]).toStrictEqual([6, [[1, 4]]]);
+    expect(component).toMatchObject({ kind: 'stream', data: new TextEncoder().encode(packet('')) });
+  });
+
   it('requires a DocumentID source and uses a supplied one', () => {
     expect(() => setMetadata(load('', [], ''), INPUT)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'document-id-required' }));
     expect(setMetadata(load('', [], ''), INPUT, { documentId: { value: 'uuid:given' } }).documentId).toBe('uuid:given');

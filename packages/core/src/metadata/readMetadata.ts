@@ -156,10 +156,11 @@ export class MetadataReader {
   components(reachable: ReadonlyMap<number, number>, catalogNumber: number | undefined): ComponentPacket[] {
     const components: ComponentPacket[] = [];
     for (const [objectNumber, generation] of reachable) {
-      if (objectNumber === catalogNumber) continue;
       const work: PdfObject[] = [];
       const value = this.resolve({ kind: 'reference', objectNumber, generation });
-      if (value !== undefined) work.push(value);
+      if (objectNumber === catalogNumber && value?.kind === 'dictionary') {
+        for (const [, entry] of value.entries.entries()) if (entry.kind === 'dictionary' || entry.kind === 'array') work.push(entry);
+      } else if (value !== undefined) work.push(value);
       for (let item = work.pop(); item !== undefined; item = work.pop()) {
         if (item.kind === 'array') for (const element of item.items) work.push(element);
         const entries = entriesOf(item);

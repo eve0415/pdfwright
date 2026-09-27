@@ -51,6 +51,14 @@ const unreadable = (metadata: DocumentMetadata): string | undefined =>
 const codes = (metadata: DocumentMetadata): readonly string[] => metadata.findings.map(finding => finding.code);
 
 describe('reading document metadata', () => {
+  it('finds a component packet inside a direct dictionary in the catalog', () => {
+    const metadata = read('/Metadata 4 0 R/Extra<</Metadata 4 0 R>>', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', PRODUCER) }], '');
+    expect(metadata.packets.components).toStrictEqual([
+      { owner: pdfReference(1, 0), reference: pdfReference(4, 0) },
+      { owner: pdfReference(3, 0), reference: pdfReference(8, 0) },
+    ]);
+  });
+
   it('reads Info and the document packet, maps them, and lists components, orphans and scanned packets', () => {
     const metadata = read(
       '/Metadata 4 0 R',
