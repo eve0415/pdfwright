@@ -2,7 +2,7 @@ import type { ContentOperand, ContentOperation } from '../../content/contentOper
 import type { DocumentInternals } from '../../document/documentInternals.ts';
 import type { Type3Parts } from '../../font/fontModel.ts';
 import type { PdfDictionaryEntries } from '../../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject } from '../../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from '../../object/pdfObject.ts';
 
 import { readContent } from '../../content/contentOperations.ts';
 import { unreadable } from '../../content/unreadable.ts';
@@ -92,7 +92,13 @@ const readProcedure = (document: DocumentInternals, value: PdfDirectObject, reso
  * Names are looked up in the font's Resources, or in `pageResources` when the font has none, as Table 112 says: "the names shall be looked up in the resource dictionary of the page on which the font is used".
  */
 export const readType3Glyphs = (document: DocumentInternals, type3: Type3Parts, pageResources: PdfDictionaryEntries | undefined): Type3Reading => {
-  const own = document.objects.deref(type3.resources);
+  let own: PdfObject | undefined = undefined;
+  try {
+    own = document.objects.deref(type3.resources);
+  } catch (error: unknown) {
+    // A Resources entry that cannot be read is no resource dictionary; content interpretation then takes the page's, and so does this reading.
+    if (!unreadable(error)) throw error;
+  }
   const inheritsPageResources = own === undefined || own.kind === 'null';
   const resources = inheritsPageResources ? pageResources : dictionaryOf(own);
   const kinds = new Set<Procedure['kind']>();

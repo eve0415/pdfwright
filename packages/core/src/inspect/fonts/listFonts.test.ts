@@ -223,6 +223,27 @@ describe('font inventory', () => {
     expect([font.toUnicode, codes(font)]).toStrictEqual(['unreadable', ['to-unicode-unreadable']]);
   });
 
+  it('keeps a font whose program, descriptor entries or Type 3 resources cannot be read, and reports the damage', () => {
+    const damaged = { number: 150, body: '<</A [ 1 2' };
+    const trueType = onPage('/Font<</F1 100 0 R>>', [
+      { number: 100, body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>' },
+      { number: 101, body: '<</Type/FontDescriptor/FontName/Test/Flags 32/FontFile2 150 0 R>>' },
+      damaged,
+    ]);
+    const type3 = onPage('/Font<</T3 110 0 R>>', [
+      { number: 110, body: `<<${TYPE3}/FontDescriptor 112 0 R/Resources 150 0 R>>` },
+      { number: 111, body: streamBody('', '1000 0 d0 0 0 1 1 re f') },
+      { number: 112, body: '<</Type/FontDescriptor/FontName 150 0 R/Flags 4>>' },
+      damaged,
+    ]);
+    expect([trueType.embedding, codes(trueType), type3.type3, codes(type3)]).toStrictEqual([
+      { state: 'unreadable', file: 'FontFile2' },
+      ['font-unreadable'],
+      { glyphs: 'vector', procedures: 1, coloured: 1 },
+      ['font-unreadable'],
+    ]);
+  });
+
   it('lists the pages whose resources reach each font, ordered by the first page and then by object number', () => {
     const result = inventory(
       [{ resources: '/Font<</F1 120 0 R>>' }, { resources: '/XObject<</X1 130 0 R>>' }, { resources: '/Font<</F1 120 0 R/F2 100 0 R>>' }],

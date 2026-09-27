@@ -6,7 +6,7 @@ import type { PageEntry } from '../../document/pageTree.ts';
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { CidFontSubtype, FontEncodingSummary, FontModel, FontSubtype, FontWarningCode } from '../../font/fontModel.ts';
 import type { PdfDictionaryEntries } from '../../object/pdfDictionaryEntries.ts';
-import type { PdfReference } from '../../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../../object/pdfObject.ts';
 import type { Type3Reading, Type3Summary } from './type3Glyphs.ts';
 
 import { interpretPage } from '../../content/interpreter.ts';
@@ -45,6 +45,8 @@ export type FontEmbedding =
       readonly matchesFontType: boolean;
     }
   | { readonly state: 'not-embedded'; readonly standard14: boolean }
+  /** The descriptor names a program that cannot be read. */
+  | { readonly state: 'unreadable'; readonly file: 'FontFile' | 'FontFile2' | 'FontFile3' }
   | { readonly state: 'not-applicable' };
 
 /** Whether the font's name marks it as a subset (ISO 32000-1:2008, 9.6.4). For a Type 3 font, whose glyph set is its CharProcs, the tag is reported without the state. */
@@ -151,6 +153,34 @@ const internals = (document: LoadedDocument): DocumentInternals => {
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
+const UNREAD = Symbol('unread');
+
+/** Reads the objects of one font entry; an object that cannot be read is reported as a problem of the entry, which is kept. */
+class EntryReader {
+  private readonly document: DocumentInternals;
+  readonly problems: FontProblem[] = [];
+
+  constructor(document: DocumentInternals) {
+    this.document = document;
+  }
+
+  // undefined for an absent value, UNREAD for one that cannot be read.
+  read(value: PdfDirectObject | undefined, what: string): PdfObject | typeof UNREAD | undefined {
+    try {
+      return this.document.objects.deref(value);
+    } catch (error: unknown) {
+      if (!unreadable(error)) throw error;
+      this.problems.push({ code: 'font-unreadable', detail: `${what} cannot be read: ${error.message}` });
+      return UNREAD;
+    }
+  }
+
+  object(value: PdfDirectObject | undefined, what: string): PdfObject | undefined {
+    const object = this.read(value, what);
+    return object === UNREAD ? undefined : object;
+  }
+}
+
 interface Program {
   readonly embedding: FontEmbedding;
   /** Tells programs apart for the subset tag rule: a digest of the stored program bytes. */
@@ -158,12 +188,13 @@ interface Program {
 }
 
 // Table 122: "At most, only one of the FontFile, FontFile2, and FontFile3 entries shall be present"; the first present is taken.
-const programOf = (document: DocumentInternals, font: FontModel, descriptor: PdfDictionaryEntries | undefined): Program => {
+const programOf = (reader: EntryReader, font: FontModel, descriptor: PdfDictionaryEntries | undefined): Program => {
   const standard14 = font.subtype === 'Type1' && font.baseFont !== undefined && STANDARD_14.has(latin1(font.baseFont));
   for (const file of FONT_FILES) {
-    const stream = document.objects.deref(descriptor?.get(pdfName(file).bytes));
+    const stream = reader.read(descriptor?.get(pdfName(file).bytes), `the ${file} program`);
+    if (stream === UNREAD) return { embedding: { state: 'unreadable', file }, identity: undefined };
     if (stream?.kind !== 'stream') continue;
-    const subtype = file === 'FontFile3' ? document.objects.deref(stream.dictionary.get(SUBTYPE)) : undefined;
+    const subtype = file === 'FontFile3' ? reader.object(stream.dictionary.get(SUBTYPE), 'the FontFile3 Subtype') : undefined;
     const fileSubtype = subtype?.kind === 'name' ? subtype.bytes : undefined;
     const type = font.subtype === 'Type0' ? font.descendant?.subtype : font.subtype;
     const form = fileSubtype === undefined ? file : `${file}/${latin1(fileSubtype)}`;
@@ -189,18 +220,18 @@ const subsetOf = (name: Uint8Array | undefined, type3: boolean): SubsetReading =
   return { subset: valid ? { state: 'subset', tag } : { state: 'not-subset' }, malformed };
 };
 
-const descendantOf = (document: DocumentInternals, font: FontModel): FontDescendant | undefined => {
+const descendantOf = (reader: EntryReader, font: FontModel): FontDescendant | undefined => {
   const { descendant } = font;
   if (descendant === undefined) return undefined;
-  const info = dictionaryOf(document.objects.deref(descendant.dictionary.get(CID_SYSTEM_INFO)));
-  const registry = document.objects.deref(info?.get(REGISTRY));
-  const ordering = document.objects.deref(info?.get(ORDERING));
+  const info = dictionaryOf(reader.object(descendant.dictionary.get(CID_SYSTEM_INFO), 'the CIDSystemInfo'));
+  const registry = reader.object(info?.get(REGISTRY), 'the CIDSystemInfo Registry');
+  const ordering = reader.object(info?.get(ORDERING), 'the CIDSystemInfo Ordering');
   return {
     subtype: descendant.subtype,
     reference: descendant.reference,
     registry: registry?.kind === 'string' ? registry.bytes : undefined,
     ordering: ordering?.kind === 'string' ? ordering.bytes : undefined,
-    supplement: numberOf(document.objects.deref(info?.get(SUPPLEMENT))),
+    supplement: numberOf(reader.object(info?.get(SUPPLEMENT), 'the CIDSystemInfo Supplement')),
   };
 };
 
@@ -212,8 +243,8 @@ interface Described {
   readonly glyphs: Type3Reading | undefined;
 }
 
-const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described): FontProblem[] => {
-  const problems: FontProblem[] = [];
+const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described, damage: readonly FontProblem[]): FontProblem[] => {
+  const problems: FontProblem[] = [...damage];
   if (program.embedding.state === 'embedded' && !program.embedding.matchesFontType) {
     problems.push({ code: 'embedding-type-mismatch', detail: `${program.embedding.file} is not a program Table 126 allows for this font type` });
   }
@@ -241,23 +272,25 @@ interface Built {
 const sorted = (pages: ReadonlySet<number>): number[] => [...pages].toSorted((a, b) => a - b);
 
 const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageResources }: Reached): Built => {
+  const reader = new EntryReader(document);
   const holder = model.subtype === 'Type0' ? model.descendant?.dictionary : model.dictionary;
   const descriptorValue = holder?.get(FONT_DESCRIPTOR);
-  const descriptor = dictionaryOf(document.objects.deref(descriptorValue));
+  const descriptor = dictionaryOf(reader.object(descriptorValue, 'the font descriptor'));
   const type3 = model.subtype === 'Type3';
-  const fontName = document.objects.deref(descriptor?.get(FONT_NAME));
+  const fontName = reader.object(descriptor?.get(FONT_NAME), 'the FontName');
   const name = type3 && fontName?.kind === 'name' ? fontName.bytes : model.baseFont;
-  const program: Program = type3 ? { embedding: { state: 'not-applicable' }, identity: undefined } : programOf(document, model, descriptor);
+  const program: Program = type3 ? { embedding: { state: 'not-applicable' }, identity: undefined } : programOf(reader, model, descriptor);
   const { subset, malformed } = subsetOf(name, type3);
   const glyphs = model.type3 === undefined ? undefined : readType3Glyphs(document, model.type3, pageResources);
-  const subtypeValue = document.objects.deref(model.dictionary.get(SUBTYPE));
+  const subtypeValue = reader.object(model.dictionary.get(SUBTYPE), 'the Subtype');
+  const descendant = descendantOf(reader, model);
   const entry: FontEntry = {
     key: model.key,
     reference: model.reference,
     subtype: model.subtype,
     subtypeBytes: subtypeValue?.kind === 'name' ? subtypeValue.bytes : new Uint8Array(),
     name,
-    descendant: descendantOf(document, model),
+    descendant,
     descriptor: descriptorValue?.kind === 'reference' ? descriptorValue : undefined,
     embedding: program.embedding,
     subset,
@@ -266,7 +299,7 @@ const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageRe
     type3: glyphs === undefined ? undefined : { glyphs: glyphs.glyphs, procedures: glyphs.procedures, coloured: glyphs.coloured },
     pages: sorted(pages),
     shownOn: sorted(shownOn),
-    problems: problemsOf({ model, descriptor, program, malformed, glyphs }),
+    problems: problemsOf({ model, descriptor, program, malformed, glyphs }, reader.problems),
   };
   return { entry, identity: program.identity };
 };
