@@ -1,4 +1,4 @@
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { pdfString } from '../object/pdfObject.ts';
@@ -54,7 +54,7 @@ export const pdfDateString = (date: PdfDate): string => {
   return `D:${clock}${offset}`;
 };
 
-export const pdfDateObject = (date: PdfDate): PdfObject => pdfString(new TextEncoder().encode(pdfDateString(date)));
+export const pdfDateObject = (date: PdfDate): PdfDirectObject => pdfString(new TextEncoder().encode(pdfDateString(date)));
 
 export const pdfDateFromDate = (date: Date, offsetMinutes: number): PdfDate => {
   if (!Number.isFinite(date.getTime()) || !inRange(offsetMinutes, -1439, 1439)) throw new ValidationError('invalid date or UTC offset');

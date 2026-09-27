@@ -1,5 +1,6 @@
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { formatInteger, formatNumber } from '../number/formatNumber.ts';
 import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -65,10 +66,10 @@ const writeString = (writer: ByteWriter, bytes: Uint8Array, encoding: 'literal' 
   writer.writeByte(0x29);
 };
 
-const needsSpace = (object: PdfObject): boolean =>
+const needsSpace = (object: PdfDirectObject): boolean =>
   object.kind === 'null' || object.kind === 'boolean' || object.kind === 'integer' || object.kind === 'real' || object.kind === 'reference';
 
-export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: SerializeOptions): void => {
+const writeDirectObject = (writer: ByteWriter, object: PdfDirectObject, options: SerializeOptions): void => {
   switch (object.kind) {
     case 'null': {
       writer.writeAscii('null');
@@ -99,7 +100,7 @@ export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: S
       for (let index = 0; index < object.items.length; index++) {
         if (index > 0) writer.writeByte(0x20);
         const item = object.items[index];
-        if (item !== undefined) writePdfObject(writer, item, options);
+        if (item !== undefined) writeDirectObject(writer, item, options);
       }
       writer.writeByte(0x5d);
       break;
@@ -110,19 +111,9 @@ export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: S
       for (const [key, value] of object.entries.entries()) {
         writeName(writer, key);
         if (needsSpace(value)) writer.writeByte(0x20);
-        writePdfObject(writer, value, options);
+        writeDirectObject(writer, value, options);
       }
       writer.writeAscii('>>');
-      break;
-    }
-    case 'stream': {
-      const entries = new PdfDictionaryEntries(object.dictionary.entries());
-      entries.set(pdfName('Length').bytes, pdfInteger(object.data.length));
-      writePdfObject(writer, { kind: 'dictionary', entries }, options);
-      // ISO 32000-1:2008, 7.3.8.1 permits LF after stream and recommends an EOL after data before endstream.
-      writer.writeAscii('\nstream\n');
-      writer.writeBytes(object.data);
-      writer.writeAscii('\nendstream');
       break;
     }
     case 'reference': {
@@ -130,9 +121,23 @@ export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: S
       break;
     }
     default: {
-      throw new TypeError('unknown PDF object kind');
+      throw new InvalidArgumentError('only direct objects can be nested; ISO 32000-1:2008, 7.3.8.1 requires every stream to be an indirect object');
     }
   }
+};
+
+export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: SerializeOptions): void => {
+  if (object.kind !== 'stream') {
+    writeDirectObject(writer, object, options);
+    return;
+  }
+  const entries = new PdfDictionaryEntries(object.dictionary.entries());
+  entries.set(pdfName('Length').bytes, pdfInteger(object.data.length));
+  writeDirectObject(writer, { kind: 'dictionary', entries }, options);
+  // ISO 32000-1:2008, 7.3.8.1 permits LF after stream and recommends an EOL after data before endstream.
+  writer.writeAscii('\nstream\n');
+  writer.writeBytes(object.data);
+  writer.writeAscii('\nendstream');
 };
 
 export const serializeObject = (object: PdfObject, options: SerializeOptions): Uint8Array => {

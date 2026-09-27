@@ -1,4 +1,4 @@
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
 
@@ -57,7 +57,7 @@ export const createGroup = (
 
 // ISO 32000-1:2008, 8.10.2, Table 95 defines form XObjects; 11.6.6, Table 147 defines transparency group attributes.
 export const groupObject = (
-  ...[group, content, resources, fractionDigits, pieceInfo]: [PdfGroup, Uint8Array, PdfObject, number, PieceInfoRecord | undefined]
+  ...[group, content, resources, fractionDigits, pieceInfo]: [PdfGroup, Uint8Array, PdfDirectObject, number, PieceInfoRecord | undefined]
 ): PdfObject => {
   const attributes = new PdfDictionaryEntries([
     [pdfName('S').bytes, pdfName('Transparency')],

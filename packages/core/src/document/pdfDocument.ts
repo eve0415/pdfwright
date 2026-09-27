@@ -1,5 +1,5 @@
 import type { Length } from '../length/length.ts';
-import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder, ContentHooks, GraphicsStateOptions } from './contentBuilder.ts';
@@ -23,7 +23,7 @@ import { createContentBuilder } from './contentBuilder.ts';
 import { documentInfoDictionary } from './documentInfo.ts';
 import { createGroup, groupObject } from './group.ts';
 import { createImage, imageObject, softMaskObject } from './image.ts';
-import { pieceInfoRecord, validateIndirectValue } from './pieceInfo.ts';
+import { pieceInfoRecord } from './pieceInfo.ts';
 import { rect } from './rect.ts';
 import { colorantKey, createSeparation, separationObject } from './separation.ts';
 
@@ -214,7 +214,7 @@ const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: numbe
   return numbers;
 };
 
-const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfObject | undefined => {
+const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfDirectObject | undefined => {
   if (record.graphicsStates.size === 0 && record.separations.size === 0 && record.images.size === 0 && record.groups.size === 0) return undefined;
   const resources = new PdfDictionaryEntries();
   if (record.separations.size > 0) {
@@ -244,7 +244,7 @@ const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfObj
   return pdfDictionary(resources);
 };
 
-const pageObject = (record: PageRecord, context: PageBuildContext): PdfObject => {
+const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObject => {
   const page = record.options;
   // ISO 32000-1:2008, 7.7.3.3, Table 30 makes MediaBox required and Contents optional; an absent Contents means an empty page.
   const entries = new PdfDictionaryEntries([
@@ -295,7 +295,6 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
 
   return {
     object: (value): PdfReference => {
-      validateIndirectValue(value);
       const reference = pdfReference(callerObjects.length + 3, 0);
       callerObjects.push(value);
       return reference;

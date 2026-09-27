@@ -60,6 +60,17 @@ describe('object serialization', () => {
     expect(write(pdfDictionary(entries))).toBe('<</A 1/B 2 0 R>>');
   });
 
+  it('rejects a stream nested in an array or dictionary', () => {
+    const stream = { kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new Uint8Array([65]) } as const;
+    // @ts-expect-error ISO 32000-1:2008, 7.3.8.1 requires every stream to be an indirect object, so array items exclude streams.
+    expect(() => write(pdfArray([stream]))).toThrow(InvalidArgumentError);
+    const entries = new PdfDictionaryEntries();
+    // @ts-expect-error Dictionary values exclude streams for the same reason.
+    entries.set(pdfName('Data').bytes, stream);
+    expect(() => write(pdfDictionary(entries))).toThrow(InvalidArgumentError);
+    expect(() => write({ kind: 'stream', dictionary: entries, data: new Uint8Array() })).toThrow(InvalidArgumentError);
+  });
+
   it('writes streams with encoded byte lengths and LF line endings', () => {
     const entries = new PdfDictionaryEntries();
     entries.set(pdfName('Length').bytes, pdfInteger(999));

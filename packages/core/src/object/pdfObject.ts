@@ -6,17 +6,19 @@ import { PdfDictionaryEntries } from './pdfDictionaryEntries.ts';
 
 export { PdfDictionaryEntries } from './pdfDictionaryEntries.ts';
 
-export type PdfObject =
+// ISO 32000-1:2008, 7.3.8.1: "All streams shall be indirect objects", so array items and dictionary values are direct objects only.
+export type PdfDirectObject =
   | { kind: 'null' }
   | { kind: 'boolean'; value: boolean }
   | { kind: 'integer'; value: number }
   | { kind: 'real'; value: number }
   | { kind: 'name'; bytes: Uint8Array }
   | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex' }
-  | { kind: 'array'; items: PdfObject[] }
+  | { kind: 'array'; items: PdfDirectObject[] }
   | { kind: 'dictionary'; entries: PdfDictionaryEntries }
-  | { kind: 'stream'; dictionary: PdfDictionaryEntries; data: Uint8Array }
   | { kind: 'reference'; objectNumber: number; generation: number };
+
+export type PdfObject = PdfDirectObject | { kind: 'stream'; dictionary: PdfDictionaryEntries; data: Uint8Array };
 
 export type PdfReference = Extract<PdfObject, { kind: 'reference' }>;
 
@@ -61,7 +63,7 @@ export const pdfReal = (value: number): Extract<PdfObject, { kind: 'real' }> => 
   return { kind: 'real', value };
 };
 
-export const pdfArray = (items: PdfObject[]): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
+export const pdfArray = (items: PdfDirectObject[]): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
 
 export const pdfDictionary = (entries: PdfDictionaryEntries = new PdfDictionaryEntries()): Extract<PdfObject, { kind: 'dictionary' }> => ({
   kind: 'dictionary',

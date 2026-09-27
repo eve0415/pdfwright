@@ -1,5 +1,5 @@
 import type { PdfDate } from '../date/pdfDate.ts';
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 
 import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -18,7 +18,7 @@ export interface DocumentInfo {
 }
 
 // ISO 32000-1:2008, 7.9.2.2 encodes text strings as PDFDocEncoding or UTF-16BE with a FE FF byte-order marker.
-export const pdfTextString = (value: string): PdfObject => {
+export const pdfTextString = (value: string): PdfDirectObject => {
   const units: number[] = [];
   let ascii = true;
   for (let index = 0; index < value.length; index++) {

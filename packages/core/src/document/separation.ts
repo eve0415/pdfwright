@@ -1,4 +1,4 @@
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { DeviceColor } from './color.ts';
 
 import { ValidationError } from '../error/validationError.ts';
@@ -32,7 +32,7 @@ export const createSeparation = (options: SeparationOptions, asciiOnly: boolean)
 };
 
 // ISO 32000-1:2008, 8.6.6.4 defines the four-element Separation array; 7.10.2 Tables 38 and 40 define the type 2 tint function.
-export const separationObject = (separation: Separation): PdfObject => {
+export const separationObject = (separation: Separation): PdfDirectObject => {
   const { alternate } = separation;
   const noInk = { DeviceCMYK: [0, 0, 0, 0], DeviceRGB: [1, 1, 1], DeviceGray: [1] }[alternate.kind];
   const functionEntries = new PdfDictionaryEntries([

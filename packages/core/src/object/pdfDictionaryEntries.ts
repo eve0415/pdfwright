@@ -1,4 +1,4 @@
-import type { PdfObject } from './pdfObject.ts';
+import type { PdfDirectObject } from './pdfObject.ts';
 
 import { assertNameBytes } from './nameBytes.ts';
 
@@ -9,19 +9,19 @@ const byteKey = (bytes: Uint8Array): string => {
 };
 
 export class PdfDictionaryEntries {
-  private readonly values = new Map<string, { key: Uint8Array; value: PdfObject }>();
+  private readonly values = new Map<string, { key: Uint8Array; value: PdfDirectObject }>();
 
-  constructor(entries: Iterable<readonly [Uint8Array, PdfObject]> = []) {
+  constructor(entries: Iterable<readonly [Uint8Array, PdfDirectObject]> = []) {
     for (const [key, value] of entries) this.set(key, value);
   }
 
-  get(nameBytes: Uint8Array): PdfObject | undefined {
+  get(nameBytes: Uint8Array): PdfDirectObject | undefined {
     const value = this.values.get(byteKey(nameBytes))?.value;
     // ISO 32000-1:2008, 7.3.7 treats a null-valued dictionary entry as absent.
     return value?.kind === 'null' ? undefined : value;
   }
 
-  set(nameBytes: Uint8Array, value: PdfObject): this {
+  set(nameBytes: Uint8Array, value: PdfDirectObject): this {
     assertNameBytes(nameBytes);
     this.values.set(byteKey(nameBytes), { key: Uint8Array.from(nameBytes), value });
     return this;
@@ -35,7 +35,7 @@ export class PdfDictionaryEntries {
     return this.get(nameBytes) !== undefined;
   }
 
-  *entries(): IterableIterator<[Uint8Array, PdfObject]> {
+  *entries(): IterableIterator<[Uint8Array, PdfDirectObject]> {
     for (const { key, value } of this.values.values()) {
       if (value.kind !== 'null') yield [Uint8Array.from(key), value];
     }

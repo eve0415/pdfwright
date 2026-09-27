@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { pdfDate } from '../date/pdfDate.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -43,8 +44,9 @@ describe('page-piece data and indirect objects', () => {
       document.pieceInfo({ data: { App: {} } });
     }).toThrow(ValidationError);
     const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
-    expect(() => {
-      page.pieceInfo({ lastModified, data: { App: { private: { kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new Uint8Array([1]) } } } });
-    }).toThrow(ValidationError);
+    const stream = { kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new Uint8Array([1]) } as const;
+    // @ts-expect-error ISO 32000-1:2008, 7.3.8.1 requires streams to be indirect, so Private takes direct objects only.
+    page.pieceInfo({ lastModified, data: { App: { private: stream } } });
+    expect(() => document.save()).toThrow(InvalidArgumentError);
   });
 });
