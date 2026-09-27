@@ -40,6 +40,47 @@ export const renderPlates = async (pdfFile: string, directory: string, includePr
     .map(file => ({ name: decodePlateName(file), file: path.join(directory, file) }));
 };
 
+/** The spot plates tiffsep made for each page, by 1-based page number, and the pages Ghostscript reported it could not draw. */
+export interface PagePlates {
+  readonly plates: ReadonlyMap<number, readonly Uint8Array[]>;
+  readonly failed: ReadonlySet<number>;
+}
+
+const PROCESS_PLATES = new Set(['Cyan', 'Magenta', 'Yellow', 'Black']);
+
+// tiffsep needs %d in the output name to write more than one page; each page N then gives pN.tif and one pN(name).tif per plate.
+export const renderPagePlates = async (pdfFile: string, directory: string, resolution = 20): Promise<PagePlates> => {
+  await mkdir(directory, { recursive: true });
+  const child = spawn('gs', [
+    '-dNOPAUSE',
+    '-dBATCH',
+    '-sDEVICE=tiffsep',
+    '-sCompression=none',
+    `-r${String(resolution)}`,
+    `-sOutputFile=${path.join(directory, 'p%d.tif')}`,
+    pdfFile,
+  ]);
+  const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
+  if (closed[0] !== 0) throw new Error(`Ghostscript exited ${String(closed[0])}: ${stderr}`);
+  const failed = new Set<number>();
+  let page = 0;
+  for (const line of `${stdout}\n${stderr}`.split('\n')) {
+    const started = /^Page (\d+)$/u.exec(line.trim());
+    if (started !== null) page = Number(started[1]);
+    else if (line.includes('Page drawing error')) failed.add(page);
+  }
+  const plates = new Map<number, Uint8Array[]>();
+  for (const file of await readdir(directory)) {
+    const match = /^p(\d+)\((.*)\)\.tif$/u.exec(file);
+    if (match === null) continue;
+    const name = decodePlateName(`p(${match[2] ?? ''}).tif`);
+    if (PROCESS_PLATES.has(new TextDecoder('latin1').decode(name))) continue;
+    const number = Number(match[1]);
+    plates.set(number, [...(plates.get(number) ?? []), name]);
+  }
+  return { plates, failed };
+};
+
 interface TiffData {
   width: number;
   height: number;

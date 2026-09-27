@@ -23,10 +23,12 @@ export interface TextPdf {
   readonly objects?: readonly TestObject[];
   /** Entries of the page tree root, such as inherited Resources. */
   readonly root?: string;
+  /** Further entries of the document catalog, such as OCProperties. */
+  readonly catalog?: string;
 }
 
 /** The bytes of a PDF whose pages are 600 by 800 points: the catalog is object 1, the page tree 2, and each page and its content streams follow from 3. */
-export const textPdfBytes = ({ pages, objects = [], root = '' }: TextPdf): Uint8Array => {
+export const textPdfBytes = ({ pages, objects = [], root = '', catalog = '' }: TextPdf): Uint8Array => {
   const built: TestObject[] = [];
   let next = 3;
   const kids: number[] = [];
@@ -47,7 +49,7 @@ export const textPdfBytes = ({ pages, objects = [], root = '' }: TextPdf): Uint8
   return buildPdf([
     {
       xref: 'classic',
-      objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, { number: 2, body: tree }, ...built, ...objects],
+      objects: [{ number: 1, body: `<</Type/Catalog/Pages 2 0 R${catalog}>>` }, { number: 2, body: tree }, ...built, ...objects],
       trailer: '/Root 1 0 R',
     },
   ]).bytes;
