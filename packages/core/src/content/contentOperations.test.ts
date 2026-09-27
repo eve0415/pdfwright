@@ -3,6 +3,7 @@ import type { ContentOperand, ContentOperation } from './contentOperations.ts';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { latin1Bytes } from '../testing/pdfBuilder.ts';
 
 import { readContent } from './contentOperations.ts';
@@ -90,6 +91,10 @@ describe('content operations', () => {
       { kind: 'integer', value: 1 },
       { kind: 'boolean', value: true },
     ]);
+  });
+
+  it('refuses an oversized pending operand stack before the operator', () => {
+    expect(() => operations('0 '.repeat(16_385))).toThrow(ResourceLimitError);
   });
 
   it('throws ParseError for an operand it cannot read', () => {

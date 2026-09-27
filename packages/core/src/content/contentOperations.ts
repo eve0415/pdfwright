@@ -1,10 +1,14 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext, Token } from '../parse/lexer.ts';
 
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
 
 import { inlineImageData } from './inlineImageData.ts';
+
+// An operator cannot consume an unbounded stack, even when the stream has few or no operators.
+export const MAX_CONTENT_OPERANDS = 16_384;
 
 /** An operand: a parsed value, or a closing delimiter with nothing open, kept so that the operator it precedes can be seen to have bad operands. */
 export type ContentOperand = PdfDirectObject | { readonly kind: 'stray-delimiter'; readonly bytes: Uint8Array };
@@ -71,16 +75,24 @@ class OperationReader {
     return operands;
   }
 
+  private append(operand: ContentOperand): void {
+    if (this.operands.length >= MAX_CONTENT_OPERANDS) throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
+    this.operands.push(operand);
+  }
+
   *read(bytes: Uint8Array, stream: number): Generator<ContentOperation> {
     const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
     for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
       if (isStray(token)) {
         lexer.next();
-        this.operands.push({ kind: 'stray-delimiter', bytes: bytes.slice(token.start, token.end) });
+        this.append({ kind: 'stray-delimiter', bytes: bytes.slice(token.start, token.end) });
         continue;
       }
       if (!isOperator(token)) {
-        this.operands.push(parseObject(lexer, this.maxNesting));
+        if (this.operands.length >= MAX_CONTENT_OPERANDS) {
+          throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
+        }
+        this.append(parseObject(lexer, this.maxNesting));
         continue;
       }
       lexer.next();
