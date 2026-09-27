@@ -11,7 +11,7 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { readOperations } from './contentTokens.ts';
-import { encodingText, sameEncoding } from './resolvedText.ts';
+import { encodingText, sameText, valueText } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
 
@@ -89,11 +89,13 @@ const sameStored = (
 ): boolean => {
   const streamA = sides.a.objects.deref(left);
   const streamB = sides.b.objects.deref(right);
+  // Table 30 allows only streams; two identical values of another kind contribute the same, whatever a reader makes of them.
+  if (streamA?.kind !== 'stream' && streamB?.kind !== 'stream') return sameText(valueText(sides.a, streamA), valueText(sides.b, streamB));
   return (
     streamA?.kind === 'stream' &&
     streamB?.kind === 'stream' &&
     sameBytes(streamA.data, streamB.data) &&
-    sameEncoding(encodingText(sides.a, streamA), encodingText(sides.b, streamB))
+    sameText(encodingText(sides.a, streamA), encodingText(sides.b, streamB))
   );
 };
 

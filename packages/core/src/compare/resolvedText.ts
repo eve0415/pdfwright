@@ -92,15 +92,22 @@ export const resolvedText = (document: DocumentInternals, value: PdfObject | und
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 
-/** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5), as resolved text; undefined when an object they lead to cannot be read. */
-export const encodingText = (document: DocumentInternals, stream: Extract<PdfObject, { kind: 'stream' }>): string | undefined => {
+// Resolved text, or undefined when an object the value leads to cannot be read.
+const readableText = (read: () => string): string | undefined => {
   try {
-    return `${resolvedText(document, stream.dictionary.get(FILTER))} ${resolvedText(document, stream.dictionary.get(DECODE_PARMS))}`;
+    return read();
   } catch (error: unknown) {
     if (error instanceof ParseError) return undefined;
     throw error;
   }
 };
 
-/** Whether two encodings are known to be the same. */
-export const sameEncoding = (left: string | undefined, right: string | undefined): boolean => left !== undefined && left === right;
+/** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5), as resolved text; undefined when an object they lead to cannot be read. */
+export const encodingText = (document: DocumentInternals, stream: Extract<PdfObject, { kind: 'stream' }>): string | undefined =>
+  readableText(() => `${resolvedText(document, stream.dictionary.get(FILTER))} ${resolvedText(document, stream.dictionary.get(DECODE_PARMS))}`);
+
+/** A value as resolved text; undefined when an object it leads to cannot be read. */
+export const valueText = (document: DocumentInternals, value: PdfObject | undefined): string | undefined => readableText(() => resolvedText(document, value));
+
+/** Whether two resolved texts are known to be the same. */
+export const sameText = (left: string | undefined, right: string | undefined): boolean => left !== undefined && left === right;

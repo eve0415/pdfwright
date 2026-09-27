@@ -82,6 +82,13 @@ describe('page content comparison', () => {
     expect(() => compareDocuments(single, repeated)).toThrow(ResourceLimitError);
   });
 
+  it('treats identical Contents values that are not streams as the same', () => {
+    const dictionary = document('4 0 R', [{ number: 4, body: '<</Length 0/Filter[]>>' }]);
+    const same = document('4 0 R', [{ number: 4, body: '<</Filter[]/Length 0>>' }]);
+    const other = document('4 0 R', [{ number: 4, body: '<</Length 1>>' }]);
+    expect([content(compareDocuments(dictionary, same)), content(compareDocuments(dictionary, other)).length]).toStrictEqual([[], 2]);
+  });
+
   it('reads content streams that refer to missing objects as empty', () => {
     const missing = document('[4 0 R 9 0 R]', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S 0.50 g') }]);
     expect(content(compareDocuments(single, missing))).toStrictEqual([]);
