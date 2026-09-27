@@ -66,6 +66,8 @@ export type { Type3Glyphs, Type3Summary } from './inspect/fonts/type3Glyphs.ts';
 export { listColorants } from './inspect/colorants/listColorants.ts';
 export type { ColorantUse, DeclaredOnlyReason, ListColorantsOptions, PageColorants, PaintedBy, SelectedBy } from './inspect/colorants/listColorants.ts';
 export type { AlternateSummary, ColorantKind } from './inspect/colorants/colorSpaceColorants.ts';
+export { extractText } from './inspect/text/extractText.ts';
+export type { ExtractTextOptions, GlyphMarkedContent, GlyphSource, PageGlyph, PageText } from './inspect/text/extractText.ts';
 export type { InspectWarning, InspectWarningCode } from './content/inspectWarning.ts';
 export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';

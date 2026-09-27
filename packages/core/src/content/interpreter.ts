@@ -209,6 +209,9 @@ export interface TextShowEvent {
   readonly string: Uint8Array;
   /** The sum of the TJ numbers between the previous string and this one, in thousandths of text space; undefined when there are none. */
   readonly adjustment: number | undefined;
+  /** The text matrix where the string begins, after the TJ numbers before it, and whether that position is known; the first glyph has the same, and a string that could not be split has no glyphs to carry it. */
+  readonly textMatrix: Matrix;
+  readonly positionKnown: boolean;
   readonly glyphs: readonly ShownGlyph[];
   /** Why the string could not be split into glyphs, when it could not. */
   readonly unsplit: Exclude<FontString, { readonly kind: 'glyphs' }> | undefined;
@@ -967,6 +970,7 @@ class Interpreter {
       return;
     }
     this.reportFont(font);
+    const start = { textMatrix: this.textMatrix, positionKnown: this.positionKnown };
     const split: FontString = this.font(font.key, () => font.glyphs(string)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
     const glyphs: ShownGlyph[] = [];
     if (split.kind === 'glyphs') {
@@ -985,6 +989,7 @@ class Interpreter {
         font,
         string,
         adjustment,
+        ...start,
         glyphs,
         unsplit: split.kind === 'glyphs' ? undefined : split,
         state: this.state,
