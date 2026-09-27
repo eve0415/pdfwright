@@ -89,6 +89,35 @@ export const fontKey = (value: PdfDirectObject, owner: string, name: Uint8Array)
 export const pageResourcesOwner = (found: Found | undefined, page: PageEntry): string =>
   found?.value.kind === 'reference' ? referenceKey(found.value) : referenceKey(found?.from ?? page.reference);
 
+/** The owner and name that key a direct font (see `fontKey`). */
+export interface FontOwner {
+  readonly owner: string;
+  readonly name: Uint8Array;
+}
+
+const NO_NAME = new Uint8Array();
+
+/**
+ * The owner and name of a direct font in a resource dictionary's Font subdictionary: the nearest indirect object holding the font dictionary, the subdictionary itself when it is indirect or else the resource dictionary's owner, and the font's resource name.
+ * Keying by the nearest indirect holder gives a font dictionary one key however many resource dictionaries share its holder.
+ */
+export const fontResourceOwner = (category: PdfDirectObject | undefined, owner: string, name: Uint8Array): FontOwner => ({
+  owner: category?.kind === 'reference' ? referenceKey(category) : owner,
+  name,
+});
+
+/**
+ * The owner and name of a direct font in a graphics state parameter dictionary's Font entry (ISO 32000-1:2008, 8.4.5, Table 58): the parameter dictionary when it is indirect, which holds one font and so needs no name; else the ExtGState subdictionary when it is indirect, or the resource dictionary's owner, with the parameter dictionary's resource name.
+ */
+export const graphicsStateFontOwner = (
+  { category, state }: { category: PdfDirectObject | undefined; state: PdfDirectObject | undefined },
+  owner: string,
+  name: Uint8Array,
+): FontOwner => {
+  if (state?.kind === 'reference') return { owner: `${referenceKey(state)}:ExtGState`, name: NO_NAME };
+  return { owner: `${category?.kind === 'reference' ? referenceKey(category) : owner}:ExtGState`, name };
+};
+
 interface LoadContext {
   readonly source: FontSource;
   readonly cmaps: CMapResolver;

@@ -14,7 +14,7 @@ import { createInheritedCache, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData, dictionaryOf, latin1, numberOf, numbersOf } from '../font/fontValues.ts';
-import { FontCache, fontKey, pageResourcesOwner } from '../font/loadFont.ts';
+import { FontCache, fontKey, fontResourceOwner, graphicsStateFontOwner, pageResourcesOwner } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { annotationFlags } from '../resourceGraph/annotationFlags.ts';
 
@@ -813,7 +813,8 @@ class Interpreter {
   private namedFont(step: Step, name: Uint8Array): FontModel | undefined {
     const value = this.resource(step, FONT, name);
     if (value === undefined) return undefined;
-    const key = fontKey(value, step.scope.owner, name);
+    const { owner, name: resourceName } = fontResourceOwner(step.scope.resources?.get(FONT), step.scope.owner, name);
+    const key = fontKey(value, owner, resourceName);
     return this.font(key, () => this.fonts.font(value, key));
   }
 
@@ -832,7 +833,8 @@ class Interpreter {
       const fontSize = numberOf(this.deref(size));
       if (fontValue === undefined || fontSize === undefined) this.warn('bad-operands', `${where}: the Font entry is not [font size]`, true);
       else {
-        const key = fontKey(fontValue, `${scope.owner}:ExtGState`, name);
+        const holder = graphicsStateFontOwner({ category: scope.resources?.get(EXT_G_STATE), state: value }, scope.owner, name);
+        const key = fontKey(fontValue, holder.owner, holder.name);
         this.state = { ...this.state, font: this.font(key, () => this.fonts.font(fontValue, key)), fontSize };
       }
     }

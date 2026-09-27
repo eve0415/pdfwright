@@ -1,10 +1,11 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PageEntry } from '../document/pageTree.ts';
+import type { FontOwner } from '../font/loadFont.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { ParseError } from '../error/parseError.ts';
-import { fontKey } from '../font/loadFont.ts';
+import { fontKey, fontResourceOwner, graphicsStateFontOwner } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { annotationFlags } from './annotationFlags.ts';
@@ -73,7 +74,7 @@ export interface ResourceVisit {
 export interface FontVisit {
   readonly value: PdfDirectObject;
   readonly dictionary: PdfDictionaryEntries;
-  /** The name of the Font resource, or of the ExtGState resource whose Font entry holds the font. */
+  /** The name of the Font resource, or of the ExtGState resource whose Font entry holds the font; empty for a font in an indirect graphics state parameter dictionary (see `graphicsStateFontOwner`). */
   readonly name: Uint8Array;
   /** The owner that `fontKey` in `font/loadFont.ts` takes with `name` to key a direct font as the content interpreter does. */
   readonly owner: string;
@@ -280,7 +281,7 @@ class Walk {
     this.pending.delete(key);
     if (dictionary === undefined) return;
     this.category(dictionary, FONT, (name, font) => {
-      this.visits.push({ kind: 'font', value: font, from: this.from, name, owner });
+      this.visits.push({ kind: 'font', value: font, from: this.from, ...fontResourceOwner(dictionary.get(FONT), owner, name) });
     });
     this.category(dictionary, XOBJECT, (_, form) => {
       this.owner(form, { kind: 'form' }, owner);
@@ -289,7 +290,7 @@ class Walk {
       this.owner(pattern, { kind: 'tiling-pattern' }, owner);
     });
     this.category(dictionary, EXT_G_STATE, (name, state) => {
-      this.graphicsState(state, name, owner);
+      this.graphicsState(state, graphicsStateFontOwner({ category: dictionary.get(EXT_G_STATE), state }, owner, name), owner);
     });
   }
 
@@ -352,10 +353,10 @@ class Walk {
     for (const [name, value] of entries?.entries() ?? []) visit(name, value);
   }
 
-  private graphicsState(value: PdfDirectObject, name: Uint8Array, owner: string): void {
+  private graphicsState(value: PdfDirectObject, fontOwner: FontOwner, owner: string): void {
     const state = dictionaryOf(this.read(value));
     const font = this.read(state?.get(FONT));
-    if (font?.kind === 'array') this.visits.push({ kind: 'font', value: font.items[0], from: this.from, name, owner: `${owner}:ExtGState` });
+    if (font?.kind === 'array') this.visits.push({ kind: 'font', value: font.items[0], from: this.from, ...fontOwner });
     const mask = dictionaryOf(this.read(state?.get(SOFT_MASK)));
     if (mask !== undefined) this.owner(mask.get(GROUP), { kind: 'soft-mask' }, owner);
   }

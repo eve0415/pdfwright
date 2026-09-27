@@ -339,6 +339,18 @@ describe('pages that show each font', () => {
     ]);
   });
 
+  it('lists a direct font in a shared indirect Font dictionary or graphics state once, and every page that shows it', () => {
+    const pages = [0, 1].map(() => ({ resources: '/Font 100 0 R/ExtGState<</G1 101 0 R>>', content: 'BT /F1 12 Tf (a) Tj /G1 gs (b) Tj ET' }));
+    const result = shown(pages, [
+      { number: 100, body: '<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>' },
+      { number: 101, body: '<</Font[<</Type/Font/Subtype/Type1/BaseFont/Courier>> 12]>>' },
+    ]);
+    expect(result).toStrictEqual([
+      ['direct:100.0:4631', '0 1'],
+      ['direct:101.0:ExtGState:', '0 1'],
+    ]);
+  });
+
   it('leaves shownOn empty when asked not to interpret content', () => {
     const result = shown([{ resources: '/Font<</F1 100 0 R>>', content: 'BT /F1 12 Tf (a) Tj ET' }], [helvetica(100)], { shownOn: false });
     expect(result).toStrictEqual([['100.0', '']]);

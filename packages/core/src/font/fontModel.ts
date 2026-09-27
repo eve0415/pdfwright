@@ -123,7 +123,7 @@ export type FontString =
  * The content interpreter advances the text matrix with `width` (and the vertical metrics of writing mode 1); text extraction reads the rest.
  */
 export interface FontModel {
-  /** The key the font is cached under: `objectNumber.generation` for an indirect font; for a direct one, `direct:<owner>:<name hex>`, where the owner is the caller's name for the nearest indirect object holding the resource dictionary. */
+  /** The key the font is cached under: `objectNumber.generation` for an indirect font; for a direct one, `direct:<owner>:<name hex>`, where the owner names the nearest indirect object holding the font dictionary (see `fontResourceOwner` and `graphicsStateFontOwner` in `loadFont.ts`). */
   readonly key: string;
   readonly reference: PdfReference | undefined;
   readonly dictionary: PdfDictionaryEntries;
