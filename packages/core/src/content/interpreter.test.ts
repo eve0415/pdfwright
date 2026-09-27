@@ -299,6 +299,15 @@ describe('transparency', () => {
     ]);
   });
 
+  it('reports each rectangle of a fill of rectangles that do not overlap', () => {
+    const { covers } = textRun('1 g 0 0 5 5 re 5 5 5 5 re f 20 0 5 5 re 20 0 5 5 re f');
+    // Rectangles that touch do not overlap; a rectangle drawn twice does.
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([
+      [0, 0, 5, 5],
+      [5, 5, 10, 10],
+    ]);
+  });
+
   it('resets transparency inside a transparency group and records how the group is composited', () => {
     const { covers, paints } = run(
       {
@@ -342,7 +351,7 @@ describe('transparency', () => {
           'q /P0 cs /Pat scn 0 0 10 10 re f Q',
           'q /None cs 1 sc 0 0 10 10 re f Q',
           'q 1 1 -1 1 0 0 cm 0 0 10 10 re f Q',
-          '0 0 m 10 0 l 0 10 l f 0 0 5 5 re 5 5 5 5 re f 0 0 10 10 re S',
+          '0 0 m 10 0 l 0 10 l f 0 0 5 5 re 4 4 5 5 re f 0 0 10 10 re S',
           'q 0 0 5 5 re W n 0 0 10 10 re f Q',
           'q /Listed gs 0 0 50 50 re W n 0 0 10 10 re f Q',
         ],

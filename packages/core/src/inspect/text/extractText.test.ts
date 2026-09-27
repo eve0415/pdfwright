@@ -563,6 +563,16 @@ describe('text extraction', () => {
       ]).toStrictEqual([[true], [true], [false], [false], [true]]);
     });
 
+    it('marks glyphs one rectangle of a fill of several covers, unless the rectangles overlap', () => {
+      // Overlapping rectangles can cancel by the nonzero rule when drawn in opposite directions, and leave a hole by the even-odd rule.
+      expect([
+        coveredUnder('', '0 0 1 1 re 90 190 30 30 re f'),
+        coveredUnder('', '0 0 1 1 re 90 190 30 30 re f*'),
+        coveredUnder('', '90 190 30 30 re 95 195 5 5 re f'),
+        coveredUnder('', '90 190 30 30 re 120 190 -30 30 re f'),
+      ]).toStrictEqual([[true], [true], [false], [false]]);
+    });
+
     it('classifies glyphs against Bézier and polygon clips with both fill rules', () => {
       // A circle of radius 50 around (300, 300) drawn with Bézier curves, which the glyph at (100, 200) lies outside.
       const circle = '350 300 m 350 327.6 327.6 350 300 350 c 272.4 350 250 327.6 250 300 c 250 272.4 272.4 250 300 250 c 327.6 250 350 272.4 350 300 c h W n';

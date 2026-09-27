@@ -223,7 +223,7 @@ export interface TextShowEvent {
 }
 
 /**
- * An opaque fill of a rectangle with sides parallel to the page axes, not wholly clipped away: alpha 1, blend mode Normal, no soft mask, a colour space that is not a Pattern or a None separation.
+ * An opaque fill of a rectangle with sides parallel to the page axes, alone or among up to MAX_RECTANGLES that do not overlap in one path, not wholly clipped away: alpha 1, blend mode Normal, no soft mask, a colour space that is not a Pattern or a None separation.
  * Whatever the page showed there before, where the clip lets the fill paint, is hidden. Fills of other shapes, images and shadings that hide content are not reported.
  */
 export interface CoverEvent {
@@ -1227,12 +1227,11 @@ class Interpreter {
     if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !this.opaque(fill.space)) return;
     if (group.alpha !== 1 || group.blendMode !== 'Normal' || group.softMasked) return;
     if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) return;
-    const rectangle = this.path?.axisAlignedRectangle();
-    if (rectangle === undefined) return;
-    const [left, bottom, right, top] = rectangle;
-    const placed = clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]);
-    if (placed === 'outside' || placed === 'unknown') return;
-    this.handlers.cover?.({ rectangle, clip, context: scope.context, sequence: this.sequence++ });
+    for (const rectangle of this.path?.axisAlignedRectangles() ?? []) {
+      const [left, bottom, right, top] = rectangle;
+      const placed = clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]);
+      if (placed !== 'outside' && placed !== 'unknown') this.handlers.cover?.({ rectangle, clip, context: scope.context, sequence: this.sequence++ });
+    }
   }
 
   private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {

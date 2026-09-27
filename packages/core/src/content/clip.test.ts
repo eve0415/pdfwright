@@ -72,7 +72,7 @@ describe('path flattening', () => {
       kept <= MAX_CLIP_VERTICES + 1,
       path.vertices > 4000 * 1000,
       Clip.NONE.intersect(path, 'nonzero').classifyPoint(0, 0),
-      path.axisAlignedRectangle(),
+      path.axisAlignedRectangles(),
     ]).toStrictEqual([true, true, 'unknown', undefined]);
   });
 
