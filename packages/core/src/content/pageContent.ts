@@ -1,10 +1,11 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 
-import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { pdfName } from '../object/pdfObject.ts';
+
+import { unreadable } from './unreadable.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
 
@@ -48,7 +49,7 @@ export const pageContent = (document: DocumentInternals, page: PageEntry): PageC
       indexes.push(index);
     }
   } catch (error: unknown) {
-    if (!(error instanceof ParseError)) throw error;
+    if (!unreadable(error)) throw error;
     problems.push(`the page's Contents cannot be read: ${error.message}`);
   }
   return { streams, indexes, problems };

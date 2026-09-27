@@ -12,7 +12,6 @@ import type { Matrix } from './matrix.ts';
 
 import { createInheritedCache, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData, dictionaryOf, latin1, numberOf, numbersOf } from '../font/fontValues.ts';
 import { FontCache, fontKey } from '../font/loadFont.ts';
@@ -25,6 +24,7 @@ import { IDENTITY, multiply, transformPoint } from './matrix.ts';
 import { checkOperands } from './operands.ts';
 import { pageContent } from './pageContent.ts';
 import { PathBuilder } from './path.ts';
+import { unreadable } from './unreadable.ts';
 
 const RESOURCES = pdfName('Resources').bytes;
 const FONT = pdfName('Font').bytes;
@@ -452,7 +452,7 @@ class Interpreter {
     try {
       return this.document.objects.deref(value);
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!unreadable(error)) throw error;
       this.warn('content-unreadable', `an object cannot be read: ${error.message}`, true);
       return undefined;
     }
@@ -477,7 +477,7 @@ class Interpreter {
     try {
       return read();
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!unreadable(error)) throw error;
       this.warn('font-unreadable', `font ${font}: ${error.message}`, true);
       return undefined;
     }
@@ -493,7 +493,7 @@ class Interpreter {
         this.execute(step.value, scope);
       }
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!unreadable(error)) throw error;
       this.warn('content-unreadable', `the content cannot be read further: ${error.message}`, true);
     }
   }
@@ -573,7 +573,7 @@ class Interpreter {
     try {
       return numbersOf(this.document, value);
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!unreadable(error)) throw error;
       this.warn('content-unreadable', `an object cannot be read: ${error.message}`, true);
       return undefined;
     }
@@ -937,7 +937,7 @@ class Interpreter {
       const operator = first.done === true ? undefined : first.value.operator;
       return operator === 'd0' || operator === 'd1' ? operator : undefined;
     } catch (error: unknown) {
-      if (error instanceof ParseError) return undefined;
+      if (unreadable(error)) return undefined;
       throw error;
     }
   }
@@ -1186,7 +1186,7 @@ const pageResources = (
     if (found !== undefined && resources === undefined) interpreter.warn('resource-missing', 'the Resources of the page is not a dictionary', true);
     return { resources, owner };
   } catch (error: unknown) {
-    if (!(error instanceof ParseError)) throw error;
+    if (!unreadable(error)) throw error;
     interpreter.warn('content-unreadable', `the Resources of the page cannot be read: ${error.message}`, true);
     return { resources: undefined, owner: referenceKey(page.reference) };
   }

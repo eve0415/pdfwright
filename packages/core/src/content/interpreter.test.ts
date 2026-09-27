@@ -9,7 +9,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
-import { latin1Text, streamBody } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 import { textPdf, textPdfBytes } from '../testing/textPdf.ts';
 
 import { interpretPage } from './interpreter.ts';
@@ -587,6 +587,30 @@ describe('damaged content', () => {
       { number: 150, body: '<</Type/Font/Subtype/Type1/BaseFont(unterminated' },
     ]);
     expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([1, false, ['content-unreadable', 'resource-missing']]);
+  });
+
+  it('reports an object in an object stream whose filter is not supported and goes on', () => {
+    const { bytes } = buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 600 800]/Contents 4 0 R/Resources<<${FONT_RESOURCES}/ExtGState<</G 150 0 R>>>>>>` },
+          { number: 4, body: streamBody('', '/G gs BT /F1 10 Tf (A) Tj ET') },
+          ...FONTS,
+        ],
+        objectStreams: [{ number: 200, members: [{ number: 150, body: '<</ca 0.5>>' }], dictionary: '/Filter/Foo' }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const texts: TextShowEvent[] = [];
+    const result = interpretPage(internalsWith(bytes, 256), 0, {
+      text: event => {
+        texts.push(event);
+      },
+    });
+    expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([1, false, ['content-unreadable']]);
   });
 
   it('reports content that cannot be decoded', () => {
