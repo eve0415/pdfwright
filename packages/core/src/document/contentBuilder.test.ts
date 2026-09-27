@@ -100,4 +100,32 @@ describe('content builder', () => {
       retained[0]?.path(path => path.rect(0, 0, 1, 1));
     }).toThrow(ValidationError);
   });
+
+  it('does not mutate a finished builder before rejecting a command', () => {
+    let registrations = 0;
+    const { content, finish } = createContentBuilder(5, {
+      registerGraphicsState: () => {
+        registrations++;
+        return 'GS1';
+      },
+    });
+    finish();
+    expect(() => {
+      content.graphicsState({ fillAlpha: 0.5 });
+    }).toThrow(ValidationError);
+    expect(() => {
+      content.save();
+    }).toThrow(ValidationError);
+    expect(() => {
+      finish();
+    }).not.toThrow();
+    let pathCalled = false;
+    expect(() => {
+      content.path(path => {
+        pathCalled = true;
+        return path;
+      });
+    }).toThrow(ValidationError);
+    expect([registrations, pathCalled]).toStrictEqual([0, false]);
+  });
 });

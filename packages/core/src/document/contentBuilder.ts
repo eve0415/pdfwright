@@ -165,8 +165,11 @@ const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGra
 export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentSession => {
   const commands: string[] = [];
   let finished = false;
-  const push = (command: string): void => {
+  const ensureOpen = (): void => {
     if (finished) throw new ValidationError('content can be drawn only inside its draw callback');
+  };
+  const push = (command: string): void => {
+    ensureOpen();
     commands.push(command);
   };
   let depth = 0;
@@ -259,34 +262,41 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const pathBuilder: PathBuilder = {
     // ISO 32000-1:2008, 8.5.2, Table 59 defines m, l, c, re, and h as path construction operators.
     moveTo: (...coordinates): PathBuilder => {
+      ensureOpen();
       emit('m', coordinates);
       return pathBuilder;
     },
     lineTo: (...coordinates): PathBuilder => {
+      ensureOpen();
       emit('l', coordinates);
       return pathBuilder;
     },
     curveTo: (...coordinates): PathBuilder => {
+      ensureOpen();
       emit('c', coordinates);
       return pathBuilder;
     },
     rect: (...coordinates): PathBuilder => {
+      ensureOpen();
       emit('re', coordinates);
       return pathBuilder;
     },
     close: (): PathBuilder => {
+      ensureOpen();
       emit('h');
       return pathBuilder;
     },
   };
   const content: ContentBuilder = {
     save: (): void => {
+      ensureOpen();
       reach(depth + 1);
       depth++;
       stack.push({ ...state });
       emit('q');
     },
     restore: (): void => {
+      ensureOpen();
       if (depth === 0) throw new ValidationError('graphics state restore has no matching save');
       depth--;
       const previous = stack.pop();
@@ -295,48 +305,59 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     },
     // ISO 32000-1:2008, 8.4.4, Table 57 writes cm with six separate numeric operands.
     transform: (...matrix): void => {
+      ensureOpen();
       emit('cm', matrix);
     },
     path: (draw): void => {
+      ensureOpen();
       draw(pathBuilder);
     },
     // ISO 32000-1:2008, 8.5.3.1, Table 60 defines f, f*, S, B, and B* as path-painting operators.
     fill: (rule, options): void => {
+      ensureOpen();
       checkWhiteOverprint(false, options);
       emit(rule === 'evenodd' ? 'f*' : 'f');
     },
     stroke: (options): void => {
+      ensureOpen();
       checkWhiteOverprint(true, options);
       emit('S');
     },
     fillAndStroke: (rule, options): void => {
+      ensureOpen();
       checkWhiteOverprint(false, options);
       checkWhiteOverprint(true, options);
       emit(rule === 'evenodd' ? 'B*' : 'B');
     },
     clip: (rule): void => {
+      ensureOpen();
       // ISO 32000-1:2008, 8.5.4 applies W or W* before the path-ending n operator.
       emit(rule === 'evenodd' ? 'W*' : 'W');
       emit('n');
     },
     lineWidth: (width): void => {
+      ensureOpen();
       // ISO 32000-1:2008, 8.4.3.2 allows width 0 for the thinnest device line but says device-dependent hairlines should not be used.
       nonnegative(width, 'line width');
       emit('w', [width]);
     },
     // ISO 32000-1:2008, 8.4.4, Table 57 defines j, J, M, and d as graphics state operators.
     lineJoin: (join): void => {
+      ensureOpen();
       emit('j', [{ miter: 0, round: 1, bevel: 2 }[join]]);
     },
     lineCap: (cap): void => {
+      ensureOpen();
       emit('J', [{ butt: 0, round: 1, square: 2 }[cap]]);
     },
     miterLimit: (limit): void => {
+      ensureOpen();
       // ISO 32000-1:2008, 8.4.3.5: "The miter limit shall impose a maximum on the ratio of the miter length to the line width"; that ratio is 1 / sin(φ / 2), never below 1.
       if (Number(number(limit)) < 1) throw new ValidationError('miter limit must be at least 1');
       emit('M', [limit]);
     },
     dash: (array, phase): void => {
+      ensureOpen();
       // ISO 32000-1:2008, 8.4.3.6 permits an empty array for a solid line, but a nonempty dash array shall not be all zero.
       for (const value of array) nonnegative(value, 'dash length');
       if (array.length > 0 && !array.some(value => Number(number(value)) > 0)) {
@@ -346,14 +367,17 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       push(`[${array.map(value => number(value)).join(' ')}] ${number(phase)} d\n`);
     },
     fillColor: (color, tint): void => {
+      ensureOpen();
       state.fillColor = color;
       paintColor(color, tint, false);
     },
     strokeColor: (color, tint): void => {
+      ensureOpen();
       state.strokeColor = color;
       paintColor(color, tint, true);
     },
     graphicsState: (options): void => {
+      ensureOpen();
       const normalized = normalizeGraphicsState(options, state);
       const key = JSON.stringify([
         normalized.fillAlpha,
@@ -372,6 +396,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       push(`/${name} gs\n`);
     },
     image: (image, matrix): void => {
+      ensureOpen();
       reach(depth + 1);
       let name = localImages.get(image);
       if (name === undefined) {
@@ -385,6 +410,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       emit('Q');
     },
     group: (group, matrix, options): void => {
+      ensureOpen();
       const summary = hooks.groupSummary?.(group) ?? EMPTY_SUMMARY;
       // The placement's own q, then Do, which ISO 32000-1:2008, 8.10.1 says "Saves the current graphics state", then the form's own nesting.
       reach(depth + 2 + summary.depth);
