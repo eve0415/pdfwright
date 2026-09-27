@@ -76,7 +76,8 @@ export type TextDifference =
 
 /** A fold used on the page's text, with the glyphs it was used for. */
 export interface FoldApplied {
-  readonly fold: TextFold | 'caller';
+  /** A fold of `folds`, a caller's equivalent, or `embedded-cmap` for a character the glyph's embedded cmap maps to exactly the glyph drawn. */
+  readonly fold: TextFold | 'caller' | 'embedded-cmap';
   readonly from: string;
   readonly to: string;
   readonly glyphs: readonly number[];
@@ -210,7 +211,11 @@ class FoundText {
   /** By font, the glyphs whose font's embedded program has no usable cmap to check them against. */
   readonly unchecked = new Map<string, number[]>();
   private readonly settings: Settings;
-  private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: Set<number> }>();
+  private readonly folds = new Map<string, { fold: FoldApplied['fold']; from: string; to: string; glyphs: Set<number> }>();
+  /** The glyphs added, by index. */
+  private readonly shown = new Map<number, PageGlyph>();
+  /** Clusters shown as another text, after a fold decided once the texts are aligned. */
+  private readonly displayed = new Map<FoundCluster, string>();
 
   constructor(settings: Settings) {
     this.settings = settings;
@@ -220,7 +225,7 @@ class FoundText {
     return [...this.folds.values()].map(({ fold, from, to, glyphs }) => ({ fold, from, to, glyphs: [...glyphs] }));
   }
 
-  private recordFold(fold: TextFold | 'caller', { from, to }: { from: string; to: string }, glyphs: readonly number[]): void {
+  private recordFold(fold: FoldApplied['fold'], { from, to }: { from: string; to: string }, glyphs: readonly number[]): void {
     const key = `${fold}\u0000${from}\u0000${to}`;
     const entry = this.folds.get(key) ?? { fold, from, to, glyphs: new Set<number>() };
     for (const glyph of glyphs) entry.glyphs.add(glyph);
@@ -279,8 +284,41 @@ class FoundText {
     }
   }
 
+  /** The compared text, with each cluster as it is displayed. */
+  text(): string {
+    return this.clusters.map(cluster => this.displayed.get(cluster) ?? cluster.text).join('');
+  }
+
+  /**
+   * Accepts a found cluster of one glyph in place of an intended character when the glyph's font's embedded cmap maps that character to exactly the glyph drawn, since the font program itself says the glyph is that character; the fold is recorded.
+   * Noto Sans JP draws 戸 with the glyph it also maps from U+2F3E, which Chromium's ToUnicode gives.
+   */
+  acceptByCmap(want: Cluster, have: FoundCluster): boolean {
+    const [index] = have.glyphs;
+    const glyph = index === undefined || have.glyphs.length > 1 ? undefined : this.shown.get(index);
+    const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
+    const [character, ...rest] = Array.from(want.text, value => value.codePointAt(0) ?? 0);
+    if (have.failure !== undefined || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) return false;
+    if (cmap.glyph(character) !== glyph.gid) return false;
+    this.recordFold('embedded-cmap', { from: have.text, to: want.text }, have.glyphs);
+    this.displayed.set(have, want.text);
+    return true;
+  }
+
+  // Whether the embedded cmap of a one-glyph span's font maps the span's one character to exactly the glyph drawn, which then shows that character whatever its own text says; the fold is recorded.
+  private spanByCmap(glyphs: readonly PageGlyph[], { glyphText, text }: { glyphText: string; text: string }): boolean {
+    const [glyph] = glyphs;
+    const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
+    const [character, ...rest] = Array.from(text, value => value.codePointAt(0) ?? 0);
+    if (glyphs.length !== 1 || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) return false;
+    if (cmap.glyph(character) !== glyph.gid) return false;
+    this.recordFold('embedded-cmap', { from: glyphText, to: text }, [glyph.index]);
+    return true;
+  }
+
   /** Adds a glyph outside any span used: a failure, nothing, or its clusters. */
   add(glyph: PageGlyph): void {
+    this.shown.set(glyph.index, glyph);
     const glyphs = [glyph.index];
     const failure = glyphFailure(glyph);
     if (failure === null) return;
@@ -296,6 +334,7 @@ class FoundText {
    * A missing glyph fails the unit whatever the span claims, and the span's text is compared only when it agrees with the glyphs' folded text.
    */
   addSpan(glyphs: readonly PageGlyph[], { index, text }: { index: number; text: string }): void {
+    for (const glyph of glyphs) this.shown.set(glyph.index, glyph);
     const indexes = glyphs.map(glyph => glyph.index);
     const failures = glyphs.map(glyph => glyphFailure(glyph)).filter(found => isFailure(found));
     const failure = failures.find(found => found.kind === 'missing-glyph') ?? failures[0];
@@ -311,7 +350,7 @@ class FoundText {
       clusters(value, character => this.keep(character) && !setAside(character))
         .map(cluster => cluster.text)
         .join('');
-    if (comparable(text, lacking) === comparable(glyphText, () => false)) {
+    if (comparable(text, lacking) === comparable(glyphText, () => false) || this.spanByCmap(glyphs, { glyphText, text: comparable(text, () => false) })) {
       this.push(text, indexes, cluster => (cluster.match(SELECTORS) ?? []).some(selector => lacking(selector)) && !this.variantByCmap(glyphs, cluster));
       return;
     }
@@ -333,29 +372,32 @@ const failureDifference = (found: FoundCluster, intendedIndex?: number): TextDif
   return undefined;
 };
 
-// The unmatched intended and found clusters between two matches: pairs in order are substitutions, the rest missing or extra.
-const gapDifferences = (intended: readonly Cluster[], found: readonly FoundCluster[]): TextDifference[] => {
+// The unmatched intended and found clusters between two matches: pairs in order are substitutions, unless the found text accepts the intended character, and the rest missing or extra.
+const gapDifferences = (intended: readonly Cluster[], found: readonly FoundCluster[], text: FoundText): TextDifference[] => {
   const differences: TextDifference[] = [];
   const paired = Math.min(intended.length, found.length);
   for (let index = 0; index < Math.max(intended.length, found.length); index++) {
     const want = intended[index];
     const have = found[index];
     if (index < paired && want !== undefined && have !== undefined) {
-      differences.push(
-        failureDifference(have, want.offset) ?? { kind: 'substituted', intended: want.text, found: have.text, intendedIndex: want.offset, glyphs: have.glyphs },
-      );
+      const failure = failureDifference(have, want.offset);
+      if (failure !== undefined) differences.push(failure);
+      else if (!text.acceptByCmap(want, have)) {
+        differences.push({ kind: 'substituted', intended: want.text, found: have.text, intendedIndex: want.offset, glyphs: have.glyphs });
+      }
     } else if (want !== undefined) differences.push({ kind: 'missing', intended: want.text, intendedIndex: want.offset });
     else if (have !== undefined) differences.push(failureDifference(have) ?? { kind: 'extra', found: have.text, glyphs: have.glyphs });
   }
   return differences;
 };
 
-const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Cluster[], found: readonly FoundCluster[]): TextDifference[] => {
+const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Cluster[], text: FoundText): TextDifference[] => {
+  const found = text.clusters;
   const differences: TextDifference[] = [];
   let wanted: Cluster[] = [];
   let had: FoundCluster[] = [];
   const flush = (): void => {
-    for (const difference of gapDifferences(wanted, had)) differences.push(difference);
+    for (const difference of gapDifferences(wanted, had, text)) differences.push(difference);
     wanted = [];
     had = [];
   };
@@ -555,11 +597,11 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
   });
   const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
   const incomplete: TextDifference[] = page.complete ? [] : [{ kind: 'page-incomplete' }];
-  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked, ...partlyHidden(selected), ...incomplete];
+  const differences = [...differencesOf(steps, wanted, found), ...found.notes, ...unchecked, ...partlyHidden(selected), ...incomplete];
   return {
     status: statusOf(differences),
     intended,
-    found: found.clusters.map(cluster => cluster.text).join(''),
+    found: found.text(),
     differences,
     folds: found.foldsApplied(),
     duplicates: runs === undefined ? [] : [{ copies: runs.map(run => run.map(glyph => glyph.index)), kept: runs.length - 1 }],

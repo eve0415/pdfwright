@@ -506,6 +506,30 @@ describe('text matching', () => {
       expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
     });
 
+    it('accepts a substituted character the embedded cmap maps to exactly the glyph drawn, and no other', () => {
+      // Noto Sans JP draws 戸 with the glyph it also maps from U+2F3E, and Chromium's ToUnicode gives U+2F3E; the jis78 form of 儘 is a glyph the cmap gives 侭, not 儘.
+      const shared = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, box, box],
+        characters: [
+          [0x2f3e, 1],
+          [0x6238, 1],
+          [0x4fad, 2],
+          [0x5118, 1],
+        ],
+      });
+      const result = match({ texts: ['⼾'], program: shared, content: line(1) }, '戸');
+      expect([...summary(result), result.folds]).toStrictEqual(['match', '戸', [], [{ fold: 'embedded-cmap', from: '⼾', to: '戸', glyphs: [0] }]]);
+      // Chromium also wraps the glyph in a span whose ActualText is 戸.
+      const inSpan = match({ texts: ['⼾'], program: shared, content: `BT /T 10 Tf 100 700 Td ${span('戸', show(1))} ET` }, '戸');
+      expect([...summary(inSpan), inSpan.folds]).toStrictEqual(['match', '戸', [], [{ fold: 'embedded-cmap', from: '⼾', to: '戸', glyphs: [0] }]]);
+      expect(summaryOf({ texts: [null, '侭'], program: shared, content: `BT /T 10 Tf 100 700 Td ${show(2)} ET` }, '儘')).toStrictEqual([
+        'mismatch',
+        '侭',
+        [{ kind: 'substituted', intended: '儘', found: '侭', intendedIndex: 0, glyphs: [0] }],
+      ]);
+    });
+
     it('confirms a variation sequence through the format 14 subtable', () => {
       const texts = [null, null, null, '葛', '葛󠄀'];
       const withVariant = program([{ selector: 0xe0100, defaults: [], glyphs: [[0x845b, 5]] }]);
