@@ -137,6 +137,9 @@ const cidNotdefFont = (map: string): readonly TestObject[] => [
 
 const clipped = (clip: string): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET`).map(glyph => glyph.clip);
 
+// Whether a glyph at (100, 200) drawn under a clip is covered by white fills painted after it.
+const coveredUnder = (clip: string, fills: string): boolean[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.covered);
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -516,6 +519,15 @@ describe('text extraction', () => {
       );
       expect(shown.map(glyph => glyph.covered)).toStrictEqual([true, false, true]);
       expect(glyphs('1 g 90 190 30 30 re f BT /F1 10 Tf 100 200 Td (A) Tj ET').map(glyph => glyph.covered)).toStrictEqual([false]);
+    });
+
+    it('marks glyphs that adjacent opaque rectangles cover together, or that one covers where the clip lets them show', () => {
+      // The glyph's box spans 100–106 by 198–208.
+      expect([
+        coveredUnder('', '90 190 13 30 re f 103 190 13 30 re f'),
+        coveredUnder('0 0 600 205 re W n', '90 190 30 15 re f'),
+        coveredUnder('', '90 190 30 15 re f'),
+      ]).toStrictEqual([[true], [true], [false]]);
     });
 
     it('classifies glyphs against Bézier and polygon clips with both fill rules', () => {

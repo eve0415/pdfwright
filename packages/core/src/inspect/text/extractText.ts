@@ -9,6 +9,7 @@ import type { PdfReference } from '../../object/pdfObject.ts';
 import type { EmbeddedCmap } from './glyphEvidence.ts';
 import type { ActualTextSpan } from './textUnits.ts';
 
+import { Clip } from '../../content/clip.ts';
 import { FILLING_MODES, STROKING_MODES, interpretPage } from '../../content/interpreter.ts';
 import { unreadable } from '../../content/unreadable.ts';
 import { internalsOf } from '../../document/documentInternals.ts';
@@ -96,7 +97,7 @@ export interface PageGlyph {
   readonly strokeAlpha: number;
   /** Whether a soft mask was active where the glyph was painted, by an ExtGState SMask or on an enclosing transparency group. */
   readonly softMasked: boolean;
-  /** Whether a later opaque fill of a rectangle with sides parallel to the page axes covers the whole advance box. Fills of other shapes, images and shadings are not considered. */
+  /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
   /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit. */
   readonly clip: ClipClass;
@@ -204,13 +205,35 @@ const invisibility = (
 // A point on a rectangle's edge counts as covered.
 const COVER_TOLERANCE = 1e-6;
 
-const coversQuad = ([left, bottom, right, top]: CoverEvent['rectangle'], quad: Quad): boolean => {
-  for (let index = 0; index < quad.length; index += 2) {
-    const x = quad[index] ?? Number.NaN;
-    const y = quad[index + 1] ?? Number.NaN;
-    if (!(x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE)) return false;
+// The advance box is sampled on a grid of this many points per side to test what covers it.
+const COVER_SAMPLES = 5;
+
+const insideRectangle = ([left, bottom, right, top]: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean =>
+  x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE;
+
+// Points spread evenly over the quad, corners and edges included.
+const samples = (quad: Quad): (readonly [number, number])[] => {
+  const [x0, y0, x1, y1, x2, y2, x3, y3] = quad;
+  const points: (readonly [number, number])[] = [];
+  for (let row = 0; row < COVER_SAMPLES; row++) {
+    for (let column = 0; column < COVER_SAMPLES; column++) {
+      const [u, v] = [column / (COVER_SAMPLES - 1), row / (COVER_SAMPLES - 1)];
+      const bottom = [x0 + (x1 - x0) * u, y0 + (y1 - y0) * u] as const;
+      const top = [x3 + (x2 - x3) * u, y3 + (y2 - y3) * u] as const;
+      points.push([bottom[0] + (top[0] - bottom[0]) * v, bottom[1] + (top[1] - bottom[1]) * v]);
+    }
   }
-  return true;
+  return points;
+};
+
+/**
+ * Whether later opaque rectangles cover the glyph's box where the clip lets it show: every sampled point of the box inside the clip lies in one of them.
+ * Rectangles are tested together, so adjacent fills that hide a glyph between them count, and the part of the box a clip hides needs no cover.
+ */
+const coveredBy = (rectangles: readonly CoverEvent['rectangle'][], { quad, clip }: { quad: Quad; clip: Clip }): boolean => {
+  if (rectangles.length === 0) return false;
+  const shown = samples(quad).filter(([x, y]) => clip.classifyPoint(x, y) !== 'outside');
+  return shown.length > 0 && shown.every(point => rectangles.some(rectangle => insideRectangle(rectangle, point)));
 };
 
 // The embedded cmap of a CIDFontType2 font; a program that cannot be read gives none.
@@ -230,6 +253,8 @@ class TextCollector {
   private readonly fontModels = new Map<string, FontModel>();
   // The interpreter's event sequence of each glyph's text-show event, so that only fills after it can cover it.
   readonly sequences: number[] = [];
+  // The clip each glyph was painted under, so that only the part of its box the clip shows needs covering.
+  private readonly clips: Clip[] = [];
   readonly spans: ActualTextSpans;
   private readonly document: DocumentInternals;
 
@@ -254,6 +279,7 @@ class TextCollector {
       const empty = glyph?.empty ?? false;
       const invisibleBecause = invisibility(state, { sources: event.context.sources, degenerate: geometry.degenerate, empty });
       this.sequences.push(event.sequence);
+      this.clips.push(state.clip);
       this.glyphs.push({
         index,
         code: glyph?.bytes ?? event.string,
@@ -298,7 +324,9 @@ class TextCollector {
     if (covers.length === 0) return this.glyphs;
     return this.glyphs.map((glyph, index) => {
       const sequence = this.sequences[index] ?? Infinity;
-      const covered = covers.some(cover => cover.sequence > sequence && coversQuad(cover.rectangle, glyph.quad));
+      const clip = this.clips[index] ?? Clip.NONE;
+      const later = covers.filter(cover => cover.sequence > sequence).map(cover => cover.rectangle);
+      const covered = coveredBy(later, { quad: glyph.quad, clip });
       return covered ? { ...glyph, covered } : glyph;
     });
   }
