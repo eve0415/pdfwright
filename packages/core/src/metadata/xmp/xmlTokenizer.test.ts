@@ -122,6 +122,8 @@ describe('the XML tokenizer', () => {
         '<a b="<"/>',
         '<a b=1/>',
         '<a><!-- a -- b --></a>',
+        '<a><!-- a ---></a>',
+        '<a><!-----></a>',
         '',
         '<a>]]></a>',
         '<a\u{1}/>',
@@ -138,9 +140,12 @@ describe('the XML tokenizer', () => {
       'not-well-formed',
       'not-well-formed',
       'not-well-formed',
+      'not-well-formed',
+      'not-well-formed',
       'invalid-character',
       'invalid-character',
     ]);
+    expect(kinds('<a><!----><!-- - --></a>')).toStrictEqual(['start', 'comment', 'comment', 'end']);
   });
 
   it('allows white space, comments and processing instructions around the root element, after a leading byte-order mark', () => {

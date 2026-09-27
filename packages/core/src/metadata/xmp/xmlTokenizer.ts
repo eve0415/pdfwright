@@ -192,8 +192,9 @@ class Tokenizer {
     if (text.startsWith('<!--', start)) {
       this.position += 4;
       const end = this.until('-->');
-      // XML 1.0, 2.5: two hyphens in a row may not occur inside a comment.
-      if (text.slice(this.position, end).includes('--')) throw new RefusalError('not-well-formed', start);
+      // XML 1.0, 2.5, production [15] Comment: '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->', so the content holds no "--" and does not end with a hyphen ("the grammar does not allow a comment ending in --->").
+      const content = text.slice(this.position, end);
+      if (content.includes('--') || content.endsWith('-')) throw new RefusalError('not-well-formed', start);
       this.position = end + 3;
       this.tokens.push({ kind: 'comment', span: { start, end: this.position } });
     } else if (text.startsWith('<![CDATA[', start)) {
