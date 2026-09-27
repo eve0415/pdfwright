@@ -159,6 +159,16 @@ describe('reading XMP packets', () => {
     expect([findings(duplicated), encodingFindings(utf16)]).toStrictEqual([['duplicate-property'], ['utf-16be', 'xmp-not-utf8']]);
   });
 
+  it('refuses a packet with too many properties before building its tree', () => {
+    const text = packet(`<rdf:Description xmlns:p="urn:p">${'<p:x/>'.repeat(8193)}</rdf:Description>`);
+    expect(refusal(text)).toBe('too-many-tokens');
+  });
+
+  it('reports one finding for repeated duplicates of the same property', () => {
+    const text = packet(`<rdf:Description ${PDF}>${'<pdf:Producer>P</pdf:Producer>'.repeat(4)}</rdf:Description>`);
+    expect(findings(text)).toStrictEqual(['duplicate-property']);
+  });
+
   it('refuses packets that are not well-formed, not decodable, or not the RDF subset XMP uses', () => {
     expect([
       refusal(packet('<rdf:Description>')),

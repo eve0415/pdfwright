@@ -194,6 +194,7 @@ Adobe's predefined CJK CMaps are not bundled; a `CMapProvider` supplies them.
 ## Setting metadata
 
 `readMetadata(document)` reports the document information dictionary, the catalog's XMP packet, one row per key XMP Part 3 Table 20 maps (Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Trapped) with both values and whether they agree, the side ISO 32000-1 14.3.2 makes authoritative (`xmp`, `info` or `indeterminate`), the metadata streams other objects carry, the orphaned metadata streams nothing reachable references, and the `<?xpacket begin=` headers a byte scan of the file finds, including those left in earlier revisions.
+XMP reading has a fixed cap of 8,192 XML tokens per packet in addition to the XML depth and attribute limits; packets past the cap are reported as unreadable with reason `too-many-tokens`.
 It never throws for damaged metadata; what cannot be read is a finding.
 
 `setMetadata(document, input)` writes Info and the document's XMP packet from one input, so that they agree.

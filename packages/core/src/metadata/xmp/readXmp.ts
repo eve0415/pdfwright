@@ -296,9 +296,13 @@ const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: reado
   const distinct = new Set(subjects.values.filter(value => value !== ''));
   if (distinct.size > 1) findings.push({ code: 'rdf-about-mismatch', detail: `the rdf:Description elements name ${String(distinct.size)} different subjects` });
   const seen = new Set<string>();
+  const reported = new Set<string>();
   for (const property of properties) {
     const name = `${property.namespace}${property.localName}`;
-    if (seen.has(name)) findings.push({ code: 'duplicate-property', detail: `${name} occurs more than once` });
+    if (seen.has(name) && !reported.has(name)) {
+      findings.push({ code: 'duplicate-property', detail: `${name} occurs more than once` });
+      reported.add(name);
+    }
     seen.add(name);
   }
   return findings;

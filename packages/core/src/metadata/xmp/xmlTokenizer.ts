@@ -24,7 +24,7 @@ export type XmlToken =
   | { readonly kind: 'pi'; readonly target: string; readonly content: string; readonly span: XmlSpan };
 
 /** Why text is not read: a DOCTYPE declaration, an entity other than the five predefined ones, a limit, or text that is not well-formed XML. */
-export type XmlRefusal = 'doctype' | 'undefined-entity' | 'too-deep' | 'too-many-attributes' | 'invalid-character' | 'not-well-formed';
+export type XmlRefusal = 'doctype' | 'undefined-entity' | 'too-deep' | 'too-many-attributes' | 'too-many-tokens' | 'invalid-character' | 'not-well-formed';
 
 export type XmlTokens =
   | { readonly ok: true; readonly tokens: readonly XmlToken[] }
@@ -35,9 +35,11 @@ export interface XmlLimits {
   readonly maxDepth: number;
   /** Most attributes on one element; default 256. */
   readonly maxAttributes: number;
+  /** Most tokens in one packet; default 8,192. */
+  readonly maxTokens: number;
 }
 
-const DEFAULT_LIMITS: XmlLimits = { maxDepth: 64, maxAttributes: 256 };
+const DEFAULT_LIMITS: XmlLimits = { maxDepth: 64, maxAttributes: 256, maxTokens: 8192 };
 
 // XML 1.0 (Fifth Edition), 2.2, production [2] Char: tab, line feed, carriage return, and the scalar values from U+0020 other than surrogates, U+FFFE and U+FFFF.
 const INVALID_CHARACTER = /[^\t\n\r\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/u;
@@ -250,6 +252,7 @@ class Tokenizer {
         throw intoInvalid ? new RefusalError('invalid-character', invalid) : error;
       }
       if (this.position > invalid) throw new RefusalError('invalid-character', invalid);
+      if (this.tokens.length > this.limits.maxTokens) throw new RefusalError('too-many-tokens', this.position);
     }
     if (!this.trailerSeen && invalid < this.text.length) throw new RefusalError('invalid-character', invalid);
     if (this.open.length > 0 || !this.rootSeen) throw new RefusalError('not-well-formed', this.text.length);
