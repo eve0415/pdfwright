@@ -288,6 +288,10 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
 const cmapProblems = (context: LoadContext, result: CMapResult): void => {
   if (result.kind === 'cmap') {
     for (const problem of result.problems) context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap: ${problem.detail}` });
+    const { unavailableParent } = result.cmap;
+    if (unavailableParent !== undefined) {
+      context.warnings.push({ code: 'cmap-unavailable', detail: `the predefined CMap ${unavailableParent} that the Encoding CMap uses is not available` });
+    }
   } else if (result.kind === 'unavailable') context.warnings.push({ code: 'cmap-unavailable', detail: `the predefined CMap ${result.name} is not available` });
   else context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap cannot be read: ${result.reason}` });
 };
@@ -323,9 +327,9 @@ interface CompositeParts {
   readonly ucs2: CMap | undefined;
 }
 
-// A code whose CID depends on a usecmap CMap no provider supplied has no known CID. 9.7.6.3: an invalid code takes "a substitute glyph …as just described", its notdef mapping or CID 0.
+// A code whose CID depends on a usecmap CMap no provider supplied has no known CID: one the CMap here does not map, or one outside its codespace ranges, which may lie in the other CMap's. 9.7.6.3: an invalid code takes "a substitute glyph …as just described", its notdef mapping or CID 0.
 const cidOf = (cmap: CMap, code: CMapCode, valid: boolean): number | undefined => {
-  if (!valid) return cmap.notdef(code) ?? 0;
+  if (!valid) return cmap.unavailableParent === undefined ? (cmap.notdef(code) ?? 0) : undefined;
   const mapped = cmap.mapped(code) ?? cmap.notdef(code);
   if (mapped === undefined && cmap.unavailableParent !== undefined) return undefined;
   return mapped ?? 0;

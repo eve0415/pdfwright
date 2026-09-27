@@ -141,6 +141,31 @@ const clipped = (clip: string): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200
 // Whether a glyph at (100, 200) drawn under a clip is covered by white fills painted after it.
 const coveredUnder = (clip: string, fills: string): boolean[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.covered);
 
+// A Type 0 font whose embedded Encoding CMap maps codes 0–255 to CIDs 0–255 and uses 90ms-RKSJ-H for the rest, and whose ToUnicode maps <0001> to 山 and <8E52> to X.
+const usingUnavailable = (codespace: string): readonly TestObject[] => [
+  ...type0('131 0 R', 'Japan1', '/ToUnicode 132 0 R'),
+  {
+    number: 131,
+    body: streamBody(
+      '/Type/CMap/CMapName/Embedded',
+      `/90ms-RKSJ-H usecmap begincmap 1 begincodespacerange ${codespace} endcodespacerange 1 begincidrange <0000> <00FF> 0 endcidrange endcmap`,
+    ),
+  },
+  {
+    number: 132,
+    body: streamBody('', 'begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <5C71> <8E52> <0058> endbfchar endcmap'),
+  },
+];
+
+// Each glyph's CID, text, reason and position, and whether the cmap-unavailable warnings name 90ms-RKSJ-H, for <0001> <8E52> <0001> shown in that font.
+const readUsingUnavailable = (codespace: string): unknown[] => {
+  const text = extract({ content: 'BT /T 10 Tf <0001> Tj <8E52> Tj <0001> Tj ET', resources: '/Font<</T 105 0 R>>' }, usingUnavailable(codespace));
+  return [
+    text.glyphs.map(glyph => [glyph.cid, glyph.text, glyph.reason, glyph.positionKnown]),
+    text.warnings.filter(warning => warning.code === 'cmap-unavailable').map(warning => warning.detail.includes('90ms-RKSJ-H')),
+  ];
+};
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -331,6 +356,19 @@ describe('text extraction', () => {
       const withProvider = extract({ content: 'BT /T 10 Tf <8E52> Tj ET', resources: '/Font<</T 105 0 R>>' }, objects, { cmapProvider: provider }).glyphs;
       expect(withProvider.map(glyph => [[...glyph.code], glyph.cid, glyph.text])).toStrictEqual([[[0x8e, 0x52], 2115, '山']]);
       expect(textOf('BT /T 10 Tf <8E52> Tj ET', objects)).toStrictEqual([[null, null, null, 'predefined-cmap-unavailable']]);
+    });
+
+    it('gives no text or CID for codes an embedded CMap leaves to a usecmap CMap the provider did not supply', () => {
+      // The embedded CMap maps codes 0–255 itself; other codes depend on 90ms-RKSJ-H, which its usecmap names and no provider supplies.
+      const expected = [
+        [
+          [1, '山', undefined, true],
+          [undefined, null, 'predefined-cmap-unavailable', true],
+          [1, '山', undefined, false],
+        ],
+        [true],
+      ];
+      expect([readUsingUnavailable('<0000> <FFFF>'), readUsingUnavailable('<0000> <00FF>')]).toStrictEqual([expected, expected]);
     });
 
     it('reports a string whose font cannot be decoded as undecodable', () => {

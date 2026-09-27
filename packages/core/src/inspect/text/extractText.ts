@@ -61,7 +61,7 @@ export interface PageGlyph {
   readonly gid: number | undefined;
   /** The key of the font, as `listFonts` reports it. */
   readonly font: string;
-  /** The glyph's own text: its ToUnicode text, else its encoding text; never ActualText. */
+  /** The glyph's own text: its ToUnicode text, else its encoding text; never ActualText. Null when the code's CID depends on a CMap the provider did not supply, since the glyph shown is then unknown. */
   readonly text: string | null;
   /** The text the font's ToUnicode CMap maps the code to. */
   readonly toUnicode: string | null;
@@ -184,11 +184,12 @@ const markedContentOf = (document: DocumentInternals, sequences: readonly Marked
  * 9.10.2: "If these methods fail to produce a Unicode value, there is no way to determine what the character code represents".
  */
 const glyphText = (font: FontModel, glyph: FontGlyph): Pick<PageGlyph, 'text' | 'reason'> => {
+  // ISO 32000-1:2008, 9.7.6.2 and Table 120, UseCMap: a code the Encoding CMap leaves to a CMap no provider supplied selects a glyph that is not known, whatever its ToUnicode text.
+  if (glyph.cmapUnavailable !== undefined) return { text: null, reason: 'predefined-cmap-unavailable' };
   const text = glyph.toUnicode ?? glyph.encodingText ?? null;
   if (glyph.notdef) return { text, reason: 'notdef' };
   if (text !== null) return { text, reason: undefined };
-  const unavailable = glyph.cmapUnavailable !== undefined || font.collectionMap?.available === false;
-  return { text, reason: unavailable ? 'predefined-cmap-unavailable' : 'no-mapping' };
+  return { text, reason: font.collectionMap?.available === false ? 'predefined-cmap-unavailable' : 'no-mapping' };
 };
 
 // A string the font cannot split has no text: its CMap was not supplied, or it cannot be decoded.
