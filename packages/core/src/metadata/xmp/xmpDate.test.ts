@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parsePdfDate, pdfDate, pdfDateString } from '../../date/pdfDate.ts';
 
-import { compareDates, parseXmpDate, xmpDateString } from './xmpDate.ts';
+import { compareDates, instant, parseXmpDate, xmpDateString } from './xmpDate.ts';
 
 const described = (text: string): readonly unknown[] | undefined => {
   const parsed = parseXmpDate(text);
@@ -67,6 +67,15 @@ describe('dates in XMP', () => {
       agreement('D:20030826163921', '2003-08-26T16:39:21Z'),
       agreement('D:20030826163921Z', '2003-08-26T16:39:21.9Z'),
     ]).toStrictEqual(['equal', 'different', 'equal', 'different', 'equal', 'equal', 'equal', 'equal']);
+  });
+
+  it('compares times in the years 0 to 99 as those years', () => {
+    expect([
+      agreement('D:19990101000000Z', '0099-01-01T00:00:00Z'),
+      agreement('D:00990101000000Z', '0099-01-01T00:00:00Z'),
+      agreement("D:00000101000000+01'00'", '0000-01-01T00:00:00+01:00'),
+    ]).toStrictEqual(['different', 'equal', 'equal']);
+    expect(instant(pdfDate({ year: 99, month: 1, day: 1, hour: 0, minute: 0, second: 0, offset: 'Z' }))).toBe(-59_042_995_200_000);
   });
 
   it('cannot compare a time without a time zone designator', () => {

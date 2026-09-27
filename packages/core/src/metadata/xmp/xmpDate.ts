@@ -42,9 +42,13 @@ const UNIT_MS: Readonly<Record<'hour' | 'minute' | 'second', number>> = { hour: 
 const offsetMinutes = (offset: PdfDateComponents['offset']): number =>
   offset === 'Z' ? 0 : (offset.sign === '-' ? -1 : 1) * (offset.hours * 60 + offset.minutes);
 
-/** Milliseconds since 1970-01-01T00:00:00Z. */
-export const instant = (date: PdfDate): number =>
-  Date.UTC(date.year, date.month - 1, date.day, date.hour, date.minute, date.second) - offsetMinutes(date.offset) * 60_000;
+/** Milliseconds since 1970-01-01T00:00:00Z; years 0 to 99 are those years, not 1900 to 1999 as Date.UTC reads them. */
+export const instant = (date: PdfDate): number => {
+  const time = new Date(0);
+  time.setUTCFullYear(date.year, date.month - 1, date.day);
+  time.setUTCHours(date.hour, date.minute, date.second, 0);
+  return time.getTime() - offsetMinutes(date.offset) * 60_000;
+};
 
 /**
  * Whether a PDF date and an XMP date name the same time at the coarser of their precisions.
