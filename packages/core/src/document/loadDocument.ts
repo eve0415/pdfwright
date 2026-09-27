@@ -123,6 +123,7 @@ class LoadedPdf implements LoadedDocument {
   private readonly pages: readonly PageEntry[];
   private readonly handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: false });
   private readonly placed: ResourceNumbers = { imageNumbers: new Map(), groupNumbers: new Map() };
+  private readonly features = { transparency: false };
   private readonly base: SaveBase | undefined;
   private readonly maxNesting: number;
 
@@ -164,7 +165,14 @@ class LoadedPdf implements LoadedDocument {
       throw new InvalidArgumentError(`page index ${String(index)} is outside 0 to ${String(this.pages.length - 1)}`);
     }
     return createLoadedPage(
-      { objects: this.objects, pages: this.pages, handles: this.handles, placed: this.placed, fractionDigits: DEFAULT_FRACTION_DIGITS },
+      {
+        objects: this.objects,
+        pages: this.pages,
+        handles: this.handles,
+        placed: this.placed,
+        fractionDigits: DEFAULT_FRACTION_DIGITS,
+        features: this.features,
+      },
       entry,
       index,
     );
@@ -188,7 +196,8 @@ class LoadedPdf implements LoadedDocument {
 
   // ISO 32000-1:2008, 7.5.2: the catalog Version, "if present, shall be used instead of the version specified in the Header"; a transparency group or soft mask needs PDF 1.4 (11.1).
   private versionChange(changes: Map<number, ObjectChange>, warnings: SaveWarning[]): void {
-    const needsTransparency = this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
+    const needsTransparency =
+      this.features.transparency || this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
     const root = this.structure.trailer.get(ROOT);
     if (!needsTransparency || root?.kind !== 'reference') return;
     const catalog = this.get(root);

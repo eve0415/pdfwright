@@ -96,6 +96,21 @@ describe('appending page content', () => {
     }).toThrow(ValidationError);
   });
 
+  it('raises the catalog version for transparent graphics states in a PDF 1.3 file', () => {
+    const written = latin1Text(
+      buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...page('/Resources<<>>')], trailer: '/Root 1 0 R' }]).bytes,
+    );
+    const old = loadDocument(latin1Bytes(written.replace('%PDF-1.7', '%PDF-1.3')));
+    old.page(0).appendContent(builder => {
+      builder.graphicsState({ fillAlpha: 0.5 });
+    });
+    const saved = old.save();
+    expect([saved.warnings.map(warning => warning.code), loadDocument(saved.chunks).catalog().get(pdfName('Version').bytes)]).toStrictEqual([
+      ['version-raised'],
+      pdfName('1.4'),
+    ]);
+  });
+
   it('writes an image once however often content draws it', () => {
     const document = load(page('/Resources<<>>'));
     const image = document.image({

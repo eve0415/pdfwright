@@ -25,6 +25,8 @@ export interface ContentContext extends ResourceContext {
   /** Objects already written for the document's images and groups. */
   readonly placed: ResourceNumbers;
   readonly fractionDigits: number;
+  /** Set when appended content uses a PDF 1.4 transparency feature, so that saving can raise the version. */
+  readonly features: { transparency: boolean };
 }
 
 export interface AppendRequest {
@@ -132,6 +134,12 @@ const built = (context: ContentContext, page: PageEntry, render: (content: Conte
   const session = createContentBuilder(context.fractionDigits, hooks);
   render(session.content);
   const data = isolateContent(session.finish().data);
+  // ISO 32000-1:2008, 8.4.5, Table 58: CA, ca, BM and SMask are "(Optional; PDF 1.4)".
+  for (const { options } of record.graphicsStates.values()) {
+    if (options.fillAlpha !== undefined || options.strokeAlpha !== undefined || options.blendMode !== undefined || options.softMask !== undefined) {
+      context.features.transparency = true;
+    }
+  }
   place(context, record);
   addPageResources(context, page, additions(resourceDictionary(record, context.placed)));
   return data;
