@@ -1,12 +1,15 @@
+import type { InspectWarningCode } from '../../content/inspectWarning.ts';
 import type { DocumentInternals } from '../../document/documentInternals.ts';
 import type { LoadedDocument } from '../../document/loadDocument.ts';
-import type { Found } from '../../document/loadedPage.ts';
+import type { Found, InheritedCache } from '../../document/loadedPage.ts';
+import type { PageEntry } from '../../document/pageTree.ts';
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { CidFontSubtype, FontEncodingSummary, FontModel, FontSubtype, FontWarningCode } from '../../font/fontModel.ts';
 import type { PdfDictionaryEntries } from '../../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject, PdfReference } from '../../object/pdfObject.ts';
+import type { PdfReference } from '../../object/pdfObject.ts';
 import type { Type3Reading, Type3Summary } from './type3Glyphs.ts';
 
+import { interpretPage } from '../../content/interpreter.ts';
 import { unreadable } from '../../content/unreadable.ts';
 import { internalsOf } from '../../document/documentInternals.ts';
 import { createInheritedCache, inherited } from '../../document/loadedPage.ts';
@@ -96,25 +99,29 @@ export interface FontEntry {
   readonly type3: Type3Summary | undefined;
   /** 0-based indexes of the pages whose resources reach the font: through forms, patterns, Type 3 fonts, graphics states, soft masks and annotation appearances. */
   readonly pages: readonly number[];
+  /** 0-based indexes of the pages whose content shows at least one string with the font: page content, printable annotation appearances, and Type 3 glyph procedures of fonts the page shows. Empty when `shownOn` is false in the options. */
+  readonly shownOn: readonly number[];
   readonly problems: readonly FontProblem[];
 }
 
 export interface FontInventory {
-  /** Ordered by the first page that reaches each font, then by object number, with direct fonts after indirect ones. */
+  /** Ordered by the first page that reaches or shows each font, then by object number, with direct fonts after indirect ones. */
   readonly fonts: readonly FontEntry[];
   /** Objects on the way to fonts that could not be read, by page. */
   readonly unreadable: readonly { readonly page: number; readonly reason: string }[];
 }
 
 export interface ListFontsOptions {
+  /** Whether to interpret every page's content to fill `shownOn`; default true. False gives an inventory of resources alone. */
+  readonly shownOn?: boolean;
   /** Supplies predefined CMaps other than Identity-H and Identity-V, so that their availability is reported. */
   readonly cmapProvider?: CMapProvider;
 }
 
 interface Reached {
-  readonly value: PdfDirectObject;
   readonly model: FontModel;
   readonly pages: Set<number>;
+  readonly shownOn: Set<number>;
   /** The resources of the first page that reaches the font, where a Type 3 font without Resources finds its names. */
   readonly pageResources: PdfDictionaryEntries | undefined;
 }
@@ -231,7 +238,9 @@ interface Built {
   readonly identity: string | undefined;
 }
 
-const buildEntry = (document: DocumentInternals, { value, model, pages, pageResources }: Reached): Built => {
+const sorted = (pages: ReadonlySet<number>): number[] => [...pages].toSorted((a, b) => a - b);
+
+const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageResources }: Reached): Built => {
   const holder = model.subtype === 'Type0' ? model.descendant?.dictionary : model.dictionary;
   const descriptorValue = holder?.get(FONT_DESCRIPTOR);
   const descriptor = dictionaryOf(document.objects.deref(descriptorValue));
@@ -244,7 +253,7 @@ const buildEntry = (document: DocumentInternals, { value, model, pages, pageReso
   const subtypeValue = document.objects.deref(model.dictionary.get(SUBTYPE));
   const entry: FontEntry = {
     key: model.key,
-    reference: value.kind === 'reference' ? value : undefined,
+    reference: model.reference,
     subtype: model.subtype,
     subtypeBytes: subtypeValue?.kind === 'name' ? subtypeValue.bytes : new Uint8Array(),
     name,
@@ -255,7 +264,8 @@ const buildEntry = (document: DocumentInternals, { value, model, pages, pageReso
     encoding: model.encoding,
     toUnicode: model.toUnicode,
     type3: glyphs === undefined ? undefined : { glyphs: glyphs.glyphs, procedures: glyphs.procedures, coloured: glyphs.coloured },
-    pages: [...pages].toSorted((a, b) => a - b),
+    pages: sorted(pages),
+    shownOn: sorted(shownOn),
     problems: problemsOf({ model, descriptor, program, malformed, glyphs }),
   };
   return { entry, identity: program.identity };
@@ -285,8 +295,10 @@ const referenceOrder = (entry: FontEntry): readonly [number, number] => [
   entry.reference?.generation ?? 0,
 ];
 
+const firstPage = (entry: FontEntry): number => Math.min(entry.pages[0] ?? Number.POSITIVE_INFINITY, entry.shownOn[0] ?? Number.POSITIVE_INFINITY);
+
 const order = (left: FontEntry, right: FontEntry): number => {
-  const pages = (left.pages[0] ?? Number.POSITIVE_INFINITY) - (right.pages[0] ?? Number.POSITIVE_INFINITY);
+  const pages = firstPage(left) - firstPage(right);
   if (pages !== 0) return pages;
   const [leftNumber, leftGeneration] = referenceOrder(left);
   const [rightNumber, rightGeneration] = referenceOrder(right);
@@ -296,55 +308,97 @@ const order = (left: FontEntry, right: FontEntry): number => {
   return left.key < right.key ? -1 : 1;
 };
 
+interface Listing {
+  readonly document: DocumentInternals;
+  readonly fonts: FontCache;
+  readonly cache: InheritedCache;
+  readonly found: Map<string, Reached>;
+  /** Each page's resource dictionary, by page index. */
+  readonly pageResources: (PdfDictionaryEntries | undefined)[];
+  readonly problems: { page: number; reason: string }[];
+}
+
+// The interpretation warnings that leave pages whose text was not all seen.
+const INCOMPLETE: ReadonlySet<InspectWarningCode> = new Set(['content-unreadable', 'content-cycle', 'bad-operands', 'resource-missing']);
+
+const reach = (listing: Listing, index: number, model: FontModel): Reached => {
+  let font = listing.found.get(model.key);
+  if (font === undefined) {
+    font = { model, pages: new Set(), shownOn: new Set(), pageResources: listing.pageResources[index] };
+    listing.found.set(model.key, font);
+  }
+  return font;
+};
+
+const walkPage = (listing: Listing, index: number, page: PageEntry): void => {
+  const { document, problems } = listing;
+  let resources: Found | undefined = undefined;
+  try {
+    resources = inherited(document.objects, page, { key: RESOURCES, cache: listing.cache });
+    listing.pageResources[index] = dictionaryOf(document.objects.deref(resources?.value));
+  } catch (error: unknown) {
+    if (!unreadable(error)) throw error;
+    problems.push({ page: index, reason: `the Resources of the page cannot be read: ${error.message}` });
+  }
+  const unread = walkResources(document, page, {
+    resources: resources?.value,
+    owner: pageResourcesOwner(resources, page),
+    font: visit => {
+      const key = fontKey(visit.value, visit.owner, visit.name);
+      try {
+        reach(listing, index, listing.fonts.font(visit.value, key)).pages.add(index);
+      } catch (error: unknown) {
+        if (!unreadable(error)) throw error;
+        problems.push({ page: index, reason: `font ${key} cannot be read: ${error.message}` });
+      }
+    },
+  });
+  for (const object of unread) problems.push({ page: index, reason: object.reason });
+};
+
+// Text of the page, of its printable annotations' appearances, and text a Type 3 glyph procedure shows, which paints the glyph.
+const showPage = (listing: Listing, index: number): void => {
+  const shown = (font: FontModel | undefined): void => {
+    if (font !== undefined) reach(listing, index, font).shownOn.add(index);
+  };
+  const result = interpretPage(listing.document, index, {
+    fonts: listing.fonts,
+    inheritance: listing.cache,
+    annotations: 'printable',
+    text: event => {
+      if (event.string.length > 0) shown(event.font);
+    },
+    paint: event => {
+      if (event.kind === 'text' && event.context.sources.some(source => source.kind === 'type3-glyph')) shown(event.state.font);
+    },
+  });
+  for (const warning of result.warnings) if (INCOMPLETE.has(warning.code)) listing.problems.push({ page: index, reason: warning.detail });
+};
+
 /**
- * Lists every font dictionary the document's pages reach through their resources, one entry per font dictionary object, with its type, embedding, subset tag, encoding, ToUnicode state and the pages that reach it.
- * Damaged fonts and objects never throw: they become problems and unreadable entries. A value that loadDocument did not return throws InvalidArgumentError; decoded data past the document's limits throws ResourceLimitError.
+ * Lists every font dictionary the document's pages reach through their resources, one entry per font dictionary object, with its type, embedding, subset tag, encoding, ToUnicode state, the pages that reach it and the pages that show text with it.
+ * Damaged fonts and objects never throw: they become problems and unreadable entries. A value that loadDocument did not return throws InvalidArgumentError; decoded data past the document's limits and content past the interpreter's limits throw ResourceLimitError.
  */
 export const listFonts = (document: LoadedDocument, options: ListFontsOptions = {}): FontInventory => {
   const parts = internals(document);
-  const fonts = new FontCache(parts, options.cmapProvider);
-  const cache = createInheritedCache();
-  const found = new Map<string, Reached>();
-  const problems: { page: number; reason: string }[] = [];
-  for (const [index, page] of parts.pages.entries()) {
-    let resources: Found | undefined = undefined;
-    let pageResources: PdfDictionaryEntries | undefined = undefined;
-    try {
-      resources = inherited(parts.objects, page, { key: RESOURCES, cache });
-      pageResources = dictionaryOf(parts.objects.deref(resources?.value));
-    } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
-      problems.push({ page: index, reason: `the Resources of the page cannot be read: ${error.message}` });
-    }
-    const unread = walkResources(parts, page, {
-      resources: resources?.value,
-      owner: pageResourcesOwner(resources, page),
-      font: visit => {
-        const key = fontKey(visit.value, visit.owner, visit.name);
-        let font = found.get(key);
-        if (font === undefined) {
-          try {
-            font = { value: visit.value, model: fonts.font(visit.value, key), pages: new Set(), pageResources };
-          } catch (error: unknown) {
-            if (!unreadable(error)) throw error;
-            problems.push({ page: index, reason: `font ${key} cannot be read: ${error.message}` });
-            return;
-          }
-          found.set(key, font);
-        }
-        font.pages.add(index);
-      },
-    });
-    for (const object of unread) problems.push({ page: index, reason: object.reason });
-  }
+  const listing: Listing = {
+    document: parts,
+    fonts: new FontCache(parts, options.cmapProvider),
+    cache: createInheritedCache(),
+    found: new Map(),
+    pageResources: [],
+    problems: [],
+  };
+  for (const [index, page] of parts.pages.entries()) walkPage(listing, index, page);
+  if (options.shownOn !== false) for (const index of parts.pages.keys()) showPage(listing, index);
   const built: Built[] = [];
-  for (const font of found.values()) {
+  for (const font of listing.found.values()) {
     try {
       built.push(buildEntry(parts, font));
     } catch (error: unknown) {
       if (!unreadable(error)) throw error;
-      problems.push({ page: Math.min(...font.pages), reason: `font ${font.model.key} cannot be read: ${error.message}` });
+      listing.problems.push({ page: Math.min(...font.pages, ...font.shownOn), reason: `font ${font.model.key} cannot be read: ${error.message}` });
     }
   }
-  return { fonts: reusedTags(built).toSorted(order), unreadable: problems };
+  return { fonts: reusedTags(built).toSorted(order), unreadable: listing.problems };
 };

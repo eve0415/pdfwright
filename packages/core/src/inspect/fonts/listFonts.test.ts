@@ -252,3 +252,69 @@ describe('font inventory', () => {
     expect(() => listFonts({ ...source })).toThrow(InvalidArgumentError);
   });
 });
+
+const shown = (pages: readonly TestPage[], objects: readonly TestObject[] = [], options: ListFontsOptions = {}): string[][] =>
+  inventory(pages, objects, options).fonts.map(font => [font.key, font.shownOn.join(' ')]);
+
+const appearance = (number: number, font: string): TestObject => ({
+  number,
+  body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</Font<</F1 ${font}>>>>`, 'BT /F1 1 Tf (c) Tj ET'),
+});
+
+describe('pages that show each font', () => {
+  it('lists the pages whose content shows a string with the font, keyed as the resource walk keys it', () => {
+    const helveticaResource = '/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>/F2 100 0 R>>';
+    const result = shown(
+      [
+        { resources: helveticaResource, content: 'BT /F1 12 Tf (a) Tj /F2 12 Tf () Tj ET' },
+        { resources: '/XObject<</X1 130 0 R>>', content: '/X1 Do' },
+      ],
+      [
+        helvetica(100),
+        { number: 130, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F3 100 0 R>>>>', 'BT /F3 1 Tf (b) Tj ET') },
+      ],
+    );
+    expect(result).toStrictEqual([
+      ['100.0', '1'],
+      ['direct:3.0:4631', '0'],
+    ]);
+  });
+
+  it('counts a font set by a graphics state, text in printable annotation appearances, and text inside Type 3 glyph procedures', () => {
+    const result = shown(
+      [
+        {
+          resources: '/ExtGState<</G1<</Font[101 0 R 12]>>>>/Font<</T3 110 0 R>>',
+          content: 'BT /G1 gs (a) Tj ET BT /T3 10 Tf (a) Tj ET',
+          entries:
+            '/Annots[<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 120 0 R>>>> <</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 121 0 R>>>>]',
+        },
+      ],
+      [
+        helvetica(100),
+        helvetica(101),
+        helvetica(102),
+        helvetica(103),
+        {
+          number: 110,
+          body: `<<${TYPE3}/Resources<</Font<</F9 100 0 R>>>>>>`,
+        },
+        { number: 111, body: streamBody('', '1000 0 d0 BT /F9 1 Tf (A) Tj ET') },
+        appearance(120, '102 0 R'),
+        appearance(121, '103 0 R'),
+      ],
+    );
+    expect(result).toStrictEqual([
+      ['100.0', '0'],
+      ['101.0', '0'],
+      ['102.0', '0'],
+      ['103.0', ''],
+      ['110.0', '0'],
+    ]);
+  });
+
+  it('leaves shownOn empty when asked not to interpret content', () => {
+    const result = shown([{ resources: '/Font<</F1 100 0 R>>', content: 'BT /F1 12 Tf (a) Tj ET' }], [helvetica(100)], { shownOn: false });
+    expect(result).toStrictEqual([['100.0', '']]);
+  });
+});
