@@ -4,13 +4,17 @@ import type { LoadedDocument } from './loadDocument.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { pdfDate } from '../date/pdfDate.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
+import { pt } from '../length/length.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { cmyk } from './color.ts';
 import { loadDocument } from './loadDocument.ts';
+import { rect } from './rect.ts';
 
 const load = (objects: readonly TestObject[]): LoadedDocument =>
   loadDocument(buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...objects], trailer: '/Root 1 0 R' }]).bytes);
@@ -74,6 +78,22 @@ describe('appending page content', () => {
     });
     expect(content(document, 8)).toBe('q\n/CS2 CS\n0.5 SCN\nQ\n');
     expect(object(document, 3)).toContain('/Resources<</ColorSpace<</CS1/DeviceGray/CS2[/Separation /Spot /DeviceCMYK <<');
+  });
+
+  it('refuses group PieceInfo once content has drawn the group', () => {
+    const document = load(page('/Resources<<>>'));
+    const group = document.group({ bbox: rect(pt(0), pt(0), pt(10), pt(10)) }, builder => {
+      builder.path(path => path.rect(0, 0, 5, 5));
+      builder.fill('nonzero');
+    });
+    const data = { Example: { private: { kind: 'null' } } } as const;
+    group.pieceInfo({ lastModified: pdfDate({ year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0, offset: 'Z' }), data });
+    document.page(0).appendContent(builder => {
+      builder.group(group, [1, 0, 0, 1, 0, 0]);
+    });
+    expect(() => {
+      group.pieceInfo({ lastModified: pdfDate({ year: 2026, month: 1, day: 2, hour: 0, minute: 0, second: 0, offset: 'Z' }), data });
+    }).toThrow(ValidationError);
   });
 
   it('writes an image once however often content draws it', () => {

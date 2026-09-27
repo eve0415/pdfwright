@@ -74,6 +74,7 @@ const place = (context: ContentContext, record: ResourceRecord): void => {
     place(context, group);
     const resources = resourceDictionary(group, placed) ?? pdfDictionary();
     placed.groupNumbers.set(group, objects.add(groupObject(group.attributes, group.content, resources, group.pieceInfo)).objectNumber);
+    group.written = true;
   }
 };
 

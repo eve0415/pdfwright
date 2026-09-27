@@ -25,6 +25,8 @@ export interface GroupRecord extends ResourceRecord {
   content: Uint8Array;
   summary: ContentSummary;
   pieceInfo?: PieceInfoRecord;
+  /** Set once a loaded document has written the group's object, after which its page-piece data can no longer change. */
+  written?: boolean;
 }
 
 // Handles are opaque: each document maps the handles it issued to their records, so a handle from another document or built by hand has no record.

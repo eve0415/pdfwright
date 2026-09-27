@@ -45,7 +45,9 @@ export const createDocumentHandles = (options: HandleOptions): DocumentHandles =
       const handle: PdfGroup = Object.freeze({
         kind: 'PdfGroup',
         pieceInfo: (input: PieceInfoInput): void => {
-          groupRecord(records, handle).pieceInfo = pieceInfoRecord(input.lastModified, input.data);
+          const record = groupRecord(records, handle);
+          if (record.written === true) throw new ValidationError('group PieceInfo must be set before content first draws the group in a loaded document');
+          record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
         },
       });
       const resources = createResourceRecord();
