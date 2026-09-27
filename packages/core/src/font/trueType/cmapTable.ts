@@ -1,5 +1,7 @@
 import { ParseError } from '../../error/parseError.ts';
 
+import { findTable, sfntReader } from './sfnt.ts';
+
 /**
  * The Unicode `cmap` subtable of an embedded TrueType or OpenType program, and its format 14 variation sequences.
  * Only the table directory and the `cmap` table are read; every offset and count is checked against the bytes present, so a damaged program gives a reason instead of an exception.
@@ -20,40 +22,6 @@ export type CmapReading =
   | { readonly kind: 'cmap'; readonly cmap: TrueTypeCmap }
   | { readonly kind: 'absent' }
   | { readonly kind: 'unreadable'; readonly reason: string };
-
-/** Big-endian reads that throw ParseError past the end of the view, which `readTrueTypeCmap` turns into a reason. */
-const reader = (data: Uint8Array) => {
-  const byte = (offset: number): number => {
-    const value = data[offset];
-    if (value === undefined || offset < 0) throw new ParseError(`the program ends before byte ${String(offset)}`, offset);
-    return value;
-  };
-  return {
-    u8: byte,
-    u16: (offset: number): number => byte(offset) * 256 + byte(offset + 1),
-    u24: (offset: number): number => byte(offset) * 65_536 + byte(offset + 1) * 256 + byte(offset + 2),
-    u32: (offset: number): number => byte(offset) * 16_777_216 + byte(offset + 1) * 65_536 + byte(offset + 2) * 256 + byte(offset + 3),
-  };
-};
-
-type Reader = ReturnType<typeof reader>;
-
-// The table directory: sfntVersion, numTables, three search fields, then 16-byte records of tag, checksum, offset and length.
-const findTable = (read: Reader, data: Uint8Array, tag: string): Uint8Array | undefined => {
-  const version = read.u32(0);
-  if (version !== 0x00010000 && version !== 0x74727565 && version !== 0x4f54544f) throw new ParseError('the program is not a TrueType or OpenType font', 0);
-  const count = read.u16(4);
-  for (let index = 0; index < count; index++) {
-    const record = 12 + 16 * index;
-    const name = String.fromCodePoint(read.u8(record), read.u8(record + 1), read.u8(record + 2), read.u8(record + 3));
-    if (name !== tag) continue;
-    const offset = read.u32(record + 8);
-    const length = read.u32(record + 12);
-    if (offset + length > data.length) throw new ParseError(`the ${tag} table runs past the end of the program`, 0);
-    return data.subarray(offset, offset + length);
-  }
-  return undefined;
-};
 
 interface Segment {
   readonly start: number;
@@ -79,7 +47,7 @@ const bySearch = <T extends { readonly start: number; readonly end: number }>(it
 
 // Format 4: segCountX2 at 6, then endCode[segCount], reservedPad, startCode[segCount], idDelta[segCount], idRangeOffset[segCount] and glyphIdArray.
 const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined) => {
-  const read = reader(table);
+  const read = sfntReader(table);
   const length = Math.min(read.u16(2), table.length);
   const count = read.u16(6) / 2;
   if (!Number.isInteger(count) || 16 + 8 * count > length) throw new ParseError('the format 4 segment count does not fit the subtable', 0);
@@ -93,7 +61,7 @@ const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined)
       glyphs: rangeOffset === 0 ? 0 : 16 + 6 * count + 2 * index + rangeOffset,
     });
   }
-  const view = reader(table.subarray(0, length));
+  const view = sfntReader(table.subarray(0, length));
   return (codePoint: number): number | undefined => {
     if (codePoint > 0xffff) return undefined;
     const segment = bySearch(segments, codePoint);
@@ -118,7 +86,7 @@ interface Group {
 
 // Format 12: length at 4 and numGroups at 12, then 12-byte groups of startCharCode, endCharCode and startGlyphID.
 const format12 = (table: Uint8Array): ((codePoint: number) => number | undefined) => {
-  const read = reader(table);
+  const read = sfntReader(table);
   const count = read.u32(12);
   if (16 + 12 * count > Math.min(read.u32(4), table.length)) throw new ParseError('the format 12 group count does not fit the subtable', 0);
   const groups: Group[] = [];
@@ -141,7 +109,7 @@ interface Selector {
 
 // Format 14: numVarSelectorRecords at 6, then 11-byte records of varSelector (24-bit), defaultUVSOffset and nonDefaultUVSOffset, each offset from the subtable's start.
 const format14 = (table: Uint8Array): Selector[] => {
-  const read = reader(table);
+  const read = sfntReader(table);
   const count = read.u32(6);
   if (10 + 11 * count > Math.min(read.u32(2), table.length)) throw new ParseError('the format 14 record count does not fit the subtable', 0);
   const selectors: Selector[] = [];
@@ -188,7 +156,7 @@ const rank = (subtable: Subtable): number =>
   RANK.findIndex(([platform, encoding, format]) => platform === subtable.platform && encoding === subtable.encoding && format === subtable.format);
 
 const buildCmap = (table: Uint8Array): CmapReading => {
-  const read = reader(table);
+  const read = sfntReader(table);
   const count = read.u16(2);
   const subtables: Subtable[] = [];
   for (let index = 0; index < count; index++) {
@@ -223,7 +191,7 @@ const buildCmap = (table: Uint8Array): CmapReading => {
 /** Reads the Unicode `cmap` subtable of a TrueType or OpenType program: `absent` when the program has no `cmap` table or no format 4 or 12 Unicode subtable, `unreadable` with a reason when the bytes are damaged. */
 export const readTrueTypeCmap = (program: Uint8Array): CmapReading => {
   try {
-    const table = findTable(reader(program), program, 'cmap');
+    const table = findTable(program, 'cmap');
     return table === undefined ? { kind: 'absent' } : buildCmap(table);
   } catch (error) {
     if (error instanceof ParseError) return { kind: 'unreadable', reason: error.message };
