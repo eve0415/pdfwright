@@ -1,9 +1,9 @@
-import type { PdfDate } from '../date/pdfDate.ts';
 import type { Length } from '../length/length.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder, ContentHooks, GraphicsStateOptions } from './contentBuilder.ts';
+import type { DocumentInfo } from './documentInfo.ts';
 import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, PdfImage } from './image.ts';
 import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
@@ -20,6 +20,7 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } f
 import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
+import { documentInfoDictionary } from './documentInfo.ts';
 import { createGroup, groupObject } from './group.ts';
 import { createImage, imageObject, softMaskObject } from './image.ts';
 import { pieceInfoRecord, validateIndirectValue } from './pieceInfo.ts';
@@ -30,7 +31,7 @@ export interface DocumentOptions {
   fractionDigits?: number;
   fileIdentifier?: [Uint8Array, Uint8Array];
   colorantPolicy?: { asciiOnly?: boolean };
-  info?: { modificationDate?: PdfDate };
+  info?: DocumentInfo;
 }
 
 export interface PageOptions {
@@ -414,11 +415,13 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, fractionDigits, record.pieceInfo) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
-      if (options.info?.modificationDate !== undefined) {
-        const info = new PdfDictionaryEntries([[pdfName('ModDate').bytes, pdfDateObject(options.info.modificationDate)]]);
-        const number = objects.length + 1;
-        objects.push({ objectNumber: number, generation: 0, value: pdfDictionary(info) });
-        trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
+      if (options.info !== undefined) {
+        const info = documentInfoDictionary(options.info);
+        if (info.size > 0) {
+          const number = objects.length + 1;
+          objects.push({ objectNumber: number, generation: 0, value: pdfDictionary(info) });
+          trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
+        }
       }
       return writeDocument(objects, trailer, { fractionDigits, version: '1.7', fileIdentifier: options.fileIdentifier });
     },
