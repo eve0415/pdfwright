@@ -21,6 +21,18 @@ describe('content builder', () => {
     }).not.toThrow();
   });
 
+  it('rejects a miter limit below one', () => {
+    const builder = createContentBuilder(5);
+    for (const limit of [0, 0.5, 0.999994]) {
+      expect(() => {
+        builder.miterLimit(limit);
+      }).toThrow(ValidationError);
+    }
+    expect(() => {
+      builder.miterLimit(1);
+    }).not.toThrow();
+  });
+
   it('formats path, graphics, and clipping operators exactly', () => {
     const builder = createContentBuilder(5);
     builder.save();

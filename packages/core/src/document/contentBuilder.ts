@@ -250,7 +250,8 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       emit('J', [{ butt: 0, round: 1, square: 2 }[cap]]);
     },
     miterLimit: (limit): void => {
-      nonnegative(limit, 'miter limit');
+      // ISO 32000-1:2008, 8.4.3.5: "The miter limit shall impose a maximum on the ratio of the miter length to the line width"; that ratio is 1 / sin(φ / 2), never below 1.
+      if (Number(number(limit)) < 1) throw new ValidationError('miter limit must be at least 1');
       emit('M', [limit]);
     },
     dash: (array, phase): void => {
