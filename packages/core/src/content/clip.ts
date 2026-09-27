@@ -1,7 +1,7 @@
 import type { Matrix } from './matrix.ts';
 import type { Point } from './path.ts';
 
-import { PathBuilder } from './path.ts';
+import { MAX_CLIP_VERTICES, PathBuilder } from './path.ts';
 
 /** Four corners in page space, as x y pairs, in order around the quadrilateral. */
 export type Quad = readonly [number, number, number, number, number, number, number, number];
@@ -10,9 +10,6 @@ export type Quad = readonly [number, number, number, number, number, number, num
 export type FillRule = 'nonzero' | 'even-odd';
 
 export type ClipClass = 'inside' | 'outside' | 'partial' | 'unknown';
-
-/** Past this many vertices in all its paths together a clip is not evaluated, and classifications are `unknown`. */
-export const MAX_CLIP_VERTICES = 10_000;
 
 // A point closer than this to a clip boundary counts as on it, and so as inside: a glyph set flush against a clip edge is not clipped.
 const ON_EDGE = 1e-6;
@@ -134,9 +131,11 @@ export class Clip {
 
   /** This clip intersected with a path, as W or W* followed by a painting operator make it. */
   intersect(path: PathBuilder, rule: FillRule): Clip {
+    const vertices = this.vertices + path.vertices;
+    // Past the limit the clip is only ever classified `unknown`, so no path of it is kept.
+    if (vertices > MAX_CLIP_VERTICES) return new Clip(undefined, undefined, vertices);
     const polygons = path.polygons();
-    const count = polygons.reduce((sum, polygon) => sum + polygon.length, 0);
-    return new Clip(this, { polygons, rule, bounds: boundsOf(polygons.flat()) }, this.vertices + count);
+    return new Clip(this, { polygons, rule, bounds: boundsOf(polygons.flat()) }, vertices);
   }
 
   private *paths(): Generator<ClipPath> {

@@ -7,6 +7,9 @@ export type Point = readonly [number, number];
 /** Curves are replaced by chords no farther than this from the curve, in page space units. */
 const FLATNESS = 0.05;
 
+/** Past this many vertices in all its paths together a clip is not evaluated; a path keeps no more points than that, so that its memory is bounded, and counts the rest. */
+export const MAX_CLIP_VERTICES = 10_000;
+
 // Bounds the chords of one curve, so that a huge curve costs bounded work; such a curve counts towards the clip vertex limit anyway.
 const MAX_CHORDS = 4096;
 
@@ -14,6 +17,7 @@ const MAX_CHORDS = 4096;
 export class PathBuilder {
   private readonly matrix: Matrix;
   private readonly subpaths: Point[][] = [];
+  private count = 0;
   private current: Point[] | undefined = undefined;
   // The current point in user space, which v uses as a control point (Table 59: "using the current point and (x2 , y2 ) as the Bézier control points"), and the start of the current subpath, which h returns to.
   private user: Point | undefined = undefined;
@@ -27,9 +31,21 @@ export class PathBuilder {
     return transformPoint(this.matrix, x, y);
   }
 
+  // Adds a point to a subpath while the path is within the vertex limit.
+  private keep(points: Point[], point: Point): void {
+    this.count++;
+    if (this.count <= MAX_CLIP_VERTICES + 1) points.push(point);
+  }
+
+  /** The number of vertices the path has, including those past the limit that it does not keep. */
+  get vertices(): number {
+    return this.count;
+  }
+
   moveTo(x: number, y: number): void {
-    this.current = [this.point(x, y)];
-    this.subpaths.push(this.current);
+    this.current = [];
+    this.keep(this.current, this.point(x, y));
+    if (this.count <= MAX_CLIP_VERTICES + 1) this.subpaths.push(this.current);
     this.user = [x, y];
     this.start = [x, y];
   }
@@ -44,7 +60,7 @@ export class PathBuilder {
   }
 
   lineTo(x: number, y: number): void {
-    this.extended(x, y).push(this.point(x, y));
+    this.keep(this.extended(x, y), this.point(x, y));
     this.user = [x, y];
   }
 
@@ -58,11 +74,14 @@ export class PathBuilder {
     const second = Math.max(first, Math.hypot(c1[0] - 2 * c2[0] + end[0], c1[1] - 2 * c2[1] + end[1]));
     const needed = Math.ceil(Math.sqrt((0.75 * second) / FLATNESS));
     const chords = Math.min(MAX_CHORDS, Math.max(1, needed));
-    for (let step = 1; step <= chords; step++) {
+    // Past the limit the points would not be kept, so they are only counted.
+    const computed = this.count > MAX_CLIP_VERTICES ? 0 : chords;
+    this.count += chords - computed;
+    for (let step = 1; step <= computed; step++) {
       const t = step / chords;
       const u = 1 - t;
       const [a, b, c, d] = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
-      points.push([a * start[0] + b * c1[0] + c * c2[0] + d * end[0], a * start[1] + b * c1[1] + c * c2[1] + d * end[1]]);
+      this.keep(points, [a * start[0] + b * c1[0] + c * c2[0] + d * end[0], a * start[1] + b * c1[1] + c * c2[1] + d * end[1]]);
     }
     this.user = [x3, y3];
   }
@@ -95,7 +114,7 @@ export class PathBuilder {
   /** The path's corners [left bottom right top] when it is a single rectangle with sides parallel to the page axes and positive area, as re draws it under a CTM without rotation or skew; otherwise undefined. */
   axisAlignedRectangle(): readonly [number, number, number, number] | undefined {
     const [polygon, ...rest] = this.subpaths;
-    if (polygon === undefined || rest.length > 0) return undefined;
+    if (polygon === undefined || rest.length > 0 || this.count > MAX_CLIP_VERTICES) return undefined;
     const [first] = polygon;
     const last = polygon.at(-1);
     const corners =

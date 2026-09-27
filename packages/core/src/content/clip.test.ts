@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Clip, rectanglePath } from './clip.ts';
 import { IDENTITY } from './matrix.ts';
-import { PathBuilder } from './path.ts';
+import { MAX_CLIP_VERTICES, PathBuilder } from './path.ts';
 
 const quad = ([left, bottom, right, top]: readonly [number, number, number, number]): Quad => [left, bottom, right, bottom, right, top, left, top];
 
@@ -61,6 +61,19 @@ describe('path flattening', () => {
     const steps = points.length - 1;
     const deviations = chordDeviations(points, controls);
     expect([steps > 10, Math.max(...deviations) <= 0.05]).toStrictEqual([true, true]);
+  });
+
+  it('stops keeping points past the clip vertex limit but goes on counting them', () => {
+    const path = new PathBuilder(IDENTITY);
+    path.moveTo(0, 0);
+    for (let index = 0; index < 4000; index++) path.curveTo([100_000, 100_000, -100_000, 100_000, 0, 0]);
+    const kept = path.polygons().flat().length;
+    expect([
+      kept <= MAX_CLIP_VERTICES + 1,
+      path.vertices > 4000 * 1000,
+      Clip.NONE.intersect(path, 'nonzero').classifyPoint(0, 0),
+      path.axisAlignedRectangle(),
+    ]).toStrictEqual([true, true, 'unknown', undefined]);
   });
 
   it('transforms points by the matrix in force when the path is built', () => {
