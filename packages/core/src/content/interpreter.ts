@@ -64,6 +64,9 @@ export const MAX_CONTENT_BYTES = 268_435_456;
 // Content execution uses JavaScript call frames for nested forms, patterns, glyphs and masks.
 const MAX_CONTENT_DEPTH = 64;
 
+// Saved graphics states and marked-content snapshots otherwise grow without an operator or byte limit.
+const MAX_STATE_DEPTH = 64;
+
 /**
  * A content stream being interpreted: the page's content, a form XObject, a tiling pattern's cell, a Type 3 glyph procedure, an annotation's appearance stream, or the transparency group of a soft mask.
  * Streams are identified by reference, which a well-formed file always has because ISO 32000-1:2008, 7.3.8.1 says "All streams shall be indirect objects".
@@ -817,7 +820,10 @@ class Interpreter {
   }
 
   private graphics(operator: string, values: readonly PdfDirectObject[]): boolean {
-    if (operator === 'q') this.stack.push(this.state);
+    if (operator === 'q') {
+      if (this.stack.length >= MAX_STATE_DEPTH) throw new ResourceLimitError(`graphics states nest deeper than ${String(MAX_STATE_DEPTH)}`);
+      this.stack.push(this.state);
+    }
     // 8.4.4, Table 57: Q restores "the most recently saved state"; an unbalanced Q has none to restore and is ignored.
     else if (operator === 'Q') this.state = this.stack.pop() ?? this.state;
     else if (operator === 'cm') {
@@ -1134,6 +1140,7 @@ class Interpreter {
   // 14.6, Table 320: BMC and BDC begin a sequence "terminated by a balancing EMC operator"; BDC's properties are "either an inline dictionary containing the property list or a name object associated with it in the Properties subdictionary".
   private marked(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
     if (operator === 'BMC' || operator === 'BDC') {
+      if (this.markedContent.length >= MAX_STATE_DEPTH) throw new ResourceLimitError(`marked content nests deeper than ${String(MAX_STATE_DEPTH)}`);
       const [tag, list] = values;
       const properties = list?.kind === 'name' ? dictionaryOf(this.deref(this.resource(step, PROPERTIES, list.bytes))) : dictionaryOf(list);
       this.markedContent = [...this.markedContent, { id: this.markedContentIds++, tag: nameBytes(tag), properties }];

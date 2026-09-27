@@ -372,6 +372,11 @@ describe('transparency', () => {
 });
 
 describe('marked content', () => {
+  it('limits graphics and marked-content nesting', () => {
+    expect(() => textRun('q '.repeat(65))).toThrow(ResourceLimitError);
+    expect(() => textRun('/Span BMC '.repeat(65))).toThrow(ResourceLimitError);
+  });
+
   it('attaches inline and named property lists to what is shown inside a sequence', () => {
     const { texts, result } = run({
       content: '/P <</MCID 3>> BDC BT /F1 10 Tf (A) Tj /Span /MC0 BDC (A) Tj EMC ET EMC /Artifact BMC BT /F1 10 Tf (A) Tj ET EMC',
