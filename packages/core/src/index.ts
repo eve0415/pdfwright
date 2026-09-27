@@ -77,6 +77,8 @@ export type {
   PageText,
 } from './inspect/text/extractText.ts';
 export type { ActualTextSpan } from './inspect/text/textUnits.ts';
+export { orderGlyphs } from './inspect/text/orderGlyphs.ts';
+export type { GlyphLayout } from './inspect/text/orderGlyphs.ts';
 export type { InspectWarning, InspectWarningCode } from './content/inspectWarning.ts';
 export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
