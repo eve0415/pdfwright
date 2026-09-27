@@ -2,6 +2,8 @@ import type { AlignmentStep } from './alignment.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
+
 import { align } from './alignment.ts';
 
 // The length of a longest common subsequence, by the quadratic dynamic programme.
@@ -41,6 +43,10 @@ const coverage = (a: string, b: string): unknown[] => {
 };
 
 describe('alignment', () => {
+  it('bounds mismatched alignment work', () => {
+    expect(() => run('A'.repeat(4000), 'Z'.repeat(4000))).toThrow(ResourceLimitError);
+  });
+
   it('matches a longest common subsequence and lists every item once, in order', () => {
     const inputs = strings(400);
     for (let index = 0; index + 1 < inputs.length; index += 2) {

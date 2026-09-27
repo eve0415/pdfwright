@@ -91,6 +91,7 @@ The content reader holds at most 16,384 pending operands before an operator, inc
 One content operand may itself contain at most 16,384 direct values, so a single array or dictionary cannot bypass the pending operand cap; exceeding it throws `ResourceLimitError` while parsing.
 A CMap is limited to 65,536 definitions and array destinations in total; a `bfrange` destination array counts each item, and exceeding the fixed cap throws `ResourceLimitError` before the strings are decoded.
 `extractText` also throws `ResourceLimitError` past 1,000,000 glyphs a page, which its `maxGlyphs` option changes.
+`matchText` limits sequence alignment to 2,000,000 comparisons and search steps per call; a larger mismatch throws `ResourceLimitError`.
 An embedded TrueType format 14 `cmap` is limited to 16,384 variation selector records, default ranges and non-default mappings in total; exceeding this fixed limit throws `ResourceLimitError` before those entries are materialized.
 
 ### Fonts

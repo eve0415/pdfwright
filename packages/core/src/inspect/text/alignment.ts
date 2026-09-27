@@ -1,3 +1,8 @@
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
+
+// Myers' difference search can compare every pair of wholly different sequences.
+const MAX_ALIGNMENT_WORK = 2_000_000;
+
 /** One step of an alignment: an intended item matched with a found one, an intended item with no counterpart, or a found item with no counterpart. */
 export type AlignmentStep =
   | { readonly kind: 'equal'; readonly intended: number; readonly found: number }
@@ -31,9 +36,20 @@ const at = (values: Int32Array, index: number): number => values[index] ?? -1;
 class Aligner {
   readonly steps: AlignmentStep[] = [];
   private readonly equal: Equal;
+  private work = 0;
 
   constructor(equal: Equal) {
     this.equal = equal;
+  }
+
+  private charge(): void {
+    this.work++;
+    if (this.work > MAX_ALIGNMENT_WORK) throw new ResourceLimitError(`text alignment exceeds ${String(MAX_ALIGNMENT_WORK)} work steps`);
+  }
+
+  private compare(intended: number, found: number): boolean {
+    this.charge();
+    return this.equal(intended, found);
   }
 
   private unmatched({ aLow, aHigh, bLow, bHigh }: Range): void {
@@ -72,10 +88,11 @@ class Aligner {
   private forwardStep(search: Search, d: number): readonly [number, number] | undefined {
     const { range, n, m, offset, forward, reverse, delta, bounds } = search;
     for (let k = -d + bounds.forwardStart; k <= d - bounds.forwardEnd; k += 2) {
+      this.charge();
       const index = offset + k;
       let x = k === -d || (k !== d && at(forward, index - 1) < at(forward, index + 1)) ? at(forward, index + 1) : at(forward, index - 1) + 1;
       let y = x - k;
-      while (x < n && y < m && this.equal(range.aLow + x, range.bLow + y)) {
+      while (x < n && y < m && this.compare(range.aLow + x, range.bLow + y)) {
         x++;
         y++;
       }
@@ -92,10 +109,11 @@ class Aligner {
   private reverseStep(search: Search, d: number): readonly [number, number] | undefined {
     const { range, n, m, offset, forward, reverse, delta, bounds } = search;
     for (let k = -d + bounds.reverseStart; k <= d - bounds.reverseEnd; k += 2) {
+      this.charge();
       const index = offset + k;
       let x = k === -d || (k !== d && at(reverse, index - 1) < at(reverse, index + 1)) ? at(reverse, index + 1) : at(reverse, index - 1) + 1;
       let y = x - k;
-      while (x < n && y < m && this.equal(range.aLow + n - x - 1, range.bLow + m - y - 1)) {
+      while (x < n && y < m && this.compare(range.aLow + n - x - 1, range.bLow + m - y - 1)) {
         x++;
         y++;
       }
@@ -115,15 +133,15 @@ class Aligner {
   }
 
   diff({ aLow, aHigh, bLow, bHigh }: Range): void {
-    const { equal, steps } = this;
+    const { steps } = this;
     let [a0, a1, b0, b1] = [aLow, aHigh, bLow, bHigh];
-    while (a0 < a1 && b0 < b1 && equal(a0, b0)) {
+    while (a0 < a1 && b0 < b1 && this.compare(a0, b0)) {
       steps.push({ kind: 'equal', intended: a0, found: b0 });
       a0++;
       b0++;
     }
     const suffix: AlignmentStep[] = [];
-    while (a0 < a1 && b0 < b1 && equal(a1 - 1, b1 - 1)) {
+    while (a0 < a1 && b0 < b1 && this.compare(a1 - 1, b1 - 1)) {
       a1--;
       b1--;
       suffix.push({ kind: 'equal', intended: a1, found: b1 });
