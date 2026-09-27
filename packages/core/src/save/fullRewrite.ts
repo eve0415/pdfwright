@@ -23,6 +23,7 @@ import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefW
 const TYPE = pdfName('Type').bytes;
 const LINEARIZED = pdfName('Linearized').bytes;
 const H = pdfName('H').bytes;
+const N = pdfName('N').bytes;
 const EOF_MARKER = [0x25, 0x25, 0x45, 0x4f, 0x46];
 // The longest gap between two unchanged objects that is checked for white space and comments, so that they can be copied as one run.
 const MAX_GAP = 4096;
@@ -120,15 +121,22 @@ class FullRewriter {
   }
 
   // An object stream is kept when it is not itself changed and none of the members the index gives it changed; a reconstructed file's object streams are all unpacked.
+  // An object stream is kept when it is not itself changed, none of the members the index gives it changed, and the index still gives it all N of its members; a member replaced by a later copy would otherwise survive as a stale copy, which Ghostscript's repair prefers.
+  // A reconstructed file's object streams are all unpacked.
   private touchedStreams(): Set<number> {
     const { store, changes, structure } = this.input;
-    const streams = new Set<number>();
+    const members = new Map<number, number>();
     const touched = new Set<number>();
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
       if (entry.type !== COMPRESSED) continue;
-      streams.add(entry.location);
+      members.set(entry.location, (members.get(entry.location) ?? 0) + 1);
       if (changes.has(number) || changes.has(entry.location) || structure.status === 'reconstructed') touched.add(entry.location);
+    }
+    for (const [stream, count] of members) {
+      const value = store.load(stream)?.value;
+      const declared = value?.kind === 'stream' ? value.dictionary.get(N) : undefined;
+      if (declared?.kind !== 'integer' || declared.value !== count) touched.add(stream);
     }
     return touched;
   }
@@ -146,17 +154,27 @@ class FullRewriter {
     const { store, changes } = this.input;
     const touched = this.touchedStreams();
     const xrefStreams = this.input.base?.xrefStreams ?? new Map<number, number>();
+    const unpacked: number[] = [];
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
       // Cross-reference streams describe the source's layout and are never written; an ordinary object that reuses such a number is.
       if (changes.has(number) || this.dropped.has(number) || (entry.type === IN_FILE && xrefStreams.get(number) === entry.location)) continue;
-      if (entry.type === COMPRESSED && !touched.has(entry.location)) {
-        this.entries.set(number, { objectNumber: number, type: 2, field: entry.location, generation: entry.generation });
-        this.keptStreams = true;
+      if (entry.type === COMPRESSED) {
+        if (touched.has(entry.location)) unpacked.push(number);
+        else {
+          this.entries.set(number, { objectNumber: number, type: 2, field: entry.location, generation: entry.generation });
+          this.keptStreams = true;
+        }
         continue;
       }
       // Every object is read, so that one that cannot be read stops the save instead of being skipped.
-      const object = entry.type === IN_FILE ? store.parse(number) : store.load(number);
+      const object = store.parse(number);
+      if (object !== undefined) this.place(number, object, touched);
+    }
+    // Members are read stream by stream, so each unpacked object stream is decoded once.
+    const order = (number: number): readonly [number, number] => [store.index.get(number).location, store.index.get(number).generation];
+    for (const number of unpacked.toSorted((left, right) => order(left)[0] - order(right)[0] || order(left)[1] - order(right)[1])) {
+      const object = store.load(number);
       if (object !== undefined) this.place(number, object, touched);
     }
     for (const [number, change] of changes) if (!('deleted' in change)) this.rewritten.set(number, change);

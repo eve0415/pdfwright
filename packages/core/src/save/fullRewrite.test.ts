@@ -94,6 +94,20 @@ describe('full rewrite', () => {
     expect(reloaded.get(pdfReference(9, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('reused'), encoding: 'literal' });
   });
 
+  it('unpacks an object stream whose member was replaced by a later copy', () => {
+    const source = buildPdf([
+      {
+        xref: 'stream',
+        objects: [catalog],
+        objectStreams: [{ number: 5, members: [pages, { ...page, body: page.body.replace('612', '200') }] }],
+        trailer: '/Root 1 0 R',
+      },
+      { xref: 'stream', objects: [page, content], trailer: '/Root 1 0 R' },
+    ]).bytes;
+    const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
+    expect([output.includes('5 0 obj'), output.includes('MediaBox[0 0 200'), output.includes('2 0 obj')]).toStrictEqual([false, false, true]);
+  });
+
   it('drops linearization data and bytes around the file with warnings', () => {
     const linearized = buildPdf(
       [{ xref: 'classic', objects: [{ number: 9, body: '<</Linearized 1/L 999/H[800 20]>>' }, catalog, pages, page, content], trailer: '/Root 1 0 R' }],
