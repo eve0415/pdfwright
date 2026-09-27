@@ -20,6 +20,7 @@ import {
   formOwners,
   pageDictionary,
 } from './attributes.ts';
+import { DocumentFonts } from './documentFonts.ts';
 import { fontSet } from './fontSet.ts';
 import { comparePageContent } from './pageContent.ts';
 import { comparePieceInfo } from './pieceInfo.ts';
@@ -91,9 +92,11 @@ class Comparison {
   readonly differences: PdfDifference[] = [];
   private readonly pieces: PdfDifference[] = [];
   private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
+  private readonly documentFonts: { readonly a: DocumentFonts; readonly b: DocumentFonts };
 
   constructor(sides: Sides, include: ReadonlySet<DifferenceArea>) {
     this.sides = graphContext(sides.a, sides.b);
+    this.documentFonts = { a: new DocumentFonts(sides.a), b: new DocumentFonts(sides.b) };
     this.include = include;
   }
 
@@ -109,11 +112,21 @@ class Comparison {
     }).compare(resourcesA, resourcesB, ['Resources']);
   }
 
-  private pageFonts(page: number, [resourcesA, resourcesB]: readonly [PdfDirectObject | undefined, PdfDirectObject | undefined]): void {
-    const fontsA = fontSet(this.sides.a, resourcesA);
-    const fontsB = fontSet(this.sides.b, resourcesB);
-    for (const [key, font] of fontsA) this.fonts.a.set(key, font);
-    for (const [key, font] of fontsB) this.fonts.b.set(key, font);
+  // The fonts of one page of one document, with objects that cannot be read reported.
+  private fontsOn(side: 'a' | 'b', page: number, [entry, resources]: readonly [PageEntry, PdfDirectObject | undefined]): Map<string, FontIdentity> {
+    const found = fontSet(this.documentFonts[side], entry, resources);
+    for (const reason of new Set(found.unreadable)) this.differences.push({ kind: 'undecodable', where: ['page', page, 'Resources'], document: side, reason });
+    for (const [key, font] of found.fonts) this.fonts[side].set(key, font);
+    return found.fonts;
+  }
+
+  private pageFonts(
+    page: number,
+    [entryA, entryB]: readonly [PageEntry, PageEntry],
+    resources: readonly [PdfDirectObject | undefined, PdfDirectObject | undefined],
+  ): void {
+    const fontsA = this.fontsOn('a', page, [entryA, resources[0]]);
+    const fontsB = this.fontsOn('b', page, [entryB, resources[1]]);
     compareFonts(page, [fontsA, fontsB], this.differences);
   }
 
@@ -137,12 +150,22 @@ class Comparison {
       comparePageAttributes(sides, { page, a: entryA, b: entryB }, differences);
       compareDuplicateKeys(sides, { where: ['page', page], a: entryA.reference, b: entryB.reference }, differences);
     }
-    if (include.has('fonts')) this.pageFonts(page, resources);
+    if (include.has('fonts')) this.pageFonts(page, [entryA, entryB], resources);
   }
 
   document(): void {
     const { sides, include, differences } = this;
-    if (include.has('fonts')) compareFonts('document', [this.fonts.a, this.fonts.b], differences);
+    if (include.has('fonts')) {
+      // The document's font set covers every page, including those only one document has.
+      for (const side of ['a', 'b'] as const) {
+        const { pages } = sides[side];
+        for (let page = Math.min(sides.a.pages.length, sides.b.pages.length); page < pages.length; page++) {
+          const entry = pages[page];
+          if (entry !== undefined) this.fontsOn(side, page, [entry, inherited(sides[side].objects, entry, RESOURCES)?.value]);
+        }
+      }
+      compareFonts('document', [this.fonts.a, this.fonts.b], differences);
+    }
     if (include.has('pieceInfo') || include.has('lastModified')) {
       const catalog = {
         owner: { kind: 'catalog' } as const,

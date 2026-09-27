@@ -39,6 +39,9 @@ const image = (data: string): ReturnType<typeof load> =>
 const filtered = (filter: string): ReturnType<typeof load> =>
   load('<</XObject<</X1 10 0 R>>>>', [form('302030206D>', '/Filter 6 0 R'), { number: 6, body: filter }]);
 
+const encoded = (encoding: string, extra: readonly TestObject[] = []): ReturnType<typeof load> =>
+  load('<</Font<</F1 8 0 R>>>>', [{ number: 8, body: `<</Type/Font/Subtype/Type1/BaseFont/Custom/Encoding${encoding}>>` }, ...extra]);
+
 describe('resource and font comparison', () => {
   it('compares resources as values, whether direct or indirect and however numbered', () => {
     const direct = load('<</Font<</F1 8 0 R>>/ExtGState<</GS1<</CA 1>>>>>>', [helvetica]);
@@ -99,6 +102,46 @@ describe('resource and font comparison', () => {
     expect(fonts).toStrictEqual([
       { kind: 'font-set', page: 0, added: [added], removed: [] },
       { kind: 'font-set', page: 'document', added: [added], removed: [] },
+    ]);
+  });
+
+  it('identifies a font encoding by value, however ordered or numbered', () => {
+    const one = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/a#00b]>>');
+    const two = encoded('<</Differences 12 0 R/BaseEncoding/WinAnsiEncoding/Type/Encoding>>', [{ number: 12, body: '[32/space/a#00b]' }]);
+    expect(compareDocuments(one, two, { include: ['fonts'] }).differences).toStrictEqual([]);
+  });
+
+  it('finds fonts through graphics states, soft masks and annotation appearances', () => {
+    const appearance = { number: 13, body: streamBody('/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F1 9 0 R>>>>', '') };
+    const withFonts = [
+      loadDocument(pdfBytes('<</ExtGState<</GS1<</Font[9 0 R 12]>>>>>>', [courier])),
+      loadDocument(pdfBytes('<</ExtGState<</GS1<</SMask<</S/Luminosity/G 13 0 R>>>>>>>>', [courier, appearance])),
+      loadDocument(pdfBytes('<<>>/Annots[<</Subtype/Square/Rect[0 0 1 1]/AP<</N<</On 13 0 R>>>>>>]', [courier, appearance])),
+    ];
+    const empty = load('<<>>');
+    const fonts = withFonts.map(document => compareDocuments(empty, document, { include: ['fonts'] }).differences.length);
+    expect(fonts).toStrictEqual([2, 2, 2]);
+  });
+
+  it('includes pages only one document has in the document font set', () => {
+    const one = load('<<>>');
+    const two = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2/MediaBox[0 0 100 100]>>' },
+            { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<<>>>>' },
+            { number: 4, body: '<</Type/Page/Parent 2 0 R/Resources<</Font<</F1 9 0 R>>>>>>' },
+            courier,
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(compareDocuments(one, two, { include: ['fonts'] }).differences).toMatchObject([
+      { kind: 'font-set', page: 'document', added: [{ baseFont: 'Courier' }] },
     ]);
   });
 
