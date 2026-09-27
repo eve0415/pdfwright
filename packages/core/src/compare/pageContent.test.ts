@@ -4,6 +4,7 @@ import type { DocumentComparison, PdfDifference } from './pdfDifference.ts';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
@@ -62,6 +63,23 @@ describe('page content comparison', () => {
   it('compares the filters content names indirectly by what they resolve to', () => {
     const [hex, plain] = [filtered('/ASCIIHexDecode'), filtered('null')];
     expect(content(compareDocuments(hex, plain))).toMatchObject([{ kind: 'page-content', page: 0 }]);
+  });
+
+  it('holds the joined content of a page under maxDecodedBytes', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/Contents[4 0 R 4 0 R 4 0 R]>>' },
+          { number: 4, body: streamBody('', '0 0 m 10 10 l S') },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes;
+    const repeated = loadDocument(pdf, { maxDecodedBytes: 40 });
+    expect(() => compareDocuments(single, repeated)).toThrow(ResourceLimitError);
   });
 
   it('reads content streams that refer to missing objects as empty', () => {

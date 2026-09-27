@@ -5,6 +5,7 @@ import type { ContentOperations } from './contentTokens.ts';
 import type { PdfDifference } from './pdfDifference.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
@@ -48,14 +49,27 @@ export const decodeForComparison = (document: DocumentInternals, stream: PdfObje
 };
 
 // Streams in a Contents array behave "as if all of the streams in the array were concatenated, in order" (Table 30); the division falls between tokens, so joining them with a line end changes nothing.
+// The joined content is held under the document's maxDecodedBytes, and a stream the array names more than once is decoded once.
 const joinedContent = (document: DocumentInternals, references: readonly PdfDirectObject[]): Decoded => {
   const parts: Uint8Array[] = [];
+  const decodedStreams = new Map<string, Uint8Array>();
+  let total = 0;
   for (const reference of references) {
-    const decoded = decodeForComparison(document, document.objects.deref(reference));
-    if (!decoded.ok) return decoded;
-    parts.push(decoded.bytes, Uint8Array.of(0x0a));
+    const key = reference.kind === 'reference' ? `${String(reference.objectNumber)}.${String(reference.generation)}` : undefined;
+    let bytes = key === undefined ? undefined : decodedStreams.get(key);
+    if (bytes === undefined) {
+      const decoded = decodeForComparison(document, document.objects.deref(reference));
+      if (!decoded.ok) return decoded;
+      ({ bytes } = decoded);
+      if (key !== undefined) decodedStreams.set(key, bytes);
+    }
+    total += bytes.length + 1;
+    if (total > document.maxDecodedBytes) {
+      throw new ResourceLimitError(`the content of a page decodes to more than maxDecodedBytes (${String(document.maxDecodedBytes)} bytes)`);
+    }
+    parts.push(bytes, Uint8Array.of(0x0a));
   }
-  const joined = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  const joined = new Uint8Array(total);
   let offset = 0;
   for (const part of parts) {
     joined.set(part, offset);
