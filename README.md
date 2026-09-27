@@ -45,6 +45,7 @@ export const writePrintPage = (): SavedPdf => {
 ## Editing an existing file
 
 `loadDocument` reads a file without copying it and parses objects when they are used; encrypted files are refused.
+Its `maxPageTreeDepth` load option limits page tree levels from the root through a page to 256 by default and throws `ResourceLimitError` when exceeded.
 Edits change only the objects they touch: this example sets a trim box and adds a Varnish plate to the first page.
 `save()` appends the changes to an intact file as an incremental update, rewrites a file whose structure had to be repaired, and returns views of the input plus the new bytes, so the input is never copied.
 `compareDocuments` reports what differs between two documents by page, box, content, resources, fonts and page-piece data, never by object number.

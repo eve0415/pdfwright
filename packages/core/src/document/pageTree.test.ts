@@ -1,11 +1,13 @@
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { LoadOptions, LoadedDocument } from './loadDocument.ts';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
 
+import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { mm, pt } from '../length/length.ts';
 import { pdfName, pdfReference, pdfString } from '../object/pdfObject.ts';
@@ -35,6 +37,23 @@ const chain = (depth: number): TestObject[] =>
     number: index + 2,
     body: `<</Type/Pages/Kids[${String(index + 3)} 0 R]/Count 1${index === 0 ? '/MediaBox[0 0 7 7]/Resources<<>>' : ''}>>`,
   }));
+
+const depthProbe = (depth: number): Uint8Array => {
+  const objects: TestObject[] = [catalog];
+  for (let level = 1; level <= depth; level++) {
+    const node = 2 * level;
+    const page = node + 1;
+    const next = level < depth ? ` ${String(node + 2)} 0 R` : '';
+    objects.push(
+      {
+        number: node,
+        body: `<</Type/Pages/Kids[${String(page)} 0 R${next}]/Count ${String(depth - level + 1)}/MediaBox[0 0 10 10]/Resources<<>>>>`,
+      },
+      { number: page, body: `<</Type/Page/Parent ${String(node)} 0 R>>` },
+    );
+  }
+  return buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes;
+};
 
 const resourceKeys = (document: LoadedDocument, index: number): string[] =>
   [...document.page(index).resources().entries()].map(([key]) => new TextDecoder().decode(key));
@@ -105,12 +124,40 @@ describe('page tree', () => {
 
   it('walks a deep tree and inherits from its root', () => {
     const nodes = chain(5000);
-    const document = load([...nodes, { number: 5002, body: '<</Type/Page>>' }]);
+    const document = load([...nodes, { number: 5002, body: '<</Type/Page>>' }], { maxPageTreeDepth: 5001 });
     expect([document.pageCount, document.page(0).boxes().MediaBox]).toStrictEqual([
       1,
       { rect: [0, 0, 7, 7], explicit: true, inheritedFrom: pdfReference(2, 0) },
     ]);
   });
+
+  it('limits page-tree depth independently of object nesting', () => {
+    const nodes = chain(3);
+    expect(() => load([...nodes, { number: 5, body: '<</Type/Page>>' }], { maxPageTreeDepth: 2 })).toThrow(ResourceLimitError);
+  });
+
+  it.runIf(inject('runtime') === 'node')(
+    'compares the depth-2000 input within the depth budget',
+    () => {
+      const bytes = depthProbe(2000);
+      const start = performance.now();
+      const options = { maxPageTreeDepth: 2001 };
+      const { equal } = compareDocuments(loadDocument(bytes, options), loadDocument(bytes, options));
+      expect([equal, performance.now() - start < 20_000]).toStrictEqual([true, true]);
+    },
+    30_000,
+  );
+
+  it.runIf(inject('runtime') === 'node')(
+    'rejects the depth-8000 input within the depth budget',
+    () => {
+      const bytes = depthProbe(8000);
+      const start = performance.now();
+      expect(() => compareDocuments(loadDocument(bytes), loadDocument(bytes))).toThrow(ResourceLimitError);
+      expect([performance.now() - start < 20_000]).toStrictEqual([true]);
+    },
+    30_000,
+  );
 
   it('throws for missing kids, kids of the wrong type and cycles instead of skipping them', () => {
     const root = { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' };

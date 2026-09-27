@@ -4,6 +4,7 @@ import type { LoadWarning } from '../parse/loadWarning.ts';
 import type { ObjectStore } from './objectStore.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 /** A page tree node and the node above it; nodes are shared, so a deep tree costs one link per node. */
@@ -27,6 +28,7 @@ export const ancestorsOf = (entry: PageEntry): PdfReference[] => {
 
 export interface PageTreeOptions {
   readonly pageCountMismatch: 'error' | 'use-leaves';
+  readonly maxPageTreeDepth: number;
   readonly warn: (warning: LoadWarning) => void;
 }
 
@@ -47,7 +49,7 @@ const typeOf = (entries: PdfDictionaryEntries): string => {
 
 const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
 
-type PendingNode = PageEntry;
+type PendingNode = PageEntry & { readonly depth: number };
 
 const nodeOf = (store: ObjectStore, reference: PdfDirectObject | undefined, parent: string): PdfDictionaryEntries => {
   // ISO 32000-1:2008, 7.7.3.2, Table 29, Kids: "An array of indirect references to the immediate children of this node. The children shall only be page objects or other page tree nodes."
@@ -78,9 +80,10 @@ export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undef
   if (typeOf(rootNode) !== 'Pages') throw new ParseError(`the page tree root ${label(root)} is not a page tree node`, 0);
   const pages: PageEntry[] = [];
   const visited = new Set<number>();
-  const stack: PendingNode[] = [{ reference: root, parent: undefined }];
+  const stack: PendingNode[] = [{ reference: root, parent: undefined, depth: 1 }];
   while (stack.length > 0) {
-    const { reference, parent } = stack.pop() ?? { reference: root, parent: undefined };
+    const { reference, parent, depth } = stack.pop() ?? { reference: root, parent: undefined, depth: 1 };
+    if (depth > options.maxPageTreeDepth) throw new ResourceLimitError(`page tree exceeds maxPageTreeDepth (${String(options.maxPageTreeDepth)})`);
     if (visited.has(reference.objectNumber)) throw new ParseError(`the page tree reaches ${label(reference)} twice`, 0);
     visited.add(reference.objectNumber);
     const node = nodeOf(store, reference, parent === undefined ? 'catalog' : label(parent.reference));
@@ -96,7 +99,7 @@ export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undef
     for (let index = kids.items.length - 1; index >= 0; index--) {
       const kid = kids.items[index];
       if (kid?.kind !== 'reference') throw new ParseError(`page tree node ${label(reference)} has a kid that is not an indirect reference`, 0);
-      stack.push({ reference: kid, parent: below });
+      stack.push({ reference: kid, parent: below, depth: depth + 1 });
     }
   }
   checkCount(store.deref(rootNode.get(COUNT)), pages.length, options);

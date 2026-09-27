@@ -9,7 +9,7 @@ import type { CompareOptions, DifferenceArea, DocumentComparison, FontIdentity, 
 import type { GraphContext } from './valueGraph.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
-import { effectiveBoxes, inherited } from '../document/loadedPage.ts';
+import { createInheritedCache, effectiveBoxes, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
@@ -98,6 +98,7 @@ class Comparison {
   private readonly pieces: PdfDifference[] = [];
   private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
   private readonly documentFonts: { readonly a: DocumentFonts; readonly b: DocumentFonts };
+  private readonly inheritance = { a: createInheritedCache(), b: createInheritedCache() };
 
   constructor(sides: Sides, include: ReadonlySet<DifferenceArea>) {
     this.sides = graphContext(sides.a, sides.b);
@@ -117,7 +118,11 @@ class Comparison {
   }
 
   private pageResources(side: 'a' | 'b', page: number, entry: PageEntry): PdfDirectObject | undefined {
-    return this.read(side, ['page', page, 'Resources'], () => inherited(this.sides[side].objects, entry, RESOURCES)?.value);
+    return this.read(
+      side,
+      ['page', page, 'Resources'],
+      () => inherited(this.sides[side].objects, entry, { key: RESOURCES, cache: this.inheritance[side] })?.value,
+    );
   }
 
   // An attribute a page inherits (ISO 32000-1:2008, 7.7.3.4) is read from the ancestor that holds it, so that ancestor's duplicate keys within it count for the page.
@@ -125,7 +130,7 @@ class Comparison {
     const holderDuplicates = (side: 'a' | 'b', key: string): Map<string, DuplicateKey> => {
       const entry = side === 'a' ? entries[0] : entries[1];
       try {
-        const found = inherited(this.sides[side].objects, entry, pdfName(key).bytes);
+        const found = inherited(this.sides[side].objects, entry, { key: pdfName(key).bytes, cache: this.inheritance[side] });
         return found?.from === undefined ? new Map<string, DuplicateKey>() : withinEntry(duplicateKeys(this.sides[side], found.from.objectNumber), key);
       } catch (error: unknown) {
         // The areas that read the attribute report a value that cannot be parsed.
@@ -137,8 +142,8 @@ class Comparison {
   }
 
   private boxes(page: number, [entryA, entryB]: readonly [PageEntry, PageEntry]): void {
-    const boxesA = this.read('a', ['page', page], () => effectiveBoxes(this.sides.a.objects, entryA));
-    const boxesB = this.read('b', ['page', page], () => effectiveBoxes(this.sides.b.objects, entryB));
+    const boxesA = this.read('a', ['page', page], () => effectiveBoxes(this.sides.a.objects, entryA, this.inheritance.a));
+    const boxesB = this.read('b', ['page', page], () => effectiveBoxes(this.sides.b.objects, entryB, this.inheritance.b));
     if (boxesA !== undefined && boxesB !== undefined) compareBoxes(page, [boxesA, boxesB], this.differences);
   }
 

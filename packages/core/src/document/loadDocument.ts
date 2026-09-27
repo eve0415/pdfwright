@@ -38,6 +38,8 @@ export interface LoadOptions {
   maxDecodedBytes?: number;
   /** Deepest nesting of arrays and dictionaries; default 256. */
   maxNesting?: number;
+  /** Most page tree levels from the root through a page; default 256. */
+  maxPageTreeDepth?: number;
   /** Most members one object stream may declare; default 1,000,000. */
   maxObjectStreamMembers?: number;
   /** Approximate memory budget for parsed objects, in bytes; default 8 MiB. */
@@ -287,7 +289,11 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
   const root = read.structure.trailer.get(ROOT);
   const catalog = root?.kind === 'reference' ? store.resolve(root.objectNumber, root.generation) : undefined;
   if (catalog?.kind !== 'dictionary') throw new ParseError('the document catalog is not a dictionary', 0);
-  const pages = enumeratePages(store, catalog.entries.get(PAGES), { pageCountMismatch: options.pageCountMismatch ?? 'error', warn });
+  const pages = enumeratePages(store, catalog.entries.get(PAGES), {
+    pageCountMismatch: options.pageCountMismatch ?? 'error',
+    maxPageTreeDepth: count(options.maxPageTreeDepth, 256, 'maxPageTreeDepth'),
+    warn,
+  });
   for (const entry of pages) {
     // ISO 32000-1:2008, Table 30, Resources: "(Required; inheritable)"; many writers omit it for pages that need no resources, which reads as an empty dictionary.
     if (effectiveResources(store, entry) === undefined) {

@@ -4,7 +4,7 @@ import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObje
 import type { ContentContext } from './appendContent.ts';
 import type { ContentBuilder } from './contentBuilder.ts';
 import type { ResourceCategory, ResourceObjects } from './pageResources.ts';
-import type { PageEntry } from './pageTree.ts';
+import type { PageEntry, TreeNode } from './pageTree.ts';
 import type { PdfRect } from './rect.ts';
 
 import { pdfDateObject } from '../date/pdfDate.ts';
@@ -18,7 +18,6 @@ import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 
 import { appendPageContent } from './appendContent.ts';
 import { addPageResource } from './pageResources.ts';
-import { ancestorsOf } from './pageTree.ts';
 import { rect } from './rect.ts';
 
 export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
@@ -111,19 +110,67 @@ export interface Found {
   readonly from?: PdfReference;
 }
 
+/** Inherited values shared by pages and their ancestors during one comparison. */
+export interface InheritedCache {
+  readonly pages: WeakMap<PageEntry, Map<string, Found | undefined>>;
+  readonly ancestors: WeakMap<TreeNode, Map<string, Found | undefined>>;
+}
+
+export const createInheritedCache = (): InheritedCache => ({ pages: new WeakMap(), ancestors: new WeakMap() });
+
+const keyText = (key: Uint8Array): string => {
+  let text = '';
+  for (const byte of key) text += String.fromCodePoint(byte);
+  return text;
+};
+
 // ISO 32000-1:2008, 7.3.10 reads a reference to a missing object as null, and 7.3.7 treats a null value as an absent entry.
 const present = (resolver: ObjectResolver, value: PdfDirectObject | undefined): value is PdfDirectObject =>
   value !== undefined && resolver.deref(value)?.kind !== 'null';
 
 // 7.7.3.4: "If such an attribute is omitted from a page object, its value shall be inherited from an ancestor node in the page tree."
-export const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
+export const inherited = (
+  resolver: ObjectResolver,
+  entry: PageEntry,
+  { key, cache }: { key: Uint8Array; cache?: InheritedCache | undefined },
+): Found | undefined => {
+  const name = cache === undefined ? '' : keyText(key);
+  const cached = cache?.pages.get(entry);
+  if (cached?.has(name) === true) return cached.get(name);
   const own = dictionaryOf(resolver, entry.reference).get(key);
-  if (present(resolver, own)) return { value: own };
-  for (const ancestor of ancestorsOf(entry)) {
-    const value = dictionaryOf(resolver, ancestor).get(key);
-    if (present(resolver, value)) return { value, from: ancestor };
+  let found: Found | undefined = present(resolver, own) ? { value: own } : undefined;
+  if (found === undefined) {
+    const visited: TreeNode[] = [];
+    for (let node = entry.parent; node !== undefined; node = node.parent) {
+      const inheritedValue = cache?.ancestors.get(node);
+      if (inheritedValue?.has(name) === true) {
+        found = inheritedValue.get(name);
+        break;
+      }
+      visited.push(node);
+      const value = dictionaryOf(resolver, node.reference).get(key);
+      if (present(resolver, value)) {
+        found = { value, from: node.reference };
+        break;
+      }
+    }
+    if (cache !== undefined) {
+      for (const node of visited) {
+        let values = cache.ancestors.get(node);
+        if (values === undefined) {
+          values = new Map();
+          cache.ancestors.set(node, values);
+        }
+        values.set(name, found);
+      }
+    }
   }
-  return undefined;
+  if (cache !== undefined) {
+    const values = cached ?? new Map<string, Found | undefined>();
+    values.set(name, found);
+    cache.pages.set(entry, values);
+  }
+  return found;
 };
 
 const effectiveBox = (resolver: ObjectResolver, found: Found, where: string): EffectiveBox => {
@@ -131,13 +178,13 @@ const effectiveBox = (resolver: ObjectResolver, found: Found, where: string): Ef
   return found.from === undefined ? { rect: corners, explicit: true } : { rect: corners, explicit: true, inheritedFrom: found.from };
 };
 
-export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): EffectiveBoxes => {
+export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry, cache?: InheritedCache): EffectiveBoxes => {
   const page = label(entry.reference);
-  const media = inherited(resolver, entry, MEDIA_BOX);
+  const media = inherited(resolver, entry, { key: MEDIA_BOX, cache });
   // Table 30, MediaBox: "(Required; inheritable)".
   if (media === undefined) throw new ParseError(`page ${page} has no MediaBox, on itself or on an ancestor`, 0);
   const mediaBox = effectiveBox(resolver, media, `the MediaBox of page ${page}`);
-  const crop = inherited(resolver, entry, CROP_BOX);
+  const crop = inherited(resolver, entry, { key: CROP_BOX, cache });
   // Table 30, CropBox: "Default value: the value of MediaBox"; BleedBox, TrimBox and ArtBox: "Default value: the value of CropBox". Those three are not inheritable.
   const cropBox = crop === undefined ? { rect: mediaBox.rect, explicit: false } : effectiveBox(resolver, crop, `the CropBox of page ${page}`);
   const own = dictionaryOf(resolver, entry.reference);
@@ -145,7 +192,7 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): Effe
     const value = own.get(pdfName(name).bytes);
     return present(resolver, value) ? effectiveBox(resolver, { value }, `the ${name} of page ${page}`) : { rect: cropBox.rect, explicit: false };
   };
-  const rotate = inherited(resolver, entry, ROTATE);
+  const rotate = inherited(resolver, entry, { key: ROTATE, cache });
   const unit = own.get(USER_UNIT);
   const userUnit = present(resolver, unit) ? unit : undefined;
   return {
@@ -161,7 +208,7 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): Effe
 };
 
 export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry): PdfDictionaryEntries | undefined => {
-  const found = inherited(resolver, entry, RESOURCES);
+  const found = inherited(resolver, entry, { key: RESOURCES });
   if (found === undefined) return undefined;
   const value = resolver.deref(found.value);
   if (value?.kind !== 'dictionary') throw new ParseError(`the Resources of page ${label(entry.reference)} is not a dictionary`, 0);
@@ -192,8 +239,15 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
   const key = pdfName(name).bytes;
   if (corners === undefined) {
     // Table 30, MediaBox: "(Required; inheritable)"; removing the page's own value is refused when no ancestor supplies one.
-    if (name === 'MediaBox' && !ancestorsOf(entry).some(ancestor => dictionaryOf(objects, ancestor).has(key))) {
-      throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
+    if (name === 'MediaBox') {
+      let supplied = false;
+      for (let node = entry.parent; node !== undefined; node = node.parent) {
+        if (dictionaryOf(objects, node.reference).has(key)) {
+          supplied = true;
+          break;
+        }
+      }
+      if (!supplied) throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
     }
     dictionary.delete(key);
   } else {
