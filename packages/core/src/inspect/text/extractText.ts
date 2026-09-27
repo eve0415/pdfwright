@@ -3,7 +3,8 @@ import type { InspectWarning } from '../../content/inspectWarning.ts';
 import type { ContentSource, MarkedContent, TextShowEvent } from '../../content/interpreter.ts';
 import type { DocumentInternals } from '../../document/documentInternals.ts';
 import type { LoadedDocument } from '../../document/loadDocument.ts';
-import type { FontGlyph } from '../../font/fontModel.ts';
+import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
+import type { FontGlyph, FontModel } from '../../font/fontModel.ts';
 import type { PdfReference } from '../../object/pdfObject.ts';
 
 import { interpretPage } from '../../content/interpreter.ts';
@@ -27,6 +28,11 @@ export type GlyphSource =
   | { readonly kind: 'annotation'; readonly index: number }
   | { readonly kind: 'soft-mask'; readonly group: PdfReference | undefined };
 
+/**
+ * Why a glyph has no text, or `notdef` for a .notdef glyph whatever its text: its code selects the font's .notdef glyph; nothing maps it; its text depends on a predefined CMap or a registry–ordering–UCS2 map the CMap provider did not supply; or the font cannot decode the string.
+ */
+export type GlyphTextReason = 'notdef' | 'no-mapping' | 'predefined-cmap-unavailable' | 'undecodable';
+
 /** A marked-content sequence a glyph lies in (ISO 32000-1:2008, 14.6), with the MCID its property list gives (14.7.4.2). */
 export interface GlyphMarkedContent {
   readonly tag: Uint8Array;
@@ -46,10 +52,14 @@ export interface PageGlyph {
   readonly gid: number | undefined;
   /** The key of the font, as `listFonts` reports it. */
   readonly font: string;
+  /** The glyph's own text: its ToUnicode text, else its encoding text; never ActualText. */
+  readonly text: string | null;
   /** The text the font's ToUnicode CMap maps the code to. */
   readonly toUnicode: string | null;
   /** The text the code's glyph name or CID collection stands for. */
   readonly encodingText: string | null;
+  /** Why `text` is null, or `notdef` whenever the glyph is a .notdef glyph. */
+  readonly reason: GlyphTextReason | undefined;
   /** Whether the code selects the font's .notdef glyph. */
   readonly notdef: boolean;
   /** The font's writing mode, as stored. */
@@ -87,6 +97,8 @@ export interface PageText {
 export interface ExtractTextOptions {
   /** Which annotations' normal appearances are read after the page content: none (the default, as pdftotext and mutool do), those that print (Table 165), or all. */
   readonly annotations?: 'printable' | 'none' | 'all';
+  /** Supplies predefined CMaps other than Identity-H and Identity-V, and registry–ordering–UCS2 maps. */
+  readonly cmapProvider?: CMapProvider;
 }
 
 // The innermost content stream other than the page's own.
@@ -114,6 +126,24 @@ const mcidOf = (document: DocumentInternals, properties: MarkedContent['properti
 const markedContentOf = (document: DocumentInternals, sequences: readonly MarkedContent[]): GlyphMarkedContent[] =>
   sequences.map(({ tag, properties }) => ({ tag, mcid: mcidOf(document, properties) }));
 
+/**
+ * A glyph's own text and why it has none, by the order of ISO 32000-1:2008, 9.10.2: the ToUnicode CMap; then, for a simple font, the Unicode value of the glyph name its encoding gives the code, and for a composite font the CID mapped through the registry–ordering–UCS2 map, both of which the font model reads as the encoding text.
+ * 9.10.2: "If these methods fail to produce a Unicode value, there is no way to determine what the character code represents".
+ */
+const glyphText = (font: FontModel, glyph: FontGlyph): Pick<PageGlyph, 'text' | 'reason'> => {
+  const text = glyph.toUnicode ?? glyph.encodingText ?? null;
+  if (glyph.notdef) return { text, reason: 'notdef' };
+  if (text !== null) return { text, reason: undefined };
+  const unavailable = glyph.cmapUnavailable !== undefined || font.collectionMap?.available === false;
+  return { text, reason: unavailable ? 'predefined-cmap-unavailable' : 'no-mapping' };
+};
+
+// A string the font cannot split has no text: its CMap was not supplied, or it cannot be decoded.
+const unsplitText = (unsplit: NonNullable<TextShowEvent['unsplit']>): Pick<PageGlyph, 'text' | 'reason'> => ({
+  text: null,
+  reason: unsplit.kind === 'cmap-unavailable' ? 'predefined-cmap-unavailable' : 'undecodable',
+});
+
 class TextCollector {
   readonly glyphs: PageGlyph[] = [];
   private readonly document: DocumentInternals;
@@ -126,7 +156,12 @@ class TextCollector {
     const { font, state } = event;
     const source = sourceOf(event.context.sources);
     const markedContent = markedContentOf(this.document, event.markedContent);
-    const push = (glyph: FontGlyph | undefined, place: { textMatrix: TextShowEvent['textMatrix']; positionKnown: boolean }): void => {
+    const { unsplit } = event;
+    const push = (
+      glyph: FontGlyph | undefined,
+      place: { textMatrix: TextShowEvent['textMatrix']; positionKnown: boolean },
+      layers: Pick<PageGlyph, 'text' | 'reason'>,
+    ): void => {
       const geometry = glyphGeometry(font, glyph, { state, textMatrix: place.textMatrix });
       this.glyphs.push({
         index: this.glyphs.length,
@@ -134,6 +169,7 @@ class TextCollector {
         cid: glyph?.cid,
         gid: glyph?.gid,
         font: font.key,
+        ...layers,
         toUnicode: glyph?.toUnicode ?? null,
         encodingText: glyph?.encodingText ?? null,
         notdef: glyph?.notdef ?? false,
@@ -149,8 +185,8 @@ class TextCollector {
         markedContent,
       });
     };
-    if (event.unsplit !== undefined) push(undefined, event);
-    for (const shown of event.glyphs) push(shown.glyph, shown);
+    if (unsplit !== undefined) push(undefined, event, unsplitText(unsplit));
+    for (const shown of event.glyphs) push(shown.glyph, shown, glyphText(font, shown.glyph));
   }
 }
 
@@ -176,7 +212,7 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
   const collector = new TextCollector(parts);
   const result = interpretPage(parts, pageIndex, {
-    fonts: new FontCache(parts, undefined),
+    fonts: new FontCache(parts, options.cmapProvider),
     annotations: options.annotations ?? 'none',
     text: event => {
       collector.add(event);

@@ -1,3 +1,4 @@
+import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { TestPage } from '../../testing/textPdf.ts';
 import type { ExtractTextOptions, PageGlyph, PageText } from './extractText.ts';
@@ -7,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
 import { pdfReference } from '../../object/pdfObject.ts';
-import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
 import { extractText } from './extractText.ts';
@@ -55,6 +56,44 @@ const one = (shown: readonly PageGlyph[]): PageGlyph => {
   if (shown.length !== 1) throw new Error(`expected one glyph, found ${String(shown.length)}`);
   return at(shown, 0);
 };
+
+const toUnicode = (entries: string): TestObject => ({
+  number: 130,
+  body: streamBody(
+    '',
+    `/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <00> <FF> endcodespacerange ${entries} endcmap end end`,
+  ),
+});
+const simple = (encoding: string, extra = ''): TestObject => ({
+  number: 105,
+  body: `<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 65/LastChar 66/Widths[600 500]/Encoding ${encoding}${extra}/FontDescriptor 110 0 R>>`,
+});
+const textOf = (content: string, objects: readonly TestObject[], options: ExtractTextOptions = {}): unknown[][] =>
+  extract({ content, resources: '/Font<</T 105 0 R>>' }, objects, options).glyphs.map(glyph => [glyph.text, glyph.toUnicode, glyph.encodingText, glyph.reason]);
+
+const type0 = (encoding: string, ordering: string, extra = ''): readonly TestObject[] => [
+  { number: 105, body: `<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding ${encoding}/DescendantFonts[106 0 R]${extra}>>` },
+  {
+    number: 106,
+    body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(${ordering})/Supplement 0>>/DW 1000/FontDescriptor 111 0 R>>`,
+  },
+];
+const cmapFile = (name: string, body: string): Uint8Array =>
+  latin1Bytes(
+    `/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /${name} def ${body} endcmap CMapName currentdict /CMap defineresource pop end end`,
+  );
+// CID 2115 is 山 in Adobe-Japan1; the provider's maps are cut down to that one character.
+const PROVIDED = new Map([
+  ['Adobe-Japan1-UCS2', cmapFile('Adobe-Japan1-UCS2', '1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <0843> <5C71> endbfchar')],
+  [
+    '90ms-RKSJ-H',
+    cmapFile(
+      '90ms-RKSJ-H',
+      '/CIDSystemInfo 3 dict dup begin /Registry (Adobe) def /Ordering (Japan1) def /Supplement 2 def end def 2 begincodespacerange <00> <80> <8140> <9FFC> endcodespacerange 1 begincidchar <8E52> 2115 endcidchar',
+    ),
+  ],
+]);
+const provider: CMapProvider = { cmap: name => PROVIDED.get(name) };
 
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
@@ -201,5 +240,46 @@ describe('text extraction', () => {
     const text = extract({ content: '', entries: '/CropBox[10 20 300 400]' });
     expect([text.page, text.cropBox, text.complete, text.warnings]).toStrictEqual([0, [10, 20, 300, 400], true, []]);
     expect(() => extractText(loadDocument(textPdfBytes({ pages: [{}] })), 1)).toThrow(InvalidArgumentError);
+  });
+
+  describe('glyph text', () => {
+    it('takes ToUnicode first, then the glyph name of the encoding', () => {
+      // 9.10.2: ToUnicode first; for a simple font the glyph name the encoding gives the code.
+      expect(
+        textOf('BT /T 10 Tf (AB) Tj ET', [simple('/WinAnsiEncoding', '/ToUnicode 130 0 R'), toUnicode('1 beginbfchar <41> <0058> endbfchar')]),
+      ).toStrictEqual([
+        ['X', 'X', 'A', undefined],
+        ['B', null, 'B', undefined],
+      ]);
+    });
+
+    it('gives no text for a glyph name that maps to nothing, and marks notdef glyphs', () => {
+      expect(textOf('BT /T 10 Tf (AB) Tj ET', [simple('<</Differences[65/foo/.notdef]>>')])).toStrictEqual([
+        [null, null, null, 'no-mapping'],
+        [null, null, null, 'notdef'],
+      ]);
+    });
+
+    it('maps CIDs of the Adobe collections through the registry–ordering–UCS2 map the provider supplies', () => {
+      // 9.10.2: a descendant in "the Adobe-GB1, Adobe-CNS1, Adobe-Japan1, or Adobe-Korea1 character collection" maps through registry–ordering–UCS2.
+      const objects = type0('/Identity-H', 'Japan1');
+      expect(textOf('BT /T 10 Tf <0843> Tj ET', objects, { cmapProvider: provider })).toStrictEqual([['山', null, '山', undefined]]);
+      expect(textOf('BT /T 10 Tf <0843> Tj ET', objects)).toStrictEqual([[null, null, null, 'predefined-cmap-unavailable']]);
+      expect(textOf('BT /T 10 Tf <0843> Tj ET', type0('/Identity-H', 'Identity'), { cmapProvider: provider })).toStrictEqual([
+        [null, null, null, 'no-mapping'],
+      ]);
+    });
+
+    it('splits strings by a predefined CMap the provider supplies, and keeps them whole without one', () => {
+      const objects = type0('/90ms-RKSJ-H', 'Japan1');
+      const withProvider = extract({ content: 'BT /T 10 Tf <8E52> Tj ET', resources: '/Font<</T 105 0 R>>' }, objects, { cmapProvider: provider }).glyphs;
+      expect(withProvider.map(glyph => [[...glyph.code], glyph.cid, glyph.text])).toStrictEqual([[[0x8e, 0x52], 2115, '山']]);
+      expect(textOf('BT /T 10 Tf <8E52> Tj ET', objects)).toStrictEqual([[null, null, null, 'predefined-cmap-unavailable']]);
+    });
+
+    it('reports a string whose font cannot be decoded as undecodable', () => {
+      const objects = [...type0('131 0 R', 'Identity'), { number: 131, body: streamBody('/Type/CMap/Filter/Unknown', 'data') }];
+      expect(textOf('BT /T 10 Tf <0041> Tj ET', objects)).toStrictEqual([[null, null, null, 'undecodable']]);
+    });
   });
 });
