@@ -63,6 +63,11 @@ export type {
   ListFontsOptions,
 } from './inspect/fonts/listFonts.ts';
 export type { Type3Glyphs, Type3Summary } from './inspect/fonts/type3Glyphs.ts';
+export { listColorants } from './inspect/colorants/listColorants.ts';
+export type { ColorantUse, DeclaredOnlyReason, ListColorantsOptions, PageColorants, PaintedBy, SelectedBy } from './inspect/colorants/listColorants.ts';
+export type { AlternateSummary, ColorantKind } from './inspect/colorants/colorSpaceColorants.ts';
+export type { InspectWarning, InspectWarningCode } from './content/inspectWarning.ts';
+export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';
