@@ -120,6 +120,21 @@ describe('full rewrite', () => {
     expect(first).toBe(hex(md5(again)));
   });
 
+  it('keeps trailer entries that begin with ID and leaves the stream keys of a reconstructed stream trailer out', () => {
+    const seeded = text(
+      loadDocument(classic([catalog, pages, page, content], '/Root 1 0 R/IDSeed(keep)'))
+        .save({ mode: 'full' })
+        .toBytes(),
+    );
+    const stream = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R' }]).text.replace(
+      /startxref\n\d+/u,
+      'startxref\n3',
+    );
+    const rewritten = text(loadDocument(latin1Bytes(stream)).save({ mode: 'full' }).toBytes());
+    const streamKeys = /\/W|\/Index|\/XRef/u.test(rewritten.slice(rewritten.lastIndexOf('trailer')));
+    expect([seeded.includes('/IDSeed(keep)'), streamKeys]).toStrictEqual([true, false]);
+  });
+
   it('rewrites a reconstructed file by default', () => {
     const damaged = text(classic([catalog, pages, page, content])).replace(/startxref\n\d+/u, 'startxref\n3');
     const document = loadDocument(latin1Bytes(damaged));

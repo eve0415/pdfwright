@@ -36,6 +36,17 @@ export const byteWidth = (value: number): number => {
   return width;
 };
 
+/** The field widths a cross-reference stream needs for these entries: the second field and the third. */
+export const fieldWidths = (entries: readonly Entry[]): readonly [number, number] => {
+  let field = 0;
+  let generation = 0;
+  for (const entry of entries) {
+    field = Math.max(field, entry.field);
+    generation = Math.max(generation, entry.generation);
+  }
+  return [byteWidth(field), byteWidth(generation)];
+};
+
 // ISO 32000-1:2008, 7.5.8.3, Table 18: type 0 entries hold the next free object number and a generation, type 1 entries an offset and a generation, high-order byte first.
 export const streamData = (entries: readonly Entry[], widths: readonly [number, number]): Uint8Array => {
   const data = new Uint8Array(entries.length * (1 + widths[0] + widths[1]));

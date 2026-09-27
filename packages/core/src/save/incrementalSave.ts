@@ -20,7 +20,7 @@ import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
 import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
-import { byteWidth, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
+import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
 
 export interface SaveInput {
   readonly store: ObjectStore;
@@ -163,7 +163,7 @@ const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: Sect
   const entries = [...request.entries, { objectNumber: number, type: 1, field: offset - shift, generation: 0 } as const].toSorted(
     (left, right) => left.objectNumber - right.objectNumber,
   );
-  const widths = [byteWidth(Math.max(...entries.map(entry => entry.field))), byteWidth(Math.max(...entries.map(entry => entry.generation)))] as const;
+  const widths = fieldWidths(entries);
   const dictionary = new PdfDictionaryEntries([[TRAILER_KEYS.type, pdfName('XRef')]]);
   for (const [key, value] of trailerEntries(input, request, number + 1).entries()) dictionary.set(key, value);
   dictionary.set(TRAILER_KEYS.index, indexRuns(entries));

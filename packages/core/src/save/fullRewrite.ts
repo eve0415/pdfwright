@@ -18,7 +18,7 @@ import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
 import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
-import { byteWidth, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
+import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
 
 const TYPE = pdfName('Type').bytes;
 const LINEARIZED = pdfName('Linearized').bytes;
@@ -250,13 +250,16 @@ class FullRewriter {
   // The trailer: Size, Root, Info and ID first, then the other entries of the source trailer that describe the document rather than a section.
   private trailer(size: number): PdfDictionaryEntries {
     const { structure } = this.input;
-    const rest = copiedTrailerEntries(structure.trailer, structure.lastSectionKind ?? 'classic');
+    // A reconstruction can adopt a cross-reference stream dictionary as the trailer, whose stream keys are left out like any stream section's.
+    const type = structure.trailer.get(TYPE);
+    const kind = structure.lastSectionKind ?? (type?.kind === 'name' && new TextDecoder('latin1').decode(type.bytes) === 'XRef' ? 'stream' : 'classic');
+    const rest = copiedTrailerEntries(structure.trailer, kind);
     const trailer = parsedDictionaryEntries([[TRAILER_KEYS.size, pdfInteger(size)]]);
     for (const key of [TRAILER_KEYS.root, TRAILER_KEYS.info]) {
       const value = rest.get(key);
       if (value !== undefined) trailer.set(key, value);
     }
-    for (const [key, value] of rest.entries()) if (!trailer.has(key) && !TRAILER_KEYS.id.every((byte, index) => key[index] === byte)) trailer.set(key, value);
+    for (const [key, value] of rest.entries()) if (!trailer.has(key)) trailer.set(key, value);
     trailer.delete(TRAILER_KEYS.id);
     return trailer;
   }
@@ -274,7 +277,8 @@ class FullRewriter {
 
   private writeCrossReference(): number {
     const { emitter } = this;
-    const highest = Math.max(this.input.size, ...[...this.entries.keys()].map(number => number + 1));
+    let highest = this.input.size;
+    for (const number of this.entries.keys()) highest = Math.max(highest, number + 1);
     const xrefNumber = this.keptStreams ? highest : undefined;
     const size = xrefNumber === undefined ? highest : highest + 1;
     const { offset } = emitter;
@@ -300,7 +304,7 @@ class FullRewriter {
       return offset;
     }
     // ISO 32000-1:2008, 7.5.8: kept object streams need type 2 entries, which only a cross-reference stream holds.
-    const widths = [byteWidth(Math.max(...entries.map(entry => entry.field))), byteWidth(Math.max(...entries.map(entry => entry.generation)))] as const;
+    const widths = fieldWidths(entries);
     const dictionary = parsedDictionaryEntries([[TYPE, pdfName('XRef')], ...trailer.entries()]);
     dictionary.set(TRAILER_KEYS.index, indexRuns(entries));
     dictionary.set(TRAILER_KEYS.w, pdfArray([pdfInteger(1), pdfInteger(widths[0]), pdfInteger(widths[1])]));
