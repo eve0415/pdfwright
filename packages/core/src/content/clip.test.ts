@@ -165,4 +165,13 @@ describe('clip classification', () => {
       'unknown',
     ]);
   });
+
+  it('classifies a quad outside two clips that each cross it but whose intersection misses it', () => {
+    // 0…50 wide and 60…100 wide: each crosses the quad 40…70, and together they leave nothing of it.
+    const clip = Clip.NONE.intersect(rectanglePath([0, 0, 50, 100], IDENTITY), 'nonzero').intersect(rectanglePath([60, 0, 100, 100], IDENTITY), 'nonzero');
+    expect([
+      clip.classifyQuad(quad([40, 10, 70, 20])),
+      Clip.NONE.intersect(rectanglePath([0, 0, 50, 100], IDENTITY), 'nonzero').classifyQuad(quad([40, 10, 70, 20])),
+    ]).toStrictEqual(['outside', 'partial']);
+  });
 });

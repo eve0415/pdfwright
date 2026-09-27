@@ -112,6 +112,24 @@ const classifyAgainst = (path: ClipPath, corners: readonly Point[], quadBounds: 
   return inside === 0 ? 'outside' : 'inside';
 };
 
+// The quad is sampled on a grid of this many points per side where paths must be tested together.
+const GRID = 9;
+
+// Points spread evenly over a quadrilateral, corners and edges included.
+const gridPoints = (corners: readonly Point[]): Point[] => {
+  const [[x0, y0] = [0, 0], [x1, y1] = [0, 0], [x2, y2] = [0, 0], [x3, y3] = [0, 0]] = corners;
+  const points: Point[] = [];
+  for (let row = 0; row < GRID; row++) {
+    for (let column = 0; column < GRID; column++) {
+      const [u, v] = [column / (GRID - 1), row / (GRID - 1)];
+      const [bottomX, bottomY] = [x0 + (x1 - x0) * u, y0 + (y1 - y0) * u];
+      const [topX, topY] = [x3 + (x2 - x3) * u, y3 + (y2 - y3) * u];
+      points.push([bottomX + (topX - bottomX) * v, bottomY + (topY - bottomY) * v]);
+    }
+  }
+  return points;
+};
+
 /**
  * The current clipping path (8.5.4), as the intersection of paths in page space flattened to polygons, each with its fill rule.
  * A clip is immutable: intersecting it makes a new one that shares the paths already there, so each event can keep the clip it was painted under.
@@ -152,7 +170,10 @@ export class Clip {
     return 'inside';
   }
 
-  /** Whether a quad in page space lies inside the clip, outside it, or across its boundary; `unknown` past MAX_CLIP_VERTICES. */
+  /**
+   * Whether a quad in page space lies inside the clip, outside it, or across its boundary; `unknown` past MAX_CLIP_VERTICES.
+   * A quad that crosses two or more of the clip's paths is classified against their intersection by a grid of points over it: when none lies inside every path, it is outside, so a sliver of the intersection narrower than the grid's spacing reads as outside.
+   */
   classifyQuad(quad: Quad): ClipClass {
     if (this.vertices > MAX_CLIP_VERTICES) return 'unknown';
     const [x0, y0, x1, y1, x2, y2, x3, y3] = quad;
@@ -169,6 +190,8 @@ export class Clip {
       if (found === 'outside') return 'outside';
       if (found === 'partial') result = 'partial';
     }
+    const crossed = result === 'partial' && [...this.paths()].length > 1;
+    if (crossed && !gridPoints(corners).some(([x, y]) => this.classifyPoint(x, y) === 'inside')) return 'outside';
     return result;
   }
 }
