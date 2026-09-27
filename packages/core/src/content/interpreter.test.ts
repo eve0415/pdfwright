@@ -533,6 +533,18 @@ describe('patterns', () => {
     ]);
   });
 
+  it("says which of the operation's own spaces each space a pattern paints in comes from", () => {
+    const { paints } = run(
+      { content: '/Pattern cs /Shaded scn /RGBPattern CS 0 1 0 /Uncoloured SCN 0 0 10 10 re B 0 0 10 10 re f', resources: PATTERNS },
+      OBJECTS,
+    );
+    expect(paints.map(paint => [paintSpaces([paint]).join(','), paint.spaceOf])).toStrictEqual([
+      ['fill-stroke:Pattern,array,DeviceCMYK,DeviceRGB', [0, 1, 0, 1]],
+      ['fill:DeviceRGB', [0]],
+      ['fill:Pattern,DeviceCMYK', [0, 0]],
+    ]);
+  });
+
   it('paints image masks in a pattern colour', () => {
     const { paints } = run({ content: '/Pattern cs /Shaded scn /Im Do BI /W 1 /H 1 /IM true ID \u0000 EI', resources: `${PATTERNS}/XObject<</Im 114 0 R>>` }, [
       ...OBJECTS,

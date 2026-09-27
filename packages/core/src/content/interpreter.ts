@@ -176,6 +176,8 @@ export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'i
 export interface PaintEvent {
   readonly kind: PaintKind;
   readonly colorSpaces: readonly ColorSpaceUse[];
+  /** For each of `colorSpaces`, the index of the operation's own space it belongs to: its own index for the fill, stroke, image or shading space, the index of the Pattern space for a space a pattern paints in. */
+  readonly spaceOf: readonly number[];
   /** The graphics state the paint happened in. */
   readonly state: GraphicsState;
   readonly context: PaintContext;
@@ -568,39 +570,59 @@ class Interpreter {
   }
 
   private emitPaint(kind: PaintKind, colorSpaces: readonly ColorSpaceUse[], scope: Scope): void {
-    this.handlers.paint?.({ kind, colorSpaces, state: this.state, context: scope.context, markedContent: this.markedContent, sequence: this.sequence++ });
+    this.emitSpaces(kind, { colorSpaces, spaceOf: colorSpaces.map((_, index) => index) }, scope);
+  }
+
+  private emitSpaces(kind: PaintKind, { colorSpaces, spaceOf }: Pick<PaintEvent, 'colorSpaces' | 'spaceOf'>, scope: Scope): void {
+    this.handlers.paint?.({
+      kind,
+      colorSpaces,
+      spaceOf,
+      state: this.state,
+      context: scope.context,
+      markedContent: this.markedContent,
+      sequence: this.sequence++,
+    });
   }
 
   // A paint in colours that may be patterns: the event lists the spaces patterns paint in, and each tiling pattern's cell is drawn after it.
   private paintWith(kind: PaintKind, uses: readonly ColorSpaceUse[], step: Step): void {
     const spaces: ColorSpaceUse[] = [...uses];
+    const spaceOf = uses.map((_, index) => index);
     const cells: (() => void)[] = [];
-    for (const use of uses) if (isPatternSpace(use)) this.pattern(step, { use, spaces, cells });
-    this.emitPaint(kind, spaces, step.scope);
+    for (const [index, use] of uses.entries()) {
+      const painted = isPatternSpace(use) ? this.pattern(step, { use, cells }) : undefined;
+      if (painted !== undefined) {
+        spaces.push(painted);
+        spaceOf.push(index);
+      }
+    }
+    this.emitSpaces(kind, { colorSpaces: spaces, spaceOf }, step.scope);
     for (const cell of cells) cell();
   }
 
-  private pattern(step: Step, { use, spaces, cells }: { use: ColorSpaceUse; spaces: ColorSpaceUse[]; cells: (() => void)[] }): void {
+  // The space a pattern paints in, when it has one of its own; a tiling pattern's cell is queued to be drawn after the paint.
+  private pattern(step: Step, { use, cells }: { use: ColorSpaceUse; cells: (() => void)[] }): ColorSpaceUse | undefined {
     const value = use.pattern?.value;
     const dictionary = dictionaryOf(value);
     const type = numberOf(this.deref(dictionary?.get(PATTERN_TYPE)));
     // 8.7.4.1: a shading pattern (type 2) paints its shading, in the shading's ColorSpace.
     if (type === 2) {
       const shading = dictionaryOf(this.deref(dictionary?.get(SHADING)));
-      if (shading !== undefined) spaces.push(this.imageUse(shading.get(COLOR_SPACE)));
-      return;
+      return shading === undefined ? undefined : this.imageUse(shading.get(COLOR_SPACE));
     }
-    if (type !== 1 || value?.kind !== 'stream') return;
+    if (type !== 1 || value?.kind !== 'stream') return undefined;
     // 8.7.3.3: an uncoloured pattern (PaintType 2) is painted in the Pattern space's underlying space, with the colour scn gave.
     const uncoloured = numberOf(this.deref(value.dictionary.get(PAINT_TYPE))) === 2;
     const underlying = use.space?.kind === 'array' ? use.space.items[1] : undefined;
     const base: ColorSpaceUse | undefined = uncoloured ? { ...this.imageUse(underlying), components: use.components } : undefined;
-    if (base !== undefined) spaces.push(base);
     const parent = use.pattern;
-    if (parent === undefined) return;
-    cells.push(() => {
-      this.tilingCell(step, { value: parent.reference ?? value, stream: value, base, parent });
-    });
+    if (parent !== undefined) {
+      cells.push(() => {
+        this.tilingCell(step, { value: parent.reference ?? value, stream: value, base, parent });
+      });
+    }
+    return base;
   }
 
   // 8.7.3.1: the cell is painted after the reader "Installs the graphics state that was in effect at the beginning of the pattern’s parent content stream, with the current transformation matrix altered by the pattern matrix".
