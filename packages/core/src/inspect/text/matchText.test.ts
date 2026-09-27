@@ -318,6 +318,13 @@ describe('text matching', () => {
       expect(statusOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛城')).toBe('mismatch');
     });
 
+    it('does not set aside a variation selector the glyphs have and the span lacks, or one on another glyph', () => {
+      // A glyph whose own text is 葛󠄀 under a span claiming plain 葛 shows the variant, not the intended character.
+      expect(statusOf({ texts: ['葛󠄀', '城'], content: spanned(['葛', 1], 2) }, '葛城')).toBe('mismatch');
+      // The span's selector belongs to 葛, but the glyphs carry it on 辻.
+      expect(statusOf({ texts: ['葛', '辻󠄀'], content: spanned(['葛󠄀辻', 1, 2]) }, '葛󠄀辻')).not.toBe('match');
+    });
+
     it('reports a missing glyph under a span whatever the span claims', () => {
       // Chromium wraps 𠮷 painted as CID 0 in a span like any other character.
       expect(summaryOf({ texts: ['野'], content: spanned(['𠮷', 0], 1) }, '𠮷野')).toStrictEqual([

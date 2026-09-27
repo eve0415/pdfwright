@@ -273,17 +273,14 @@ class FoundText {
       return;
     }
     const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text))).join('');
-    // Variation selectors the span has and the glyphs lack are set aside here and reported by the alignment.
-    const comparable = (value: string): string =>
-      clusters(value, character => this.keep(character) && !isSelector(character.codePointAt(0) ?? 0))
+    // ISO 32000-1:2008, 14.9.4 makes the span a character substitution; it is used only when its text equals the glyphs' own, apart from variation selectors the span has and the glyphs lack anywhere, which are set aside here and reported by the alignment.
+    const lacking = (character: string): boolean => isSelector(character.codePointAt(0) ?? 0) && !glyphText.includes(character);
+    const comparable = (value: string, setAside: (character: string) => boolean): string =>
+      clusters(value, character => this.keep(character) && !setAside(character))
         .map(cluster => cluster.text)
         .join('');
-    if (comparable(text) === comparable(glyphText)) {
-      this.push(
-        text,
-        indexes,
-        cluster => (cluster.match(SELECTORS) ?? []).some(selector => !glyphText.includes(selector)) && !this.variantByCmap(glyphs, cluster),
-      );
+    if (comparable(text, lacking) === comparable(glyphText, () => false)) {
+      this.push(text, indexes, cluster => (cluster.match(SELECTORS) ?? []).some(selector => lacking(selector)) && !this.variantByCmap(glyphs, cluster));
       return;
     }
     this.notes.push({ kind: 'actual-text-disagrees', actualText: text, glyphText, span: index, glyphs: indexes });
