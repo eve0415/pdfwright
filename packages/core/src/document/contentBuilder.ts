@@ -1,9 +1,12 @@
 import type { Length } from '../length/length.ts';
 import type { DeviceColor } from './color.ts';
+import type { Separation } from './separation.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { formatLength } from '../length/length.ts';
 import { formatNumber } from '../number/formatNumber.ts';
+
+import { colorantKey } from './separation.ts';
 
 export type ContentNumber = number | Length;
 
@@ -18,8 +21,8 @@ export interface GraphicsStateOptions {
 }
 
 export interface CurrentGraphicsState {
-  fillColor: DeviceColor;
-  strokeColor: DeviceColor;
+  fillColor: DeviceColor | Separation;
+  strokeColor: DeviceColor | Separation;
   overprintFill: boolean;
   overprintStroke: boolean;
   overprintMode: 0 | 1;
@@ -47,8 +50,8 @@ export interface ContentBuilder {
   lineCap: (cap: 'butt' | 'round' | 'square') => void;
   miterLimit: (limit: ContentNumber) => void;
   dash: (array: ContentNumber[], phase: ContentNumber) => void;
-  fillColor: (color: DeviceColor) => void;
-  strokeColor: (color: DeviceColor) => void;
+  fillColor: (color: DeviceColor | Separation, tint?: number) => void;
+  strokeColor: (color: DeviceColor | Separation, tint?: number) => void;
   graphicsState: (options: GraphicsStateOptions) => void;
   finish: () => Uint8Array;
 }
@@ -76,7 +79,11 @@ const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGra
   return normalized;
 };
 
-export const createContentBuilder = (fractionDigits: number, registerGraphicsState?: (options: GraphicsStateOptions) => string): ContentBuilder => {
+export const createContentBuilder = (
+  fractionDigits: number,
+  registerGraphicsState?: (options: GraphicsStateOptions) => string,
+  registerSeparation?: (separation: Separation) => string,
+): ContentBuilder => {
   const commands: string[] = [];
   let depth = 0;
   let state: CurrentGraphicsState = {
@@ -88,12 +95,35 @@ export const createContentBuilder = (fractionDigits: number, registerGraphicsSta
   };
   const stack: CurrentGraphicsState[] = [];
   const localStates = new Map<string, string>();
+  const localSeparations = new Map<string, string>();
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
   const emit = (operator: string, operands: ContentNumber[] = []): void => {
     commands.push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
   };
   const nonnegative = (value: ContentNumber, name: string): void => {
     if (Number(number(value)) < 0) throw new ValidationError(`${name} must be non-negative`);
+  };
+  const separationName = (separation: Separation): string => {
+    const key = colorantKey(separation.name);
+    let name = localSeparations.get(key);
+    if (name === undefined) {
+      name = registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
+      localSeparations.set(key, name);
+    }
+    return name;
+  };
+  const paintColor = (color: DeviceColor | Separation, tint: number | undefined, stroking: boolean): void => {
+    if (color.kind === 'Separation') {
+      if (tint === undefined || !Number.isFinite(tint) || tint < 0 || tint > 1) throw new ValidationError('separation tint must be in [0, 1]');
+      commands.push(`/${separationName(color)} ${stroking ? 'CS' : 'cs'}\n`);
+      emit(stroking ? 'SCN' : 'scn', [tint]);
+      return;
+    }
+    if (tint !== undefined) throw new ValidationError('device colour does not accept a tint');
+    const operator = stroking
+      ? { DeviceCMYK: 'K', DeviceRGB: 'RG', DeviceGray: 'G' }[color.kind]
+      : { DeviceCMYK: 'k', DeviceRGB: 'rg', DeviceGray: 'g' }[color.kind];
+    emit(operator, [...color.components]);
   };
   const pathBuilder: PathBuilder = {
     moveTo: (...coordinates): PathBuilder => {
@@ -172,13 +202,13 @@ export const createContentBuilder = (fractionDigits: number, registerGraphicsSta
       nonnegative(phase, 'dash phase');
       commands.push(`[${array.map(value => number(value)).join(' ')}] ${number(phase)} d\n`);
     },
-    fillColor: (color): void => {
+    fillColor: (color, tint): void => {
       state.fillColor = color;
-      emit({ DeviceCMYK: 'k', DeviceRGB: 'rg', DeviceGray: 'g' }[color.kind], [...color.components]);
+      paintColor(color, tint, false);
     },
-    strokeColor: (color): void => {
+    strokeColor: (color, tint): void => {
       state.strokeColor = color;
-      emit({ DeviceCMYK: 'K', DeviceRGB: 'RG', DeviceGray: 'G' }[color.kind], [...color.components]);
+      paintColor(color, tint, true);
     },
     graphicsState: (options): void => {
       const normalized = normalizeGraphicsState(options, state);

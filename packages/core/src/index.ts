@@ -34,6 +34,7 @@ export type { ContentBuilder, ContentNumber, PathBuilder } from './document/cont
 export { cmyk, gray, rgb } from './document/color.ts';
 export type { DeviceColor } from './document/color.ts';
 export type { GraphicsStateOptions } from './document/contentBuilder.ts';
+export type { Separation, SeparationOptions } from './document/separation.ts';
 export type { SavedPdf } from './write/savedPdf.ts';
 export { rect } from './document/rect.ts';
 export type { PdfRect } from './document/rect.ts';

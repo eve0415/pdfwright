@@ -3,6 +3,7 @@ import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder, GraphicsStateOptions } from './contentBuilder.ts';
 import type { PdfRect } from './rect.ts';
+import type { Separation, SeparationOptions } from './separation.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
@@ -14,10 +15,12 @@ import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
 import { rect } from './rect.ts';
+import { colorantKey, createSeparation, separationObject } from './separation.ts';
 
 export interface DocumentOptions {
   fractionDigits?: number;
   fileIdentifier?: [Uint8Array, Uint8Array];
+  colorantPolicy?: { asciiOnly?: boolean };
 }
 
 export interface PageOptions {
@@ -30,6 +33,7 @@ export interface PageOptions {
 
 export interface PdfDocument {
   addPage: (options: PageOptions) => PdfPage;
+  separation: (options: SeparationOptions) => Separation;
   save: () => SavedPdf;
 }
 
@@ -41,6 +45,7 @@ interface PageRecord {
   options: PageOptions;
   contents: Uint8Array[];
   graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
+  separations: Map<string, { name: string; separation: Separation }>;
 }
 
 const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEntries => {
@@ -85,9 +90,23 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
 
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const pages: PageRecord[] = [];
+  const documentSeparations = new Map<string, Separation>();
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
 
   return {
+    separation: (separationOptions): Separation => {
+      const separation = createSeparation(separationOptions, options.colorantPolicy?.asciiOnly === true);
+      const key = colorantKey(separation.name);
+      const existing = documentSeparations.get(key);
+      if (existing !== undefined) {
+        if (JSON.stringify(existing.alternate) !== JSON.stringify(separation.alternate)) {
+          throw new ValidationError('the same colorant name cannot use conflicting alternate colours');
+        }
+        return existing;
+      }
+      documentSeparations.set(key, separation);
+      return separation;
+    },
     addPage: (page: PageOptions): PdfPage => {
       const normalized: PageOptions = { mediaBox: normalize(page.mediaBox) };
       if (page.cropBox !== undefined) normalized.cropBox = normalize(page.cropBox);
@@ -98,26 +117,37 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
         validateBox(box, normalized.mediaBox, fractionDigits);
       }
-      const record: PageRecord = { options: normalized, contents: [], graphicsStates: new Map() };
+      const record: PageRecord = { options: normalized, contents: [], graphicsStates: new Map(), separations: new Map() };
       pages.push(record);
       return {
         draw: (render): void => {
-          const content = createContentBuilder(fractionDigits, stateOptions => {
-            const key = JSON.stringify([
-              stateOptions.fillAlpha,
-              stateOptions.strokeAlpha,
-              stateOptions.blendMode,
-              stateOptions.overprintStroke,
-              stateOptions.overprintFill,
-              stateOptions.overprintMode,
-              stateOptions.softMask,
-            ]);
-            const existing = record.graphicsStates.get(key);
-            if (existing !== undefined) return existing.name;
-            const name = `GS${record.graphicsStates.size + 1}`;
-            record.graphicsStates.set(key, { name, options: stateOptions });
-            return name;
-          });
+          const content = createContentBuilder(
+            fractionDigits,
+            stateOptions => {
+              const key = JSON.stringify([
+                stateOptions.fillAlpha,
+                stateOptions.strokeAlpha,
+                stateOptions.blendMode,
+                stateOptions.overprintStroke,
+                stateOptions.overprintFill,
+                stateOptions.overprintMode,
+                stateOptions.softMask,
+              ]);
+              const existing = record.graphicsStates.get(key);
+              if (existing !== undefined) return existing.name;
+              const name = `GS${record.graphicsStates.size + 1}`;
+              record.graphicsStates.set(key, { name, options: stateOptions });
+              return name;
+            },
+            separation => {
+              const key = colorantKey(separation.name);
+              const existing = record.separations.get(key);
+              if (existing !== undefined) return existing.name;
+              const name = `CS${record.separations.size + 1}`;
+              record.separations.set(key, { name, separation });
+              return name;
+            },
+          );
           render(content);
           record.contents.push(content.finish());
         },
@@ -150,10 +180,18 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           [pdfName('Parent').bytes, pdfReference(2, 0)],
           [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pointObject(length, fractionDigits)))],
         ]);
-        if (record.graphicsStates.size > 0) {
-          const gsEntries = new PdfDictionaryEntries();
-          for (const state of record.graphicsStates.values()) gsEntries.set(pdfName(state.name).bytes, pdfDictionary(graphicsStateDictionary(state.options)));
-          const resources = new PdfDictionaryEntries([[pdfName('ExtGState').bytes, pdfDictionary(gsEntries)]]);
+        if (record.graphicsStates.size > 0 || record.separations.size > 0) {
+          const resources = new PdfDictionaryEntries();
+          if (record.separations.size > 0) {
+            const colorSpaces = new PdfDictionaryEntries();
+            for (const space of record.separations.values()) colorSpaces.set(pdfName(space.name).bytes, separationObject(space.separation));
+            resources.set(pdfName('ColorSpace').bytes, pdfDictionary(colorSpaces));
+          }
+          if (record.graphicsStates.size > 0) {
+            const gsEntries = new PdfDictionaryEntries();
+            for (const state of record.graphicsStates.values()) gsEntries.set(pdfName(state.name).bytes, pdfDictionary(graphicsStateDictionary(state.options)));
+            resources.set(pdfName('ExtGState').bytes, pdfDictionary(gsEntries));
+          }
           entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
         }
         for (const [key, box] of [
