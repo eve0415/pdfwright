@@ -18,6 +18,7 @@ import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 
 import { appendPageContent } from './appendContent.ts';
 import { addPageResource } from './pageResources.ts';
+import { ancestorsOf } from './pageTree.ts';
 import { rect } from './rect.ts';
 
 export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
@@ -114,7 +115,7 @@ interface Found {
 const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
   const own = dictionaryOf(resolver, entry.reference).get(key);
   if (own !== undefined) return { value: own };
-  for (const ancestor of entry.ancestors) {
+  for (const ancestor of ancestorsOf(entry)) {
     const value = dictionaryOf(resolver, ancestor).get(key);
     if (value !== undefined) return { value, from: ancestor };
   }
@@ -186,7 +187,7 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
   const key = pdfName(name).bytes;
   if (corners === undefined) {
     // Table 30, MediaBox: "(Required; inheritable)"; removing the page's own value is refused when no ancestor supplies one.
-    if (name === 'MediaBox' && !entry.ancestors.some(ancestor => dictionaryOf(objects, ancestor).has(key))) {
+    if (name === 'MediaBox' && !ancestorsOf(entry).some(ancestor => dictionaryOf(objects, ancestor).has(key))) {
       throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
     }
     dictionary.delete(key);

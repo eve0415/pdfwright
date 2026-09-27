@@ -29,6 +29,13 @@ const tree = [
   { number: 7, body: '[5 5 295 395]' },
 ];
 
+// Page tree nodes 2 to depth + 1, each the only kid of the one before; the root carries MediaBox and Resources.
+const chain = (depth: number): TestObject[] =>
+  Array.from({ length: depth }, (_, index) => ({
+    number: index + 2,
+    body: `<</Type/Pages/Kids[${String(index + 3)} 0 R]/Count 1${index === 0 ? '/MediaBox[0 0 7 7]/Resources<<>>' : ''}>>`,
+  }));
+
 const resourceKeys = (document: LoadedDocument, index: number): string[] =>
   [...document.page(index).resources().entries()].map(([key]) => new TextDecoder().decode(key));
 
@@ -82,6 +89,15 @@ describe('page tree', () => {
     ]);
     expect([malformed.structure.status, malformed.warnings.map(warning => warning.code)]).toStrictEqual(['tolerated', ['invalid-token']]);
     expect(() => malformed.page(0).boxes()).toThrow(new ParseError('the MediaBox of page 3 0 R[2] must be a number but is the token --300', 0));
+  });
+
+  it('walks a deep tree and inherits from its root', () => {
+    const nodes = chain(5000);
+    const document = load([...nodes, { number: 5002, body: '<</Type/Page>>' }]);
+    expect([document.pageCount, document.page(0).boxes().MediaBox]).toStrictEqual([
+      1,
+      { rect: [0, 0, 7, 7], explicit: true, inheritedFrom: pdfReference(2, 0) },
+    ]);
   });
 
   it('throws for missing kids, kids of the wrong type and cycles instead of skipping them', () => {

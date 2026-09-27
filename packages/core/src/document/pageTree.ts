@@ -6,11 +6,24 @@ import type { ObjectStore } from './objectStore.ts';
 import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+/** A page tree node and the node above it; nodes are shared, so a deep tree costs one link per node. */
+export interface TreeNode {
+  readonly reference: PdfReference;
+  readonly parent: TreeNode | undefined;
+}
+
 export interface PageEntry {
   readonly reference: PdfReference;
-  /** Page tree nodes above the page, nearest first; siblings share one array. */
-  readonly ancestors: readonly PdfReference[];
+  /** The page tree node the page sits under. */
+  readonly parent: TreeNode | undefined;
 }
+
+/** The page tree nodes above a page, nearest first. */
+export const ancestorsOf = (entry: PageEntry): PdfReference[] => {
+  const ancestors: PdfReference[] = [];
+  for (let node = entry.parent; node !== undefined; node = node.parent) ancestors.push(node.reference);
+  return ancestors;
+};
 
 export interface PageTreeOptions {
   readonly pageCountMismatch: 'error' | 'use-leaves';
@@ -34,10 +47,7 @@ const typeOf = (entries: PdfDictionaryEntries): string => {
 
 const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
 
-interface PendingNode {
-  readonly reference: PdfReference;
-  readonly ancestors: readonly PdfReference[];
-}
+type PendingNode = PageEntry;
 
 const nodeOf = (store: ObjectStore, reference: PdfDirectObject | undefined, parent: string): PdfDictionaryEntries => {
   // ISO 32000-1:2008, 7.7.3.2, Table 29, Kids: "An array of indirect references to the immediate children of this node. The children shall only be page objects or other page tree nodes."
@@ -68,25 +78,25 @@ export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undef
   if (typeOf(rootNode) !== 'Pages') throw new ParseError(`the page tree root ${label(root)} is not a page tree node`, 0);
   const pages: PageEntry[] = [];
   const visited = new Set<number>();
-  const stack: PendingNode[] = [{ reference: root, ancestors: [] }];
+  const stack: PendingNode[] = [{ reference: root, parent: undefined }];
   while (stack.length > 0) {
-    const { reference, ancestors } = stack.pop() ?? { reference: root, ancestors: [] };
+    const { reference, parent } = stack.pop() ?? { reference: root, parent: undefined };
     if (visited.has(reference.objectNumber)) throw new ParseError(`the page tree reaches ${label(reference)} twice`, 0);
     visited.add(reference.objectNumber);
-    const node = nodeOf(store, reference, ancestors[0] === undefined ? 'catalog' : label(ancestors[0]));
+    const node = nodeOf(store, reference, parent === undefined ? 'catalog' : label(parent.reference));
     const type = typeOf(node);
     if (type === 'Page') {
-      pages.push({ reference, ancestors });
+      pages.push({ reference, parent });
       continue;
     }
     if (type !== 'Pages') throw new ParseError(`page tree node ${label(reference)} has Type ${type}, neither Page nor Pages`, 0);
     const kids = store.deref(node.get(KIDS));
     if (kids?.kind !== 'array') throw new ParseError(`page tree node ${label(reference)} has no Kids array`, 0);
-    const below = [reference, ...ancestors];
+    const below: TreeNode = { reference, parent };
     for (let index = kids.items.length - 1; index >= 0; index--) {
       const kid = kids.items[index];
       if (kid?.kind !== 'reference') throw new ParseError(`page tree node ${label(reference)} has a kid that is not an indirect reference`, 0);
-      stack.push({ reference: kid, ancestors: below });
+      stack.push({ reference: kid, parent: below });
     }
   }
   checkCount(store.deref(rootNode.get(COUNT)), pages.length, options);

@@ -8,6 +8,8 @@ import { cloneDirect } from '../object/cloneObject.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+import { ancestorsOf } from './pageTree.ts';
+
 /** The resource dictionary categories of ISO 32000-1:2008, 7.8.3, Table 33 that map names to resources. */
 export type ResourceCategory = 'ExtGState' | 'ColorSpace' | 'Pattern' | 'Shading' | 'XObject' | 'Font' | 'Properties';
 
@@ -47,7 +49,7 @@ const dictionaryOf = (objects: ObjectResolver, reference: PdfReference): PdfDict
 const resourcesEntry = (objects: ObjectResolver, entry: PageEntry): { value: PdfDirectObject; inherited: boolean } | undefined => {
   const own = dictionaryOf(objects, entry.reference).get(RESOURCES);
   if (own !== undefined) return { value: own, inherited: false };
-  for (const ancestor of entry.ancestors) {
+  for (const ancestor of ancestorsOf(entry)) {
     const value = dictionaryOf(objects, ancestor).get(RESOURCES);
     if (value !== undefined) return { value, inherited: true };
   }
