@@ -18,6 +18,12 @@ export interface TrailerChange {
 /** Why an edit needs the whole file written again: an incremental update would keep superseded content readable in earlier revisions. */
 export type FullRewriteReason = InvalidArgumentReason;
 
+/**
+ * Rewrites the changes a save writes, after every edit and before either writer runs, for objects whose content depends on everything else the save writes.
+ * It works on the save's own copy of the changes, sets only objects that are already in use or already changed, and must give the same result for the same changes.
+ */
+export type SaveHook = (changes: Map<number, ObjectChange>) => void;
+
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
 
 const WRITER_KEYS = new Set(['Size', 'Prev', 'XRefStm', 'ID']);
@@ -33,6 +39,7 @@ export class EditedObjects implements ObjectResolver {
   private objectStreams: ReadonlySet<number> | undefined = undefined;
   private readonly trailerEdits = new Map<string, TrailerChange>();
   private rewriteReason: FullRewriteReason | undefined = undefined;
+  private hook: SaveHook | undefined = undefined;
 
   constructor(store: ObjectStore) {
     this.store = store;
@@ -124,6 +131,15 @@ export class EditedObjects implements ObjectResolver {
   /** Why the edits need a full rewrite, or undefined when an incremental update may carry them. */
   get fullRewriteReason(): FullRewriteReason | undefined {
     return this.rewriteReason;
+  }
+
+  /** Sets the hook every later save runs, replacing any earlier one. */
+  setSaveHook(hook: SaveHook | undefined): void {
+    this.hook = hook;
+  }
+
+  get saveHook(): SaveHook | undefined {
+    return this.hook;
   }
 
   /** The trailer entry changes, in the order they were last made. */

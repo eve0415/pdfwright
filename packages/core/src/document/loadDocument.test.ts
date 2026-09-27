@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { EncryptedDocumentError } from '../error/encryptedDocumentError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
-import { pdfName, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf, latin1Bytes } from '../testing/pdfBuilder.ts';
+import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { buildPdf, latin1Bytes, latin1Text } from '../testing/pdfBuilder.ts';
 
 import { internalsOf } from './documentInternals.ts';
 import { loadDocument } from './loadDocument.ts';
@@ -150,5 +150,29 @@ describe('documents that require a full rewrite', () => {
 
   it('saves incrementally in auto mode while no edit requires a full rewrite', () => {
     expect(loadDocument(base.bytes).save().mode).toBe('incremental');
+  });
+});
+
+const pagesEntries = new PdfDictionaryEntries([
+  [pdfName('Type').bytes, pdfName('Pages')],
+  [pdfName('Kids').bytes, pdfArray([])],
+  [pdfName('Count').bytes, pdfInteger(0)],
+]);
+
+describe('objects produced when a document is saved', () => {
+  it('writes what the save hook sets in the changes, leaving the document and later saves unchanged', () => {
+    const document = loadDocument(base.bytes);
+    const reference = pdfReference(2, 0);
+    internalsOf(document)?.objects.setSaveHook(changes => {
+      const entries = new PdfDictionaryEntries([...pagesEntries.entries(), [pdfName('Changes').bytes, pdfInteger(changes.size)]]);
+      changes.set(2, { generation: 0, value: { kind: 'dictionary', entries } });
+    });
+    const first = document.save({ mode: 'full' }).toBytes();
+    const second = document.save({ mode: 'full' }).toBytes();
+    expect([loadDocument(first).get(reference), document.get(reference), latin1Text(first) === latin1Text(second)]).toStrictEqual([
+      { kind: 'dictionary', entries: new PdfDictionaryEntries([...pagesEntries.entries(), [pdfName('Changes').bytes, pdfInteger(0)]]) },
+      { kind: 'dictionary', entries: pagesEntries },
+      true,
+    ]);
   });
 });

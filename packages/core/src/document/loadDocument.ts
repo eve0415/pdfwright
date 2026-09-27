@@ -242,6 +242,7 @@ class LoadedPdf implements LoadedDocument {
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
+    this.objects.saveHook?.(changes);
     const input = {
       store: this.objects.store,
       changes,
