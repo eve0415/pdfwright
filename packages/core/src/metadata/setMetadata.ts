@@ -15,6 +15,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { createMd5 } from '../hash/md5.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
 import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
@@ -437,13 +438,19 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   const placement = placeObjects(staged, state, plan);
   const deletedOrphans = deleteOrphans(staged);
   if (!keep) objects.requireFullRewrite('metadata-history');
-  const excluded = new Set([placement.packet.objectNumber, placement.info.objectNumber]);
+  const excluded = new Set([placement.packet.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
+  // The digest covers every other object the save writes, the Info dictionary included, and the packet as written with a placeholder of the InstanceID's fixed width, so that edits setting different values get different InstanceIDs.
   const produce = (changes: ReadonlyMap<number, ObjectChange>, fractionDigits: number): ProducedPacket => {
     const serializeOptions = { store: objects.store, maxNesting: internals.maxNesting, fractionDigits };
     const serialize = ({ objectNumber, value }: { readonly objectNumber: number; readonly value: PdfObject }): Uint8Array =>
       changedObjectBytes(objectNumber, value, serializeOptions);
-    const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: changesDigest(changes, excluded, serialize) });
+    const draft = write(managedValues(resolved.values, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }));
+    const digest = createMd5()
+      .update(changesDigest(changes, excluded, serialize))
+      .update(draft.bytes)
+      .digest();
+    const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: digest });
     const written = write(managedValues(resolved.values, input, { documentId, instanceId }));
     return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, written };
   };

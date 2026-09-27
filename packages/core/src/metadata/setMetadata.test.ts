@@ -92,6 +92,20 @@ const editState = (document: LoadedDocument): readonly unknown[] => {
   return [[...(objects?.changes.keys() ?? [])], objects?.trailerChanges, objects?.fullRewriteReason, objects?.saveHook !== undefined];
 };
 
+// The InstanceID a save writes after one edit of a document with a packet and an Info dictionary.
+const editedInstanceId = (input: MetadataInput): string => {
+  const document = load(
+    '/Metadata 4 0 R',
+    [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
+      { number: 5, body: '<<>>' },
+    ],
+    `${ID}/Info 5 0 R`,
+  );
+  setMetadata(document, input);
+  return instanceIdOf(saved(document));
+};
+
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
@@ -305,6 +319,15 @@ describe('setting document metadata', () => {
   it('derives the InstanceID at save time from everything the save writes', () => {
     const [plain, again, extra] = [instanceIds([]), instanceIds([]), instanceIds([pdfInteger(1)])];
     expect([plain[0] === plain[1], again[1] === plain[1], extra[0] === extra[1], extra[1] === plain[1]]).toStrictEqual([true, true, false, false]);
+  });
+
+  it('derives different InstanceIDs for edits that set different values', () => {
+    const ids = [
+      editedInstanceId({ modificationDate: MODIFIED, title: 'A' }),
+      editedInstanceId({ modificationDate: MODIFIED, title: 'B' }),
+      editedInstanceId({ modificationDate: MODIFIED, author: 'someone' }),
+    ];
+    expect([new Set(ids).size, ids[0] === editedInstanceId({ modificationDate: MODIFIED, title: 'A' })]).toStrictEqual([3, true]);
   });
 
   it('writes the same InstanceID on every save of one state, edits made after setMetadata included', () => {

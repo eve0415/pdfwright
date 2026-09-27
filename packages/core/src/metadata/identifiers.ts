@@ -71,13 +71,13 @@ export interface InstanceIdInput {
   readonly metadataDate: string;
   /** The packet's xmpMM:InstanceID before this save, if it had one. */
   readonly previous: string | undefined;
-  /** The digest of the other objects the save writes. */
+  /** The digest of what the save writes other than the InstanceID itself. */
   readonly changes: Uint8Array;
 }
 
 /**
  * An xmpMM:InstanceID, which XMP Part 1 Table 7 describes as "An identifier for a specific incarnation of a resource, updated each time a file is saved".
- * It is the MD5 of the DocumentID, the metadata date, the previous InstanceID and the digest of the saved changes, so two different saves of one document get different values and the same save gets the same one.
+ * It is the MD5 of the DocumentID, the metadata date, the previous InstanceID and the digest of what the save writes, so two different saves of one document get different values and the same save gets the same one.
  */
 export const deriveInstanceId = (input: InstanceIdInput): string => {
   const hash = createMd5().update(ENCODER.encode('pdfwright-instance\0'));
