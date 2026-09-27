@@ -26,7 +26,7 @@ const writeEscape = (writer: ByteWriter, letter: number): void => {
   writer.writeByte(letter);
 };
 
-const writeName = (writer: ByteWriter, bytes: Uint8Array): void => {
+export const writeName = (writer: ByteWriter, bytes: Uint8Array): void => {
   assertNameBytes(bytes);
   // ISO 32000-1:2008, 7.3.5 requires hexadecimal escapes for nonregular name bytes and for NUMBER SIGN.
   writer.writeByte(0x2f);
@@ -67,7 +67,7 @@ const writeString = (writer: ByteWriter, bytes: Uint8Array, encoding: 'literal' 
   writer.writeByte(0x29);
 };
 
-const needsSpace = (object: PdfDirectObject): boolean =>
+export const needsSpace = (object: PdfDirectObject): boolean =>
   object.kind === 'null' ||
   object.kind === 'boolean' ||
   object.kind === 'integer' ||
