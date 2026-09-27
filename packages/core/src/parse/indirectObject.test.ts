@@ -91,10 +91,10 @@ describe('indirect object parser', () => {
     for (const [dictionary, declared] of [
       ['<</Length 3>>', '3'],
       ['<</Length 40>>', '40'],
-      ['<<>>', 'missing'],
-      ['<</Length -1>>', 'missing'],
-      ['<</Length 9 0 R>>', 'missing'],
-      ['<</Length --5>>', 'missing'],
+      ['<<>>', 'missing or unresolvable'],
+      ['<</Length -1>>', 'missing or unresolvable'],
+      ['<</Length 9 0 R>>', 'missing or unresolvable'],
+      ['<</Length --5>>', 'missing or unresolvable'],
     ]) {
       const result = parse(`1 0 obj ${dictionary} stream\r\nabc\ndef\r\nendstream\nendobj`);
       expect([data(result), result.object.source.clean]).toStrictEqual(['abc\ndef', false]);

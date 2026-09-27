@@ -29,6 +29,8 @@ export interface ParsedIndirectObject {
 
 export interface IndirectObjectContext extends LexContext {
   readonly maxNesting: number;
+  /** Resolves an indirect stream Length (ISO 32000-1:2008, 7.3.10, EXAMPLE 3); undefined when it cannot be resolved. */
+  readonly resolveLength?: (objectNumber: number, generation: number) => number | undefined;
 }
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
@@ -81,8 +83,9 @@ const endstreamAfterData = (lexer: Lexer, dataEnd: number): number | undefined =
   return matchesAt(lexer, position, ENDSTREAM) ? position : undefined;
 };
 
-const declaredLength = (dictionary: PdfDictionaryEntries): number | undefined => {
+const declaredLength = (dictionary: PdfDictionaryEntries, context: IndirectObjectContext): number | undefined => {
   const length = dictionary.get(Uint8Array.of(0x4c, 0x65, 0x6e, 0x67, 0x74, 0x68));
+  if (length?.kind === 'reference') return context.resolveLength?.(length.objectNumber, length.generation);
   return length?.kind === 'integer' && length.value >= 0 ? length.value : undefined;
 };
 
@@ -117,9 +120,14 @@ const searchEndstream = (lexer: Lexer, dataStart: number): number => {
   }
 };
 
-const streamExtent = (lexer: Lexer, dictionary: PdfDictionaryEntries, keywordEnd: number): StreamExtent => {
+interface StreamStart {
+  readonly dictionary: PdfDictionaryEntries;
+  readonly keywordEnd: number;
+}
+
+const streamExtent = (lexer: Lexer, { dictionary, keywordEnd }: StreamStart, context: IndirectObjectContext): StreamExtent => {
   const dataStart = dataStartAfter(lexer, keywordEnd);
-  const length = declaredLength(dictionary);
+  const length = declaredLength(dictionary, context);
   const endstream = length === undefined ? undefined : endstreamAfterData(lexer, dataStart + length);
   if (length !== undefined && endstream !== undefined) return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
   const found = searchEndstream(lexer, dataStart);
@@ -127,7 +135,7 @@ const streamExtent = (lexer: Lexer, dictionary: PdfDictionaryEntries, keywordEnd
   // One end-of-line marker before endstream is not part of the data (Table 5, Length).
   if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0a) dataEnd--;
   if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0d) dataEnd--;
-  const declared = length === undefined ? 'missing' : String(length);
+  const declared = length === undefined ? 'missing or unresolvable' : String(length);
   lexer.warn({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found ${String(dataEnd - dataStart)} bytes before endstream` }, dataStart);
   return { dataStart, dataEnd, endstreamEnd: found + ENDSTREAM.length };
 };
@@ -167,7 +175,7 @@ export const parseIndirectObject = (window: LexWindow, local: number, context: I
   const afterValue = lexer.peek();
   if (isKeyword(afterValue, 'stream')) {
     if (direct.kind !== 'dictionary') throw new ParseError('a stream must follow a dictionary', lexer.base + afterValue.start);
-    const extent = streamExtent(lexer, direct.entries, afterValue.end);
+    const extent = streamExtent(lexer, { dictionary: direct.entries, keywordEnd: afterValue.end }, context);
     value = { kind: 'stream', dictionary: direct.entries, data: lexer.bytes.subarray(extent.dataStart, extent.dataEnd) };
     stream = { dictionaryEnd: lexer.base + valueEnd, dataStart: lexer.base + extent.dataStart, dataEnd: lexer.base + extent.dataEnd };
     lexer.seek(extent.endstreamEnd);
