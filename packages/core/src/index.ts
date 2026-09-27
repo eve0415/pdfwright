@@ -82,6 +82,7 @@ export type { ActualTextSpan } from './inspect/text/textUnits.ts';
 export { orderGlyphs } from './inspect/text/orderGlyphs.ts';
 export type { GlyphLayout } from './inspect/text/orderGlyphs.ts';
 export { matchText } from './inspect/text/matchText.ts';
+export { CORE_BOX_TOLERANCE } from './inspect/text/glyphGeometry.ts';
 export type { DuplicateRuns, FoldApplied, MatchTextOptions, TextDifference, TextMatch } from './inspect/text/matchText.ts';
 export type { TextFold } from './inspect/text/folds.ts';
 export type { EmbeddedCmap } from './inspect/text/glyphEvidence.ts';

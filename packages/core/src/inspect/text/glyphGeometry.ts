@@ -11,6 +11,10 @@ export interface GlyphGeometry {
   readonly origin: readonly [number, number];
   readonly advance: readonly [number, number];
   readonly quad: Quad;
+  /** The core box, in the quad's corner order: in horizontal writing the advance box from 0.12 em below the baseline to 0.88 em above it, within the font's extent; in vertical writing one em across the column, centred on the glyph, and its vertical advance. */
+  readonly core: Quad;
+  /** The core box inset by CORE_BOX_TOLERANCE on every side, or to its centre line where it is narrower than twice that: what a cut must reach to count. */
+  readonly coreInner: Quad;
   readonly fontSize: number;
   /** Whether the glyph cannot be seen for its size: the em square, one unit of text space, maps to the page with an absolute determinant below 10⁻⁶ or narrower than 0.5 in its thinnest direction. */
   readonly degenerate: boolean;
@@ -82,25 +86,53 @@ const quadOf = (matrix: Matrix, corners: readonly (readonly [number, number])[])
   return [p0[0], p0[1], p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]];
 };
 
-// The advance box in text space, corners in the order the quad reports them, and the displacement the glyph moves the text position by.
+// The advance box in text space, corners in the order the quad reports them, its core box, and the displacement the glyph moves the text position by.
 interface TextBox {
   readonly corners: readonly (readonly [number, number])[];
+  readonly core: TextRectangle;
   readonly displacement: readonly [number, number] | undefined;
   readonly estimated: boolean;
 }
 
-// Horizontal writing: the glyph's origin is text-space (0, 0) and its box spans the width w0 and the font's descent to ascent.
+// The ideographic em box of a horizontal glyph in text space, where the em is one unit: from 0.12 below the baseline to 0.88 above it.
+const EM_BOTTOM = -0.12;
+const EM_TOP = 0.88;
+
+/** [left bottom right top] in text space. */
+type TextRectangle = readonly [number, number, number, number];
+
+/**
+ * How deep, in ems, a clip or cover must cut into a glyph's core box from any side before the glyph counts as partly hidden.
+ * Chromium's page-margin clip cuts 0.02 to 0.04 em into the core boxes of correct proofs (the first line of IPAGothic text at 0.84 to 0.86 em above the baseline, and the column side of full-width glyphs set vertically), while a CSS overflow clip or a covering box that shows half a character cuts 0.5 em or more.
+ */
+export const CORE_BOX_TOLERANCE = 0.1;
+
+// The box shrunk by CORE_BOX_TOLERANCE on every side, each axis to its middle where the box is narrower than twice the tolerance.
+const inset = ([left, bottom, right, top]: TextRectangle): TextRectangle => {
+  const [low, high] = [Math.min(left, right), Math.max(left, right)];
+  const [under, over] = [Math.min(bottom, top), Math.max(bottom, top)];
+  const [x0, x1] = high - low > 2 * CORE_BOX_TOLERANCE ? [low + CORE_BOX_TOLERANCE, high - CORE_BOX_TOLERANCE] : [(low + high) / 2, (low + high) / 2];
+  const [y0, y1] = over - under > 2 * CORE_BOX_TOLERANCE ? [under + CORE_BOX_TOLERANCE, over - CORE_BOX_TOLERANCE] : [(under + over) / 2, (under + over) / 2];
+  return [x0, y0, x1, y1];
+};
+
+// The corners of a box from left to right and bottom to top, in the order the quad reports them.
+const cornersOf = ([left, bottom, right, top]: TextRectangle): readonly (readonly [number, number])[] => [
+  [left, bottom],
+  [right, bottom],
+  [right, top],
+  [left, top],
+];
+
+// Horizontal writing: the glyph's origin is text-space (0, 0) and its box spans the width w0 and the font's descent to ascent; the core box keeps the part of that extent inside the em box, or the whole extent when none is.
 const horizontalBox = (font: FontModel, glyph: FontGlyph | undefined, state: GraphicsState): TextBox => {
   const width = glyph?.width ?? 0;
   const { range, estimated } = textExtent(font, glyph);
   const [descent, ascent] = range;
+  const [bottom, top] = [Math.max(descent, EM_BOTTOM), Math.min(ascent, EM_TOP)];
   return {
-    corners: [
-      [0, descent],
-      [width, descent],
-      [width, ascent],
-      [0, ascent],
-    ],
+    corners: cornersOf([0, descent, width, ascent]),
+    core: bottom < top ? [0, bottom, width, top] : [0, descent, width, ascent],
     displacement: glyph === undefined ? undefined : glyphDisplacement(glyph, 0, state),
     estimated,
   };
@@ -111,26 +143,15 @@ const horizontalBox = (font: FontModel, glyph: FontGlyph | undefined, state: Gra
 const verticalBox = (glyph: FontGlyph | undefined, state: GraphicsState): TextBox => {
   const metrics = glyph?.vertical;
   if (glyph === undefined || metrics === undefined) {
-    return {
-      corners: [
-        [0, 0],
-        [0, 0],
-        [0, 0],
-        [0, 0],
-      ],
-      displacement: undefined,
-      estimated: false,
-    };
+    return { corners: cornersOf([0, 0, 0, 0]), core: [0, 0, 0, 0], displacement: undefined, estimated: false };
   }
   const left = -metrics.vx;
   const right = left + (glyph.width ?? 0);
+  // The core box is one em wide, centred on the glyph's box, and no wider than it.
+  const centre = (left + right) / 2;
   return {
-    corners: [
-      [left, metrics.w1],
-      [right, metrics.w1],
-      [right, 0],
-      [left, 0],
-    ],
+    corners: cornersOf([left, metrics.w1, right, 0]),
+    core: [Math.max(left, centre - 0.5), metrics.w1, Math.min(right, centre + 0.5), 0],
     displacement: glyphDisplacement(glyph, 1, state),
     estimated: false,
   };
@@ -153,6 +174,8 @@ export const glyphGeometry = (
     origin: transformPoint(trm, 0, 0),
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
+    core: quadOf(trm, cornersOf(box.core)),
+    coreInner: quadOf(trm, cornersOf(inset(box.core))),
     fontSize: Math.hypot(trm[2], trm[3]),
     degenerate: degenerate(trm),
     extentEstimated: box.estimated,

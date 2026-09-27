@@ -105,6 +105,10 @@ const withoutCmap = (program: Uint8Array): Uint8Array => {
 /** Shows the codes at 10 points from (x, y). */
 const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${String(x)} ${String(y)} Td ${codes} ET`;
 
+/** A clip of 10-point columns from x 100, each up to the height given, and the whole page either side of them. */
+const clipAbove = (tops: readonly number[]): string =>
+  `${tops.map((top, index) => `${String(100 + 10 * index)} 0 10 ${String(top)} re`).join(' ')} 0 0 100 800 re ${String(100 + 10 * tops.length)} 0 400 800 re W n`;
+
 const summary = (result: TextMatch): unknown[] => [result.status, result.found, result.differences];
 
 const summaryOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): unknown[] => summary(match(proof, intended, options));
@@ -273,6 +277,41 @@ describe('text matching', () => {
       const triangle = '600 800 m 600 0 l 0 0 l h W n';
       expect(statusOf({ texts: ['山', '田'], content: `${circle} ${line(2)}` }, '山田')).toBe('mismatch');
       expect(statusOf({ texts: ['山', '田'], content: `${triangle} ${line(2)}` }, '山田')).toBe('mismatch');
+    });
+
+    it('leaves glyphs a clip or a later rectangle hides in part unverified, one difference per run', () => {
+      // Four glyphs from x 100 to 140, their core boxes 698.8–708.8; the clip keeps each whole or only below 704.
+      const texts = ['山', '田', '太', '郎'];
+      expect(summaryOf({ texts, content: `${clipAbove([800, 704, 800, 704])} ${line(4)}` }, '山田太郎')).toStrictEqual([
+        'unverified',
+        '山田太郎',
+        [
+          { kind: 'partly-hidden', glyphs: [1] },
+          { kind: 'partly-hidden', glyphs: [3] },
+        ],
+      ]);
+      expect(summaryOf({ texts, content: `${clipAbove([800, 704, 704, 800])} ${line(4)}` }, '山田太郎')[2]).toStrictEqual([
+        { kind: 'partly-hidden', glyphs: [1, 2] },
+      ]);
+      expect(summaryOf({ texts: ['山', '田'], content: `${line(2)} 1 g 90 704 50 30 re f` }, '山田')[2]).toStrictEqual([
+        { kind: 'partly-hidden', glyphs: [0, 1] },
+      ]);
+    });
+
+    it('leaves out a glyph whose core box is hidden, though the ascent and descent around it show', () => {
+      // The d1 box spans −300 to 1100 thousandths: at 10 points from (100, 700) the advance box is 697–711 and the core box 698.8–708.8.
+      const type3: readonly TestObject[] = [
+        {
+          number: 120,
+          body: '<</Type/Font/Subtype/Type3/FontBBox[0 -300 1000 1100]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
+        },
+        { number: 121, body: streamBody('', '1000 0 0 -300 1000 1100 d1 0 -300 1000 1400 re f') },
+      ];
+      const result = match(
+        { texts: [], content: '0 0 600 698.5 re W n BT /E 10 Tf 100 700 Td (a) Tj ET', resources: '/Font<</E 120 0 R>>', objects: type3 },
+        'a',
+      );
+      expect([result.status, result.glyphs]).toStrictEqual(['mismatch', []]);
     });
 
     it('rejects text after text shown to clip, whose outlines are not read', () => {

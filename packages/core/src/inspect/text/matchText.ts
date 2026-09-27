@@ -12,7 +12,7 @@ import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 
 export interface MatchTextOptions {
-  /** Which glyphs count; by default those that are visible or only empty, not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox. */
+  /** Which glyphs count; by default those that are visible or only empty, not covered, whose core box is not entirely hidden, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox. */
   readonly select?: (glyph: PageGlyph) => boolean;
   /** The order the glyphs are read in; `content` by default. */
   readonly order?: GlyphLayout;
@@ -70,7 +70,9 @@ export type TextDifference =
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
   | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number }
   /** Some of the page's content could not be read (`PageText.complete` is false), so what it would have drawn over or beside the text is unknown. */
-  | { readonly kind: 'page-incomplete' };
+  | { readonly kind: 'page-incomplete' }
+  /** A run of compared glyphs, adjacent in the order compared, whose core boxes the clip or later opaque rectangles hide in part (`PageGlyph.coreHidden`): the print shows only part of each. */
+  | { readonly kind: 'partly-hidden'; readonly glyphs: readonly number[] };
 
 /** A fold used on the page's text, with the glyphs it was used for. */
 export interface FoldApplied {
@@ -89,7 +91,7 @@ export interface DuplicateRuns {
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.
-   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, or on a page whose content could not all be read, which a person must check.
+   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, with glyphs a clip or rectangle hides in part, or on a page whose content could not all be read, which a person must check.
    */
   readonly status: 'match' | 'mismatch' | 'unverified';
   readonly intended: string;
@@ -157,13 +159,14 @@ const visibleBox = (cropBox: Box | undefined, mediaBox: Box | undefined): Box | 
 };
 
 /**
- * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox.
+ * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, whose core box is not entirely hidden, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox.
  * ISO 32000-1:2008, 14.11.2.1: "The crop box defines the region to which the contents of the page shall be clipped (cropped) when displayed or printed".
  */
 const defaultSelection = ({ cropBox, mediaBox }: PageText): ((glyph: PageGlyph) => boolean) => {
   const box = visibleBox(cropBox, mediaBox);
   return (glyph: PageGlyph): boolean => {
-    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.clip === 'outside' || glyph.clip === 'unknown') return false;
+    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.coreHidden === 'entirely') return false;
+    if (glyph.clip === 'outside' || glyph.clip === 'unknown') return false;
     if (box === undefined) return true;
     const [x, y] = centre(glyph);
     const [left, bottom, right, top] = box;
@@ -417,6 +420,20 @@ const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] |
   return undefined;
 };
 
+// Each run of adjacent glyphs, in the order compared, whose core box is partly hidden.
+const partlyHidden = (selected: readonly PageGlyph[]): TextDifference[] => {
+  const runs: number[][] = [];
+  let run: number[] | undefined = undefined;
+  for (const glyph of selected) {
+    if (glyph.coreHidden !== 'partly') run = undefined;
+    else if (run === undefined) {
+      run = [glyph.index];
+      runs.push(run);
+    } else run.push(glyph.index);
+  }
+  return runs.map(glyphs => ({ kind: 'partly-hidden', glyphs }));
+};
+
 const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped', 'substituted', 'missing', 'extra']);
 
 /** A glyph compared on its own, or the compared glyphs of an ActualText span, or a span none of whose glyphs is compared. */
@@ -504,7 +521,7 @@ const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): vo
   }
 };
 
-// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText, on text a glyph's font program contradicts, or on a page not wholly read.
+// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText, on text a glyph's font program contradicts, on glyphs partly hidden, or on a page not wholly read.
 const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
   if (differences.some(difference => MISMATCHES.has(difference.kind))) return 'mismatch';
   return differences.length > 0 ? 'unverified' : 'match';
@@ -517,7 +534,7 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
  * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
  * Known limits, where `match` can be returned for text that does not print:
  * - Text under a soft mask counts as visible, so a mask that hides it entirely, such as a fully transparent mask image, is not detected.
- * - Boxes are advance boxes, not ink: a rectangle or clip that hides the glyph's ink but not the part of the box the font's ascent or descent adds leaves the glyph selected, and so does an even-odd clip whose hole holds the ink.
+ * - Boxes are boxes, not ink, tested at a grid of points: a clip or rectangle that hides ink only between the points or outside the core box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
  * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
  * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
  */
@@ -538,7 +555,7 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
   });
   const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
   const incomplete: TextDifference[] = page.complete ? [] : [{ kind: 'page-incomplete' }];
-  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked, ...incomplete];
+  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked, ...partlyHidden(selected), ...incomplete];
   return {
     status: statusOf(differences),
     intended,

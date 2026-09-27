@@ -101,6 +101,12 @@ export interface PageGlyph {
   readonly softMasked: boolean;
   /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
+  /**
+   * How much of the glyph's core box the clip or later opaque rectangle fills hide, tested at a grid of points: `entirely`; `partly` when they cut more than CORE_BOX_TOLERANCE (0.1 em) into it from some side; otherwise `none`, as also where the clip's shape is unknown.
+   * The core box is the advance box limited, in horizontal writing, to the ideographic em box from 0.12 em below the baseline to 0.88 em above it, and in vertical writing to one em across the column centred on the glyph.
+   * An ascent above the em box, which Chromium's page-margin clip routinely cuts, and Latin descenders below 0.12 em lie outside it, so a clip that cuts only those does not count; a cut inside it removes ink.
+   */
+  readonly coreHidden: 'none' | 'partly' | 'entirely';
   /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit, under a clip made from glyph outlines (render modes 4 to 7), which are not read, and in a tiling pattern's cell, whose placement depends on where the pattern is painted. */
   readonly clip: ClipClass;
   /** False after a glyph whose width is unknown or a string that could not be split, until a text-positioning operator sets the position again. */
@@ -241,6 +247,14 @@ const coveredBy = (covers: CoverIndex, { quad, clip }: { quad: Quad; clip: Clip 
   return shown.length > 0 && shown.every(([x, y]) => covers.hides(x, y));
 };
 
+// How much of a quad the clip or the fills added to the index hide, at the same grid of points as covers are tested: a point outside the clip or under a fill is hidden.
+// The core box is entirely hidden when every point is; partly when a point of the box inset by CORE_BOX_TOLERANCE is, so that a cut must reach that deep from some side.
+const hiddenPart = (covers: CoverIndex, { core, inner, clip }: { core: Quad; inner: Quad; clip: Clip }): PageGlyph['coreHidden'] => {
+  const hidden = ([x, y]: readonly [number, number]): boolean => clip.classifyPoint(x, y) === 'outside' || covers.hides(x, y);
+  if (samples(core).every(point => hidden(point))) return 'entirely';
+  return samples(inner).some(point => hidden(point)) ? 'partly' : 'none';
+};
+
 // The embedded cmap of a CIDFontType2 font, and whether it embeds a TrueType program without a usable one; a program that cannot be read has none.
 const embeddedCmapOf = (font: FontModel): Pick<TextFont, 'cmap' | 'cmapMissing'> => {
   if (font.descendant?.subtype !== 'CIDFontType2') return { cmap: undefined, cmapMissing: false };
@@ -261,6 +275,8 @@ class TextCollector {
   readonly sequences: number[] = [];
   // The clip each glyph was painted under, so that only the part of its box the clip shows needs covering.
   private readonly clips: Clip[] = [];
+  // Each glyph's core box, and that box inset by CORE_BOX_TOLERANCE.
+  private readonly cores: (readonly [Quad, Quad])[] = [];
   readonly spans: ActualTextSpans;
   private readonly document: DocumentInternals;
   private readonly maxGlyphs: number;
@@ -294,6 +310,7 @@ class TextCollector {
       const invisibleBecause = invisibility(state, { sources: event.context.sources, degenerate: geometry.degenerate, empty });
       this.sequences.push(event.sequence);
       this.clips.push(state.clip);
+      this.cores.push([geometry.core, geometry.coreInner]);
       this.glyphs.push({
         index,
         code: glyph?.bytes ?? event.string,
@@ -318,6 +335,7 @@ class TextCollector {
         strokeAlpha: state.strokeAlpha * state.group.alpha,
         softMasked: state.softMask !== undefined || state.group.softMasked,
         covered: false,
+        coreHidden: 'none',
         clip: inPattern ? 'unknown' : state.clip.classifyQuad(geometry.quad),
         positionKnown: place.positionKnown,
         extentEstimated: geometry.extentEstimated,
@@ -336,10 +354,10 @@ class TextCollector {
     });
   }
 
-  /** The glyphs, each marked covered when opaque rectangle fills after it cover its box; covers come in content order. */
-  covered(covers: readonly CoverEvent[]): PageGlyph[] {
+  /** The glyphs, each marked covered when opaque rectangle fills after it cover its box, and with how much of its core box the clip and those fills hide; covers come in content order. */
+  hidden(covers: readonly CoverEvent[]): PageGlyph[] {
     const bounds = quadBounds(this.glyphs.map(glyph => glyph.quad));
-    if (covers.length === 0 || bounds === undefined) return this.glyphs;
+    if (bounds === undefined) return this.glyphs;
     const index = new CoverIndex(bounds, this.glyphs.length);
     const result = [...this.glyphs];
     let next = covers.length - 1;
@@ -348,7 +366,12 @@ class TextCollector {
       const glyph = result[at];
       const sequence = this.sequences[at] ?? Infinity;
       for (let cover = covers[next]; cover !== undefined && cover.sequence > sequence; cover = covers[--next]) index.add(cover);
-      if (glyph !== undefined && coveredBy(index, { quad: glyph.quad, clip: this.clips[at] ?? Clip.NONE })) result[at] = { ...glyph, covered: true };
+      const clip = this.clips[at] ?? Clip.NONE;
+      const [core, inner] = this.cores[at] ?? [];
+      if (glyph === undefined || core === undefined || inner === undefined) continue;
+      const covered = coveredBy(index, { quad: glyph.quad, clip });
+      const coreHidden = hiddenPart(index, { core, inner, clip });
+      if (covered || coreHidden !== 'none') result[at] = { ...glyph, covered, coreHidden };
     }
     return result;
   }
@@ -391,7 +414,7 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   const { cropBox, mediaBox } = boxesOf(parts, pageIndex, warnings);
   return {
     page: pageIndex,
-    glyphs: collector.covered(covers),
+    glyphs: collector.hidden(covers),
     fonts: collector.fonts(),
     actualText: collector.spans.spans,
     cropBox,

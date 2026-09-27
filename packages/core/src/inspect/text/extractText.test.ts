@@ -138,6 +138,9 @@ const cidNotdefFont = (map: string): readonly TestObject[] => [
 
 const clipped = (clip: string): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET`).map(glyph => glyph.clip);
 
+// How much of the core box of an A at (100, 200), 100–106 by 198.8–208, a clip and white fills painted after it hide.
+const coreHiddenUnder = (clip: string, fills = ''): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.coreHidden);
+
 // Whether a glyph at (100, 200) drawn under a clip is covered by white fills painted after it.
 const coveredUnder = (clip: string, fills: string): boolean[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.covered);
 
@@ -620,6 +623,62 @@ describe('text extraction', () => {
         coveredUnder('', '90 190 30 30 re 95 195 5 5 re f'),
         coveredUnder('', '90 190 30 30 re 120 190 -30 30 re f'),
       ]).toStrictEqual([[true], [true], [false], [false]]);
+    });
+
+    it('marks glyphs whose core box a clip or a later rectangle hides in part or entirely, measured in ems', () => {
+      // T's descriptor gives descent −300 and ascent 1100: at 10 points from (100, 200) the advance box spans 197–211 and the core box 198.8–208.8.
+      const tall: readonly TestObject[] = [
+        { number: 105, body: '<</Type/Font/Subtype/Type1/BaseFont/Tall/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 112 0 R>>' },
+        {
+          number: 112,
+          body: '<</Type/FontDescriptor/FontName/Tall/Flags 32/FontBBox[0 -300 1000 1100]/ItalicAngle 0/Ascent 1100/Descent -300/CapHeight 700/StemV 80>>',
+        },
+      ];
+      const hidden = (clip: string, after = ''): unknown[] =>
+        glyphs(`${clip} BT /T 10 Tf 100 200 Td (A) Tj ET 1 g ${after}`, tall, '/Font<</T 105 0 R>>').map(glyph => [glyph.clip, glyph.coreHidden]);
+      expect([
+        hidden(''),
+        hidden('0 0 600 209.5 re W n'),
+        hidden('0 198.5 600 600 re W n'),
+        hidden('0 0 600 205 re W n'),
+        hidden('0 0 600 198.5 re W n'),
+        hidden('', '0 204 600 20 re f'),
+      ]).toStrictEqual([
+        [['inside', 'none']],
+        [['partial', 'none']],
+        [['partial', 'none']],
+        [['partial', 'partly']],
+        [['partial', 'entirely']],
+        [['inside', 'partly']],
+      ]);
+    });
+
+    it('counts a cut into the core box only past 0.1 em from its side', () => {
+      // Chromium's page-margin clip cuts correct proofs 0.02 to 0.04 em deep, from the top of the em box or the side of a glyph in a column; clips and covers that show part of a character cut 0.5 em or more.
+      expect([
+        coreHiddenUnder('0 0 600 207.6 re W n'),
+        coreHiddenUnder('100.2 0 500 800 re W n'),
+        coreHiddenUnder('0 0 600 206.5 re W n'),
+        coreHiddenUnder('103 0 500 800 re W n'),
+        coreHiddenUnder('', '0 199.8 600 20 re f'),
+      ]).toStrictEqual([['none'], ['none'], ['partly'], ['partly'], ['partly']]);
+    });
+
+    it('measures the core box of a Type 3 glyph in text space under a y-flipped font matrix', () => {
+      // Chromium's FontMatrix [.001 0 0 -.001 0 0] under a y-flipped text matrix and CTM puts the baseline at 700 and the core box at 698.8–708.8.
+      const font = { matrix: '.001 0 0 -.001 0 0', bbox: '100 120 900 -880', procedure: '1000 0 100 -880 900 120 d1 100 -880 800 1000 re f' };
+      const hidden = ['0 0 600 710 re W n', '0 0 600 704 re W n'].map(
+        clip => one(type3Glyphs(`${clip} 1 0 0 -1 0 800 cm BT /T 10 Tf 1 0 0 -1 50 100 Tm (a) Tj ET`, font)).coreHidden,
+      );
+      expect(hidden).toStrictEqual(['none', 'partly']);
+    });
+
+    it('limits the core box of a vertical glyph to the em width centred on it', () => {
+      // CID 65 is 2000 thousandths wide: at 20 points from (80, 200) its box spans 60–100 across the column and its core box 70–90.
+      const hidden = ['65 0 600 800 re W n', '75 0 600 800 re W n'].map(clip =>
+        shownIn(`${clip} BT /V 20 Tf 80 200 Td <0041> Tj ET`, '/W[65[2000]]').map(glyph => glyph.coreHidden),
+      );
+      expect(hidden).toStrictEqual([['none'], ['partly']]);
     });
 
     it('classifies glyphs against Bézier and polygon clips with both fill rules', () => {
