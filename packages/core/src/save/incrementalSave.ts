@@ -1,16 +1,16 @@
 import type { ObjectChange } from '../document/editedObjects.ts';
 import type { ObjectStore } from '../document/objectStore.ts';
 import type { DocumentStructure, SaveBase } from '../document/readStructure.ts';
-import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext } from '../parse/lexer.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { OriginalValue } from './originalValue.ts';
 import type { SaveWarning } from './saveWarning.ts';
+import type { Entry } from './xrefWriter.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { createMd5 } from '../hash/md5.ts';
-import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName, pdfString } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseAnnotated } from '../parse/parseObject.ts';
 import { savedPdf } from '../write/savedPdf.ts';
@@ -20,6 +20,7 @@ import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
 import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
+import { byteWidth, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
 
 export interface SaveInput {
   readonly store: ObjectStore;
@@ -35,14 +36,6 @@ export interface SaveInput {
   readonly warnings: readonly SaveWarning[];
 }
 
-interface Entry {
-  readonly objectNumber: number;
-  readonly use: 'n' | 'f';
-  /** Offset for an in-use entry, next free object number for a free one. */
-  readonly field: number;
-  readonly generation: number;
-}
-
 const quiet = (): LexContext => ({
   warn: (): void => {
     // The trailer was parsed, with warnings, when the document was loaded.
@@ -50,33 +43,16 @@ const quiet = (): LexContext => ({
   names: new Map<string, Uint8Array>(),
 });
 
-const pad = (value: number, width: number): string => String(value).padStart(width, '0');
-
-// ISO 32000-1:2008, 7.5.4: "nnnnnnnnnn ggggg n eol", each entry exactly 20 bytes; the end-of-line here is SP LF.
-const writeTable = (writer: ByteWriter, entries: readonly Entry[]): void => {
-  writer.writeAscii('xref\n');
-  for (let index = 0; index < entries.length;) {
-    let end = index;
-    while (end + 1 < entries.length && entries[end + 1]?.objectNumber === (entries[end]?.objectNumber ?? 0) + 1) end++;
-    writer.writeAscii(`${String(entries[index]?.objectNumber ?? 0)} ${String(end - index + 1)}\n`);
-    for (let run = index; run <= end; run++) {
-      const entry = entries[run];
-      if (entry !== undefined) writer.writeAscii(`${pad(entry.field, 10)} ${pad(entry.generation, 5)} ${entry.use} \n`);
-    }
-    index = end + 1;
-  }
-};
-
 // ISO 32000-1:2008, 7.5.4: a deleted object's entry is added to the linked list of free entries, and "The entry's generation number shall be incremented by 1"; at 65,535 "it shall never be reused".
 const freeEntries = (store: ObjectStore, freed: readonly { objectNumber: number; generation: number }[]): Entry[] => {
   if (freed.length === 0) return [];
   const head = store.index.get(0);
   const previousHead = head.type === FREE ? head.location : 0;
-  const entries: Entry[] = [{ objectNumber: 0, use: 'f', field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
+  const entries: Entry[] = [{ objectNumber: 0, type: 0, field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
   for (const [index, object] of freed.entries()) {
     entries.push({
       objectNumber: object.objectNumber,
-      use: 'f',
+      type: 0,
       field: freed[index + 1]?.objectNumber ?? previousHead,
       generation: Math.min(object.generation + 1, 65_535),
     });
@@ -97,8 +73,6 @@ const identifiers = (trailer: PdfDictionaryEntries): readonly [Uint8Array, Uint8
   return first?.kind === 'string' && second?.kind === 'string' ? [first.bytes, second.bytes] : undefined;
 };
 
-const idArray = ([first, second]: readonly [Uint8Array, Uint8Array]): PdfDirectObject => pdfArray([pdfString(first, 'hex'), pdfString(second, 'hex')]);
-
 interface Written {
   readonly entries: Entry[];
   readonly freed: { objectNumber: number; generation: number }[];
@@ -115,7 +89,7 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
       written.freed.push({ objectNumber, generation: change.generation });
       continue;
     }
-    written.entries.push({ objectNumber, use: 'n', field: emitter.offset - shift, generation: change.generation });
+    written.entries.push({ objectNumber, type: 1, field: emitter.offset - shift, generation: change.generation });
     const { writer } = emitter;
     writer.writeAscii(`${String(objectNumber)} ${String(change.generation)} obj\n`);
     const original = originalValue(input.store, objectNumber, input.maxNesting);
@@ -181,43 +155,12 @@ const writeClassicSection = (emitter: PdfEmitter, input: SaveInput, request: Sec
   return offset;
 };
 
-const byteWidth = (value: number): number => {
-  let width = 1;
-  while (value >= 256 ** width) width++;
-  return width;
-};
-
-// ISO 32000-1:2008, 7.5.8.3, Table 18: type 0 entries hold the next free object number and a generation, type 1 entries an offset and a generation, high-order byte first.
-const streamData = (entries: readonly Entry[], widths: readonly [number, number]): Uint8Array => {
-  const data = new Uint8Array(entries.length * (1 + widths[0] + widths[1]));
-  let position = 0;
-  const put = (value: number, width: number): void => {
-    for (let index = width - 1; index >= 0; index--) data[position++] = Math.floor(value / 256 ** index) % 256;
-  };
-  for (const entry of entries) {
-    put(entry.use === 'n' ? 1 : 0, 1);
-    put(entry.field, widths[0]);
-    put(entry.generation, widths[1]);
-  }
-  return data;
-};
-
-const indexRuns = (entries: readonly Entry[]): PdfDirectObject => {
-  const pairs: number[] = [];
-  for (const entry of entries) {
-    const last = pairs.length - 2;
-    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === entry.objectNumber) pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
-    else pairs.push(entry.objectNumber, 1);
-  }
-  return pdfArray(pairs.map(value => pdfInteger(value)));
-};
-
 // ISO 32000-1:2008, 7.5.8: the update's cross-reference information is a new cross-reference stream; 7.5.8.3: "an entry for it shall exist in either a cross-reference stream (usually itself) or in a cross-reference table". It is written unfiltered, with the smallest field widths that hold its values.
 const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: SectionRequest): number => {
   const { offset } = emitter;
   const number = input.size;
   const shift = input.base?.shift ?? 0;
-  const entries = [...request.entries, { objectNumber: number, use: 'n', field: offset - shift, generation: 0 } as const].toSorted(
+  const entries = [...request.entries, { objectNumber: number, type: 1, field: offset - shift, generation: 0 } as const].toSorted(
     (left, right) => left.objectNumber - right.objectNumber,
   );
   const widths = [byteWidth(Math.max(...entries.map(entry => entry.field))), byteWidth(Math.max(...entries.map(entry => entry.generation)))] as const;
