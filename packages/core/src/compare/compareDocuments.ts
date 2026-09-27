@@ -132,6 +132,9 @@ class Comparison {
       undecodable: (where, document, reason) => {
         differences.push({ kind: 'undecodable', where: ['page', page, ...where], document, reason });
       },
+      duplicateKey: (where, key, document) => {
+        differences.push({ kind: 'ambiguous-duplicate-key', where: ['page', page, ...where], key, document });
+      },
     }).compare(resourcesA, resourcesB, ['Resources']);
   }
 

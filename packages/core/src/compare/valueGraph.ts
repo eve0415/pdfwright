@@ -9,6 +9,7 @@ import { pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { readOperations } from './contentTokens.ts';
+import { duplicateKeys } from './duplicateKeys.ts';
 import { decodeForComparison } from './pageContent.ts';
 import { encodingText, sameEncoding } from './resolvedText.ts';
 
@@ -21,6 +22,8 @@ export interface Mismatch {
 export interface GraphReport {
   readonly mismatch: (mismatch: Mismatch) => void;
   readonly undecodable: (where: ValuePath, side: 'a' | 'b', reason: string) => void;
+  /** A key that a dictionary holds more than once in one document and not in the other. */
+  readonly duplicateKey: (where: ValuePath, key: Uint8Array, side: 'a' | 'b') => void;
 }
 
 type Value = PdfObject | PdfDirectObject | undefined;
@@ -177,6 +180,10 @@ export class ValueGraph {
         this.reported++;
         report.undecodable(where, side, reason);
       },
+      duplicateKey: (where, key, side) => {
+        this.reported++;
+        report.duplicateKey(where, key, side);
+      },
     };
   }
 
@@ -284,6 +291,7 @@ export class ValueGraph {
     const a = this.resolve('a', left, path);
     const b = this.resolve('b', right, path);
     if (a === UNREADABLE || b === UNREADABLE) return;
+    if (!this.raw) this.duplicates(left, right, path);
     if (a?.kind === 'dictionary' && b?.kind === 'dictionary') this.pushEntries({ left: a.entries, right: b.entries, path });
     else if (a?.kind === 'array' && b?.kind === 'array') this.items([a.items, b.items], path);
     else if (a?.kind === 'stream' && b?.kind === 'stream') {
@@ -291,6 +299,18 @@ export class ValueGraph {
       this.tasks.push({ kind: 'data', left: a, right: b, path });
       this.pushEntries({ left: a.dictionary, right: b.dictionary, path, skip: STREAM_KEYS });
     } else if (!scalarEqual(a, b)) this.mismatch({ path: pathOf(path), a: summarize(a), b: summarize(b) });
+  }
+
+  // Readers disagree about which value a key held more than once has, so a duplicate in one document only is a difference (ISO 32000-1:2008, 7.3.7).
+  private duplicates(left: Value, right: Value, path: Where): void {
+    const duplicatesA = left?.kind === 'reference' ? duplicateKeys(this.context.a, left.objectNumber) : undefined;
+    const duplicatesB = right?.kind === 'reference' ? duplicateKeys(this.context.b, right.objectNumber) : undefined;
+    for (const [place, { where, key }] of duplicatesA ?? []) {
+      if (duplicatesB?.has(place) !== true) this.report.duplicateKey([...pathOf(path), ...where], key, 'a');
+    }
+    for (const [place, { where, key }] of duplicatesB ?? []) {
+      if (duplicatesA?.has(place) !== true) this.report.duplicateKey([...pathOf(path), ...where], key, 'b');
+    }
   }
 
   private items([left, right]: readonly [readonly PdfDirectObject[], readonly PdfDirectObject[]], path: Where): void {

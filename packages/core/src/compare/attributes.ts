@@ -2,14 +2,15 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { DuplicateKey } from './duplicateKeys.ts';
 import type { PdfDifference, ValuePath, ValueSummary } from './pdfDifference.ts';
 import type { Owner } from './pieceInfo.ts';
 import type { GraphContext } from './valueGraph.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
-import { originalValue } from '../save/originalValue.ts';
 
+import { duplicateKeys } from './duplicateKeys.ts';
 import { ValueGraph } from './valueGraph.ts';
 
 interface Sides {
@@ -84,6 +85,9 @@ const graph = (sides: GraphContext, { differences, within, push }: GraphOutput):
     undecodable: (where, document, reason) => {
       differences.push({ kind: 'undecodable', where: [...within, ...where], document, reason });
     },
+    duplicateKey: (where, key, document) => {
+      differences.push({ kind: 'ambiguous-duplicate-key', where: [...within, ...where], key, document });
+    },
   });
 
 /** Compares the page entries no other area covers (ISO 32000-1:2008, 7.7.3.3, Table 30), such as Group, Annots, Metadata or SeparationInfo. */
@@ -113,18 +117,6 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
   values.compare(sides.a.structure.trailer.get(INFO), sides.b.structure.trailer.get(INFO), ['Info']);
 };
 
-const duplicateKeys = (document: DocumentInternals, reference: PdfReference | undefined): Map<string, Uint8Array> => {
-  const duplicates = new Map<string, Uint8Array>();
-  if (reference === undefined || document.objects.changes.has(reference.objectNumber)) return duplicates;
-  const seen = new Set<string>();
-  for (const entry of originalValue(document.objects.store, reference.objectNumber, document.maxNesting)?.node.entries ?? []) {
-    const key = latin1(entry.key);
-    if (seen.has(key)) duplicates.set(key, entry.key);
-    seen.add(key);
-  }
-  return duplicates;
-};
-
 /**
  * Reports a key that one document's dictionary holds more than once and the other's does not: readers disagree about which value such a key has, so an edit that settled it changed what some readers show.
  * ISO 32000-1:2008, 7.3.7: "Multiple entries in the same dictionary shall not have the same key."
@@ -134,10 +126,14 @@ export const compareDuplicateKeys = (
   objects: { readonly where: ValuePath; readonly a: PdfReference | undefined; readonly b: PdfReference | undefined },
   differences: PdfDifference[],
 ): void => {
-  const left = duplicateKeys(sides.a, objects.a);
-  const right = duplicateKeys(sides.b, objects.b);
-  for (const [name, key] of left) if (!right.has(name)) differences.push({ kind: 'ambiguous-duplicate-key', where: objects.where, key, document: 'a' });
-  for (const [name, key] of right) if (!left.has(name)) differences.push({ kind: 'ambiguous-duplicate-key', where: objects.where, key, document: 'b' });
+  const left = objects.a === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.a, objects.a.objectNumber);
+  const right = objects.b === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.b, objects.b.objectNumber);
+  for (const [place, { where, key }] of left) {
+    if (!right.has(place)) differences.push({ kind: 'ambiguous-duplicate-key', where: [...objects.where, ...where], key, document: 'a' });
+  }
+  for (const [place, { where, key }] of right) {
+    if (!left.has(place)) differences.push({ kind: 'ambiguous-duplicate-key', where: [...objects.where, ...where], key, document: 'b' });
+  }
 };
 
 type Side = 'a' | 'b';

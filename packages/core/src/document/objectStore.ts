@@ -1,6 +1,7 @@
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { ByteSource } from '../parse/byteSource.ts';
 import type { FileSource } from '../parse/indirectObject.ts';
+import type { LoadWarning } from '../parse/loadWarning.ts';
 import type { ObjectIndex } from '../xref/objectIndex.ts';
 import type { DecodedObjectStream, ObjectStreamContext } from '../xref/objectStream.ts';
 
@@ -58,6 +59,7 @@ export class ObjectStore {
   private readonly cache = new Map<number, StoredObject>();
   private cached = 0;
   private readonly resolving = new Set<number>();
+  private readonly duplicateKeys = new Set<number>();
   private readonly decoded = new Map<number, DecodedObjectStream>();
 
   constructor(source: ByteSource, index: ObjectIndex, context: StoreContext) {
@@ -124,6 +126,7 @@ export class ObjectStore {
         ...this.context,
         warn: warning => {
           clean = false;
+          this.noteDuplicateKey(objectNumber, warning);
           this.context.warn(warning);
         },
       },
@@ -133,6 +136,15 @@ export class ObjectStore {
     return { objectNumber, generation: 0, value, source };
   }
 
+  private noteDuplicateKey(objectNumber: number, warning: LoadWarning): void {
+    if (warning.code === 'duplicate-key') this.duplicateKeys.add(objectNumber);
+  }
+
+  /** Whether a dictionary in the object, as parsed from the source, holds a key more than once (ISO 32000-1:2008, 7.3.7: "Multiple entries in the same dictionary shall not have the same key"). */
+  hasDuplicateKeys(objectNumber: number): boolean {
+    return this.duplicateKeys.has(objectNumber);
+  }
+
   /** Parses an object from its span, bypassing the cache; undefined for free and absent object numbers. */
   parse(objectNumber: number): StoredObject | undefined {
     const entry = this.index.get(objectNumber);
@@ -140,7 +152,14 @@ export class ObjectStore {
     if (entry.type !== IN_FILE) return undefined;
     this.resolving.add(objectNumber);
     try {
-      const parsed = this.source.parseAt(entry.location, this.context, (window, local, lexContext) =>
+      const context = {
+        ...this.context,
+        warn: (warning: LoadWarning): void => {
+          this.noteDuplicateKey(objectNumber, warning);
+          this.context.warn(warning);
+        },
+      };
+      const parsed = this.source.parseAt(entry.location, context, (window, local, lexContext) =>
         parseIndirectObject(window, local, {
           ...lexContext,
           maxNesting: this.context.maxNesting,

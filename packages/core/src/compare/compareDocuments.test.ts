@@ -2,6 +2,7 @@ import type { TestObject } from '../testing/pdfBuilder.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { cmyk } from '../document/color.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -92,5 +93,31 @@ describe('document comparison: objects that cannot be parsed', () => {
       { kind: 'undecodable', where, document: 'b' },
     ]);
     expect(differences).toMatchObject(expected);
+  });
+});
+
+const duplicated = (resources: string): Uint8Array =>
+  pdf([
+    { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+    { number: 3, body: `<</Type/Page/Parent 2 0 R/Resources${resources}>>` },
+    { number: 7, body: '<</CS0/DeviceRGB/CS0/DeviceCMYK>>' },
+  ]);
+
+describe('document comparison: duplicate keys', () => {
+  it.each(['<</ColorSpace<</CS0/DeviceRGB/CS0/DeviceCMYK>>>>', '<</ColorSpace 7 0 R>>'])('reports a duplicate key that an edit settled in %s', resources => {
+    const bytes = duplicated(resources);
+    const edited = loadDocument(bytes);
+    const spot = edited.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 1) });
+    edited.page(0).appendContent(builder => {
+      builder.fillColor(spot, 1);
+    });
+    const saved = loadDocument(edited.save().chunks);
+    const { differences } = compareDocuments(loadDocument(bytes), saved, { include: ['resources', 'pageAttributes'] });
+    expect(differences).toContainEqual({
+      kind: 'ambiguous-duplicate-key',
+      where: ['page', 0, 'Resources', 'ColorSpace'],
+      key: Uint8Array.of(0x43, 0x53, 0x30),
+      document: 'a',
+    });
   });
 });

@@ -83,6 +83,9 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
     undecodable: (where, document, reason) => {
       differences.push({ kind: 'undecodable', where: [...ownerPath(owner.owner), ...where], document, reason });
     },
+    duplicateKey: (where, key, document) => {
+      differences.push({ kind: 'ambiguous-duplicate-key', where: [...ownerPath(owner.owner), ...where], key, document });
+    },
   });
   const dataA = dictionaryOf(read(sides.a, pieceA));
   const dataB = dictionaryOf(read(sides.b, pieceB));
