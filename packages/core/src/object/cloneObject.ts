@@ -21,3 +21,9 @@ export const cloneObject = (value: PdfObject): PdfObject => {
     data: value.data,
   };
 };
+
+/** Like cloneObject, with a stream's data copied as well, for handing a value to a caller who may change it. */
+export const copyObject = (value: PdfObject): PdfObject => {
+  const copy = cloneObject(value);
+  return copy.kind === 'stream' ? { ...copy, data: Uint8Array.from(copy.data) } : copy;
+};

@@ -17,6 +17,8 @@ import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
+import { cloneDirect } from '../object/cloneObject.ts';
+import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { fullRewrite } from '../save/fullRewrite.ts';
@@ -65,11 +67,11 @@ export interface LoadedDocument {
   page: (index: number) => LoadedPage;
   /** A fresh copy of the object on every call, changes included; null for free and absent objects. */
   get: (reference: PdfReference) => PdfObject;
-  /** Replaces an object in use, keeping its number and generation. */
+  /** Replaces an object in use, keeping its number and generation; the value is copied, except a stream's data, which must not change afterwards. */
   set: (reference: PdfReference, value: PdfObject) => void;
   /** Deletes an object in use; saving marks its entry free. */
   delete: (reference: PdfReference) => void;
-  /** Adds a new object, numbered above every number the file uses. */
+  /** Adds a new object, numbered above every number the file uses; the value is copied as by set. */
   object: (value: PdfObject) => PdfReference;
   /** A Separation colour space for content appended to this document's pages. */
   separation: (options: SeparationOptions) => Separation;
@@ -117,8 +119,8 @@ const versionNumber = (text: string): number => {
 };
 
 class LoadedPdf implements LoadedDocument {
-  readonly structure: DocumentStructure;
-  readonly warnings: readonly LoadWarning[];
+  private readonly read: DocumentStructure;
+  private readonly log: readonly LoadWarning[];
   private readonly objects: EditedObjects;
   private readonly pages: readonly PageEntry[];
   private readonly handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: false });
@@ -130,17 +132,32 @@ class LoadedPdf implements LoadedDocument {
   constructor(parts: LoadedParts) {
     this.base = parts.read.base;
     this.maxNesting = parts.maxNesting;
-    this.structure = parts.read.structure;
+    this.read = parts.read.structure;
     this.objects = new EditedObjects(parts.read.store);
-    this.warnings = parts.warnings;
+    this.log = parts.warnings;
     this.pages = parts.pages;
     registerInternals(this, {
       objects: this.objects,
       pages: this.pages,
-      structure: this.structure,
+      structure: this.read,
       maxDecodedBytes: parts.maxDecodedBytes,
       maxNesting: parts.maxNesting,
     });
+  }
+
+  /** A copy of the structure, so that changing it cannot change what a save writes. */
+  get structure(): DocumentStructure {
+    const { read } = this;
+    return {
+      ...read,
+      sections: read.sections.map(section => ({ ...section })),
+      trailer: parsedDictionaryEntries([...read.trailer.entries()].map(([key, value]) => [key, cloneDirect(value)] as const)),
+    };
+  }
+
+  /** The warnings so far; objects read after loading can add more. */
+  get warnings(): readonly LoadWarning[] {
+    return [...this.log];
   }
 
   separation(options: SeparationOptions): Separation {
@@ -198,15 +215,12 @@ class LoadedPdf implements LoadedDocument {
   private versionChange(changes: Map<number, ObjectChange>, warnings: SaveWarning[]): void {
     const needsTransparency =
       this.features.transparency || this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
-    const root = this.structure.trailer.get(ROOT);
+    const root = this.read.trailer.get(ROOT);
     if (!needsTransparency || root?.kind !== 'reference') return;
     const catalog = this.get(root);
     if (catalog.kind !== 'dictionary') return;
     const declared = catalog.entries.get(VERSION);
-    const effective = Math.max(
-      versionNumber(this.structure.headerVersion),
-      declared?.kind === 'name' ? versionNumber(new TextDecoder().decode(declared.bytes)) : 0,
-    );
+    const effective = Math.max(versionNumber(this.read.headerVersion), declared?.kind === 'name' ? versionNumber(new TextDecoder().decode(declared.bytes)) : 0);
     if (effective >= 14) return;
     catalog.entries.set(VERSION, pdfName('1.4'));
     changes.set(root.objectNumber, { generation: root.generation, value: catalog });
@@ -215,7 +229,7 @@ class LoadedPdf implements LoadedDocument {
 
   save(options: SaveOptions = {}): SavedPdf {
     let mode = options.mode ?? 'auto';
-    if (mode === 'auto') mode = this.structure.status === 'intact' ? 'incremental' : 'full';
+    if (mode === 'auto') mode = this.read.status === 'intact' ? 'incremental' : 'full';
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
@@ -223,7 +237,7 @@ class LoadedPdf implements LoadedDocument {
       store: this.objects.store,
       changes,
       size: this.objects.size,
-      structure: this.structure,
+      structure: this.read,
       base: this.base,
       fractionDigits: options.fractionDigits ?? DEFAULT_FRACTION_DIGITS,
       maxNesting: this.maxNesting,
@@ -234,7 +248,7 @@ class LoadedPdf implements LoadedDocument {
   }
 
   catalog(): PdfDictionaryEntries {
-    const root = this.structure.trailer.get(ROOT);
+    const root = this.read.trailer.get(ROOT);
     const catalog = root?.kind === 'reference' ? this.get(root) : undefined;
     if (catalog?.kind !== 'dictionary') throw new ParseError('the document catalog is not a dictionary', 0);
     return catalog.entries;

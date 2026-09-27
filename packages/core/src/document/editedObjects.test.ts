@@ -1,3 +1,4 @@
+import type { PdfObject } from '../object/pdfObject.ts';
 import type { LoadedDocument } from './loadDocument.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -23,6 +24,8 @@ const load = (): LoadedDocument =>
       },
     ]).bytes,
   );
+
+const dataOf = (value: PdfObject): Uint8Array => (value.kind === 'stream' ? value.data : new Uint8Array());
 
 describe('object changes', () => {
   it('replaces an object, keeping it apart from the caller value and from later reads', () => {
@@ -101,6 +104,28 @@ describe('object changes', () => {
       ]).bytes,
     );
     expect(sized.object(pdfInteger(1))).toStrictEqual(pdfReference(3, 0));
+  });
+
+  it('hands out copies of the structure and of stream data', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+            { number: 3, body: '<</Length 3>>\nstream\nabc\nendstream' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    document.structure.trailer.set(pdfName('Root').bytes, pdfInteger(42));
+    dataOf(document.get(pdfReference(3, 0))).fill(0x78);
+    expect([document.structure.trailer.get(pdfName('Root').bytes), document.get(pdfReference(3, 0))]).toMatchObject([
+      pdfReference(1, 0),
+      { data: new TextEncoder().encode('abc') },
+    ]);
   });
 
   it('deletes objects and numbers new objects above every number in use', () => {

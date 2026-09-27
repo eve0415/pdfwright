@@ -3,7 +3,7 @@ import type { ObjectResolver } from './loadedPage.ts';
 import type { ObjectStore } from './objectStore.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { cloneObject } from '../object/cloneObject.ts';
+import { cloneObject, copyObject } from '../object/cloneObject.ts';
 import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
 
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
@@ -64,9 +64,9 @@ export class EditedObjects implements ObjectResolver {
     return this.resolve(value.objectNumber, value.generation);
   }
 
-  /** A copy of the object that shares nothing with the document; the source object is parsed once and cached, so its warnings are reported once. */
+  /** A copy of the object that shares nothing with the document, stream data included; the source object is parsed once and cached, so its warnings are reported once. */
   get(reference: PdfReference): PdfObject {
-    return cloneObject(this.resolve(reference.objectNumber, reference.generation));
+    return copyObject(this.resolve(reference.objectNumber, reference.generation));
   }
 
   private current(reference: PdfReference): void {
