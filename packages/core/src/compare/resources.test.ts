@@ -36,6 +36,9 @@ const form = (data: string, filter = ''): TestObject => ({ number: 10, body: str
 const image = (data: string): ReturnType<typeof load> =>
   load('<</XObject<</I1 10 0 R>>>>', [{ number: 10, body: streamBody('/Subtype/Image/Filter/DCTDecode', data) }]);
 
+const filtered = (filter: string): ReturnType<typeof load> =>
+  load('<</XObject<</X1 10 0 R>>>>', [form('302030206D>', '/Filter 6 0 R'), { number: 6, body: filter }]);
+
 describe('resource and font comparison', () => {
   it('compares resources as values, whether direct or indirect and however numbered', () => {
     const direct = load('<</Font<</F1 8 0 R>>/ExtGState<</GS1<</CA 1>>>>>>', [helvetica]);
@@ -81,6 +84,11 @@ describe('resource and font comparison', () => {
     edited.set(font, { kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('Subtype').bytes, pdfName('TrueType')]]) });
     const { differences } = compareDocuments(loadDocument(bytes), edited, { include: ['resources'] });
     expect(differences).toContainEqual(expect.objectContaining({ kind: 'page-resources', path: ['Resources', 'Font', 'F1', 'Subtype'] }));
+  });
+
+  it('compares the filters a form names indirectly by what they resolve to', () => {
+    const [hex, plain] = [filtered('/ASCIIHexDecode'), filtered('null')];
+    expect(kinds(compareDocuments(hex, plain).differences)).toStrictEqual(['page-resources']);
   });
 
   it('reports fonts added to a page and to the document', () => {

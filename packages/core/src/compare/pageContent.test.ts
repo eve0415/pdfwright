@@ -30,6 +30,12 @@ const content = (comparison: DocumentComparison): readonly PdfDifference[] => co
 
 const single = document('4 0 R', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S 0.50 g') }]);
 
+const filtered = (filter: string): ReturnType<typeof document> =>
+  document('4 0 R', [
+    { number: 4, body: streamBody('/Filter 6 0 R', '302030206D>') },
+    { number: 6, body: filter },
+  ]);
+
 describe('page content comparison', () => {
   it('treats content split, compressed or spelled differently as equal', () => {
     const split = document('[4 0 R 5 0 R]', [
@@ -51,6 +57,11 @@ describe('page content comparison', () => {
       [{ kind: 'page-content', page: 0, operationsA: 4, operationsB: 8, commonPrefix: 4, commonSuffix: 0 }],
       [{ kind: 'page-content', page: 0, operationsA: 4, operationsB: 4, commonPrefix: 1, commonSuffix: 2 }],
     ]);
+  });
+
+  it('compares the filters content names indirectly by what they resolve to', () => {
+    const [hex, plain] = [filtered('/ASCIIHexDecode'), filtered('null')];
+    expect(content(compareDocuments(hex, plain))).toMatchObject([{ kind: 'page-content', page: 0 }]);
   });
 
   it('reads content streams that refer to missing objects as empty', () => {

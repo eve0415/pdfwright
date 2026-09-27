@@ -9,6 +9,7 @@ import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { operationHashes } from './contentTokens.ts';
 import { decodeForComparison } from './pageContent.ts';
+import { encodingText } from './resolvedText.ts';
 
 export interface Mismatch {
   readonly path: ValuePath;
@@ -37,8 +38,6 @@ const pageNumbers = (document: DocumentInternals): Map<string, number> => new Ma
 
 const STREAM_KEYS = new Set(['Length', 'Filter', 'DecodeParms', 'DL']);
 const SUBTYPE = pdfName('Subtype').bytes;
-const FILTER = pdfName('Filter').bytes;
-const DECODE_PARMS = pdfName('DecodeParms').bytes;
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
@@ -168,10 +167,7 @@ export class ValueGraph {
   // Streams compare by dictionary, apart from the keys that describe the encoding, and by data: equal raw bytes under equal filters, else decoded bytes; a form's content compares operation by operation (ISO 32000-1:2008, 8.10).
   private stream([left, right]: readonly [Extract<PdfObject, { kind: 'stream' }>, Extract<PdfObject, { kind: 'stream' }>], path: ValuePath): void {
     this.entries({ left: left.dictionary, right: right.dictionary, path, skip: STREAM_KEYS });
-    const sameEncoding =
-      scalarEqual(left.dictionary.get(FILTER), right.dictionary.get(FILTER)) &&
-      scalarEqual(left.dictionary.get(DECODE_PARMS), right.dictionary.get(DECODE_PARMS));
-    if (sameEncoding && sameBytes(left.data, right.data)) return;
+    if (sameBytes(left.data, right.data) && encodingText(this.a, left) === encodingText(this.b, right)) return;
     if (this.raw) {
       this.report.mismatch({
         path,

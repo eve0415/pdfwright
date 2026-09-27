@@ -9,6 +9,7 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { operationHashes } from './contentTokens.ts';
+import { encodingText } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
 
@@ -62,7 +63,24 @@ const joinedContent = (document: DocumentInternals, references: readonly PdfDire
   return { ok: true, bytes: joined };
 };
 
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length === right.length && left.every((byte, index) => byte === right[index]);
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
+  left.length === right.length &&
+  ((left.buffer === right.buffer && left.byteOffset === right.byteOffset) || left.every((byte, index) => byte === right[index]));
+
+// Streams with the same stored bytes under the same resolved filters hold the same content, without decoding.
+const sameStored = (
+  sides: { readonly a: DocumentInternals; readonly b: DocumentInternals },
+  [left, right]: readonly [PdfDirectObject, PdfDirectObject | undefined],
+): boolean => {
+  const streamA = sides.a.objects.deref(left);
+  const streamB = sides.b.objects.deref(right);
+  return (
+    streamA?.kind === 'stream' &&
+    streamB?.kind === 'stream' &&
+    sameBytes(streamA.data, streamB.data) &&
+    encodingText(sides.a, streamA) === encodingText(sides.b, streamB)
+  );
+};
 
 interface PageSides {
   readonly a: DocumentInternals;
@@ -72,11 +90,12 @@ interface PageSides {
 }
 
 /**
- * Compares the content of one page, however it is split across streams or compressed: by decoded bytes, then operation by operation.
+ * Compares the content of one page, however it is split across streams or compressed: by stored bytes under the same filters, then by decoded bytes, then operation by operation.
  */
 export const comparePageContent = (page: number, sides: PageSides, differences: PdfDifference[]): void => {
   const left = contentReferences(sides.a, sides.pageA);
   const right = contentReferences(sides.b, sides.pageB);
+  if (left.length === right.length && left.every((reference, index) => sameStored(sides, [reference, right[index]]))) return;
   const decoded: Record<Side, Decoded> = { a: joinedContent(sides.a, left), b: joinedContent(sides.b, right) };
   for (const side of ['a', 'b'] as const) {
     const result = decoded[side];
