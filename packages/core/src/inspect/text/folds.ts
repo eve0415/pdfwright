@@ -20,7 +20,11 @@ const RADICALS: ReadonlyMap<number, string> = new Map(
   }),
 );
 
+// The full-width form of an ASCII character, U+FF01–U+FF5E, is the ASCII code point plus 0xFEE0.
+const FULL_WIDTH_OFFSET = 0xfee0;
+
 // The Unicode Character Database's decompositions tagged <vertical> that give one character, U+FE10–U+FE19, U+FE30–U+FE44, U+FE47 and U+FE48; U+309F and U+30FF, whose decompositions are two characters, are not folded.
+// A form whose decomposition is an ASCII character is read as its full-width form: in vertical CJK text Chromium's ActualText gives the full-width character over these forms, while an ASCII character in vertical text is set sideways rather than as a presentation form.
 const VERTICAL_FORMS: ReadonlyMap<number, string> = new Map(
   [
     'FE10 002C',
@@ -58,7 +62,8 @@ const VERTICAL_FORMS: ReadonlyMap<number, string> = new Map(
     'FE48 005D',
   ].map(pair => {
     const [from = '', to = ''] = pair.split(' ');
-    return [Number.parseInt(from, 16), String.fromCodePoint(Number.parseInt(to, 16))] as const;
+    const target = Number.parseInt(to, 16);
+    return [Number.parseInt(from, 16), String.fromCodePoint(target < 0x80 ? target + FULL_WIDTH_OFFSET : target)] as const;
   }),
 );
 
