@@ -1,16 +1,23 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { LoadWarning } from '../parse/loadWarning.ts';
+import type { ContentBuilder } from './contentBuilder.ts';
+import type { GroupOptions, PdfGroup } from './group.ts';
+import type { ImageOptions, PdfImage } from './image.ts';
 import type { LoadedPage } from './loadedPage.ts';
 import type { PageEntry } from './pageTree.ts';
 import type { DocumentStructure, LoadSession, ReadStructure } from './readStructure.ts';
+import type { ResourceNumbers } from './resourceRecord.ts';
+import type { Separation, SeparationOptions } from './separation.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { locateHeader } from '../xref/locate.ts';
 
+import { createDocumentHandles } from './documentHandles.ts';
 import { EditedObjects } from './editedObjects.ts';
 import { createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
@@ -48,6 +55,12 @@ export interface LoadedDocument {
   delete: (reference: PdfReference) => void;
   /** Adds a new object, numbered above every number the file uses. */
   object: (value: PdfObject) => PdfReference;
+  /** A Separation colour space for content appended to this document's pages. */
+  separation: (options: SeparationOptions) => Separation;
+  /** An image for content appended to this document's pages; its objects are written when content first draws it. */
+  image: (options: ImageOptions) => PdfImage;
+  /** A transparency group for content appended to this document's pages. */
+  group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
   /** A fresh copy of the document catalog. */
   catalog: () => PdfDictionaryEntries;
 }
@@ -82,12 +95,26 @@ class LoadedPdf implements LoadedDocument {
   readonly warnings: readonly LoadWarning[];
   private readonly objects: EditedObjects;
   private readonly pages: readonly PageEntry[];
+  private readonly handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: false });
+  private readonly placed: ResourceNumbers = { imageNumbers: new Map(), groupNumbers: new Map() };
 
   constructor(parts: LoadedParts) {
     this.structure = parts.read.structure;
     this.objects = new EditedObjects(parts.read.store, parts.read.structure.trailer.get(SIZE));
     this.warnings = parts.warnings;
     this.pages = parts.pages;
+  }
+
+  separation(options: SeparationOptions): Separation {
+    return this.handles.separation(options);
+  }
+
+  image(options: ImageOptions): PdfImage {
+    return this.handles.image(options);
+  }
+
+  group(options: GroupOptions, render: (content: ContentBuilder) => void): PdfGroup {
+    return this.handles.group(options, render);
   }
 
   get pageCount(): number {
@@ -99,7 +126,11 @@ class LoadedPdf implements LoadedDocument {
     if (!Number.isSafeInteger(index) || entry === undefined) {
       throw new InvalidArgumentError(`page index ${String(index)} is outside 0 to ${String(this.pages.length - 1)}`);
     }
-    return createLoadedPage({ objects: this.objects, pages: this.pages }, entry, index);
+    return createLoadedPage(
+      { objects: this.objects, pages: this.pages, handles: this.handles, placed: this.placed, fractionDigits: DEFAULT_FRACTION_DIGITS },
+      entry,
+      index,
+    );
   }
 
   get(reference: PdfReference): PdfObject {

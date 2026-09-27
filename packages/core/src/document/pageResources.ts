@@ -134,28 +134,51 @@ const pageResourcesTarget = (context: ResourceContext, page: PageEntry): Target 
   };
 };
 
-/** Adds a resource under a name unused in its category and returns the name's bytes; only the page, its own resources, or copies of shared ones change. */
+export interface ResourceAddition {
+  readonly category: ResourceCategory;
+  readonly name: Uint8Array;
+  readonly value: PdfDirectObject;
+}
+
+/** Adds named resources to a page; only the page, its own resources, or copies of shared ones change. */
+export const addPageResources = (context: ResourceContext, page: PageEntry, additions: readonly ResourceAddition[]): void => {
+  if (additions.length === 0) return;
+  const { objects } = context;
+  const resources = pageResourcesTarget(context, page);
+  let resourcesChanged = false;
+  for (const category of new Set(additions.map(addition => addition.category))) {
+    const categoryKey = pdfName(category).bytes;
+    const current = resources.entries.get(categoryKey);
+    const entries = asDictionary(objects, current, `the ${category} resources of page ${label(page.reference)}`);
+    for (const addition of additions) if (addition.category === category) entries.set(addition.name, addition.value);
+    const changed = { kind: 'dictionary', entries } as const;
+    // A category object that no other page reaches changes in place, and the resources dictionary that names it stays as it is.
+    if (current?.kind === 'reference' && !sharedWithOtherPages(context, page, { reference: current, category: categoryKey })) objects.set(current, changed);
+    else {
+      resources.entries.set(categoryKey, current?.kind === 'reference' ? objects.add(changed) : changed);
+      resourcesChanged = true;
+    }
+  }
+  if (resourcesChanged) resources.store(resources.entries);
+};
+
+/** Names already used in a category of the page's effective resources. */
+export const takenNames = (context: ResourceContext, page: PageEntry, category: ResourceCategory): PdfDictionaryEntries => {
+  const found = resourcesEntry(context.objects, page);
+  const resources = context.objects.deref(found?.value);
+  if (resources?.kind !== 'dictionary') return parsedDictionaryEntries([]);
+  return asDictionary(context.objects, resources.entries.get(pdfName(category).bytes), `the ${category} resources of page ${label(page.reference)}`);
+};
+
+/** Adds a resource under a name unused in its category and returns the name's bytes. */
 export const addPageResource = (
   context: ResourceContext,
   page: PageEntry,
   request: { category: ResourceCategory; value: PdfObject; prefix?: string },
 ): Uint8Array => {
-  const { objects } = context;
-  const categoryKey = pdfName(request.category).bytes;
-  const resources = pageResourcesTarget(context, page);
-  const current = resources.entries.get(categoryKey);
-  const categoryEntries = asDictionary(objects, current, `the ${request.category} resources of page ${label(page.reference)}`);
-  const name = freeName(categoryEntries, request.prefix ?? DEFAULT_PREFIXES[request.category]);
+  const name = freeName(takenNames(context, page, request.category), request.prefix ?? DEFAULT_PREFIXES[request.category]);
   // ISO 32000-1:2008, 7.3.8.1: "All streams shall be indirect objects".
-  const value = request.value.kind === 'stream' ? objects.add(request.value) : request.value;
-  categoryEntries.set(name, value);
-  const changed = { kind: 'dictionary', entries: categoryEntries } as const;
-  if (current?.kind === 'reference' && !sharedWithOtherPages(context, page, { reference: current, category: categoryKey })) {
-    objects.set(current, changed);
-    // The category object changed in place, so the resources dictionary that names it stays as it is.
-    return name;
-  }
-  resources.entries.set(categoryKey, current?.kind === 'reference' ? objects.add(changed) : changed);
-  resources.store(resources.entries);
+  const value = request.value.kind === 'stream' ? context.objects.add(request.value) : request.value;
+  addPageResources(context, page, [{ category: request.category, name, value }]);
   return name;
 };

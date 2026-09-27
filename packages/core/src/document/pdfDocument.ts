@@ -96,7 +96,7 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
   }
 };
 
-const isolateContent = (data: Uint8Array): Uint8Array => {
+export const isolateContent = (data: Uint8Array): Uint8Array => {
   // ISO 32000-1:2008, 8.4.2 defines q and Q as saving and restoring the entire graphics state.
   const isolated = new Uint8Array(data.length + 4);
   isolated.set([0x71, 0x0a], 0);

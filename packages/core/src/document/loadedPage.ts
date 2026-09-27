@@ -1,6 +1,8 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
-import type { ResourceCategory, ResourceContext, ResourceObjects } from './pageResources.ts';
+import type { ContentContext } from './appendContent.ts';
+import type { ContentBuilder } from './contentBuilder.ts';
+import type { ResourceCategory, ResourceObjects } from './pageResources.ts';
 import type { PageEntry } from './pageTree.ts';
 import type { PdfRect } from './rect.ts';
 
@@ -12,6 +14,7 @@ import { cloneDirect, cloneObject } from '../object/cloneObject.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 
+import { appendPageContent } from './appendContent.ts';
 import { addPageResource } from './pageResources.ts';
 import { rect } from './rect.ts';
 
@@ -45,6 +48,11 @@ export interface LoadedPage {
    * A stream value is added as a new object. Only the page, its own resources object, or new copies of resources other pages share are changed.
    */
   addResource: (category: ResourceCategory, value: PdfObject, options?: { prefix?: string }) => Uint8Array;
+  /**
+   * Adds a content stream after the existing ones, which are never rewritten: raw content bytes, or content drawn with a builder whose resources are added to the page under unused names.
+   * With isolate (the default) the existing content is wrapped in q and Q, so the new content starts in the default graphics state.
+   */
+  appendContent: (content: Uint8Array | ((content: ContentBuilder) => void), options?: { isolate?: boolean }) => void;
   lastModified: () => PdfObject | undefined;
   pieceInfo: () => PdfObject | undefined;
 }
@@ -186,7 +194,7 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
 
 const copied = (value: PdfObject | undefined): PdfObject | undefined => (value === undefined ? undefined : cloneObject(value));
 
-export const createLoadedPage = (context: ResourceContext, entry: PageEntry, index: number): LoadedPage => {
+export const createLoadedPage = (context: ContentContext, entry: PageEntry, index: number): LoadedPage => {
   const resolver = context.objects;
   return {
     index,
@@ -198,6 +206,9 @@ export const createLoadedPage = (context: ResourceContext, entry: PageEntry, ind
     },
     setBox: (name, corners) => {
       setBox(resolver, entry, [name, corners]);
+    },
+    appendContent: (content, options) => {
+      appendPageContent(context, entry, { content, isolate: options?.isolate ?? true });
     },
     addResource: (category, value, options) =>
       addPageResource(context, entry, options?.prefix === undefined ? { category, value } : { category, value, prefix: options.prefix }),

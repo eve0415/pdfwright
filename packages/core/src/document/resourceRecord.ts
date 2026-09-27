@@ -79,8 +79,16 @@ export const groupRecord = (records: DocumentRecords, group: PdfGroup): GroupRec
 
 export type ResourcePrefix = 'GS' | 'CS' | 'Im' | 'Fm';
 
+/** A separation, image or group being registered, for finding a name that already stands for it. */
+export type RegisteredResource =
+  | { readonly kind: 'separation'; readonly record: SeparationRecord }
+  | { readonly kind: 'image'; readonly record: ImageRecord }
+  | { readonly kind: 'group'; readonly record: GroupRecord };
+
 export interface HookOptions {
   readonly blendingSpace: BlendingSpace;
+  /** A name the content's resources already give this resource, which is used instead of a new one. */
+  readonly existing?: (resource: RegisteredResource) => string | undefined;
   /** Names a resource from its prefix and its 1-based ordinal in the record; by default the two are joined. */
   readonly name?: (prefix: ResourcePrefix, ordinal: number) => string;
 }
@@ -112,7 +120,7 @@ export const createContentHooks = (resources: ResourceRecord, records: DocumentR
       const key = colorantKey(record.name);
       const existing = resources.separations.get(key);
       if (existing !== undefined) return existing.name;
-      const assigned = name('CS', resources.separations.size + 1);
+      const assigned = options.existing?.({ kind: 'separation', record }) ?? name('CS', resources.separations.size + 1);
       resources.separations.set(key, { name: assigned, separation: record });
       return assigned;
     },
@@ -120,7 +128,7 @@ export const createContentHooks = (resources: ResourceRecord, records: DocumentR
       const record = imageRecord(records, image);
       const existing = resources.images.get(record);
       if (existing !== undefined) return existing;
-      const assigned = name('Im', resources.images.size + 1);
+      const assigned = options.existing?.({ kind: 'image', record }) ?? name('Im', resources.images.size + 1);
       resources.images.set(record, assigned);
       return assigned;
     },
@@ -129,7 +137,7 @@ export const createContentHooks = (resources: ResourceRecord, records: DocumentR
       const record = groupRecord(records, group);
       const existing = resources.groups.get(record);
       if (existing !== undefined) return existing;
-      const assigned = name('Fm', resources.groups.size + 1);
+      const assigned = options.existing?.({ kind: 'group', record }) ?? name('Fm', resources.groups.size + 1);
       resources.groups.set(record, assigned);
       return assigned;
     },
