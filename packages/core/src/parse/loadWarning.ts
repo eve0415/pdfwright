@@ -9,6 +9,7 @@ export type LoadWarningCode =
   | 'xref-stream-index-order'
   | 'stream-length-recovered'
   | 'stream-keyword-cr'
+  | 'stream-keyword-eol'
   | 'missing-endobj'
   | 'duplicate-key'
   | 'malformed-name-escape'

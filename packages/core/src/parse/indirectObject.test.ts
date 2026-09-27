@@ -65,6 +65,17 @@ describe('indirect object parser', () => {
     expect(result.warnings.map(warning => [warning.code, warning.objectNumber])).toStrictEqual([['stream-keyword-cr', 1]]);
   });
 
+  it('skips spaces between the keyword stream and its end-of-line marker with a warning', () => {
+    const spaced = parse('1 0 obj <</Length 3>> stream \t\r\nq Q\nendstream endobj');
+    const bare = parse('1 0 obj <</Length 5>> stream[1 2]\nendstream endobj');
+    expect([data(spaced), spaced.warnings.map(warning => warning.code), data(bare), bare.warnings.map(warning => warning.code)]).toStrictEqual([
+      'q Q',
+      ['stream-keyword-eol'],
+      '[1 2]',
+      ['stream-keyword-eol'],
+    ]);
+  });
+
   it('accepts a missing endobj before another object or the end of the file', () => {
     const next = parse('1 0 obj 5\n2 0 obj 6 endobj');
     expect([next.object.value, next.object.source.objectEnd, next.warnings.map(warning => warning.code)]).toStrictEqual([

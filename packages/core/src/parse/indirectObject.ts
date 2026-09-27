@@ -65,15 +65,21 @@ const readHeader = (lexer: Lexer): ObjectHeader => {
 
 // ISO 32000-1:2008, 7.3.8.1: "The keyword stream that follows the stream dictionary shall be followed by an end-of-line marker consisting of either a CARRIAGE RETURN and a LINE FEED or just a LINE FEED, and not by a CARRIAGE RETURN alone."
 const dataStartAfter = (lexer: Lexer, keywordEnd: number): number => {
-  const first = lexer.atEnd(keywordEnd) ? undefined : lexer.bytes[keywordEnd];
-  if (first === 0x0a) return keywordEnd + 1;
-  if (first === 0x0d) {
-    if (!lexer.atEnd(keywordEnd + 1) && lexer.bytes[keywordEnd + 1] === 0x0a) return keywordEnd + 2;
-    lexer.warn({ code: 'stream-keyword-cr', detail: 'the keyword stream is followed by a CARRIAGE RETURN alone' }, keywordEnd);
-    return keywordEnd + 1;
+  let position = keywordEnd;
+  // Readers skip spaces and tabs a writer put between the keyword and the end-of-line marker.
+  while (!lexer.atEnd(position) && (lexer.bytes[position] === 0x20 || lexer.bytes[position] === 0x09)) position++;
+  const first = lexer.atEnd(position) ? undefined : lexer.bytes[position];
+  if (first !== 0x0a && first !== 0x0d) {
+    lexer.warn({ code: 'stream-keyword-eol', detail: 'the keyword stream is not followed by an end-of-line marker' }, keywordEnd);
+    return keywordEnd;
   }
-  lexer.warn({ code: 'stream-keyword-cr', detail: 'the keyword stream is not followed by an end-of-line marker' }, keywordEnd);
-  return keywordEnd;
+  if (position > keywordEnd) {
+    lexer.warn({ code: 'stream-keyword-eol', detail: 'white space separates the keyword stream from its end-of-line marker' }, keywordEnd);
+  }
+  if (first === 0x0a) return position + 1;
+  if (!lexer.atEnd(position + 1) && lexer.bytes[position + 1] === 0x0a) return position + 2;
+  lexer.warn({ code: 'stream-keyword-cr', detail: 'the keyword stream is followed by a CARRIAGE RETURN alone' }, position);
+  return position + 1;
 };
 
 // ISO 32000-1:2008, 7.3.8.2, Table 5, Length: "The number of bytes from the beginning of the line following the keyword stream to the last byte just before the keyword endstream. (There may be an additional EOL marker, preceding endstream, that is not included in the count".
