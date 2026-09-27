@@ -49,6 +49,7 @@ Its `maxPageTreeDepth` load option limits page tree levels from the root through
 Edits change only the objects they touch: this example sets a trim box and adds a Varnish plate to the first page.
 `save()` appends the changes to an intact file as an incremental update, rewrites a file whose structure had to be repaired, and returns views of the input plus the new bytes, so the input is never copied.
 A full rewrite gives every object number from 0 to the highest an entry, in a compressed cross-reference stream when the source is PDF 1.5 or later or used one, and otherwise in a classic table, where its `maxTableGapEntries` save option limits the entries for unused numbers to 100,000 by default and throws `ResourceLimitError` when exceeded.
+A rewrite that writes a cross-reference stream raises a header below 1.5 to 1.5, the version that introduced them, and reports it as a `version-raised` save warning.
 `compareDocuments` reports what differs between two documents by page, box, content, resources, fonts and page-piece data, never by object number.
 Because the input stays in memory, a 128 MB Cloudflare Workers isolate can edit files of up to about 80 MB.
 

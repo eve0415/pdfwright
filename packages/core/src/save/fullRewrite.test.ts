@@ -33,6 +33,12 @@ const streamRows = (xref: PdfObject): number => {
   return inflateZlib(xref.data).data.length / rowBytes;
 };
 
+// The header a full rewrite writes and the codes of its warnings.
+const headerAndWarnings = (sections: readonly TestSection[], header: string): readonly [string, readonly string[]] => {
+  const saved = loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' });
+  return [text(saved.toBytes()).slice(0, 8), saved.warnings.map(warning => warning.code)];
+};
+
 const kind = (sections: readonly TestSection[], header: string): string | undefined =>
   loadDocument(loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' }).chunks).structure.lastSectionKind;
 
@@ -85,6 +91,19 @@ describe('full rewrite', () => {
       kind(streamSource, '%PDF-1.4'),
       kind(hybridSource, '%PDF-1.4'),
     ]).toStrictEqual(['classic', 'stream', 'stream', 'stream', 'stream']);
+  });
+
+  it('raises a header below 1.5 when it writes a cross-reference stream, and reports it', () => {
+    const objects = [catalog, pages, page, content];
+    expect([
+      headerAndWarnings([{ xref: 'stream', objects, trailer: '/Root 1 0 R' }], '%PDF-1.4'),
+      headerAndWarnings([{ xref: 'stream', objects, trailer: '/Root 1 0 R' }], '%PDF-1.6'),
+      headerAndWarnings([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }], '%PDF-1.3'),
+    ]).toStrictEqual([
+      ['%PDF-1.5', ['version-raised']],
+      ['%PDF-1.6', []],
+      ['%PDF-1.3', []],
+    ]);
   });
 
   it('refuses a classic table that would hold more entries for unused numbers than the limit allows', () => {

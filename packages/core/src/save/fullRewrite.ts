@@ -71,7 +71,7 @@ class FullRewriter {
   private readonly rewritten = new Map<number, { generation: number; value: PdfObject }>();
   private readonly dropped = new Set<number>();
   private keptStreams = false;
-  private readonly version: string;
+  private version: string;
 
   constructor(input: SaveInput) {
     this.input = input;
@@ -375,6 +375,11 @@ class FullRewriter {
     if (structure.linearized) this.dropLinearization();
     this.reportJunk();
     this.collect();
+    // ISO 32000-1:2008, 7.5.8.1: cross-reference streams are a PDF 1.5 feature, so a rewrite that writes one declares at least that version in the header it writes.
+    if (this.writesStream() && versionNumber(this.version) < 15) {
+      this.warn({ code: 'version-raised', detail: `the header version is raised from ${this.version} to 1.5 for the cross-reference stream` });
+      this.version = '1.5';
+    }
     // ISO 32000-1:2008, 7.5.2: a header, then a comment with four bytes of 128 or more, since the file holds binary data.
     this.emitter.writer.writeAscii(`%PDF-${this.version}\n%`);
     this.emitter.writer.writeBytes(Uint8Array.of(0xe2, 0xe3, 0xcf, 0xd3));
