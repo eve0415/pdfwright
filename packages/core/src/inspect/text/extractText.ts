@@ -119,6 +119,8 @@ export interface TextFont {
    * Undefined for other fonts, and when the program has no readable Unicode cmap.
    */
   readonly cmap: EmbeddedCmap | undefined;
+  /** Whether such a font embeds a TrueType program whose Unicode cmap is absent or cannot be read, so that nothing in the program confirms which glyph a code shows. */
+  readonly cmapMissing: boolean;
 }
 
 export interface PageText {
@@ -238,15 +240,16 @@ const coveredBy = (covers: readonly CoverEvent[], { quad, clip }: { quad: Quad; 
   return shown.length > 0 && shown.every(point => hidden(point));
 };
 
-// The embedded cmap of a CIDFontType2 font; a program that cannot be read gives none.
-const embeddedCmapOf = (font: FontModel): EmbeddedCmap | undefined => {
-  if (font.descendant?.subtype !== 'CIDFontType2') return undefined;
+// The embedded cmap of a CIDFontType2 font, and whether it embeds a TrueType program without a usable one; a program that cannot be read has none.
+const embeddedCmapOf = (font: FontModel): Pick<TextFont, 'cmap' | 'cmapMissing'> => {
+  if (font.descendant?.subtype !== 'CIDFontType2') return { cmap: undefined, cmapMissing: false };
   try {
     const reading = font.embeddedCmap();
-    return reading?.kind === 'cmap' ? reading.cmap : undefined;
+    if (reading === undefined) return { cmap: undefined, cmapMissing: false };
+    return reading.kind === 'cmap' ? { cmap: reading.cmap, cmapMissing: false } : { cmap: undefined, cmapMissing: true };
   } catch (error: unknown) {
     if (!unreadable(error)) throw error;
-    return undefined;
+    return { cmap: undefined, cmapMissing: true };
   }
 };
 
@@ -318,7 +321,10 @@ class TextCollector {
   }
 
   fonts(): TextFont[] {
-    return [...this.fontModels.values()].map(font => ({ key: font.key, cmap: embeddedCmapOf(font) }));
+    return [...this.fontModels.values()].map(font => {
+      const { cmap, cmapMissing } = embeddedCmapOf(font);
+      return { key: font.key, cmap, cmapMissing };
+    });
   }
 
   /** The glyphs, each marked covered when an opaque rectangle fill after it covers its box. */

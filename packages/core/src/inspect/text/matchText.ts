@@ -60,6 +60,11 @@ export type TextDifference =
   | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
   /** A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn. */
   | { readonly kind: 'glyph-disagrees'; readonly text: string; readonly expectedGid: number; readonly drawnGid: number; readonly glyphs: readonly number[] }
+  /**
+   * Glyphs of a Type 0 font with a CIDFontType2 descendant whose embedded TrueType program has no usable Unicode cmap, so that the program gives no evidence that the glyph drawn is the one the text names.
+   * Chromium's hwid substitution changes the glyph without an ActualText span, and a subset whose only glyphs are such alternates keeps a cmap table without subtables.
+   */
+  | { readonly kind: 'glyph-unchecked'; readonly font: string; readonly glyphs: readonly number[] }
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
   | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number };
 
@@ -176,6 +181,8 @@ interface Settings {
   readonly equivalents: ReadonlyMap<string, string>;
   readonly selectors: 'require-glyph-evidence' | 'ignore';
   readonly cmaps: ReadonlyMap<string, EmbeddedCmap>;
+  /** The keys of fonts whose embedded program has no usable cmap. */
+  readonly uncheckable: ReadonlySet<string>;
 }
 
 class FoundText {
@@ -184,6 +191,8 @@ class FoundText {
   readonly notes: TextDifference[] = [];
   /** The glyphs whose font's embedded cmap maps their text to the glyph drawn. */
   readonly confirmed = new Set<number>();
+  /** By font, the glyphs whose font's embedded program has no usable cmap to check them against. */
+  readonly unchecked = new Map<string, number[]>();
   private readonly settings: Settings;
   private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: number[] }>();
 
@@ -221,6 +230,10 @@ class FoundText {
   }
 
   private check(glyph: PageGlyph, text: string): void {
+    if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
+      this.unchecked.set(glyph.font, [...(this.unchecked.get(glyph.font) ?? []), glyph.index]);
+      return;
+    }
     const cmap = this.settings.cmaps.get(glyph.font);
     if (cmap === undefined || glyph.gid === undefined) return;
     const evidence = cmapEvidence(cmap, glyph.gid, text);
@@ -441,6 +454,7 @@ const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   equivalents: new Map(options.equivalents),
   selectors: options.variationSelectors ?? 'require-glyph-evidence',
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
+  uncheckable: new Set(page.fonts.filter(font => font.cmapMissing).map(font => font.key)),
 });
 
 const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): void => {
@@ -479,7 +493,8 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     const have = found.clusters[b];
     return have !== undefined && have.failure === undefined && have.text === wanted[a]?.text;
   });
-  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes];
+  const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
+  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked];
   return {
     status: statusOf(differences),
     intended,

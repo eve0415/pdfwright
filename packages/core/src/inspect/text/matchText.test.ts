@@ -91,6 +91,16 @@ const spanOf = ([text, ...codes]: readonly [string, ...number[]]): string => spa
 const spanned = (...parts: readonly (number | readonly [string, ...number[]])[]): string =>
   `BT /T 10 Tf 100 700 Td ${parts.map(part => (typeof part === 'number' ? show(part) : spanOf(part))).join(' ')} ET`;
 
+/** The program with its cmap table renamed in the table directory, so that it has none. */
+const withoutCmap = (program: Uint8Array): Uint8Array => {
+  const copy = Uint8Array.from(program);
+  const tables = (copy[4] ?? 0) * 256 + (copy[5] ?? 0);
+  for (let record = 12; record < 12 + 16 * tables; record += 16) {
+    if (String.fromCodePoint(...copy.subarray(record, record + 4)) === 'cmap') copy[record + 3] = 0x71;
+  }
+  return copy;
+};
+
 /** Shows the codes at 10 points from (x, y). */
 const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${String(x)} ${String(y)} Td ${codes} ET`;
 
@@ -396,6 +406,17 @@ describe('text matching', () => {
         'unverified',
         'Ａ',
         [{ kind: 'glyph-disagrees', text: 'Ａ', expectedGid: 1, drawnGid: 2, glyphs: [0] }],
+        'glyph-text-only',
+      ]);
+    });
+
+    it('leaves glyphs of a program without a Unicode cmap unverified, as Chromium subsets only an hwid alternate', () => {
+      // Chromium's subset for a page whose only Ａ is the hwid alternate keeps a cmap table with no subtables, so nothing confirms the drawn glyph.
+      const result = match({ texts: [null, 'Ａ'], program: withoutCmap(plain), content: `BT /T 10 Tf 100 700 Td ${show(2)} ET` }, 'Ａ');
+      expect([...summary(result), result.evidence]).toStrictEqual([
+        'unverified',
+        'Ａ',
+        [{ kind: 'glyph-unchecked', font: '105.0', glyphs: [0] }],
         'glyph-text-only',
       ]);
     });
