@@ -521,10 +521,12 @@ describe('patterns', () => {
 });
 
 describe('glyph procedures of Type 3 fonts', () => {
+  const TYPE3_FONT =
+    '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R/b 112 0 R>>/Encoding<</Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[1000 1000]>>';
   const TYPE3: readonly TestObject[] = [
     {
       number: 110,
-      body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R/b 112 0 R>>/Encoding<</Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[1000 1000]>>',
+      body: TYPE3_FONT,
     },
     { number: 111, body: streamBody('', '1000 0 d0 1 0 0 rg 0 0 500 500 re f') },
     { number: 112, body: streamBody('', '1000 0 0 0 750 750 d1 /CS1 cs 0 0 750 750 re f BT /F1 10 Tf (A) Tj ET') },
@@ -562,6 +564,25 @@ describe('glyph procedures of Type 3 fonts', () => {
     ]);
     // The font model's key names a direct font by the nearest indirect object holding its resource dictionary, here the Type 3 font 110.
     expect(paints.slice(1).map(paint => paint.state.font?.key)).toStrictEqual(['direct:110.0:4639', 'direct:110.0:4639']);
+  });
+
+  it('reports a pattern chosen in a d1 glyph procedure, whose colour operators are ignored', () => {
+    const { selects, paints } = run({ content: 'BT /T3 10 Tf (b) Tj ET', resources: '/Font<</T3 110 0 R>>/Pattern<</Shaded 120 0 R>>' }, [
+      { number: 110, body: TYPE3_FONT.replace('/b 112 0 R', '/b 113 0 R') },
+      { number: 113, body: streamBody('', '1000 0 0 0 750 750 d1 /Pattern cs /Shaded scn 0 0 750 750 re f') },
+      { number: 120, body: '<</PatternType 2/Shading<</ShadingType 2/ColorSpace/DeviceCMYK/Coords[0 0 1 0]/Function 121 0 R>>>>' },
+      { number: 121, body: '<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[1 1 1 1]/N 1>>' },
+    ]);
+    const ignored = selects.filter(select => select.context.colour === 'd1-glyph');
+    expect([
+      ignored.map(select => spaceName(select.use)),
+      ignored.map(select => select.use.pattern?.reference?.objectNumber),
+      paintSpaces(paints),
+    ]).toStrictEqual([
+      ['Pattern', 'Pattern'],
+      [undefined, 120],
+      ['text:DeviceGray', 'fill:DeviceGray'],
+    ]);
   });
 
   it('draws no glyph procedures for text that paints nothing', () => {

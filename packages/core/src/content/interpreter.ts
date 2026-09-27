@@ -178,7 +178,7 @@ export interface PaintEvent {
   readonly sequence: number;
 }
 
-/** A colour space selected as the current fill or stroke space: CS, cs, or one of the operators that also set a device space (8.6.8, Table 74). Where the context's `colour` is not `used` the selection is ignored and the state keeps its colour. */
+/** A colour space selected as the current fill or stroke space: CS, cs, or one of the operators that also set a device space (8.6.8, Table 74). Where the context's `colour` is not `used` the selection is ignored and the state keeps its colour, and a pattern that SCN or scn chooses there is reported as a selection of its own. */
 export interface ColorSelectEvent {
   readonly target: 'fill' | 'stroke';
   readonly use: ColorSpaceUse;
@@ -387,6 +387,12 @@ interface Scope {
   readonly pageText: boolean;
 }
 
+/** The fill and stroke spaces selected where colour operators are ignored. */
+interface IgnoredSelections {
+  readonly fill?: ColorSpaceUse;
+  readonly stroke?: ColorSpaceUse;
+}
+
 /** A content stream to interpret inside the current one. */
 interface Nested {
   readonly value: PdfDirectObject | undefined;
@@ -435,6 +441,8 @@ class Interpreter {
   private markedContentIds = 0;
   // The marked-content sequences of the streams drawing the current one, which its EMC cannot close.
   private markedFloor = 0;
+  // Selections made where colour operators are ignored, in the stream being interpreted.
+  private ignored: IgnoredSelections = {};
   private complete = true;
   private operations = 0;
   private sequence = 0;
@@ -683,7 +691,9 @@ class Interpreter {
       compatibility: this.compatibility,
       markedContent: this.markedContent,
       markedFloor: this.markedFloor,
+      ignored: this.ignored,
     };
+    this.ignored = {};
     this.state = scope.initial;
     this.stack = [];
     this.path = undefined;
@@ -710,6 +720,7 @@ class Interpreter {
         compatibility: this.compatibility,
         markedContent: this.markedContent,
         markedFloor: this.markedFloor,
+        ignored: this.ignored,
       } = saved);
       if (key !== undefined) this.active.delete(key);
       this.depth--;
@@ -979,6 +990,7 @@ class Interpreter {
 
   private select(target: 'fill' | 'stroke', use: ColorSpaceUse, { scope }: Step): void {
     if (scope.context.colour === 'used') this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    else this.ignored = target === 'fill' ? { ...this.ignored, fill: use } : { ...this.ignored, stroke: use };
     this.handlers.select?.({ target, use, context: scope.context, sequence: this.sequence++ });
   }
 
@@ -994,7 +1006,6 @@ class Interpreter {
   // 8.6.8, Table 74: SC and sc take numbers; SCN and scn also take a final pattern name in a Pattern space.
   private setColor(target: 'fill' | 'stroke', values: readonly PdfDirectObject[], step: Step): void {
     const { where } = step;
-    if (step.scope.context.colour !== 'used') return;
     const last = values.at(-1);
     const named = last?.kind === 'name';
     const numbers = (named ? values.slice(0, -1) : values).map(value => numberOf(value));
@@ -1003,14 +1014,18 @@ class Interpreter {
       this.warn('bad-operands', where, true);
       return;
     }
-    const current = target === 'fill' ? this.state.fill : this.state.stroke;
+    const used = step.scope.context.colour === 'used';
+    // Where colour operators are ignored, a pattern chosen after an ignored selection is still reported, as that selection was.
+    const current = used ? this.state[target] : this.ignored[target];
+    if (current === undefined) return;
     let { pattern } = current;
     if (named) {
       const value = this.resource(step, PATTERN, last.bytes);
       pattern = { name: last.bytes, reference: value?.kind === 'reference' ? value : undefined, value: value === undefined ? undefined : this.deref(value) };
     }
     const use: ColorSpaceUse = { ...current, components, pattern };
-    this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    if (used) this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    else if (named) this.select(target, use, step);
   }
 
   private color(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
