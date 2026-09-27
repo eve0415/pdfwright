@@ -478,6 +478,11 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
  * Compares the text a page shows with the text it is meant to show, such as a customer's name on a proof, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
  * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
  * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
+ * Known limits, where `match` can be returned for text that does not print:
+ * - Text under a soft mask counts as visible, so a mask that hides it entirely, such as a fully transparent mask image, is not detected.
+ * - Boxes are advance boxes, not ink: a rectangle or clip that hides the glyph's ink but not the part of the box the font's ascent or descent adds leaves the glyph selected, and so does an even-odd clip whose hole holds the ink.
+ * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
+ * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
  */
 export const matchText = (page: PageText, intended: string, options: MatchTextOptions = {}): TextMatch => {
   const settings = settingsOf(page, options);
