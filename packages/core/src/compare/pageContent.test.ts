@@ -38,9 +38,18 @@ const filtered = (filter: string): ReturnType<typeof document> =>
   ]);
 
 describe('page content comparison', () => {
+  it('compares content bytes across stream boundaries without inserting whitespace', () => {
+    const split = document('[4 0 R 5 0 R]', [
+      { number: 4, body: streamBody('', '1') },
+      { number: 5, body: streamBody('', '0 0 m') },
+    ]);
+    const changed = document('4 0 R', [{ number: 4, body: streamBody('', '1 0 0 m') }]);
+    expect(content(compareDocuments(split, changed))).toMatchObject([{ kind: 'page-content', page: 0 }]);
+  });
+
   it('treats content split, compressed or spelled differently as equal', () => {
     const split = document('[4 0 R 5 0 R]', [
-      { number: 4, body: streamBody('', '0 0 m 10 10 l') },
+      { number: 4, body: streamBody('', '0 0 m 10 10 l ') },
       { number: 5, body: streamBody('', 'S .5 g') },
     ]);
     const deflated = latin1Text(deflateZlib(latin1Bytes('0 0 m\n10 10 l\nS\n0.5 g')));

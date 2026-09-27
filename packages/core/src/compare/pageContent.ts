@@ -50,7 +50,7 @@ export const decodeForComparison = (document: DocumentInternals, stream: PdfObje
   }
 };
 
-// Streams in a Contents array behave "as if all of the streams in the array were concatenated, in order" (Table 30); the division falls between tokens, so joining them with a line end changes nothing.
+// ISO 32000-1:2008, 7.7.3.3, Table 30: streams in a Contents array are concatenated in order to form one stream.
 // The joined content is held under the document's maxDecodedBytes, and a stream the array names more than once is decoded once.
 const joinedContent = (document: DocumentInternals, references: readonly PdfDirectObject[]): Decoded => {
   const parts: Uint8Array[] = [];
@@ -65,11 +65,11 @@ const joinedContent = (document: DocumentInternals, references: readonly PdfDire
       ({ bytes } = decoded);
       if (key !== undefined) decodedStreams.set(key, bytes);
     }
-    total += bytes.length + 1;
+    total += bytes.length;
     if (total > document.maxDecodedBytes) {
       throw new ResourceLimitError(`the content of a page decodes to more than maxDecodedBytes (${String(document.maxDecodedBytes)} bytes)`);
     }
-    parts.push(bytes, Uint8Array.of(0x0a));
+    parts.push(bytes);
   }
   const joined = new Uint8Array(total);
   let offset = 0;
