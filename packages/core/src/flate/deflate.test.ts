@@ -17,7 +17,7 @@ const largeData = (): Uint8Array => {
   return data;
 };
 
-const corpus = (includeLarge: boolean): [string, Uint8Array][] => {
+const randomData = (): Uint8Array => {
   const random = new Uint8Array(1024 * 1024);
   let state = 0x12345678;
   for (let index = 0; index < random.length; index++) {
@@ -25,12 +25,16 @@ const corpus = (includeLarge: boolean): [string, Uint8Array][] => {
     if (state < 0) state += 4294967296;
     random[index] = Math.floor(state / 16777216);
   }
+  return random;
+};
+
+const corpus = (includeLarge: boolean): [string, Uint8Array][] => {
   const text = new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
   const items: [string, Uint8Array][] = [
     ['empty', new Uint8Array()],
     ['one-byte', new Uint8Array([123])],
     ['text', text],
-    ['random', random],
+    ['random', randomData()],
   ];
   if (includeLarge) items.push(['compressible', largeData()]);
   return items;
@@ -91,6 +95,7 @@ describe('deterministic deflate encoding', () => {
     const cases = [
       ['text', text],
       ['digits', digits],
+      ['random', randomData()],
     ] as const;
     for (const [name, data] of cases) {
       const ratio = deflateZlib(data).length / deflatePako(data, { level: 6 }).length;
