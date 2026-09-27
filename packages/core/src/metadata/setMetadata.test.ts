@@ -521,11 +521,18 @@ describe('setting document metadata', () => {
     const change = setMetadata(kept, INPUT, { revisions: 'keep' });
     const update = kept.save({ mode: 'incremental' });
     expect([change.saveMode, change.supersededPackets, update.mode, readMetadata(loadDocument(update.chunks)).packets.scanned.superseded]).toStrictEqual([
-      'any',
+      'incremental-required',
       1,
       'incremental',
       1,
     ]);
+  });
+
+  it('prevents a full save after keeping signed revisions unless invalidation is explicit', () => {
+    const document = signed();
+    setMetadata(document, INPUT, { revisions: 'keep' });
+    expect(() => document.save({ mode: 'full' })).toThrow(expect.objectContaining({ reason: 'signed-document' }));
+    expect(document.save({ mode: 'full', invalidateSignatures: true }).mode).toBe('full');
   });
 
   it('refuses an incremental save after a default edit', () => {

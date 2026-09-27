@@ -46,4 +46,9 @@ describe('signature protection', () => {
       protection('/AcroForm<</SigFlags null>>'),
     ]).toStrictEqual(['unreadable-flags', 'unreadable-flags', 'unreadable-flags', undefined, undefined]);
   });
+
+  it('finds a populated signature field without SigFlags', () => {
+    const field = { number: 3, body: '<</FT/Sig/V<</Type/Sig/ByteRange[0 10 20 10]/Contents<00>>>>>' };
+    expect(protection('/AcroForm<</Fields[3 0 R]>>', [field])).toBe('signatures-exist');
+  });
 });

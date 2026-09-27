@@ -55,6 +55,8 @@ export interface LoadOptions {
 export interface SaveOptions {
   /** 'auto' (the default) appends an update to an intact file and rewrites any other or any whose edits require it; 'incremental' and 'full' choose one. */
   mode?: 'auto' | 'incremental' | 'full';
+  /** Explicitly allow a full rewrite after an edit that kept signed revisions, invalidating their signatures. */
+  invalidateSignatures?: boolean;
   /** 'derive' (the default) keeps the source identifier and derives a new second string; a pair is written as given. */
   fileIdentifier?: 'derive' | [Uint8Array, Uint8Array];
   /** Fraction digits for new reals; default 5. */
@@ -239,6 +241,9 @@ class LoadedPdf implements LoadedDocument {
       );
     }
     if (mode === 'auto') mode = this.read.status === 'intact' && rewriteReason === undefined ? 'incremental' : 'full';
+    if (mode === 'full' && this.objects.needsIncrementalSave && options.invalidateSignatures !== true) {
+      throw new InvalidArgumentError('a full rewrite would invalidate signatures; set invalidateSignatures to true to allow it', 'signed-document');
+    }
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);

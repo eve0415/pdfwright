@@ -48,7 +48,7 @@ export interface MetadataChange {
   readonly documentId: string;
   /** The xmpMM:InstanceID a save of the document as it is now writes; an edit made before saving, or a catalog Version the save raises, changes what the save writes. */
   readonly instanceId: string;
-  readonly saveMode: 'full-required' | 'any';
+  readonly saveMode: 'full-required' | 'incremental-required' | 'any';
   /** With revisions 'keep', how many packets an incremental update leaves in earlier revisions or in deleted objects; undefined when a full rewrite removes them. */
   readonly supersededPackets: number | undefined;
   /** What the edit did that a caller may need to know beyond the values: a direct Info dictionary made indirect, a packet re-encoded as UTF-8, values it left as they were stored. */
@@ -286,6 +286,7 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   const placement = placeObjects(staged, state, plan);
   const deletedOrphans = deleteOrphans(staged);
   if (!keep) objects.requireFullRewrite('metadata-history');
+  else if (signatureProtection(internals) !== undefined) objects.requireIncrementalSave();
   const excluded = new Set([placement.packet.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
   // The digest covers every other object the save writes, the Info dictionary included, and the packet as written with a placeholder of the InstanceID's fixed width, so that edits setting different values get different InstanceIDs.
@@ -316,13 +317,16 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   if (current.written.transcoded) findings.push({ code: 'xmp-transcoded', detail: 'the packet was re-encoded as UTF-8' });
   internals.objects.adopt(objects);
   previousInstanceIds.set(internals.objects, previous);
+  let saveMode: MetadataChange['saveMode'] = 'any';
+  if (internals.objects.fullRewriteReason !== undefined) saveMode = 'full-required';
+  else if (internals.objects.needsIncrementalSave) saveMode = 'incremental-required';
   return {
     reconciled: resolved.reconciled,
     removedLegacy: current.written.removedLegacy,
     deletedOrphans,
     documentId,
     instanceId: current.instanceId,
-    saveMode: internals.objects.fullRewriteReason === undefined ? 'any' : 'full-required',
+    saveMode,
     supersededPackets,
     findings,
   };

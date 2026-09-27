@@ -45,6 +45,7 @@ export class EditedObjects implements ObjectResolver {
   private objectStreams: ReadonlySet<number> | undefined = undefined;
   private readonly trailerEdits = new Map<string, TrailerChange>();
   private rewriteReason: FullRewriteReason | undefined = undefined;
+  private incrementalRequired = false;
   private hook: SaveHook | undefined = undefined;
 
   constructor(store: ObjectStore) {
@@ -139,6 +140,14 @@ export class EditedObjects implements ObjectResolver {
     return this.rewriteReason;
   }
 
+  requireIncrementalSave(): void {
+    this.incrementalRequired = true;
+  }
+
+  get needsIncrementalSave(): boolean {
+    return this.incrementalRequired;
+  }
+
   /** Sets the hook every later save runs, replacing any earlier one. */
   setSaveHook(hook: SaveHook | undefined): void {
     this.hook = hook;
@@ -174,6 +183,7 @@ export class EditedObjects implements ObjectResolver {
     this.trailerEdits.clear();
     for (const [name, change] of other.trailerEdits) this.trailerEdits.set(name, change);
     this.rewriteReason = other.rewriteReason;
+    this.incrementalRequired = other.incrementalRequired;
     this.hook = other.hook;
   }
 
