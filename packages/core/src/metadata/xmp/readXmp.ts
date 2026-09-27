@@ -55,8 +55,10 @@ export interface ReadProperty extends XmpProperty {
 export interface ReadPacket extends XmpPacket {
   readonly text: string;
   readonly properties: readonly ReadProperty[];
-  /** Offset of the rdf:RDF end tag in the text. */
+  /** Offset of the rdf:RDF end tag in the text, or of the "/>" that closes it when it is an empty-element tag. */
   readonly rdfEnd: number;
+  /** The qualified name of rdf:RDF as written when it is an empty-element tag, else undefined. */
+  readonly rdfEmptyTag: string | undefined;
   /** The xml:lang in effect inside rdf:RDF, which a new rdf:Description would inherit. */
   readonly rdfLanguage: string | undefined;
 }
@@ -72,6 +74,9 @@ interface Attribute extends XmlAttribute {
 }
 
 interface XmlElement {
+  /** The qualified name as written. */
+  readonly name: string;
+  readonly selfClosing: boolean;
   readonly namespace: string | undefined;
   readonly localName: string;
   readonly attributes: readonly Attribute[];
@@ -135,6 +140,8 @@ const openElement = (token: Extract<XmlToken, { kind: 'start' }>, parent: OpenEl
   });
   const lang = attributes.find(attribute => attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang');
   const element: XmlElement = {
+    name: token.name,
+    selfClosing: token.selfClosing,
     namespace: resolve(prefix, scope, false),
     localName,
     attributes,
@@ -306,7 +313,8 @@ const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken
     properties,
     findings: findingsOf(encoding, subjects, properties),
     text,
-    rdfEnd: rdf.endTagStart,
+    rdfEnd: rdf.selfClosing ? rdf.span.end - 2 : rdf.endTagStart,
+    rdfEmptyTag: rdf.selfClosing ? rdf.name : undefined,
     rdfLanguage: rdf.language,
   };
 };

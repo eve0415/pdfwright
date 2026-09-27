@@ -107,7 +107,12 @@ export const splicePacket = (packet: ReadPacket, values: ManagedValues): Spliced
     declareRdf: true,
     resetLanguage: packet.rdfLanguage !== undefined && packet.rdfLanguage !== '',
   });
-  result += `${text.slice(from, packet.rdfEnd)}${description}\n${text.slice(packet.rdfEnd)}`;
+  // An rdf:RDF written as an empty-element tag becomes a start tag and an end tag around the new element (XML 1.0, 3.1).
+  const empty = packet.rdfEmptyTag;
+  result +=
+    empty === undefined
+      ? `${text.slice(from, packet.rdfEnd)}${description}\n${text.slice(packet.rdfEnd)}`
+      : `${text.slice(from, packet.rdfEnd)}>${description}\n</${empty}>${text.slice(packet.rdfEnd + 2)}`;
   const transcoded = packet.encoding !== 'utf8';
   // The byte-order mark of a UTF-16 or UTF-32 packet has no purpose in UTF-8, where XMP Part 1 7.1 does not recommend one.
   if (transcoded && result.startsWith('\u{FEFF}')) result = result.slice(1);

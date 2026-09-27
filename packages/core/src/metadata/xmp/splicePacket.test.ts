@@ -87,6 +87,12 @@ describe('splicing managed properties into an existing packet', () => {
     ]);
   });
 
+  it('writes an rdf:RDF element with no content as a start and an end tag around the new element', () => {
+    const result = splice(`<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="${RDF}" /></x:xmpmeta>`);
+    const description = managedDescription(VALUES, { about: '', declareRdf: true, resetLanguage: false });
+    expect(new TextDecoder().decode(result?.bytes)).toBe(`<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="${RDF}" >${description}\n</r:RDF></x:xmpmeta>`);
+  });
+
   it('re-encodes a packet in another encoding as UTF-8', () => {
     const source = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about=""/></rdf:RDF>`;
     const utf16 = Uint8Array.from([0xff, 0xfe, ...[...encode(source)].flatMap(byte => [byte, 0])]);
