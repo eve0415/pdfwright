@@ -28,6 +28,16 @@ export interface CurrentGraphicsState {
   overprintMode: 0 | 1;
 }
 
+export interface PaintOptions {
+  acknowledgeInvisibleOverprint?: boolean;
+}
+
+export interface ContentHooks {
+  registerGraphicsState?: (options: GraphicsStateOptions) => string;
+  registerSeparation?: (separation: Separation) => string;
+  colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
+}
+
 export interface PathBuilder {
   moveTo: (...coordinates: [ContentNumber, ContentNumber]) => PathBuilder;
   lineTo: (...coordinates: [ContentNumber, ContentNumber]) => PathBuilder;
@@ -41,9 +51,9 @@ export interface ContentBuilder {
   restore: () => void;
   transform: (...matrix: [ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber]) => void;
   path: (draw: (path: PathBuilder) => PathBuilder) => void;
-  fill: (rule: 'nonzero' | 'evenodd') => void;
-  stroke: () => void;
-  fillAndStroke: (rule: 'nonzero' | 'evenodd') => void;
+  fill: (rule: 'nonzero' | 'evenodd', options?: PaintOptions) => void;
+  stroke: (options?: PaintOptions) => void;
+  fillAndStroke: (rule: 'nonzero' | 'evenodd', options?: PaintOptions) => void;
   clip: (rule: 'nonzero' | 'evenodd') => void;
   lineWidth: (width: ContentNumber) => void;
   lineJoin: (join: 'miter' | 'round' | 'bevel') => void;
@@ -79,11 +89,7 @@ const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGra
   return normalized;
 };
 
-export const createContentBuilder = (
-  fractionDigits: number,
-  registerGraphicsState?: (options: GraphicsStateOptions) => string,
-  registerSeparation?: (separation: Separation) => string,
-): ContentBuilder => {
+export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentBuilder => {
   const commands: string[] = [];
   let depth = 0;
   let state: CurrentGraphicsState = {
@@ -107,7 +113,7 @@ export const createContentBuilder = (
     const key = colorantKey(separation.name);
     let name = localSeparations.get(key);
     if (name === undefined) {
-      name = registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
+      name = hooks.registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
       localSeparations.set(key, name);
     }
     return name;
@@ -124,6 +130,23 @@ export const createContentBuilder = (
       ? { DeviceCMYK: 'K', DeviceRGB: 'RG', DeviceGray: 'G' }[color.kind]
       : { DeviceCMYK: 'k', DeviceRGB: 'rg', DeviceGray: 'g' }[color.kind];
     emit(operator, [...color.components]);
+  };
+  const checkWhiteOverprint = (stroking: boolean, options?: PaintOptions): void => {
+    const color = stroking ? state.strokeColor : state.fillColor;
+    const overprint = stroking ? state.overprintStroke : state.overprintFill;
+    // ISO 32000-1:2008, 8.6.7 and Table 148: with OPM 1, zero DeviceCMYK components specified directly do not paint their process plates.
+    if (
+      color.kind === 'DeviceCMYK' &&
+      color.components.every(component => component === 0) &&
+      overprint &&
+      state.overprintMode === 1 &&
+      (hooks.colorSpace === undefined || hooks.colorSpace === 'DeviceCMYK') &&
+      options?.acknowledgeInvisibleOverprint !== true
+    ) {
+      throw new ValidationError(
+        'Writer policy: DeviceCMYK white with overprint mode 1 leaves underlying colorants unchanged and prints on no plate; pass acknowledgeInvisibleOverprint: true to acknowledge',
+      );
+    }
   };
   const pathBuilder: PathBuilder = {
     moveTo: (...coordinates): PathBuilder => {
@@ -168,13 +191,17 @@ export const createContentBuilder = (
     path: (draw): void => {
       draw(pathBuilder);
     },
-    fill: (rule): void => {
+    fill: (rule, options): void => {
+      checkWhiteOverprint(false, options);
       emit(rule === 'evenodd' ? 'f*' : 'f');
     },
-    stroke: (): void => {
+    stroke: (options): void => {
+      checkWhiteOverprint(true, options);
       emit('S');
     },
-    fillAndStroke: (rule): void => {
+    fillAndStroke: (rule, options): void => {
+      checkWhiteOverprint(false, options);
+      checkWhiteOverprint(true, options);
       emit(rule === 'evenodd' ? 'B*' : 'B');
     },
     clip: (rule): void => {
@@ -223,7 +250,7 @@ export const createContentBuilder = (
       ]);
       let name = localStates.get(key);
       if (name === undefined) {
-        name = registerGraphicsState?.(normalized) ?? `GS${localStates.size + 1}`;
+        name = hooks.registerGraphicsState?.(normalized) ?? `GS${localStates.size + 1}`;
         localStates.set(key, name);
       }
       commands.push(`/${name} gs\n`);

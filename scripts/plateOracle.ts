@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { text } from 'node:stream/consumers';
 
@@ -27,7 +27,8 @@ const decodePlateName = (fileName: string): Uint8Array => {
   return Uint8Array.from(bytes);
 };
 
-export const renderPlates = async (pdfFile: string, directory: string): Promise<PlateFile[]> => {
+export const renderPlates = async (pdfFile: string, directory: string, includeProcess = false): Promise<PlateFile[]> => {
+  await mkdir(directory, { recursive: true });
   const output = path.join(directory, 'o.tif');
   const child = spawn('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiffsep', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
   const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
@@ -35,7 +36,7 @@ export const renderPlates = async (pdfFile: string, directory: string): Promise<
   const files = await readdir(directory);
   const process = new Set(['o(Cyan).tif', 'o(Magenta).tif', 'o(Yellow).tif', 'o(Black).tif']);
   return files
-    .filter(file => file.startsWith('o(') && file.endsWith(').tif') && !process.has(file))
+    .filter(file => file.startsWith('o(') && file.endsWith(').tif') && (includeProcess || !process.has(file)))
     .map(file => ({ name: decodePlateName(file), file: path.join(directory, file) }));
 };
 
@@ -108,4 +109,24 @@ export const readPlate = async (files: readonly PlateFile[], name: Uint8Array): 
     height: tiff.height,
     inkAt: (x, y): number => 255 - (tiff.data[(y * tiff.width + x) * tiff.samplesPerPixel] ?? 255),
   };
+};
+
+export const renderRgbPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number]> => {
+  const child = spawn('mutool', ['draw', '-q', '-O', '2', '-c', 'rgb', '-F', 'pam', '-o', output, pdfFile]);
+  const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
+  if (closed[0] !== 0) throw new Error(`MuPDF exited ${String(closed[0])}: ${stderr}`);
+  const bytes = await readFile(output);
+  const header = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 200)));
+  const end = header.indexOf('ENDHDR\n');
+  const widthText = /^WIDTH (\d+)$/mu.exec(header)?.[1];
+  const depthText = /^DEPTH (\d+)$/mu.exec(header)?.[1];
+  if (end === -1 || widthText === undefined || depthText === undefined) throw new Error('invalid MuPDF PAM output');
+  const width = Number(widthText);
+  const depth = Number(depthText);
+  const offset = end + 7 + (y * width + x) * depth;
+  const red = bytes[offset];
+  const green = bytes[offset + 1];
+  const blue = bytes[offset + 2];
+  if (depth !== 3 || red === undefined || green === undefined || blue === undefined) throw new Error('invalid MuPDF RGB pixel');
+  return [red, green, blue];
 };

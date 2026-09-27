@@ -29,6 +29,7 @@ export interface PageOptions {
   bleedBox?: PdfRect;
   trimBox?: PdfRect;
   artBox?: PdfRect;
+  group?: { colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' };
 }
 
 export interface PdfDocument {
@@ -113,6 +114,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       if (page.bleedBox !== undefined) normalized.bleedBox = normalize(page.bleedBox);
       if (page.trimBox !== undefined) normalized.trimBox = normalize(page.trimBox);
       if (page.artBox !== undefined) normalized.artBox = normalize(page.artBox);
+      if (page.group !== undefined) normalized.group = { ...page.group };
       const cropBox = normalized.cropBox ?? normalized.mediaBox;
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
         validateBox(box, normalized.mediaBox, fractionDigits);
@@ -121,9 +123,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       pages.push(record);
       return {
         draw: (render): void => {
-          const content = createContentBuilder(
-            fractionDigits,
-            stateOptions => {
+          const content = createContentBuilder(fractionDigits, {
+            colorSpace: normalized.group?.colorSpace,
+            registerGraphicsState: stateOptions => {
               const key = JSON.stringify([
                 stateOptions.fillAlpha,
                 stateOptions.strokeAlpha,
@@ -139,7 +141,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
               record.graphicsStates.set(key, { name, options: stateOptions });
               return name;
             },
-            separation => {
+            registerSeparation: separation => {
               const key = colorantKey(separation.name);
               const existing = record.separations.get(key);
               if (existing !== undefined) return existing.name;
@@ -147,7 +149,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
               record.separations.set(key, { name, separation });
               return name;
             },
-          );
+          });
           render(content);
           record.contents.push(content.finish());
         },
@@ -180,6 +182,14 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           [pdfName('Parent').bytes, pdfReference(2, 0)],
           [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pointObject(length, fractionDigits)))],
         ]);
+        if (page.group !== undefined) {
+          // ISO 32000-1:2008, 11.4.7 recommends an explicit blending colour space for a page transparency group.
+          const group = new PdfDictionaryEntries([
+            [pdfName('S').bytes, pdfName('Transparency')],
+            [pdfName('CS').bytes, pdfName(page.group.colorSpace)],
+          ]);
+          entries.set(pdfName('Group').bytes, pdfDictionary(group));
+        }
         if (record.graphicsStates.size > 0 || record.separations.size > 0) {
           const resources = new PdfDictionaryEntries();
           if (record.separations.size > 0) {
