@@ -3,6 +3,7 @@ import type { ObjectResolver } from '../../document/loadedPage.ts';
 import type { PdfDictionaryEntries } from '../../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../../object/pdfObject.ts';
 
+import { unreadable } from '../../content/unreadable.ts';
 import { dictionaryOf, latin1, numberOf } from '../../font/fontValues.ts';
 import { md5 } from '../../hash/md5.ts';
 import { pdfName } from '../../object/pdfObject.ts';
@@ -78,8 +79,15 @@ class Reader {
     this.resolver = resolver;
   }
 
+  // An object that cannot be read is reported and read as absent, so that the rest of the space is still read.
   private deref(value: PdfObject | undefined): PdfObject | undefined {
-    return value?.kind === 'reference' ? this.resolver.deref(value) : value;
+    try {
+      return value?.kind === 'reference' ? this.resolver.deref(value) : value;
+    } catch (error: unknown) {
+      if (!unreadable(error)) throw error;
+      this.unreadable(`an object of a colour space cannot be read: ${error.message}`);
+      return undefined;
+    }
   }
 
   private unreadable(detail: string): void {
@@ -89,7 +97,13 @@ class Reader {
   alternate(space: PdfObject | undefined, tint: PdfObject | undefined): AlternateSummary {
     const resolved = this.deref(space);
     const family = resolved?.kind === 'array' ? this.deref(resolved.items[0]) : resolved;
-    const text = canonical(this.resolver, space, 0) + canonical(this.resolver, tint, 0);
+    let text = 'unreadable';
+    try {
+      text = canonical(this.resolver, space, 0) + canonical(this.resolver, tint, 0);
+    } catch (error: unknown) {
+      if (!unreadable(error)) throw error;
+      this.unreadable(`the alternate space or tint transform of a colorant cannot be read: ${error.message}`);
+    }
     return { family: family?.kind === 'name' ? latin1(family.bytes) : 'unknown', definition: hex(md5(latin1Bytes(text))) };
   }
 

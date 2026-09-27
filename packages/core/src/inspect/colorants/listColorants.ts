@@ -189,6 +189,17 @@ class PageScan {
     if (incomplete) this.complete = false;
   }
 
+  // An object that cannot be read is reported and read as absent; the handlers run inside content interpretation, which a thrown error would stop.
+  private read(value: PdfObject | undefined): PdfObject | undefined {
+    try {
+      return value?.kind === 'reference' ? this.document.objects.deref(value) : value;
+    } catch (error: unknown) {
+      if (!unreadable(error)) throw error;
+      this.warn({ code: 'content-unreadable', detail: `an object cannot be read: ${error.message}` }, true);
+      return undefined;
+    }
+  }
+
   private colorantsOf(space: PdfObject | undefined): readonly SpaceColorant[] {
     if (space === undefined) return [];
     const known = this.spaces.get(space);
@@ -277,9 +288,9 @@ class PageScan {
     this.placed(place, event.use.space, mark);
     // A shading pattern chosen where colours are ignored names its shading's space (8.7.4.1).
     const pattern = dictionaryOf(event.use.pattern?.value);
-    if (colour !== 'used' && numberOf(this.document.objects.deref(pattern?.get(PATTERN_TYPE))) === 2) {
-      const shading = dictionaryOf(this.document.objects.deref(pattern?.get(SHADING)));
-      this.placed(place, this.document.objects.deref(shading?.get(COLOR_SPACE)), mark);
+    if (colour !== 'used' && numberOf(this.read(pattern?.get(PATTERN_TYPE))) === 2) {
+      const shading = dictionaryOf(this.read(pattern?.get(SHADING)));
+      this.placed(place, this.read(shading?.get(COLOR_SPACE)), mark);
     }
   }
 
@@ -295,10 +306,10 @@ class PageScan {
 
   // 7.8.3: the colour spaces a resource dictionary names: ColorSpace resources, image XObjects' spaces, shadings' spaces and shading patterns' spaces.
   resources(resources: PdfDictionaryEntries): void {
-    const { objects } = this.document;
+    // Each entry is read apart, so that one that cannot be read hides no other.
     const values = (category: Uint8Array): PdfObject[] =>
-      [...(dictionaryOf(objects.deref(resources.get(category)))?.entries() ?? [])].flatMap(([, value]) => {
-        const object = objects.deref(value);
+      [...(dictionaryOf(this.read(resources.get(category)))?.entries() ?? [])].flatMap(([, value]) => {
+        const object = this.read(value);
         return object === undefined ? [] : [object];
       });
     const declare = (space: PdfObject | undefined): void => {
@@ -307,11 +318,11 @@ class PageScan {
       });
     };
     for (const space of values(COLOR_SPACE)) declare(space);
-    for (const xObject of values(XOBJECT)) if (xObject.kind === 'stream') declare(objects.deref(xObject.dictionary.get(COLOR_SPACE)));
-    for (const shading of values(SHADING)) declare(objects.deref(dictionaryOf(shading)?.get(COLOR_SPACE)));
+    for (const xObject of values(XOBJECT)) if (xObject.kind === 'stream') declare(this.read(xObject.dictionary.get(COLOR_SPACE)));
+    for (const shading of values(SHADING)) declare(this.read(dictionaryOf(shading)?.get(COLOR_SPACE)));
     for (const pattern of values(PATTERN)) {
-      const shading = dictionaryOf(objects.deref(dictionaryOf(pattern)?.get(SHADING)));
-      declare(objects.deref(shading?.get(COLOR_SPACE)));
+      const shading = dictionaryOf(this.read(dictionaryOf(pattern)?.get(SHADING)));
+      declare(this.read(shading?.get(COLOR_SPACE)));
     }
   }
 

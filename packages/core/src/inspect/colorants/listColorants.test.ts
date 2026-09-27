@@ -256,6 +256,31 @@ describe('colorant names and kinds', () => {
   });
 });
 
+describe('damaged colour spaces', () => {
+  const DAMAGED: TestObject = { number: 150, body: '<</A [ 1 2' };
+
+  it('keeps colorants whose tint transform, listed colorants or neighbouring resources cannot be read', () => {
+    const nchannel = `[/DeviceN[/Gold]/DeviceCMYK ${TINT}<</Subtype/NChannel/Colorants<</Gold ${separation('Gold')}/Extra 150 0 R>>>>]`;
+    expect([
+      colorants('/T cs 1 scn 0 0 1 1 re f', { spaces: '/T[/Separation/Tinted/DeviceCMYK 150 0 R]', objects: [DAMAGED] })[2],
+      colorants('/N cs 1 scn 0 0 1 1 re f', { spaces: `/N ${nchannel}`, objects: [DAMAGED] })[1],
+      colorants('', { spaces: '/Bad 150 0 R', objects: [DAMAGED] })[0],
+    ]).toStrictEqual(['Tinted spot p=fill s= d=', 'Gold spot p=fill s= d=', 'Gold spot p= s= d=resources']);
+  });
+
+  it('goes on interpreting after a pattern that cannot be read is chosen where colours are ignored', () => {
+    const glyph: TestObject[] = [
+      { number: 110, body: type3Font(`${SPACES}/Pattern<</P 151 0 R>>`) },
+      { number: 111, body: streamBody('', '1000 0 0 0 750 750 d1 /Pattern cs /P scn 0 0 750 750 re f') },
+      { number: 151, body: '<</PatternType 150 0 R/Shading<<>>>>' },
+      DAMAGED,
+    ];
+    expect(colorants('BT /T3 12 Tf /CS1 cs 1 scn (a) Tj ET', { resources: '/Font<</T3 110 0 R>>', objects: glyph })[0]).toBe(
+      'Gold spot p=fill,text,type3-glyph s= d=',
+    );
+  });
+});
+
 describe('pages', () => {
   it('reports the pages asked for, and says when a page could not be read completely', () => {
     const pages = pagesOf([
