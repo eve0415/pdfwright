@@ -72,3 +72,53 @@ export const pdfDateFromDate = (date: Date, offsetMinutes: number): PdfDate => {
     offset,
   });
 };
+
+export type PdfDatePrecision = 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second';
+
+export interface ParsedPdfDate {
+  /** The date with omitted fields at their defaults: month and day 01, the rest zero, and Z when no offset is given. */
+  readonly date: PdfDate;
+  /** The last clock field the string gives. */
+  readonly precision: PdfDatePrecision;
+  /** Whether the string gives its relationship to UT. */
+  readonly zone: 'explicit' | 'absent';
+}
+
+const PRECISIONS: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+
+// ISO 32000-1:2008, 7.9.4: "The prefix D: shall be present, the year field (YYYY) shall be present and all other fields may be present but only if all of their preceding fields are also present."
+// The offset is O, then HH, then an apostrophe and mm; an apostrophe after mm, which many writers add, is tolerated.
+const DATE_PATTERN = /^D:(\d{4})((?:\d{2}){0,5})(?:([Z+-])(?:(\d{2})(?:'(?:(\d{2})'?)?)?)?)?$/u;
+
+const clockInRange = (components: PdfDateComponents): boolean => {
+  const { year, month, day, hour, minute, second, offset } = components;
+  const offsetInRange = offset === 'Z' || (inRange(offset.hours, 0, 23) && inRange(offset.minutes, 0, 59));
+  return (
+    inRange(month, 1, 12) &&
+    inRange(day, 1, daysInMonth(year, month)) &&
+    inRange(hour, 0, 23) &&
+    inRange(minute, 0, 59) &&
+    inRange(second, 0, 59) &&
+    offsetInRange
+  );
+};
+
+/**
+ * Reads a date string of ISO 32000-1:2008, 7.9.4, in which every field after the year may be omitted; undefined for any other string, including one that names no actual calendar day.
+ * "If no UT information is specified, the relationship of the specified time to UT shall be considered to be GMT", so such a date reads with offset Z and zone 'absent'.
+ */
+export const parsePdfDate = (text: string): ParsedPdfDate | undefined => {
+  const match = DATE_PATTERN.exec(text);
+  if (match === null) return undefined;
+  const [, year = '', clock = '', sign, offsetHours = '00', offsetMinutes = '00'] = match;
+  const numbers = [year, ...(clock.match(/\d{2}/gu) ?? [])].map(Number);
+  const [, month = 1, day = 1, hour = 0, minute = 0, second = 0] = numbers;
+  const hours = Number(offsetHours);
+  const minutes = Number(offsetMinutes);
+  // 7.9.4: "LATIN CAPITAL LETTER Z signifies that local time is equal to UT", so any offset after Z is zero.
+  if (sign === 'Z' && hours + minutes > 0) return undefined;
+  const offset: PdfDateComponents['offset'] = sign === '+' || sign === '-' ? { sign, hours, minutes } : 'Z';
+  const components = { year: Number(year), month, day, hour, minute, second, offset };
+  if (!clockInRange(components)) return undefined;
+  return { date: pdfDate(components), precision: PRECISIONS[numbers.length - 1] ?? 'year', zone: sign === undefined ? 'absent' : 'explicit' };
+};

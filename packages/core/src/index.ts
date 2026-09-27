@@ -98,5 +98,5 @@ export type { DocumentPieceInfoInput, PieceData, PieceDataEntries, PieceInfoInpu
 export type { SavedPdf } from './write/savedPdf.ts';
 export { rect } from './document/rect.ts';
 export type { PdfRect } from './document/rect.ts';
-export { pdfDate, pdfDateFromDate, pdfDateString } from './date/pdfDate.ts';
-export type { PdfDate, PdfDateComponents } from './date/pdfDate.ts';
+export { parsePdfDate, pdfDate, pdfDateFromDate, pdfDateString } from './date/pdfDate.ts';
+export type { ParsedPdfDate, PdfDate, PdfDateComponents, PdfDatePrecision } from './date/pdfDate.ts';
