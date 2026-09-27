@@ -37,6 +37,14 @@ const content = (document: LoadedDocument, number: number): string => {
 };
 
 describe('appending page content', () => {
+  it('separates appended operators from a stream without trailing whitespace', () => {
+    const isolated = load(page('/Contents 4 0 R/Resources<<>>'));
+    isolated.page(0).appendContent(latin1Bytes('n'));
+    const plain = load(page('/Contents 4 0 R/Resources<<>>'));
+    plain.page(0).appendContent(latin1Bytes('n'), { isolate: false });
+    expect([content(isolated, 7).startsWith('\nQ'), content(plain, 5).startsWith('\n')]).toStrictEqual([true, true]);
+  });
+
   it('wraps existing content in q and Q and adds a stream after it', () => {
     const document = load(page('/Contents 4 0 R/Resources<<>>'));
     document.page(0).appendContent(latin1Bytes('1 0 0 rg 0 0 5 5 re f'));
@@ -44,7 +52,7 @@ describe('appending page content', () => {
     expect([content(document, 6), content(document, 4), content(document, 7), content(document, 5)]).toStrictEqual([
       'q\n',
       '0 0 m 10 10 l S',
-      'Q\n',
+      '\nQ\n',
       '1 0 0 rg 0 0 5 5 re f',
     ]);
   });

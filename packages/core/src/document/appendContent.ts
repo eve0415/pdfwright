@@ -171,10 +171,15 @@ const existingContents = (context: ContentContext, page: PageEntry): PdfDirectOb
 export const appendPageContent = (context: ContentContext, page: PageEntry, request: AppendRequest): void => {
   const data = typeof request.content === 'function' ? built(context, page, request.content) : request.content;
   const existing = existingContents(context, page);
-  const added = contentStream(context, data, true);
+  const appended = existing.length > 0 && !request.isolate ? new Uint8Array(data.length + 1) : data;
+  if (appended !== data) {
+    appended[0] = 0x0a;
+    appended.set(data, 1);
+  }
+  const added = contentStream(context, appended, true);
   const streams =
     request.isolate && existing.length > 0
-      ? [contentStream(context, Uint8Array.of(0x71, 0x0a), false), ...existing, contentStream(context, Uint8Array.of(0x51, 0x0a), false), added]
+      ? [contentStream(context, Uint8Array.of(0x71, 0x0a), false), ...existing, contentStream(context, Uint8Array.of(0x0a, 0x51, 0x0a), false), added]
       : [...existing, added];
   const entries = pageEntries(context, page);
   const [single] = streams;
