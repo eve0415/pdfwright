@@ -231,6 +231,29 @@ describe('setting document metadata', () => {
     ]);
   });
 
+  it('leaves a managed property in a form it does not read as it is, unless the input sets it', () => {
+    const opaque = '<dc:title rdf:parseType="Resource"><rdf:value>T</rdf:value></dc:title>';
+    const document = (): LoadedDocument =>
+      load(
+        '/Metadata 4 0 R',
+        [
+          { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(opaque)) },
+          { number: 5, body: '<</Title(Info title)>>' },
+        ],
+        `${ID}/Info 5 0 R`,
+      );
+    const kept = document();
+    const change = setMetadata(kept, { modificationDate: MODIFIED, producer: 'P' });
+    const bytes = latin1Text(kept.save().toBytes());
+    const replaced = setMetadata(document(), { modificationDate: MODIFIED, title: 'New' });
+    expect([bytes.includes(opaque), infoText(saved(kept), 'Title'), change.findings.map(finding => finding.code), replaced.reconciled]).toStrictEqual([
+      true,
+      'Info title',
+      ['opaque-property-kept'],
+      [{ key: 'Title', from: 'input', discarded: opaque }],
+    ]);
+  });
+
   it('reconciles values the input leaves out from the authoritative side and reports what it discarded', () => {
     const document = load(
       '/Metadata 4 0 R',

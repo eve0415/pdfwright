@@ -1,8 +1,9 @@
 import type { PdfDate } from '../date/pdfDate.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { MappedKey, MappedProperty, MetadataMapping } from './mapping.ts';
+import type { MetadataFinding } from './metadataFinding.ts';
 import type { MetadataState } from './readMetadata.ts';
-import type { XmpValue } from './xmp/readXmp.ts';
+import type { ReadProperty, XmpValue } from './xmp/readXmp.ts';
 import type { ManagedValues } from './xmp/writeXmp.ts';
 
 import { parsePdfDate, pdfDateObject } from '../date/pdfDate.ts';
@@ -55,6 +56,8 @@ export type ResolvedKey = Exclude<MappedKey, 'ModDate'>;
 export interface ResolvedInput {
   readonly plans: Readonly<Record<ResolvedKey, KeyPlan>>;
   readonly reconciled: readonly ReconciledValue[];
+  /** Values left as they were stored because the mapping cannot read them. */
+  readonly findings: readonly MetadataFinding[];
   /** The keys whose packet property is left as it is. */
   readonly kept: ReadonlySet<MappedKey>;
 }
@@ -85,18 +88,25 @@ const TRAPPED_WRITERS: Writers = { info: pdfName, xmp: value => (value === 'True
 
 class Resolver {
   readonly reconciled: ReconciledValue[] = [];
+  readonly findings: MetadataFinding[] = [];
   readonly kept = new Set<MappedKey>();
   private readonly mapping: MetadataMapping;
-  private readonly occurrences: ReadonlyMap<MappedKey, number>;
+  private readonly packetText: string;
+  private readonly occurrences: ReadonlyMap<MappedKey, readonly ReadProperty[]>;
 
   constructor(state: MetadataState) {
     this.mapping = state.mapping;
-    const properties = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet.properties : [];
-    const counts = new Map<MappedKey, number>();
+    const packet = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet : undefined;
+    const properties = packet?.properties ?? [];
+    this.packetText = packet?.text ?? '';
+    const found = new Map<MappedKey, readonly ReadProperty[]>();
     for (const row of MAPPED_ROWS) {
-      counts.set(row.key, properties.filter(property => property.namespace === row.namespace && property.localName === row.name).length);
+      found.set(
+        row.key,
+        properties.filter(property => property.namespace === row.namespace && property.localName === row.name),
+      );
     }
-    this.occurrences = counts;
+    this.occurrences = found;
   }
 
   private row(key: MappedKey): MappedProperty | undefined {
@@ -105,7 +115,7 @@ class Resolver {
 
   // A property that occurs once is left as it is; with more occurrences, which one a reader takes is unclear, so it is written again.
   private keepXmp(key: MappedKey, value: string, writers: Writers): XmpAction {
-    if (this.occurrences.get(key) !== 1) return writers.xmp(value);
+    if (this.occurrences.get(key)?.length !== 1) return writers.xmp(value);
     this.kept.add(key);
     return KEEP;
   }
@@ -117,6 +127,11 @@ class Resolver {
     { value, written }: { readonly value: XmpValue | undefined; readonly written: string | undefined },
   ): void {
     if (value?.kind === 'text' && from !== 'input' && value.text !== written) this.reconciled.push({ key, from, discarded: value.text });
+    // A value the mapping does not read is reported as the XML it was written as.
+    const [first] = this.occurrences.get(key) ?? [];
+    if ((value?.kind === 'opaque' || value?.kind === 'uri') && first !== undefined) {
+      this.reconciled.push({ key, from, discarded: this.packetText.slice(first.textSpan.start, first.textSpan.end) });
+    }
     if (value?.kind !== 'array') return;
     let carried = false;
     for (const item of value.items) {
@@ -141,9 +156,22 @@ class Resolver {
     return { info: KEEP, xmp: writers.xmp(info) };
   }
 
+  // A property in a form the mapping does not read, such as a qualified value (XMP Part 1 7.8), is left as it is, and Info as stored.
+  private unread(key: MappedKey): KeyPlan | undefined {
+    const row = this.row(key);
+    const found = this.occurrences.get(key) ?? [];
+    const [only] = found;
+    if (found.length !== 1 || (only?.value.kind !== 'opaque' && only?.value.kind !== 'uri')) return undefined;
+    this.kept.add(key);
+    this.findings.push({ code: 'opaque-property-kept', detail: `${row?.property ?? key} is in a form the mapping does not read and was left as it is` });
+    return { info: row?.info === undefined ? REMOVE : KEEP, xmp: KEEP };
+  }
+
   // An empty input is an unknown value, which ISO 32000-1:2008, 14.3.3 has omitted rather than written empty.
   text(key: ResolvedKey, input: string | null | undefined): KeyPlan {
     const row = this.row(key);
+    const unread = input === undefined ? this.unread(key) : undefined;
+    if (unread !== undefined) return unread;
     if (input !== undefined) {
       const value = input === null || input === '' ? undefined : input;
       this.discardItems(key, 'input', { value: row?.xmp, written: value });
@@ -156,6 +184,8 @@ class Resolver {
   trapped(input: MetadataInput['trapped']): KeyPlan {
     if (input === null) return BOTH_REMOVED;
     if (input !== undefined) return { info: { kind: 'set', value: pdfName(input) }, xmp: TRAPPED_WRITERS.xmp(input) };
+    const unread = this.unread('Trapped');
+    if (unread !== undefined) return unread;
     const row = this.row('Trapped');
     const xmp = trappedName(row?.xmp === undefined ? undefined : comparableText(row.xmp));
     return this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS);
@@ -170,6 +200,8 @@ class Resolver {
   }
 
   creationDate(input: PdfDate | null | undefined): KeyPlan {
+    const unread = input === undefined ? this.unread('CreationDate') : undefined;
+    if (unread !== undefined) return unread;
     let date = input ?? undefined;
     if (input === undefined) {
       const row = this.row('CreationDate');
@@ -197,7 +229,7 @@ export const resolveValues = (state: MetadataState, input: MetadataInput): Resol
     CreationDate: resolver.creationDate(input.creationDate),
     Trapped: resolver.trapped(input.trapped),
   };
-  return { plans, reconciled: resolver.reconciled, kept: resolver.kept };
+  return { plans, reconciled: resolver.reconciled, findings: resolver.findings, kept: resolver.kept };
 };
 
 export interface Identifiers {

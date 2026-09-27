@@ -307,7 +307,7 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   objects.setSaveHook((changes, context) => {
     changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes, context.fractionDigits).value });
   });
-  const findings: MetadataFinding[] = [];
+  const findings: MetadataFinding[] = [...resolved.findings];
   // ISO 32000-1:2008, Table 15, Info: "(Optional; shall be an indirect reference)".
   if (state.info !== undefined && state.info.reference === undefined) {
     findings.push({ code: 'info-not-indirect', detail: 'the direct document information dictionary was replaced by an indirect one' });
