@@ -132,6 +132,13 @@ describe('reading XMP packets', () => {
     ]);
   });
 
+  it('reads a packet followed by padding after its trailer', () => {
+    expect(wrapperAndCount(`${packet(`<rdf:Description rdf:about="" ${PDF} pdf:Producer="P"/>`)}\u{0}\u{0}\u{0}`)).toStrictEqual([
+      { begin: true, end: 'w' },
+      1,
+    ]);
+  });
+
   it('accepts a missing, empty, unprefixed or mixed about and reports the subject', () => {
     expect([
       subject(descriptions('')),

@@ -148,6 +148,13 @@ describe('the XML tokenizer', () => {
     expect(kinds('<a><!----><!-- - --></a>')).toStrictEqual(['start', 'comment', 'comment', 'end']);
   });
 
+  it('ignores what follows the packet trailer after the root element', () => {
+    expect(kinds('<a/><?xpacket end="w"?>\u{0}\u{0}junk</b>')).toStrictEqual(['start', 'pi']);
+    expect(kinds('<a><?xpacket end="w"?></a>\u{0}')).toStrictEqual(['invalid-character']);
+    expect(kinds('<a>\u{0}</a><?xpacket end="w"?>')).toStrictEqual(['invalid-character']);
+    expect(kinds('<a><!-- \u{0} --></a><?xpacket end="w"?>')).toStrictEqual(['invalid-character']);
+  });
+
   it('allows white space, comments and processing instructions around the root element, after a leading byte-order mark', () => {
     expect(kinds('\u{FEFF}<?xml version="1.0"?>\n<!-- c --><a/>  \n\n<?p?>')).toStrictEqual(['pi', 'comment', 'start', 'pi']);
     expect(kinds(' \u{FEFF}<a/>')).toStrictEqual(['not-well-formed']);

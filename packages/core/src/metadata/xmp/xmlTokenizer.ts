@@ -97,6 +97,7 @@ class Tokenizer {
   private position = 0;
   private rootClosed = false;
   private rootSeen = false;
+  private trailerSeen = false;
 
   constructor(text: string, limits: XmlLimits) {
     this.text = text;
@@ -214,6 +215,8 @@ class Tokenizer {
       const content = text.slice(this.position, end).replace(/^[ \t\r\n]+/u, '');
       this.position = end + 2;
       this.tokens.push({ kind: 'pi', target, content, span: { start, end: this.position } });
+      // XMP Part 1 7.3.2: a wrapped packet is "a header PI, the serialized XMP data model (the XMP packet) with optional white-space padding, and a trailer PI", so the trailer after the root element ends the packet.
+      this.trailerSeen = this.rootClosed && target === 'xpacket' && content.startsWith('end=');
     } else if (text.startsWith('</', start)) this.endTag();
     else if (text.startsWith('<!', start)) throw new RefusalError('not-well-formed', start);
     else this.startTag();
@@ -234,13 +237,21 @@ class Tokenizer {
     this.tokens.push({ kind: 'text', text: expandReferences(normalizeLineEnds(raw), start), span: { start, end: this.position } });
   }
 
+  // What follows the packet trailer, such as padding with NUL bytes, is not read; an invalid character before it is refused.
   run(): readonly XmlToken[] {
-    const invalid = INVALID_CHARACTER.exec(this.text);
-    if (invalid !== null) throw new RefusalError('invalid-character', invalid.index);
-    while (this.position < this.text.length) {
-      if (this.text[this.position] === '<') this.markup();
-      else this.characterData();
+    const invalid = INVALID_CHARACTER.exec(this.text)?.index ?? this.text.length;
+    while (!this.trailerSeen && this.position < invalid) {
+      try {
+        if (this.text[this.position] === '<') this.markup();
+        else this.characterData();
+      } catch (error: unknown) {
+        // Markup that runs into the invalid character is refused for that character.
+        const intoInvalid = error instanceof RefusalError && error.reason === 'not-well-formed' && error.offset >= invalid;
+        throw intoInvalid ? new RefusalError('invalid-character', invalid) : error;
+      }
+      if (this.position > invalid) throw new RefusalError('invalid-character', invalid);
     }
+    if (!this.trailerSeen && invalid < this.text.length) throw new RefusalError('invalid-character', invalid);
     if (this.open.length > 0 || !this.rootSeen) throw new RefusalError('not-well-formed', this.text.length);
     return this.tokens;
   }
@@ -249,7 +260,7 @@ class Tokenizer {
 /**
  * Tokenizes XML text without validating it and without a document type: a DOCTYPE declaration is refused, so no entity is ever declared, and only the five predefined entities and character references are expanded.
  * Element nesting and attributes per element are limited; the scan is a loop over the text, never recursion.
- * The text must hold one root element, with only white space, comments and processing instructions around it.
+ * The text must hold one root element, with only white space, comments and processing instructions around it; after the root element, an xpacket trailer processing instruction ends the text read.
  */
 export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_LIMITS): XmlTokens => {
   try {
