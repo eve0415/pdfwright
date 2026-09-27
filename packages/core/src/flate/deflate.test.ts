@@ -6,10 +6,12 @@ import { describe, expect, inject, it } from 'vitest';
 
 import { md5 } from '../hash/md5.ts';
 
-import { deflateRaw, deflateZlib } from './deflate.ts';
+import { ZlibDeflater, deflateRaw, deflateZlib } from './deflate.ts';
 import { inflateRaw, inflateZlib } from './inflate.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+
+const digest = (bytes: Uint8Array): string => hex(md5(bytes));
 
 const largeData = (): Uint8Array => {
   const data = new Uint8Array(10 * 1024 * 1024);
@@ -73,6 +75,27 @@ describe('deterministic deflate encoding', () => {
     expectBytes(inflateRaw(deflateRaw(data, { level: 0 })), data);
     expectBytes(inflateRaw(deflateRaw(data, { level: 6 })), data);
     expect(deflateZlib(new Uint8Array(), { level: 0 }).subarray(0, 2)).toStrictEqual(new Uint8Array([0x78, 0x01]));
+  });
+
+  it('compresses data given in pieces as it compresses the pieces joined', () => {
+    const data = largeData().subarray(0, 2 * 1024 * 1024 + 5);
+    const pieced: string[] = [];
+    const joined: string[] = [];
+    for (const level of [0, 6] as const) {
+      const whole = digest(deflateZlib(data, { level }));
+      for (const piece of [1000, 1024 * 1024, 3 * 1024 * 1024]) {
+        const deflater = new ZlibDeflater({ level });
+        for (let offset = 0; offset < data.length; offset += piece) deflater.write(data.subarray(offset, offset + piece));
+        const encoded = deflater.finish();
+        pieced.push(digest(encoded));
+        joined.push(whole);
+      }
+      const nothing = new ZlibDeflater({ level }).finish();
+      const empty = deflateZlib(new Uint8Array(), { level });
+      pieced.push(digest(nothing));
+      joined.push(digest(empty));
+    }
+    expect(pieced).toStrictEqual(joined);
   });
 
   it('matches recorded level-six digests on every runtime', () => {
