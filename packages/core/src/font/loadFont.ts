@@ -80,7 +80,7 @@ const subtypeOf = (name: string | undefined): FontSubtype =>
   name === 'Type0' || name === 'Type1' || name === 'MMType1' || name === 'TrueType' || name === 'Type3' ? name : 'other';
 
 /**
- * The key a font is cached and reported under (the design's font key rule): `objectNumber.generation` for an indirect font; for a font dictionary written directly in a resource dictionary, `direct:` followed by the caller's name for the resource dictionary's owner and the resource name in hexadecimal.
+ * The key a font is cached and reported under: `objectNumber.generation` for an indirect font; for a font dictionary written directly in a resource dictionary, `direct:` followed by the caller's name for the resource dictionary's owner and the resource name in hexadecimal.
  */
 export const fontKey = (value: PdfDirectObject, owner: string, name: Uint8Array): string =>
   value.kind === 'reference' ? referenceKey(value) : `direct:${owner}:${hex(name)}`;
@@ -167,7 +167,7 @@ const fontBBoxOf = (context: LoadContext, dictionary: PdfDictionaryEntries): Rec
   return complete && [x1, y1, x2, y2].some(value => value !== 0) ? normalised([x1, y1, x2, y2]) : undefined;
 };
 
-// The Chromium shape (the design's house rule for Type 3 notdef glyphs): a FontDescriptor, and every Differences name `g` followed by uppercase hexadecimal digits, the source font's glyph index.
+// The shape of the Type 3 fonts Chromium prints, whose glyph `g0` is taken to be the source font's .notdef glyph as a house rule, since the file does not say so: a FontDescriptor, and every Differences name `g` followed by uppercase hexadecimal digits, the source font's glyph index.
 const chromiumType3 = (differences: readonly string[], hasDescriptor: boolean): boolean =>
   hasDescriptor && differences.length > 0 && differences.every(name => /^g[0-9A-F]+$/u.test(name));
 
