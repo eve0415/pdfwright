@@ -233,6 +233,11 @@ describe('clipping', () => {
     ]);
   });
 
+  it('builds a path under the CTM in force when its first segment is added, whatever operators came before', () => {
+    const { covers, texts } = textRun('1 w 2 0 0 2 0 0 cm 0 0 100 100 re f 0.5 w 1 0 0 1 100 100 cm 0 0 50 50 re W n BT /F1 10 Tf (A) Tj ET');
+    expect([covers.map(cover => cover.rectangle), texts[0]?.state.clip.classifyPoint(250, 250)]).toStrictEqual([[[0, 0, 200, 200]], 'inside']);
+  });
+
   it('builds clips from curves and applies the even-odd rule of W*', () => {
     const { texts } = textRun(
       '0 50 m 0 77.6 22.4 100 50 100 c 77.6 100 100 77.6 100 50 c 100 22.4 77.6 0 50 0 c 22.4 0 0 22.4 0 50 c h W n BT /F1 10 Tf (A) Tj ET 0 0 m 100 0 l 100 100 l 0 100 l h 25 25 m 75 25 l 75 75 l 25 75 l h W* n BT /F1 10 Tf (A) Tj ET',

@@ -298,6 +298,8 @@ const INLINE_FAMILIES = new Map([
 const FILLING_MODES = new Set([0, 2, 4, 6]);
 const STROKING_MODES = new Set([1, 2, 5, 6]);
 
+const CONSTRUCTION = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
+
 const PATH_PAINTS = new Map<string, 'fill' | 'stroke' | 'fill-stroke'>([
   ['S', 'stroke'],
   ['s', 'stroke'],
@@ -1011,6 +1013,8 @@ class Interpreter {
 
   // 8.5.2, Table 59: path construction, with the points in user space transformed by the CTM as they are given.
   private construction(operator: string, values: readonly PdfDirectObject[]): boolean {
+    if (!CONSTRUCTION.has(operator)) return false;
+    // The path takes the CTM when its first segment is added; cm may not appear inside a path object (8.2; Annex L, Figure 9).
     this.path ??= new PathBuilder(this.state.ctm);
     const { path } = this;
     const at = (index: number): number => number(values, index);
