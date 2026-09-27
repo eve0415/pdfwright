@@ -1,7 +1,7 @@
 import type { Length } from '../length/length.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
-import type { ContentBuilder } from './contentBuilder.ts';
+import type { ContentBuilder, GraphicsStateOptions } from './contentBuilder.ts';
 import type { PdfRect } from './rect.ts';
 
 import { ValidationError } from '../error/validationError.ts';
@@ -40,7 +40,21 @@ export interface PdfPage {
 interface PageRecord {
   options: PageOptions;
   contents: Uint8Array[];
+  graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
 }
+
+const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEntries => {
+  // ISO 32000-1:2008, 8.4.5, Table 58 defines the ExtGState keys and says OP also sets op when op is absent.
+  const entries = new PdfDictionaryEntries();
+  if (options.strokeAlpha !== undefined) entries.set(pdfName('CA').bytes, pdfReal(options.strokeAlpha));
+  if (options.fillAlpha !== undefined) entries.set(pdfName('ca').bytes, pdfReal(options.fillAlpha));
+  if (options.blendMode !== undefined) entries.set(pdfName('BM').bytes, pdfName(options.blendMode));
+  if (options.overprintStroke !== undefined) entries.set(pdfName('OP').bytes, { kind: 'boolean', value: options.overprintStroke });
+  if (options.overprintFill !== undefined) entries.set(pdfName('op').bytes, { kind: 'boolean', value: options.overprintFill });
+  if (options.overprintMode !== undefined) entries.set(pdfName('OPM').bytes, pdfInteger(options.overprintMode));
+  if (options.softMask !== undefined) entries.set(pdfName('SMask').bytes, pdfName('None'));
+  return entries;
+};
 
 const pointObject = (length: Length, fractionDigits: number): ReturnType<typeof pdfReal> => pdfReal(Number(formatLength(length, fractionDigits)));
 
@@ -84,11 +98,26 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
         validateBox(box, normalized.mediaBox, fractionDigits);
       }
-      const record: PageRecord = { options: normalized, contents: [] };
+      const record: PageRecord = { options: normalized, contents: [], graphicsStates: new Map() };
       pages.push(record);
       return {
         draw: (render): void => {
-          const content = createContentBuilder(fractionDigits);
+          const content = createContentBuilder(fractionDigits, stateOptions => {
+            const key = JSON.stringify([
+              stateOptions.fillAlpha,
+              stateOptions.strokeAlpha,
+              stateOptions.blendMode,
+              stateOptions.overprintStroke,
+              stateOptions.overprintFill,
+              stateOptions.overprintMode,
+              stateOptions.softMask,
+            ]);
+            const existing = record.graphicsStates.get(key);
+            if (existing !== undefined) return existing.name;
+            const name = `GS${record.graphicsStates.size + 1}`;
+            record.graphicsStates.set(key, { name, options: stateOptions });
+            return name;
+          });
           render(content);
           record.contents.push(content.finish());
         },
@@ -121,6 +150,12 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           [pdfName('Parent').bytes, pdfReference(2, 0)],
           [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pointObject(length, fractionDigits)))],
         ]);
+        if (record.graphicsStates.size > 0) {
+          const gsEntries = new PdfDictionaryEntries();
+          for (const state of record.graphicsStates.values()) gsEntries.set(pdfName(state.name).bytes, pdfDictionary(graphicsStateDictionary(state.options)));
+          const resources = new PdfDictionaryEntries([[pdfName('ExtGState').bytes, pdfDictionary(gsEntries)]]);
+          entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
+        }
         for (const [key, box] of [
           ['CropBox', page.cropBox],
           ['BleedBox', page.bleedBox],
