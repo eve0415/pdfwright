@@ -2,6 +2,7 @@ import type { PdfDate } from '../date/pdfDate.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { DocumentInfo } from './documentInfo.ts';
+import type { ManagedValues } from './xmp/writeXmp.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { createMd5 } from '../hash/md5.ts';
@@ -9,7 +10,7 @@ import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { deriveInstanceId, resolveDocumentId } from './identifiers.ts';
-import { newPacket } from './xmp/writeXmp.ts';
+import { checkRepresentable, newPacket } from './xmp/writeXmp.ts';
 import { xmpDateString } from './xmp/xmpDate.ts';
 
 export interface CreatedMetadataOptions {
@@ -19,12 +20,42 @@ export interface CreatedMetadataOptions {
   documentId?: string;
 }
 
-/** Throws ValidationError metadata-date-required when a packet is asked for without the date it takes its dates from, since no metadata date is read from a clock. */
-export const requireMetadataDate = (info: DocumentInfo | undefined): PdfDate => {
+const requireMetadataDate = (info: DocumentInfo | undefined): PdfDate => {
   if (info?.modificationDate === undefined) {
     throw new ValidationError('an XMP packet needs info.modificationDate for xmp:ModifyDate and xmp:MetadataDate', 'metadata-date-required');
   }
   return info.modificationDate;
+};
+
+interface Identifiers {
+  readonly documentId: string;
+  readonly instanceId: string;
+}
+
+const managedValues = (info: DocumentInfo, modified: string, { documentId, instanceId }: Identifiers): ManagedValues => ({
+  title: info.title,
+  author: info.author,
+  subject: info.subject,
+  keywords: info.keywords,
+  creator: info.creator,
+  producer: info.producer,
+  trapped: info.trapped === 'Unknown' ? undefined : info.trapped,
+  createDate: info.creationDate === undefined ? undefined : xmpDateString(info.creationDate),
+  modifyDate: modified,
+  metadataDate: modified,
+  documentId,
+  instanceId,
+});
+
+// Any identifiers of the written form serve to check the values; the real ones are derived when the document is saved.
+const SAMPLE_ID = 'uuid:00000000-0000-0000-0000-000000000000';
+
+/**
+ * Checks, when a document is created, what its packet will need: throws ValidationError metadata-date-required without the date the packet takes its dates from, since no metadata date is read from a clock, and xmp-unrepresentable for a value XML 1.0 cannot carry.
+ */
+export const validateCreatedMetadata = (info: DocumentInfo | undefined, options: CreatedMetadataOptions): void => {
+  const modified = xmpDateString(requireMetadataDate(info));
+  checkRepresentable(managedValues(info ?? {}, modified, { documentId: options.documentId ?? SAMPLE_ID, instanceId: SAMPLE_ID }));
 };
 
 const ENCODER = new TextEncoder();
@@ -66,20 +97,8 @@ export const createdPacket = (input: CreatedPacketInput): CreatedPacket => {
   const digest = bodyDigest(input.objects, input.trailer, input.fractionDigits);
   const fileIdentifier = input.fileIdentifier ?? [digest, digest];
   const documentId = resolveDocumentId({ existing: undefined, fileIdentifier: fileIdentifier[0], supplied: input.options.documentId });
-  const data = newPacket({
-    title: info.title,
-    author: info.author,
-    subject: info.subject,
-    keywords: info.keywords,
-    creator: info.creator,
-    producer: info.producer,
-    trapped: info.trapped === 'Unknown' ? undefined : info.trapped,
-    createDate: info.creationDate === undefined ? undefined : xmpDateString(info.creationDate),
-    modifyDate: modified,
-    metadataDate: modified,
-    documentId,
-    instanceId: deriveInstanceId({ documentId, metadataDate: modified, previous: undefined, changes: digest }),
-  });
+  const instanceId = deriveInstanceId({ documentId, metadataDate: modified, previous: undefined, changes: digest });
+  const data = newPacket(managedValues(info, modified, { documentId, instanceId }));
   // ISO 32000-1:2008, Table 315: Type "shall be Metadata for a metadata stream", and Subtype "shall be XML"; the packet is left unfiltered, so that it stays visible to tools that do not parse PDF (14.3.2, NOTE 2).
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('Metadata')],

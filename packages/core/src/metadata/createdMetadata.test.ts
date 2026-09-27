@@ -42,6 +42,15 @@ describe('metadata in created documents', () => {
     );
   });
 
+  it('refuses values XMP cannot carry when the document is created', () => {
+    expect(() => createDocument({ info: { ...INFO, title: 'a\u{1}' }, metadata: { xmp: true } })).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'xmp-unrepresentable' }),
+    );
+    expect(() => createDocument({ info: INFO, metadata: { xmp: true, documentId: 'uuid:\u{FFFE}' } })).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'xmp-unrepresentable' }),
+    );
+  });
+
   it('writes a packet that agrees with Info, whose DocumentID is the first file identifier', () => {
     const data = bytes({ info: INFO, metadata: { xmp: true } });
     const metadata = readMetadata(loadDocument(data));

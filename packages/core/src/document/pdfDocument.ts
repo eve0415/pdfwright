@@ -15,7 +15,7 @@ import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { formatLength } from '../length/length.ts';
-import { createdPacket, requireMetadataDate } from '../metadata/createdMetadata.ts';
+import { createdPacket, validateCreatedMetadata } from '../metadata/createdMetadata.ts';
 import { documentInfoDictionary } from '../metadata/documentInfo.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -171,7 +171,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
 };
 
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
-  if (options.metadata !== undefined) requireMetadataDate(options.info);
+  if (options.metadata !== undefined) validateCreatedMetadata(options.info, options.metadata);
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined = undefined;
