@@ -36,6 +36,11 @@ const VERTICAL_FONT: TestObject = { number: 103, body: '<</Type/Font/Subtype/Typ
 const FONTS = [SIMPLE_FONT, HORIZONTAL_FONT, VERTICAL_FONT, CID_FONT];
 const FONT_RESOURCES = '/Font<</F1 101 0 R/H 102 0 R/V 103 0 R/U 105 0 R>>';
 
+const form = (number: number, dictionary: string, content: string): TestObject => ({
+  number,
+  body: streamBody(`/Type/XObject/Subtype/Form${dictionary}`, content),
+});
+
 const run = (page: TestPage, objects: readonly TestObject[] = [], options: InterpretOptions = {}): Run => {
   const paints: PaintEvent[] = [];
   const texts: TextShowEvent[] = [];
@@ -294,6 +299,27 @@ describe('transparency', () => {
     ]);
   });
 
+  it('resets transparency inside a transparency group and records how the group is composited', () => {
+    const { covers, paints } = run(
+      {
+        content: 'q /Half gs /Multiply gs /Group Do /Plain Do Q',
+        resources: `${STATES.slice(0, -2)}/Opaque<</ca 1/BM/Normal>>>>/XObject<</Group 120 0 R/Plain 121 0 R>>`,
+      },
+      [
+        GROUP,
+        form(120, '/BBox[0 0 100 100]/Group<</S/Transparency>>/Resources<</ExtGState<</Opaque<</ca 1>>>>>>', '0 0 100 100 re f /Opaque gs 0 0 100 100 re f'),
+        form(121, '/BBox[0 0 100 100]', '0 0 10 10 re f'),
+      ],
+    );
+    // ISO 32000-1:2008, 8.4.1, Table 52: the blend mode, soft mask and alpha constants are reset "at the beginning of execution of a transparency group XObject", and the group as a whole is composited with the values outside it.
+    expect(paints.map(paint => [paint.state.fillAlpha, paint.state.blendMode, paint.state.group])).toStrictEqual([
+      [1, 'Normal', { alpha: 0.5, blendMode: 'Multiply', softMasked: false }],
+      [1, 'Normal', { alpha: 0.5, blendMode: 'Multiply', softMasked: false }],
+      [0.5, 'Multiply', { alpha: 1, blendMode: 'Normal', softMasked: false }],
+    ]);
+    expect(covers).toStrictEqual([]);
+  });
+
   it('does not report fills that could let what is below show through or that are not rectangles', () => {
     const { covers } = run(
       {
@@ -352,11 +378,6 @@ describe('marked content', () => {
     const { texts, result } = textRun('/Span /Nope BDC BT /F1 10 Tf (A) Tj ET EMC');
     expect([texts[0]?.markedContent.length, result.warnings.map(warning => warning.code)]).toStrictEqual([1, ['resource-missing']]);
   });
-});
-
-const form = (number: number, dictionary: string, content: string): TestObject => ({
-  number,
-  body: streamBody(`/Type/XObject/Subtype/Form${dictionary}`, content),
 });
 
 const internalsWith = (bytes: Uint8Array, maxNesting: number): DocumentInternals => {

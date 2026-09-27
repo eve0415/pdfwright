@@ -45,6 +45,8 @@ const MASK_GROUP = pdfName('G').bytes;
 const MATRIX = pdfName('Matrix').bytes;
 const BBOX = pdfName('BBox').bytes;
 const PATTERN_TYPE = pdfName('PatternType').bytes;
+const GROUP = pdfName('Group').bytes;
+const TRANSPARENCY = pdfName('Transparency').bytes;
 const PAINT_TYPE = pdfName('PaintType').bytes;
 const ANNOTS = pdfName('Annots').bytes;
 const APPEARANCE = pdfName('AP').bytes;
@@ -137,6 +139,15 @@ export interface GraphicsState {
   /** The current blend mode, a name from 11.3.5, Tables 136 and 137; Compatible reads as Normal. */
   readonly blendMode: string;
   readonly softMask: SoftMask | undefined;
+  /** How the transparency groups enclosing the content are composited: the product of their alpha constants, the first blend mode other than Normal, and whether any of them is soft-masked. Content is seen at `fillAlpha` × `group.alpha`. */
+  readonly group: GroupCompositing;
+}
+
+/** The compositing of enclosing transparency group XObjects (ISO 32000-1:2008, 11.6.6), which Table 52 says reset the blend mode, soft mask and alpha constants inside them. */
+export interface GroupCompositing {
+  readonly alpha: number;
+  readonly blendMode: string;
+  readonly softMasked: boolean;
 }
 
 /** A marked-content sequence open where an event happened (ISO 32000-1:2008, 14.6). */
@@ -256,6 +267,7 @@ const INITIAL_STATE: GraphicsState = {
   strokeAlpha: 1,
   blendMode: 'Normal',
   softMask: undefined,
+  group: { alpha: 1, blendMode: 'Normal', softMasked: false },
 };
 
 // 11.3.5, Tables 136 and 137: the standard blend modes.
@@ -322,6 +334,20 @@ const opaqueSpace = ({ space }: ColorSpaceUse): boolean => {
   const familyName = latin1(family.bytes);
   return familyName !== 'Pattern' && !(familyName === 'Separation' && colorant?.kind === 'name' && latin1(colorant.bytes) === 'None');
 };
+
+// Table 52: blend mode, soft mask and alpha constants reset "at the beginning of execution of a transparency group XObject"; the group is composited with the blend mode and soft mask in force where it is drawn, and 11.6.4.4 says "The nonstroking alpha constant shall also be applied when painting a transparency group’s results onto its backdrop".
+const enterGroup = (state: GraphicsState): GraphicsState => ({
+  ...state,
+  group: {
+    alpha: state.group.alpha * state.fillAlpha,
+    blendMode: state.group.blendMode === 'Normal' ? state.blendMode : state.group.blendMode,
+    softMasked: state.group.softMasked || state.softMask !== undefined,
+  },
+  fillAlpha: 1,
+  strokeAlpha: 1,
+  blendMode: 'Normal',
+  softMask: undefined,
+});
 
 const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)}.${String(reference.generation)}`;
 
@@ -579,6 +605,13 @@ class Interpreter {
     }
   }
 
+  // 11.6.6: a group XObject is a form whose Group dictionary has the subtype Transparency (Table 147, S).
+  private isTransparencyGroup(stream: PdfStream): boolean {
+    const group = dictionaryOf(this.deref(stream.dictionary.get(GROUP)));
+    const subtype = this.deref(group?.get(MASK_SUBTYPE));
+    return subtype?.kind === 'name' && latin1(subtype.bytes) === latin1(TRANSPARENCY);
+  }
+
   private matrixOf(value: PdfDirectObject | undefined): Matrix | undefined {
     const numbers = this.numbers(value);
     const [a, b, c, d, e, f, ...rest] = numbers ?? [];
@@ -698,7 +731,7 @@ class Interpreter {
     const ctm = multiply(this.matrixOf(stream.dictionary.get(MATRIX)) ?? IDENTITY, base.ctm);
     const box = this.rectangleOf(stream.dictionary.get(BBOX));
     const clip = box === undefined ? base.clip : base.clip.intersect(rectanglePath(box, ctm), 'nonzero');
-    const state: GraphicsState = { ...base, ctm, clip };
+    const state: GraphicsState = this.isTransparencyGroup(stream) ? enterGroup({ ...base, ctm, clip }) : { ...base, ctm, clip };
     const reference = value?.kind === 'reference' ? value : undefined;
     const parent: Scope = { ...parentScope, context: { sources: drawing.parent, colour: drawing.colour } };
     const scope = this.childScope(parent, { stream, reference, source, colour: drawing.colour, state });
@@ -1080,8 +1113,9 @@ class Interpreter {
 
   // Only fills that mark the page count: not those in a pattern cell, a glyph procedure or a soft mask's group.
   private cover(scope: Scope): void {
-    const { fillAlpha, blendMode, softMask, fill, clip } = this.state;
+    const { fillAlpha, blendMode, softMask, fill, clip, group } = this.state;
     if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !opaqueSpace(fill)) return;
+    if (group.alpha !== 1 || group.blendMode !== 'Normal' || group.softMasked) return;
     if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) return;
     const rectangle = this.path?.axisAlignedRectangle();
     if (rectangle === undefined) return;
