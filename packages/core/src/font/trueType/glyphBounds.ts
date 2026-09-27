@@ -38,7 +38,9 @@ export const readTrueTypeGlyphBounds = (program: Uint8Array): GlyphBoundsReading
     if (loca === undefined || glyf === undefined) return { kind: 'absent' };
     if (head === undefined || maxp === undefined) return { kind: 'unreadable', reason: 'the program has glyf outlines but no head or maxp table' };
     const unitsPerEm = sfntReader(head).u16(18);
-    const long = sfntReader(head).u16(50) === 1;
+    const locaFormat = sfntReader(head).u16(50);
+    if (locaFormat !== 0 && locaFormat !== 1) return { kind: 'unreadable', reason: 'the indexToLocFormat is neither short nor long' };
+    const long = locaFormat === 1;
     const count = sfntReader(maxp).u16(4);
     if (unitsPerEm < MIN_UNITS_PER_EM || unitsPerEm > MAX_UNITS_PER_EM) {
       return { kind: 'unreadable', reason: `unitsPerEm ${String(unitsPerEm)} is out of range` };
@@ -50,6 +52,7 @@ export const readTrueTypeGlyphBounds = (program: Uint8Array): GlyphBoundsReading
       if (!Number.isInteger(glyph) || glyph < 0 || glyph >= count) return undefined;
       try {
         const [start, end] = [offset(glyph), offset(glyph + 1)];
+        if (start > glyf.length || end > glyf.length) return undefined;
         if (end === start) return 'empty';
         if (end < start || end > glyf.length || start + 10 > end) return undefined;
         const [xMin, yMin, xMax, yMax] = [2, 4, 6, 8].map(field => signed(outlines.u16(start + field)) / unitsPerEm);

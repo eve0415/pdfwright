@@ -63,6 +63,16 @@ describe('glyph bounds of TrueType programs', () => {
     expect(boundsOf(font, [0])).toStrictEqual([[-0.1, -0.2, 0.3, 0.4]]);
   });
 
+  it('does not classify equal loca offsets beyond glyf as an empty glyph', () => {
+    const font = program([
+      ['head', head(1000, 1)],
+      ['maxp', maxp(1)],
+      ['loca', u32(0xffffffff, 0xffffffff)],
+      ['glyf', []],
+    ]);
+    expect(boundsOf(font, [0])).toStrictEqual([undefined]);
+  });
+
   it('gives no box for entries the tables do not hold, reversed boxes and boxes larger than 16 ems', () => {
     const glyf = [...glyph(0, 0, 100, 100), ...glyph(100, 100, 0, 0), ...glyph(0, 0, 17_000, 100)];
     const font = program([
