@@ -4,8 +4,9 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
-import { adler32 } from './adler32.ts';
+import { adler32, updateAdler32 } from './adler32.ts';
 import { BitReader } from './bitReader.ts';
+import { ChunkedInflateOutput } from './chunkedInflateOutput.ts';
 import { Huffman } from './huffman.ts';
 import { CODE_LENGTH_ORDER, DISTANCE_BASE, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
 
@@ -176,4 +177,67 @@ export const inflateZlib = (data: Uint8Array, options?: InflateOptions): Inflate
     if (data.length > trailerOffset + 4) warnings.push({ code: 'trailing-data', offset: trailerOffset + 4 });
   }
   return { data: decoded.data, warnings };
+};
+
+const decodeCompressedChunks = function* (reader: BitReader, output: ChunkedInflateOutput, trees: readonly [Huffman, Huffman]): Generator<Uint8Array> {
+  // RFC 1951, 3.2.5 maps symbols 257-285 to lengths and distance symbols 0-29 to backward distances.
+  for (;;) {
+    const symbol = trees[0].read(reader);
+    if (symbol < 256) output.push(symbol);
+    else if (symbol === 256) return;
+    else {
+      const index = symbol - 257;
+      const base = LENGTH_BASE[index];
+      if (base === undefined) throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
+      const length = base + reader.readBits(LENGTH_EXTRA[index] ?? 0);
+      if (trees[1].empty) throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
+      const distanceCode = trees[1].read(reader);
+      const distanceBase = DISTANCE_BASE[distanceCode];
+      if (distanceBase === undefined) throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
+      output.copy(distanceBase + reader.readBits(DISTANCE_EXTRA[distanceCode] ?? 0), length, Math.ceil(reader.bitPosition / 8));
+    }
+    yield* output.drain();
+  }
+};
+
+/** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk. */
+export const inflateChunks = function* (data: Uint8Array, options?: InflateOptions): Generator<Uint8Array> {
+  const limit = maxOutputBytes(options);
+  if (data.length < 2) throw new ParseError('truncated zlib header', data.length);
+  const cmf = data[0] ?? 0;
+  const flg = data[1] ?? 0;
+  if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) throw new ParseError('invalid zlib header', 0);
+  if ((flg & 0x20) !== 0) throw new UnsupportedFeatureError('preset dictionaries are unsupported');
+  const reader = new BitReader(data.subarray(2));
+  const output = new ChunkedInflateOutput(limit);
+  let checksum = 1;
+  let last = 0;
+  while (last === 0) {
+    last = reader.readBits(1);
+    const blockType = reader.readBits(2);
+    if (blockType === 0) {
+      reader.alignByte();
+      const length = reader.readBits(16);
+      const complement = reader.readBits(16);
+      if (((length ^ complement) & 0xffff) !== 0xffff) throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
+      for (let index = 0; index < length; index++) output.push(reader.readBits(8));
+      for (const chunk of output.drain()) {
+        checksum = updateAdler32(checksum, chunk);
+        yield chunk;
+      }
+    } else if (blockType === 1 || blockType === 2) {
+      const trees = blockType === 1 ? FIXED : dynamicTrees(reader);
+      for (const chunk of decodeCompressedChunks(reader, output, trees)) {
+        checksum = updateAdler32(checksum, chunk);
+        yield chunk;
+      }
+    } else throw new ParseError('reserved deflate block type', Math.ceil(reader.bitPosition / 8));
+  }
+  const rest = output.finish();
+  checksum = updateAdler32(checksum, rest);
+  if (rest.length > 0) yield rest;
+  const trailerOffset = Math.ceil(reader.bitPosition / 8) + 2;
+  if (data.length - trailerOffset < 4) throw new ParseError('truncated zlib trailer', trailerOffset);
+  const expected = new DataView(data.buffer, data.byteOffset + trailerOffset, 4).getUint32(0);
+  if (checksum !== expected) throw new ParseError('zlib checksum mismatch', trailerOffset);
 };

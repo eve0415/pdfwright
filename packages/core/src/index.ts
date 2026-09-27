@@ -18,7 +18,7 @@ export { md5 } from './hash/md5.ts';
 export { adler32 } from './flate/adler32.ts';
 export { createDeflateStream, deflateRaw, deflateZlib } from './flate/deflate.ts';
 export type { DeflateOptions, DeflateStream } from './flate/deflate.ts';
-export { inflateRaw, inflateZlib } from './flate/inflate.ts';
+export { inflateChunks, inflateRaw, inflateZlib } from './flate/inflate.ts';
 export type { FlateWarning, InflateOptions } from './flate/inflate.ts';
 export {
   PdfDictionaryEntries,

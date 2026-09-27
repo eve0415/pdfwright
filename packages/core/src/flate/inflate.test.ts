@@ -8,8 +8,9 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { BitWriter } from './bitWriter.ts';
+import { deflateZlib } from './deflate.ts';
 import { canonicalCodes } from './huffmanEncoder.ts';
-import { inflateRaw, inflateZlib } from './inflate.ts';
+import { inflateChunks, inflateRaw, inflateZlib } from './inflate.ts';
 
 const dataSet = (): Uint8Array[] => {
   const random = new Uint8Array(1024 * 1024);
@@ -145,5 +146,22 @@ describe('zlib inflation', () => {
     expect(() => inflateZlib(compressed.subarray(0, 5))).toThrow(ParseError);
     const dictionaryHeader = new Uint8Array([0x78, 0x20]);
     expect(() => inflateZlib(dictionaryHeader)).toThrow(UnsupportedFeatureError);
+  });
+});
+
+describe('chunked zlib inflate', () => {
+  it('yields bounded decoded chunks across long distance references', () => {
+    const input = Uint8Array.from({ length: 2_000_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
+    const chunks = [...inflateChunks(deflateZlib(input))];
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65536);
+    const restored = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      restored.set(chunk, offset);
+      offset += chunk.length;
+    }
+    expect(restored).toStrictEqual(input);
+    expect(() => [...inflateChunks(deflateZlib(input), { maxOutputBytes: 1000 })]).toThrow(ResourceLimitError);
   });
 });
