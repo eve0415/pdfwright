@@ -1,4 +1,4 @@
-import type { PdfDate } from '../date/pdfDate.ts';
+import type { ParsedPdfDate, PdfDate } from '../date/pdfDate.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { MappedKey, MappedProperty, MetadataMapping } from './mapping.ts';
 import type { MetadataFinding } from './metadataFinding.ts';
@@ -7,11 +7,11 @@ import type { ReadProperty, XmpValue } from './xmp/readXmp.ts';
 import type { ManagedValues } from './xmp/writeXmp.ts';
 
 import { parsePdfDate, pdfDateObject } from '../date/pdfDate.ts';
-import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfName, pdfString } from '../object/pdfObject.ts';
 
 import { pdfTextString } from './documentInfo.ts';
 import { MAPPED_ROWS, comparableText } from './mapping.ts';
-import { parseXmpDate, xmpDateString } from './xmp/xmpDate.ts';
+import { finerThan, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmp/xmpDate.ts';
 
 export interface MetadataInput {
   /** Info Title and dc:title; left out, the document's value is kept, taken from the authoritative side where Info and XMP disagree; null or an empty string removes it. */
@@ -86,6 +86,9 @@ const TEXT_WRITERS: Writers = { info: pdfTextString, xmp: value => ({ kind: 'wri
 // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
 const TRAPPED_WRITERS: Writers = { info: pdfName, xmp: value => (value === 'True' || value === 'False' ? { kind: 'write', value } : REMOVE) };
 
+const dateToInfo = (value: ParsedPdfDate): InfoAction => ({ kind: 'set', value: pdfString(new TextEncoder().encode(pdfDateText(value))) });
+const dateToXmp = (value: ParsedPdfDate): XmpAction => ({ kind: 'write', value: xmpDateText(value) });
+
 class Resolver {
   readonly reconciled: ReconciledValue[] = [];
   readonly findings: MetadataFinding[] = [];
@@ -114,8 +117,8 @@ class Resolver {
   }
 
   // A property that occurs once is left as it is; with more occurrences, which one a reader takes is unclear, so it is written again.
-  private keepXmp(key: MappedKey, value: string, writers: Writers): XmpAction {
-    if (this.occurrences.get(key)?.length !== 1) return writers.xmp(value);
+  private keepXmp(key: MappedKey, written: () => XmpAction): XmpAction {
+    if (this.occurrences.get(key)?.length !== 1) return written();
     this.kept.add(key);
     return KEEP;
   }
@@ -144,13 +147,13 @@ class Resolver {
   private resolve(key: MappedKey, sides: Sides<string>, writers: Writers): KeyPlan {
     const { info, xmp } = sides;
     const row = this.row(key);
-    if (info === undefined && xmp === undefined) return BOTH_REMOVED;
-    if (info === undefined) return xmp === undefined ? BOTH_REMOVED : { info: { kind: 'set', value: writers.info(xmp) }, xmp: this.keepXmp(key, xmp, writers) };
-    if (xmp === undefined) return { info: KEEP, xmp: writers.xmp(info) };
-    if (row?.agreement === 'agree') return { info: KEEP, xmp: this.keepXmp(key, xmp, writers) };
+    if (xmp === undefined) return info === undefined ? BOTH_REMOVED : { info: KEEP, xmp: writers.xmp(info) };
+    const fromXmp = (): KeyPlan => ({ info: { kind: 'set', value: writers.info(xmp) }, xmp: this.keepXmp(key, () => writers.xmp(xmp)) });
+    if (info === undefined) return fromXmp();
+    if (row?.agreement === 'agree') return { info: KEEP, xmp: this.keepXmp(key, () => writers.xmp(xmp)) };
     if (this.mapping.authority === 'xmp') {
       this.reconciled.push({ key, from: 'xmp', discarded: info });
-      return { info: { kind: 'set', value: writers.info(xmp) }, xmp: this.keepXmp(key, xmp, writers) };
+      return fromXmp();
     }
     this.discardItems(key, 'info', { value: row?.xmp, written: info });
     return { info: KEEP, xmp: writers.xmp(info) };
@@ -191,28 +194,38 @@ class Resolver {
     return this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS);
   }
 
-  private pickDate(sides: Sides<PdfDate>, shown: Sides<string>): PdfDate | undefined {
-    const { info, xmp } = sides;
-    if (info === undefined || xmp === undefined || this.row('CreationDate')?.agreement === 'agree') return info ?? xmp;
-    const from = this.mapping.authority === 'xmp' ? 'xmp' : 'info';
-    this.reconciled.push({ key: 'CreationDate', from, discarded: (from === 'xmp' ? shown.info : shown.xmp) ?? '' });
-    return from === 'xmp' ? xmp : info;
+  private dateSides(): Sides<ParsedPdfDate> & { readonly shown: Sides<string> } {
+    const row = this.row('CreationDate');
+    const infoText = row?.info;
+    const xmpText = row?.xmp === undefined ? undefined : comparableText(row.xmp);
+    return {
+      info: infoText === undefined ? undefined : parsePdfDate(infoText),
+      xmp: xmpText === undefined ? undefined : parseXmpDate(xmpText),
+      shown: { info: infoText, xmp: xmpText },
+    };
   }
 
+  // A date is written to each side to its own precision, from the side that gives more where both agree, so that a coarse date never replaces a finer one and no field or time zone is added (XMP Part 1 8.2.1.2); where they disagree, the authoritative side is kept, and where they cannot be compared, Info, whose time has a zone.
   creationDate(input: PdfDate | null | undefined): KeyPlan {
-    const unread = input === undefined ? this.unread('CreationDate') : undefined;
+    if (input === null) return BOTH_REMOVED;
+    if (input !== undefined) return { info: { kind: 'set', value: pdfDateObject(input) }, xmp: { kind: 'write', value: xmpDateString(input) } };
+    const unread = this.unread('CreationDate');
     if (unread !== undefined) return unread;
-    let date = input ?? undefined;
-    if (input === undefined) {
-      const row = this.row('CreationDate');
-      const infoDate = row?.info === undefined ? undefined : parsePdfDate(row.info)?.date;
-      const xmpText = row?.xmp === undefined ? undefined : comparableText(row.xmp);
-      const xmpDate = xmpText === undefined ? undefined : parseXmpDate(xmpText);
-      // An XMP time without a time zone designator names no instant (XMP Part 1 8.2.1.2), so it cannot become a PDF date.
-      const usable = xmpDate !== undefined && (xmpDate.zone === 'explicit' || ['year', 'month', 'day'].includes(xmpDate.precision)) ? xmpDate.date : undefined;
-      date = this.pickDate({ info: infoDate, xmp: usable }, { info: row?.info, xmp: xmpText });
+    const { info, xmp, shown } = this.dateSides();
+    const keepXmp = (value: ParsedPdfDate): XmpAction => this.keepXmp('CreationDate', () => dateToXmp(value));
+    if (info === undefined) return xmp === undefined ? BOTH_REMOVED : { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+    if (xmp === undefined) return { info: KEEP, xmp: dateToXmp(info) };
+    const agreement = this.row('CreationDate')?.agreement;
+    if (agreement === 'agree') {
+      if (finerThan(xmp, info) && pdfDateText(xmp) !== pdfDateText(info)) return { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+      return finerThan(info, xmp) ? { info: KEEP, xmp: dateToXmp(info) } : { info: KEEP, xmp: keepXmp(xmp) };
     }
-    return date === undefined ? BOTH_REMOVED : { info: { kind: 'set', value: pdfDateObject(date) }, xmp: { kind: 'write', value: xmpDateString(date) } };
+    if (agreement === 'differ' && this.mapping.authority === 'xmp') {
+      this.reconciled.push({ key: 'CreationDate', from: 'xmp', discarded: shown.info ?? '' });
+      return { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+    }
+    this.reconciled.push({ key: 'CreationDate', from: 'info', discarded: shown.xmp ?? '' });
+    return { info: KEEP, xmp: dateToXmp(info) };
   }
 }
 

@@ -1,8 +1,10 @@
+import type { ParsedPdfDate } from '../../date/pdfDate.ts';
+
 import { describe, expect, it } from 'vitest';
 
 import { parsePdfDate, pdfDate, pdfDateString } from '../../date/pdfDate.ts';
 
-import { compareDates, instant, parseXmpDate, xmpDateString } from './xmpDate.ts';
+import { compareDates, instant, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmpDate.ts';
 
 const described = (text: string): readonly unknown[] | undefined => {
   const parsed = parseXmpDate(text);
@@ -14,6 +16,9 @@ const agreement = (pdf: string, xmp: string): string => {
   const right = parseXmpDate(xmp);
   return left === undefined || right === undefined ? 'unparsed' : compareDates(left, right);
 };
+
+// A date written as a PDF date and as an XMP date.
+const both = (value: ParsedPdfDate | undefined): readonly string[] => (value === undefined ? [] : [pdfDateText(value), xmpDateText(value)]);
 
 describe('dates in XMP', () => {
   it('reads every form of XMP Part 1 8.2.1.2', () => {
@@ -54,6 +59,24 @@ describe('dates in XMP', () => {
       xmpDateString(pdfDate({ ...fields, offset: { sign: '+', hours: 9, minutes: 0 } })),
       xmpDateString(pdfDate({ ...fields, offset: { sign: '-', hours: 5, minutes: 30 } })),
     ]).toStrictEqual(['2024-02-29T12:34:56Z', '2024-02-29T12:34:56+09:00', '2024-02-29T12:34:56-05:30']);
+  });
+
+  it('writes a date to its own precision on either side', () => {
+    expect([
+      both(parsePdfDate('D:2024')),
+      both(parsePdfDate('D:202402')),
+      both(parsePdfDate("D:2024022912+09'00")),
+      both(parsePdfDate('D:20240229123456')),
+      both(parseXmpDate('2024-02-29T12:34-05:30')),
+      both(parseXmpDate('2024-02-29T12:34:56')),
+    ]).toStrictEqual([
+      ['D:2024', '2024'],
+      ['D:202402', '2024-02'],
+      ["D:20240229120000+09'00", '2024-02-29T12:00+09:00'],
+      ['D:20240229', '2024-02-29T12:34:56Z'],
+      ["D:20240229123400-05'30", '2024-02-29T12:34-05:30'],
+      ['D:20240229', '2024-02-29T12:34:56Z'],
+    ]);
   });
 
   it('compares the same instant at the coarser precision', () => {

@@ -37,6 +37,39 @@ export const xmpDateString = (date: PdfDate): string => {
 };
 
 const ORDER: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+
+const reaches = (value: ParsedPdfDate, precision: PdfDatePrecision): boolean => ORDER.indexOf(value.precision) >= ORDER.indexOf(precision);
+
+/** Whether `left` gives a later field than `right`. */
+export const finerThan = (left: ParsedPdfDate, right: ParsedPdfDate): boolean => ORDER.indexOf(left.precision) > ORDER.indexOf(right.precision);
+
+/**
+ * Writes a date as an XMP date to its own precision (XMP Part 1 8.2.1.2), adding nothing but the minutes of an hour, which XMP cannot give alone.
+ * A time's designator is its offset, and Z for a PDF date without one, which ISO 32000-1:2008, 7.9.4 has "considered to be GMT".
+ */
+export const xmpDateText = (value: ParsedPdfDate): string => {
+  const { date } = value;
+  const day = [pad(date.year, 4), ...(reaches(value, 'month') ? [pad(date.month, 2)] : []), ...(reaches(value, 'day') ? [pad(date.day, 2)] : [])].join('-');
+  if (!reaches(value, 'hour')) return day;
+  const { offset } = date;
+  const zone = offset === 'Z' ? 'Z' : `${offset.sign}${pad(offset.hours, 2)}:${pad(offset.minutes, 2)}`;
+  return `${day}T${pad(date.hour, 2)}:${pad(date.minute, 2)}${reaches(value, 'second') ? `:${pad(date.second, 2)}` : ''}${zone}`;
+};
+
+/**
+ * Writes a date as a PDF date to its own precision (ISO 32000-1:2008, 7.9.4).
+ * A time with a time zone gains the seconds that its offset needs, since 7.9.4 allows a field "only if all of their preceding fields are also present"; a time without one names no instant (XMP Part 1 8.2.1.2) and is written as its day, since a PDF date without an offset reads as GMT.
+ */
+export const pdfDateText = (value: ParsedPdfDate): string => {
+  const { date } = value;
+  const time = reaches(value, 'hour') && value.zone === 'explicit';
+  const last = time ? 'second' : ORDER[Math.min(ORDER.indexOf(value.precision), ORDER.indexOf('day'))];
+  const fields = [pad(date.year, 4), pad(date.month, 2), pad(date.day, 2), pad(date.hour, 2), pad(date.minute, 2), pad(date.second, 2)];
+  const clock = fields.slice(0, ORDER.indexOf(last ?? 'year') + 1).join('');
+  if (!time) return `D:${clock}`;
+  const { offset } = date;
+  return `D:${clock}${offset === 'Z' ? 'Z' : `${offset.sign}${pad(offset.hours, 2)}'${pad(offset.minutes, 2)}`}`;
+};
 const UNIT_MS: Readonly<Record<'hour' | 'minute' | 'second', number>> = { hour: 3_600_000, minute: 60_000, second: 1000 };
 
 const offsetMinutes = (offset: PdfDateComponents['offset']): number =>

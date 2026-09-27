@@ -2,6 +2,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { MetadataInput } from './resolveMetadata.ts';
+import type { XmpValue } from './xmp/readXmp.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -123,6 +124,24 @@ const withArrays = (info = '<<>>'): LoadedDocument =>
     ],
     `${ID}/Info 5 0 R`,
   );
+
+// The Info CreationDate and the xmp:CreateDate a save writes after an edit that leaves the creation date out.
+const creationDates = (info: string, xmp: string): readonly unknown[] => {
+  const document = load(
+    '/Metadata 4 0 R',
+    [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(xmp)) },
+      { number: 5, body: info },
+    ],
+    `${ID}/Info 5 0 R`,
+  );
+  setMetadata(document, { modificationDate: MODIFIED, producer: 'P' });
+  const reloaded = readMetadata(saved(document));
+  const row = reloaded.properties.find(property => property.key === 'CreationDate');
+  return [row?.info, row?.xmp, row?.agreement];
+};
+
+const xmpText = (value: string): XmpValue => ({ kind: 'text', text: value, language: undefined });
 
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
@@ -251,6 +270,24 @@ describe('setting document metadata', () => {
       'Info title',
       ['opaque-property-kept'],
       [{ key: 'Title', from: 'input', discarded: opaque }],
+    ]);
+  });
+
+  it('keeps the more precise of two agreeing dates on both sides, without adding precision or a time zone', () => {
+    expect([
+      creationDates('<</CreationDate(D:20200506)>>', '<xmp:CreateDate>2020-05-06T10:11:12+09:00</xmp:CreateDate>'),
+      creationDates("<</CreationDate(D:20200506101112+09'00')>>", '<xmp:CreateDate>2020-05</xmp:CreateDate>'),
+      creationDates('<</CreationDate(D:2020)>>', ''),
+      creationDates('<</CreationDate(D:20200506101112)>>', ''),
+      creationDates('<<>>', '<xmp:CreateDate>2020-05-06T10:11:12</xmp:CreateDate>'),
+      creationDates('<<>>', '<xmp:CreateDate>2020-05-06T10:11+09:00</xmp:CreateDate>'),
+    ]).toStrictEqual([
+      ["D:20200506101112+09'00", xmpText('2020-05-06T10:11:12+09:00'), 'agree'],
+      ["D:20200506101112+09'00'", xmpText('2020-05-06T10:11:12+09:00'), 'agree'],
+      ['D:2020', xmpText('2020'), 'agree'],
+      ['D:20200506101112', xmpText('2020-05-06T10:11:12Z'), 'agree'],
+      ['D:20200506', xmpText('2020-05-06T10:11:12'), 'agree'],
+      ["D:20200506101100+09'00", xmpText('2020-05-06T10:11+09:00'), 'agree'],
     ]);
   });
 
