@@ -8,6 +8,9 @@ const byteKey = (bytes: Uint8Array): string => {
   return key;
 };
 
+// Set only while parsedDictionaryEntries runs: parsed keys are kept as read, and they are already private interned arrays.
+let parsedKeys = false;
+
 export class PdfDictionaryEntries {
   private readonly values = new Map<string, { key: Uint8Array; value: PdfDirectObject }>();
 
@@ -22,6 +25,10 @@ export class PdfDictionaryEntries {
   }
 
   set(nameBytes: Uint8Array, value: PdfDirectObject): this {
+    if (parsedKeys) {
+      this.values.set(byteKey(nameBytes), { key: nameBytes, value });
+      return this;
+    }
     assertNameBytes(nameBytes);
     this.values.set(byteKey(nameBytes), { key: Uint8Array.from(nameBytes), value });
     return this;
@@ -47,3 +54,13 @@ export class PdfDictionaryEntries {
     return count;
   }
 }
+
+/** Builds entries from keys a parser read, without the validation and copying that keys from callers get; a later key replaces an earlier equal one. */
+export const parsedDictionaryEntries = (entries: readonly (readonly [Uint8Array, PdfDirectObject])[]): PdfDictionaryEntries => {
+  parsedKeys = true;
+  try {
+    return new PdfDictionaryEntries(entries);
+  } finally {
+    parsedKeys = false;
+  }
+};
