@@ -1,3 +1,4 @@
+import { ADOBE_GLYPH_LIST, ZAPF_DINGBATS_GLYPH_LIST } from './adobeGlyphList.ts';
 import { LATIN_PDF_DOC_CODES, pdfDocEncodingUnicode } from './simpleEncodings.ts';
 
 const UPPER_HEX = /^[0-9A-F]+$/u;
@@ -30,8 +31,31 @@ const latinText = (name: string): string | undefined => {
   return unicode === undefined ? undefined : String.fromCodePoint(unicode);
 };
 
-const componentText = (component: string): string =>
+const parseList = (list: string): Map<string, string> =>
+  new Map(
+    list.split('\n').map(line => {
+      const [name = '', values = ''] = line.split(';');
+      return [name, String.fromCodePoint(...values.split(' ').map(value => Number.parseInt(value, 16)))];
+    }),
+  );
+
+// Each list is parsed on its first lookup, so a document without simple fonts does not pay for it.
+const lazyList = (list: string): ((component: string) => string | undefined) => {
+  let parsed: Map<string, string> | null = null;
+  return component => {
+    parsed ??= parseList(list);
+    return parsed.get(component);
+  };
+};
+
+const aglText = lazyList(ADOBE_GLYPH_LIST);
+const dingbatsText = lazyList(ZAPF_DINGBATS_GLYPH_LIST);
+
+// Section 2: "If the font is Zapf Dingbats (PostScript FontName: ZapfDingbats), and the component is in the ITC Zapf Dingbats Glyph List, then map it to the corresponding character in that list. Otherwise, if the component is in AGL, then map it to the corresponding character in that list."
+const componentText = (component: string, zapfDingbats: boolean): string =>
+  (zapfDingbats ? dingbatsText(component) : undefined) ??
   latinText(component) ??
+  aglText(component) ??
   (component.startsWith('uni') ? uniText(component.slice(3)) : undefined) ??
   (component.startsWith('u') ? uText(component.slice(1)) : undefined) ??
   // "Otherwise, map the component to an empty string."
@@ -39,14 +63,16 @@ const componentText = (component: string): string =>
 
 /**
  * The text a glyph name stands for, or undefined when it maps to nothing, by the Adobe Glyph List Specification, section 2: "Drop all the characters from the glyph name starting with the first occurrence of a period", "Split the remaining string into a sequence of components, using underscore … as the delimiter", and map each component.
- * A component is mapped by the Latin character set of ISO 32000-1:2008, Annex D, then by the `uni` and `u` forms.
+ * A component is mapped by the ITC Zapf Dingbats Glyph List when `fontName` is ZapfDingbats, then by the Latin character set of ISO 32000-1:2008, Annex D, which agrees with the Adobe Glyph List on every name it has, then by the Adobe Glyph List, then by the `uni` and `u` forms.
+ * `fontName` is the font's PostScript name without a subset tag.
  */
-export const glyphNameText = (name: string): string | undefined => {
+export const glyphNameText = (name: string, fontName?: string): string | undefined => {
+  const zapfDingbats = fontName === 'ZapfDingbats';
   const period = name.indexOf('.');
   const base = period === -1 ? name : name.slice(0, period);
   const text = base
     .split('_')
-    .map(component => componentText(component))
+    .map(component => componentText(component, zapfDingbats))
     .join('');
   return text === '' ? undefined : text;
 };
