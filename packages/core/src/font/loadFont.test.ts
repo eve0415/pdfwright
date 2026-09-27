@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { pdfDictionary, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
 
@@ -51,6 +52,11 @@ const descriptorObject = (flags: number, extra = ''): TestObject => ({
 });
 
 describe('simple fonts', () => {
+  it('checks a glyph budget before expanding a shown string', () => {
+    const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>');
+    expect(() => font.glyphs(latin1Bytes('A'.repeat(100_000)), 0)).toThrow(ResourceLimitError);
+  });
+
   it('names codes by a predefined encoding and takes widths from Widths', () => {
     const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding/WinAnsiEncoding${HELVETICA_WIDTHS}/FontDescriptor 11 0 R>>`, [descriptorObject(32)]);
     const glyphs = glyphsOf(font, 'A \u0080');
@@ -151,6 +157,13 @@ const CID_FONT_TYPE2 =
   '/Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 900/W[65[500 600]100 200 700]';
 
 describe('composite fonts', () => {
+  it('checks the glyph budget before decoding a composite shown string', () => {
+    const font = fontOf('<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[12 0 R]>>', [
+      { number: 12, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000>>' },
+    ]);
+    expect(() => font.glyphs(Uint8Array.of(0, 65), 0)).toThrow(ResourceLimitError);
+  });
+
   it('splits Identity-H strings into 2-byte CIDs and reads widths from W in both forms and DW', () => {
     const font = fontOf(type0Font('/Identity-H', CID_FONT_TYPE2));
     const glyphs = glyphsOf(font, Uint8Array.of(0x00, 0x41, 0x00, 0x42, 0x00, 0x96, 0x00, 0x20, 0x00, 0x00));

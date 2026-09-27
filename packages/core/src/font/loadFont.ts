@@ -28,6 +28,7 @@ import type { GlyphBoundsReading } from './trueType/glyphBounds.ts';
 import type { ProcedureSummary } from './type3Procedures.ts';
 
 import { unreadable } from '../content/unreadable.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
@@ -292,13 +293,16 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
     collectionMap: undefined,
     type3,
     ...embeddedTablesOf(source, subtype === 'TrueType' ? descriptor.dictionary : undefined),
-    glyphs: (string): FontString => ({
-      kind: 'glyphs',
-      glyphs: [...string].map(code => {
-        glyphs[code] ??= glyphOf(code);
-        return glyphs[code];
-      }),
-    }),
+    glyphs: (string, maxGlyphs = Number.POSITIVE_INFINITY): FontString => {
+      if (string.length > maxGlyphs) throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
+      return {
+        kind: 'glyphs',
+        glyphs: [...string].map(code => {
+          glyphs[code] ??= glyphOf(code);
+          return glyphs[code];
+        }),
+      };
+    },
   };
 };
 
@@ -378,9 +382,15 @@ const compositeGlyph = (parts: CompositeParts, code: CMapCode, valid: boolean): 
   };
 };
 
-const splitComposite = (parts: CompositeParts, cache: Map<string, FontGlyph>, string: Uint8Array): FontGlyph[] => {
+const splitComposite = (
+  parts: CompositeParts,
+  cache: Map<string, FontGlyph>,
+  input: { readonly string: Uint8Array; readonly maxGlyphs: number },
+): FontGlyph[] => {
+  const { string, maxGlyphs } = input;
   const shown: FontGlyph[] = [];
   for (let offset = 0; offset < string.length;) {
+    if (shown.length >= maxGlyphs) throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
     const { code, valid } = parts.cmap.read(string, offset);
     const key = `${valid ? '' : '!'}${String(code.length)}:${String(code.value)}`;
     let glyph = cache.get(key);
@@ -466,11 +476,11 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
     collectionMap: mapName === undefined ? undefined : { name: mapName, available: ucs2 !== undefined },
     type3: undefined,
     ...embeddedTablesOf(source, descendant?.subtype === 'CIDFontType2' ? descriptorDictionary : undefined),
-    glyphs: (string): FontString => {
+    glyphs: (string, maxGlyphs = Number.POSITIVE_INFINITY): FontString => {
       if (result.kind === 'unavailable') return { kind: 'cmap-unavailable', cmap: result.name };
       if (result.kind === 'unreadable') return { kind: 'undecodable', reason: result.reason };
       if (parts === undefined) return { kind: 'undecodable', reason: 'the CMap cannot be read' };
-      return { kind: 'glyphs', glyphs: splitComposite(parts, cache, string) };
+      return { kind: 'glyphs', glyphs: splitComposite(parts, cache, { string, maxGlyphs }) };
     },
   };
 };

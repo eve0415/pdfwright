@@ -150,6 +150,6 @@ export interface FontModel {
   readonly embeddedCmap: () => CmapReading | undefined;
   /** The glyph bounding boxes of the same embedded TrueType program, read on the first call; undefined for a font that embeds no such program. */
   readonly embeddedGlyphBounds: () => GlyphBoundsReading | undefined;
-  /** Splits a shown string into its codes, one byte per code for simple fonts and by the CMap's codespace ranges for Type 0 fonts. */
-  readonly glyphs: (string: Uint8Array) => FontString;
+  /** Splits a shown string into its codes, checking maxGlyphs before each glyph is appended. */
+  readonly glyphs: (string: Uint8Array, maxGlyphs?: number) => FontString;
 }

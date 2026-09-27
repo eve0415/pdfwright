@@ -411,6 +411,7 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   const covers: CoverEvent[] = [];
   const result = interpretPage(parts, pageIndex, {
     fonts: new FontCache(parts, options.cmapProvider),
+    maxGlyphs,
     annotations: options.annotations ?? 'none',
     text: event => {
       collector.add(event);

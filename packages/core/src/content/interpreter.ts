@@ -262,6 +262,8 @@ export interface InterpretOptions extends InterpretHandlers {
    * The operation count does not see bytes that produce no operations, such as comments, so a large form drawn many times would otherwise cost unbounded time.
    */
   readonly maxContentBytes?: number;
+  /** Maximum glyphs text-show events may deliver for a page; default 1,000,000. */
+  readonly maxGlyphs?: number;
 }
 
 const ANNOTATION_MODES: readonly NonNullable<InterpretOptions['annotations']>[] = ['printable', 'none', 'all'];
@@ -456,6 +458,8 @@ class Interpreter {
   private readonly reportedFonts = new Set<string>();
   private readonly maxOperations: number;
   private readonly maxContentBytes: number;
+  private readonly maxGlyphs: number;
+  private shownGlyphs = 0;
   private contentBytes = 0;
   // The streams being interpreted, by reference, so that a stream that draws itself is not entered again.
   private readonly active = new Set<string>();
@@ -488,6 +492,7 @@ class Interpreter {
     this.fonts = fonts;
     this.maxOperations = options.maxOperations ?? MAX_OPERATIONS;
     this.maxContentBytes = options.maxContentBytes ?? MAX_CONTENT_BYTES;
+    this.maxGlyphs = options.maxGlyphs ?? 1_000_000;
   }
 
   setPage(page: Pick<Scope, 'resources' | 'owner'>): void {
@@ -997,6 +1002,14 @@ class Interpreter {
     for (const warning of font.warnings) this.warn(warning.code, `font ${font.key}: ${warning.detail}`, false);
   }
 
+  private glyphBudget(pageText: boolean): number {
+    return pageText ? this.maxGlyphs - this.shownGlyphs : 1_000_000;
+  }
+
+  private claimGlyphs(count: number, pageText: boolean): void {
+    if (pageText) this.shownGlyphs += count;
+  }
+
   private show(step: Step, value: PdfDirectObject | undefined, adjustment?: number): void {
     const { scope, where } = step;
     const string = value?.kind === 'string' ? value.bytes : new Uint8Array();
@@ -1008,9 +1021,11 @@ class Interpreter {
     }
     this.reportFont(font);
     const start = { textMatrix: this.textMatrix, positionKnown: this.positionKnown };
-    const split: FontString = this.font(font.key, () => font.glyphs(string)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
+    const remaining = this.glyphBudget(scope.pageText);
+    const split: FontString = this.font(font.key, () => font.glyphs(string, remaining)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
     const glyphs: ShownGlyph[] = [];
     if (split.kind === 'glyphs') {
+      this.claimGlyphs(split.glyphs.length, scope.pageText);
       for (const glyph of split.glyphs) {
         glyphs.push({ glyph, textMatrix: this.textMatrix, positionKnown: this.positionKnown });
         const displacement = glyphDisplacement(glyph, font.writingMode, this.state);
@@ -1362,6 +1377,9 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
   // A mode outside the type, as a caller without type checking can pass, is refused rather than drawn as 'all'.
   if (!ANNOTATION_MODES.includes(annotations)) {
     throw new InvalidArgumentError(`annotations ${JSON.stringify(annotations)} is not one of ${ANNOTATION_MODES.join(', ')}`);
+  }
+  if (options.maxGlyphs !== undefined && (!Number.isSafeInteger(options.maxGlyphs) || options.maxGlyphs < 0)) {
+    throw new InvalidArgumentError('maxGlyphs must be a non-negative safe integer');
   }
   const interpreter = new Interpreter(document, options, options.fonts ?? new FontCache(document, undefined));
   const { resources, owner } = pageResources(interpreter, page, { document, cache: options.inheritance ?? createInheritedCache() });
