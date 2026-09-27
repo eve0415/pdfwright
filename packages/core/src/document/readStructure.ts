@@ -45,6 +45,12 @@ export interface LoadSession {
   readonly names: Map<string, Uint8Array>;
 }
 
+/** A version such as 1.7 as a number such as 17, for comparison; 0 when the text is not a version. */
+export const versionNumber = (text: string): number => {
+  const match = /^(\d+)\.(\d+)$/u.exec(text);
+  return match === null ? 0 : Number(match[1]) * 10 + Number(match[2]);
+};
+
 /** Where the newest cross-reference section's trailer is, for copying it into an update; absent when reconstructed. */
 export interface SaveBase {
   readonly trailerStart: number;

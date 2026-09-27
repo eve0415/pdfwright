@@ -7,6 +7,8 @@ import type { SaveWarning } from './saveWarning.ts';
 import type { Entry } from './xrefWriter.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
+import { versionNumber } from '../document/readStructure.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { createMd5 } from '../hash/md5.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
@@ -18,12 +20,13 @@ import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
 import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
-import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
+import { coveringStreamData, fieldWidths, idArray, writeCoveringTable } from './xrefWriter.ts';
 
 const TYPE = pdfName('Type').bytes;
 const LINEARIZED = pdfName('Linearized').bytes;
 const H = pdfName('H').bytes;
 const N = pdfName('N').bytes;
+const FILTER = pdfName('Filter').bytes;
 const EOF_MARKER = [0x25, 0x25, 0x45, 0x4f, 0x46];
 // The longest gap between two unchanged objects that is checked for white space and comments, so that they can be copied as one run.
 const MAX_GAP = 4096;
@@ -68,10 +71,12 @@ class FullRewriter {
   private readonly rewritten = new Map<number, { generation: number; value: PdfObject }>();
   private readonly dropped = new Set<number>();
   private keptStreams = false;
+  private readonly version: string;
 
   constructor(input: SaveInput) {
     this.input = input;
     this.warnings = [...input.warnings];
+    this.version = input.structure.headerVersion === '' ? '1.7' : input.structure.headerVersion;
   }
 
   private warn(warning: SaveWarning): void {
@@ -268,13 +273,27 @@ class FullRewriter {
     }
   }
 
+  // A reconstruction can adopt a cross-reference stream dictionary as the trailer, whose stream keys are left out like any stream section's.
+  private trailerKind(): 'classic' | 'stream' {
+    const { structure } = this.input;
+    const type = structure.trailer.get(TYPE);
+    return structure.lastSectionKind ?? (type?.kind === 'name' && new TextDecoder('latin1').decode(type.bytes) === 'XRef' ? 'stream' : 'classic');
+  }
+
+  // ISO 32000-1:2008, 7.5.8.1: "Beginning with PDF 1.5, cross-reference information may be stored in a cross-reference stream"; kept object streams need its type 2 entries (7.5.8).
+  private writesStream(): boolean {
+    const { sections } = this.input.structure;
+    return (
+      this.keptStreams ||
+      versionNumber(this.version) >= 15 ||
+      sections.some(section => section.kind === 'stream' || section.hybridStream !== undefined) ||
+      this.trailerKind() === 'stream'
+    );
+  }
+
   // The trailer: Size, Root, Info and ID first, then the other entries of the source trailer that describe the document rather than a section.
   private trailer(size: number): PdfDictionaryEntries {
-    const { structure } = this.input;
-    // A reconstruction can adopt a cross-reference stream dictionary as the trailer, whose stream keys are left out like any stream section's.
-    const type = structure.trailer.get(TYPE);
-    const kind = structure.lastSectionKind ?? (type?.kind === 'name' && new TextDecoder('latin1').decode(type.bytes) === 'XRef' ? 'stream' : 'classic');
-    const rest = copiedTrailerEntries(structure.trailer, kind);
+    const rest = copiedTrailerEntries(this.input.structure.trailer, this.trailerKind());
     const trailer = parsedDictionaryEntries([[TRAILER_KEYS.size, pdfInteger(size)]]);
     for (const key of [TRAILER_KEYS.root, TRAILER_KEYS.info]) {
       const value = rest.get(key);
@@ -296,17 +315,17 @@ class FullRewriter {
     return [previous[0], hash.update(trailerWithoutId).digest()];
   }
 
+  // Every object number from 0 to Size - 1 gets an entry, generated as it is written; a classic table cannot be compressed, so the entries it adds for unused numbers are limited.
   private writeCrossReference(): number {
     const { emitter } = this;
     this.freeEntries();
     // ISO 32000-1:2008, 7.5.8.2, Table 17: Size is one greater than the highest object number kept in the cross-reference data.
     let highest = 1;
     for (const number of this.entries.keys()) highest = Math.max(highest, number + 1);
-    const xrefNumber = this.keptStreams ? highest : undefined;
+    const xrefNumber = this.writesStream() ? highest : undefined;
     const size = xrefNumber === undefined ? highest : highest + 1;
     const { offset } = emitter;
     if (xrefNumber !== undefined) this.entries.set(xrefNumber, { objectNumber: xrefNumber, type: 1, field: offset, generation: 0 });
-    const entries = [...this.entries.values()].toSorted((left, right) => left.objectNumber - right.objectNumber);
     const trailer = this.trailer(size);
     const serialize = (dictionary: PdfDictionaryEntries): Uint8Array => {
       const writer = new ByteWriter();
@@ -318,19 +337,27 @@ class FullRewriter {
       return writer.toUint8Array();
     };
     if (xrefNumber === undefined) {
-      writeTable(emitter.writer, entries);
+      const unused = size - this.entries.size;
+      const limit = this.input.maxTableGapEntries;
+      if (unused > limit) {
+        throw new ResourceLimitError(
+          `the cross-reference table would hold ${String(unused)} entries for unused object numbers, more than maxTableGapEntries (${String(limit)})`,
+        );
+      }
+      writeCoveringTable(emitter.writer, this.entries, size);
       const pair = this.identifier(serialize(trailer));
       if (pair !== undefined) trailer.set(TRAILER_KEYS.id, idArray(pair));
       emitter.writer.writeAscii('trailer\n');
       emitter.writer.writeBytes(serialize(trailer));
       return offset;
     }
-    // ISO 32000-1:2008, 7.5.8: kept object streams need type 2 entries, which only a cross-reference stream holds.
-    const widths = fieldWidths(entries);
+    // Object 0 carries generation 65,535, so the widths also hold the unused entries' generation.
+    const widths = fieldWidths([...this.entries.values()]);
     const dictionary = parsedDictionaryEntries([[TYPE, pdfName('XRef')], ...trailer.entries()]);
-    dictionary.set(TRAILER_KEYS.index, indexRuns(entries));
+    // Table 17, Index: "Default value: [0 Size]", the range the stream covers, so it is left out.
     dictionary.set(TRAILER_KEYS.w, pdfArray([pdfInteger(1), pdfInteger(widths[0]), pdfInteger(widths[1])]));
-    const data = streamData(entries, widths);
+    dictionary.set(FILTER, pdfName('FlateDecode'));
+    const data = coveringStreamData(this.entries, size, widths);
     const pair = this.identifier(serialize(dictionary));
     if (pair !== undefined) dictionary.set(TRAILER_KEYS.id, idArray(pair));
     emitter.writer.writeAscii(`${String(xrefNumber)} 0 obj\n`);
@@ -349,7 +376,7 @@ class FullRewriter {
     this.reportJunk();
     this.collect();
     // ISO 32000-1:2008, 7.5.2: a header, then a comment with four bytes of 128 or more, since the file holds binary data.
-    this.emitter.writer.writeAscii(`%PDF-${structure.headerVersion === '' ? '1.7' : structure.headerVersion}\n%`);
+    this.emitter.writer.writeAscii(`%PDF-${this.version}\n%`);
     this.emitter.writer.writeBytes(Uint8Array.of(0xe2, 0xe3, 0xcf, 0xd3));
     this.emitter.writer.writeByte(0x0a);
     this.writeRuns();

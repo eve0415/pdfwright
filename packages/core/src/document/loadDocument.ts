@@ -31,7 +31,7 @@ import { EditedObjects } from './editedObjects.ts';
 import { createInheritedCache, createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
 import { enumeratePages } from './pageTree.ts';
-import { readFromChain, reconstruct } from './readStructure.ts';
+import { readFromChain, reconstruct, versionNumber } from './readStructure.ts';
 
 export interface LoadOptions {
   /** Largest decoded size of one stream, in bytes; default 16 MiB. */
@@ -59,6 +59,8 @@ export interface SaveOptions {
   fileIdentifier?: 'derive' | [Uint8Array, Uint8Array];
   /** Fraction digits for new reals; default 5. */
   fractionDigits?: number;
+  /** Most entries a full rewrite's classic cross-reference table may hold for object numbers the file does not use; default 100,000. */
+  maxTableGapEntries?: number;
 }
 
 export interface LoadedDocument {
@@ -114,11 +116,6 @@ interface LoadedParts {
 }
 
 const VERSION = pdfName('Version').bytes;
-
-const versionNumber = (text: string): number => {
-  const match = /^(\d+)\.(\d+)$/u.exec(text);
-  return match === null ? 0 : Number(match[1]) * 10 + Number(match[2]);
-};
 
 class LoadedPdf implements LoadedDocument {
   private readonly read: DocumentStructure;
@@ -244,6 +241,7 @@ class LoadedPdf implements LoadedDocument {
       base: this.base,
       fractionDigits: options.fractionDigits ?? DEFAULT_FRACTION_DIGITS,
       maxNesting: this.maxNesting,
+      maxTableGapEntries: count(options.maxTableGapEntries, 100_000, 'maxTableGapEntries'),
       fileIdentifier: options.fileIdentifier ?? 'derive',
       warnings,
     };

@@ -1,9 +1,12 @@
-import type { TestObject } from '../testing/pdfBuilder.ts';
+import type { PdfObject } from '../object/pdfObject.ts';
+import type { TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
 
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { md5 } from '../hash/md5.ts';
 import { pt } from '../length/length.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -16,26 +19,107 @@ const pages = { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' };
 const page = { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792.0]/Contents 4 0 R/Resources<<>>>>' };
 const content = { number: 4, body: streamBody('', '0 0 m 10 10 l S') };
 
-const classic = (objects: readonly TestObject[], trailer = '/Root 1 0 R'): Uint8Array => buildPdf([{ xref: 'classic', objects, trailer }]).bytes;
+// A PDF 1.4 file with one classic section, which a full rewrite writes with a classic table.
+const classic = (objects: readonly TestObject[], trailer = '/Root 1 0 R'): Uint8Array =>
+  buildPdf([{ xref: 'classic', objects, trailer }], { header: '%PDF-1.4' }).bytes;
 
 const text = (bytes: Uint8Array): string => latin1Text(bytes);
 
+// The number of rows a cross-reference stream holds, from its decoded length and W.
+const streamRows = (xref: PdfObject): number => {
+  if (xref.kind !== 'stream') return 0;
+  const widths = xref.dictionary.get(pdfName('W').bytes);
+  const rowBytes = widths?.kind === 'array' ? widths.items.reduce((sum, item) => sum + (item.kind === 'integer' ? item.value : 0), 0) : 0;
+  return inflateZlib(xref.data).data.length / rowBytes;
+};
+
+const kind = (sections: readonly TestSection[], header: string): string | undefined =>
+  loadDocument(loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' }).chunks).structure.lastSectionKind;
+
+// A classic PDF 1.4 file whose update adds one object far above the others, so that no section lists the numbers between.
+const sparse = (high: number): Uint8Array =>
+  buildPdf(
+    [
+      { xref: 'classic', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R' },
+      { xref: 'classic', objects: [{ number: high, body: '(high)' }], trailer: '/Root 1 0 R' },
+    ],
+    { header: '%PDF-1.4' },
+  ).bytes;
+
 describe('full rewrite', () => {
-  it('writes sparse cross-reference subsections for a high object number', () => {
+  it('covers every object number up to a high one with a compressed cross-reference stream', () => {
     const source = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content, { number: 10_000, body: '(high)' }], trailer: '/Root 1 0 R' }]).bytes;
     const saved = loadDocument(source).save({ mode: 'full' });
     const output = text(saved.toBytes());
-    expect([output.length < 2000, output.includes('10000 1\n'), loadDocument(saved.chunks).get(pdfReference(10_000, 0))]).toStrictEqual([
-      true,
-      true,
-      { kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' },
-    ]);
+    const reloaded = loadDocument(saved.chunks);
+    const rows = streamRows(reloaded.get(pdfReference(10_001, 0)));
+    expect([
+      output.length < 2000,
+      output.includes('/Size 10002'),
+      output.includes('/Filter/FlateDecode'),
+      output.includes('/Index'),
+      rows,
+      reloaded.get(pdfReference(10_000, 0)),
+    ]).toStrictEqual([true, true, true, false, 10_002, { kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' }]);
   });
+
+  it('covers every object number with a classic table for a classic PDF 1.4 source', () => {
+    const saved = loadDocument(sparse(50)).save({ mode: 'full' });
+    const output = text(saved.toBytes());
+    const unused = output.split('0000000000 65535 f \n').length - 1;
+    expect([output.includes('xref\n0 51\n'), unused, loadDocument(saved.chunks).structure.lastSectionKind]).toStrictEqual([true, 46, 'classic']);
+  });
+
+  it('writes a cross-reference stream when the source header is 1.5 or later or the source used one', () => {
+    const objects = [catalog, pages, page, content];
+    const classicSource = [{ xref: 'classic', objects, trailer: '/Root 1 0 R' }] as const;
+    const streamSource = [{ xref: 'stream', objects, trailer: '/Root 1 0 R' }] as const;
+    const hybridSource = [
+      ...classicSource,
+      { xref: 'hybrid', objects: [], objectStreams: [{ number: 6, members: [{ number: 5, body: '(hidden)' }] }], trailer: '/Root 1 0 R' },
+    ] as const;
+    expect([
+      kind(classicSource, '%PDF-1.4'),
+      kind(classicSource, '%PDF-1.5'),
+      kind(classicSource, '%PDF-1.7'),
+      kind(streamSource, '%PDF-1.4'),
+      kind(hybridSource, '%PDF-1.4'),
+    ]).toStrictEqual(['classic', 'stream', 'stream', 'stream', 'stream']);
+  });
+
+  it('refuses a classic table that would hold more entries for unused numbers than the limit allows', () => {
+    expect(() => loadDocument(sparse(200_000)).save({ mode: 'full' })).toThrow(ResourceLimitError);
+    expect(() => loadDocument(sparse(1000)).save({ mode: 'full', maxTableGapEntries: 100 })).toThrow(
+      new ResourceLimitError('the cross-reference table would hold 995 entries for unused object numbers, more than maxTableGapEntries (100)'),
+    );
+    const raised = loadDocument(sparse(200_000)).save({ mode: 'full', maxTableGapEntries: 200_000 });
+    expect(loadDocument(raised.chunks).get(pdfReference(200_000, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' });
+  });
+
+  it.runIf(inject('runtime') === 'node')(
+    'covers eight million object numbers in a small cross-reference stream',
+    () => {
+      const source = buildPdf([
+        { xref: 'stream', objects: [catalog, pages, page, content, { number: 8_000_000, body: '(high)' }], trailer: '/Root 1 0 R' },
+      ]).bytes;
+      const start = performance.now();
+      const saved = loadDocument(source).save({ mode: 'full' });
+      const elapsed = performance.now() - start;
+      const bytes = saved.toBytes();
+      expect([bytes.length < 256 * 1024, elapsed < 20_000, loadDocument(saved.chunks).get(pdfReference(8_000_000, 0)).kind]).toStrictEqual([
+        true,
+        true,
+        'string',
+      ]);
+    },
+    30_000,
+  );
 
   it('sets Size from objects retained after dropping a cross-reference stream', () => {
     const source = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R', xrefStreamNumber: 10 }]).bytes;
     const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
-    expect(output).toContain('/Size 5');
+    // Objects 1 to 4, and the rewrite's own cross-reference stream as object 5.
+    expect(output).toContain('/Size 6');
   });
 
   it('copies unchanged objects as one run, keeping their numbers', () => {
@@ -122,7 +206,7 @@ describe('full rewrite', () => {
       { xref: 'stream', objects: [page, content], trailer: '/Root 1 0 R' },
     ]).bytes;
     const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
-    expect([output.includes('5 0 obj'), output.includes('MediaBox[0 0 200'), output.includes('2 0 obj')]).toStrictEqual([false, false, true]);
+    expect([output.includes('/Type/ObjStm'), output.includes('MediaBox[0 0 200'), output.includes('2 0 obj')]).toStrictEqual([false, false, true]);
   });
 
   it('drops linearization data and bytes around the file with warnings', () => {

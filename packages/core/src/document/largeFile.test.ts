@@ -24,6 +24,7 @@ describe('large files', () => {
 
   it('rewrites a large file from views of its source', () => {
     const saved = loadDocument(source).save({ mode: 'full' });
-    expect([saved.byteLength > source.length - 64, copiedBytes(saved.chunks, source) < 8192, saved.chunks.length < 16]).toStrictEqual([true, true, true]);
+    // Only the cross-reference data shrinks: the source's 1.3 KB classic table becomes a compressed stream.
+    expect([saved.byteLength > source.length - 2048, copiedBytes(saved.chunks, source) < 8192, saved.chunks.length < 16]).toStrictEqual([true, true, true]);
   });
 });

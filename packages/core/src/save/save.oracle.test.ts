@@ -1,5 +1,5 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { TestSection } from '../testing/pdfBuilder.ts';
+import type { BuildOptions, TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
-import { readerReports, spotColors } from '../../../../scripts/readerOracle.ts';
+import { readerReports, runTool, spotColors } from '../../../../scripts/readerOracle.ts';
 import { cmyk } from '../document/color.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
@@ -135,5 +135,58 @@ describe('saves read by qpdf, MuPDF, Ghostscript and poppler', () => {
 
   it('renders the source plates unchanged and adds the new plate', async () => {
     await expect(renderInks()).resolves.toStrictEqual({ blackBefore: [255, 0, 0], blackAfter: [255, 0, 0], varnish: [0, 255, 0] });
+  });
+});
+
+// A page numbered 10,000, far above the other objects, so a reader that finds its TrimBox found the high object; the padding makes the file larger than three bytes per object number.
+const highPage = { number: 10_000, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/TrimBox[10 10 190 180]/Contents 4 0 R/Resources<<>>>>' };
+const highPages = { number: 2, body: '<</Type/Pages/Kids[10000 0 R]/Count 1>>' };
+const padding = (bytes: number): TestObject => ({ number: 5, body: streamBody('', `%${'0'.repeat(bytes)}`) });
+
+const rewrite = async <T>(sections: readonly TestSection[], options: BuildOptions, read: (file: string) => Promise<T>): Promise<T> => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-sparse-'));
+  try {
+    const file = path.join(directory, 'rewritten.pdf');
+    await writeFile(file, loadDocument(buildPdf(sections, options).bytes).save({ mode: 'full' }).toBytes());
+    return await read(file);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
+
+const qpdfFindsHighPage = async (file: string): Promise<[number, readonly string[], number, boolean]> => {
+  const check = await runTool('qpdf', ['--check', file]);
+  const shown = await runTool('qpdf', ['--show-object=10000', file]);
+  return [check.code, check.output.split('\n').filter(line => line.includes('WARNING')), shown.code, shown.output.includes('/TrimBox [ 10 10 190 180 ]')];
+};
+
+const readersFindHighPage = async (file: string): Promise<Checked['reports']> => {
+  const reports = await readerReports(file);
+  return reports.filter(report => report.tool !== 'qpdf').map(report => [report.tool, report.code, report.trimBox, report.notices]);
+};
+
+// qpdf reads only object numbers below about a third of the file size, so the small file is left to the other readers and a padded one is given to qpdf.
+describe('full rewrites of files with unused object numbers', () => {
+  const streamSource: TestSection[] = [{ xref: 'stream', objects: [catalog, highPages, content, highPage], trailer: '/Root 1 0 R' }];
+  const paddedStreamSource: TestSection[] = [{ xref: 'stream', objects: [catalog, highPages, content, padding(40_000), highPage], trailer: '/Root 1 0 R' }];
+  const classicSource: TestSection[] = [
+    { xref: 'classic', objects: [catalog, highPages, content], trailer: '/Root 1 0 R' },
+    { xref: 'classic', objects: [highPage], trailer: '/Root 1 0 R' },
+  ];
+
+  it('are read by MuPDF, Ghostscript and poppler from a cross-reference stream source', async () => {
+    await expect(rewrite(streamSource, {}, readersFindHighPage)).resolves.toStrictEqual([
+      ['mutool', 0, [10, 10, 190, 180], []],
+      ['gs', 0, [10, 10, 190, 180], []],
+      ['poppler', 0, [10, 10, 190, 180], []],
+    ]);
+  });
+
+  it('are read by qpdf from a cross-reference stream source of realistic size', async () => {
+    await expect(rewrite(paddedStreamSource, {}, qpdfFindsHighPage)).resolves.toStrictEqual([0, [], 0, true]);
+  });
+
+  it('are read by qpdf from a classic PDF 1.4 source', async () => {
+    await expect(rewrite(classicSource, { header: '%PDF-1.4' }, qpdfFindsHighPage)).resolves.toStrictEqual([0, [], 0, true]);
   });
 });
