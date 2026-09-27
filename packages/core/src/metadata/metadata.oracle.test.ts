@@ -258,10 +258,34 @@ const rewritten = async (name: string): Promise<Rewritten> => {
   return { document: scanned.document, superseded: scanned.superseded, orphans: orphans.length };
 };
 
+// The dc:creator items of a file after an edit that sets only Keywords.
+const creatorsAfterKeywords = async (name: string): Promise<readonly string[]> => {
+  const document = loadDocument(await readFile(path.join(GOVDOCS, name)));
+  setMetadata(document, { modificationDate: MODIFIED, keywords: 'keywords' });
+  const creator = readMetadata(loadDocument(document.save().chunks)).properties.find(property => property.key === 'Author')?.xmp;
+  return creator?.kind === 'array' ? creator.items.map(item => item.text) : [];
+};
+
 describe('metadata in the corpus', () => {
   it('reads the metadata of every file that loads, with the recorded orphans, superseded packets and mismatches', { timeout: 600_000 }, async () => {
     const { sets, files } = await corpusSummary();
     await expect(recordedSummary(sets)).resolves.toStrictEqual(new Map(Object.entries(files)));
+  });
+
+  it('sets metadata on a file whose catalog holds integers beyond the range the writer produces', async () => {
+    const document = loadDocument(await readFile(path.join(CORPUS, 'qpdf/weird-tokens.pdf')));
+    setMetadata(document, { modificationDate: MODIFIED, title: 'Set' }, { documentId: { value: 'uuid:given' } });
+    const view = await inspect(document.save().toBytes());
+    expect([view.check, view.streams.length, infoLine(view.info, 'Title'), view.headers]).toStrictEqual([0, 1, 'Set', 1]);
+  });
+
+  it('keeps every creator of a packet when the edit sets another key', async () => {
+    const names = await corpusFiles(GOVDOCS);
+    const present = names.filter(name => name === '000150.pdf');
+    const creators = await Promise.all(present.map(async name => [name, await creatorsAfterKeywords(name)] as const));
+    expect(Object.fromEntries(creators)).toStrictEqual(
+      Object.fromEntries(present.map(name => [name, ['C. Lambert', 'Y. Cheng', 'D. Dobson', 'J. Hangas', 'M. Jagner', 'J. Warner']])),
+    );
   });
 
   it('leaves one document packet and no superseded packet after setting metadata and rewriting', { timeout: 120_000 }, async () => {
