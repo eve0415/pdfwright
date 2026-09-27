@@ -1,4 +1,5 @@
 import { ParseError } from '../../error/parseError.ts';
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 
 import { findTable, sfntReader } from './sfnt.ts';
 
@@ -117,12 +118,17 @@ interface Selector {
   readonly mappings: ReadonlyMap<number, number>;
 }
 
+// Decoded format 14 records and mappings allocate objects and Map entries in addition to the font bytes.
+const MAX_VARIATION_ENTRIES = 16_384;
+
 // Format 14: numVarSelectorRecords at 6, then 11-byte records of varSelector (24-bit), defaultUVSOffset and nonDefaultUVSOffset, each offset from the subtable's start.
 const format14 = (table: Uint8Array): Selector[] => {
   const read = sfntReader(table);
   const count = read.u32(6);
   if (10 + 11 * count > Math.min(read.u32(2), table.length)) throw new ParseError('the format 14 record count does not fit the subtable', 0);
+  if (count > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
   const selectors: Selector[] = [];
+  let entries = count;
   for (let index = 0; index < count; index++) {
     const at = 10 + 11 * index;
     const defaultOffset = read.u32(at + 3);
@@ -131,12 +137,16 @@ const format14 = (table: Uint8Array): Selector[] => {
     const mappings = new Map<number, number>();
     const ranges = defaultOffset === 0 ? 0 : read.u32(defaultOffset);
     if (defaultOffset !== 0 && defaultOffset + 4 + 4 * ranges > table.length) throw new ParseError('a default UVS table does not fit the subtable', 0);
+    entries += ranges;
+    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
     for (let range = 0; range < ranges; range++) {
       const start = read.u24(defaultOffset + 4 + 4 * range);
       defaults.push({ start, end: start + read.u8(defaultOffset + 7 + 4 * range) });
     }
     const pairs = mappingOffset === 0 ? 0 : read.u32(mappingOffset);
     if (mappingOffset !== 0 && mappingOffset + 4 + 5 * pairs > table.length) throw new ParseError('a non-default UVS table does not fit the subtable', 0);
+    entries += pairs;
+    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
     for (let pair = 0; pair < pairs; pair++) mappings.set(read.u24(mappingOffset + 4 + 5 * pair), read.u16(mappingOffset + 7 + 5 * pair));
     selectors.push({ selector: read.u24(at), defaults, mappings });
   }

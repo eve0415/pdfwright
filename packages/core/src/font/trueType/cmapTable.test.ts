@@ -2,6 +2,8 @@ import type { CmapReading, TrueTypeCmap } from './cmapTable.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
+
 import { readTrueTypeCmap } from './cmapTable.ts';
 
 // Big-endian bytes of unsigned integers of the given byte widths.
@@ -201,6 +203,20 @@ describe('embedded TrueType cmap tables', () => {
       undefined,
       undefined,
     ]);
+  });
+
+  it('limits decoded format 14 mappings before building a large map', () => {
+    const base = format4([{ start: 0x41, end: 0x41, delta: 1 }]);
+    const mappings = Array.from({ length: 16_385 }, (_, index) => [0x1000 + index, 1] as const);
+    const variations = format14(0xfe0f, [], mappings);
+    expect(() =>
+      readTrueTypeCmap(
+        programWith([
+          [3, 1, base],
+          [0, 5, variations],
+        ]),
+      ),
+    ).toThrow(ResourceLimitError);
   });
 
   it('reports a program without a cmap table or without a Unicode subtable', () => {
