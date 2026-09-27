@@ -23,6 +23,11 @@ export interface MatchTextOptions {
    * `ignore` removes variation selectors from both texts.
    */
   readonly variationSelectors?: 'require-glyph-evidence' | 'ignore';
+  /**
+   * `checked` (the default): the text of an ActualText span is used only when it equals the folded text of the span's glyphs, apart from variation selectors only the span has; otherwise the glyphs' text is compared and the result is at best `unverified`.
+   * `ignore`: spans are not used.
+   */
+  readonly actualText?: 'checked' | 'ignore';
 }
 
 /**
@@ -35,7 +40,19 @@ export type TextDifference =
   | { readonly kind: 'unmapped'; readonly glyphs: readonly number[]; readonly reason: GlyphTextReason }
   | { readonly kind: 'substituted'; readonly intended: string; readonly found: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
   | { readonly kind: 'missing'; readonly intended: string; readonly intendedIndex: number }
-  | { readonly kind: 'extra'; readonly found: string; readonly glyphs: readonly number[] };
+  | { readonly kind: 'extra'; readonly found: string; readonly glyphs: readonly number[] }
+  /** An ActualText span whose text differs from its glyphs' own text; the glyphs' text was compared. `span` indexes `PageText.actualText`. */
+  | {
+      readonly kind: 'actual-text-disagrees';
+      readonly actualText: string;
+      readonly glyphText: string;
+      readonly span: number;
+      readonly glyphs: readonly number[];
+    }
+  /** An intended variation selector that only an ActualText span, not the glyph's own text, carries. */
+  | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
+  /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
+  | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number };
 
 /** A fold used on the page's text, with the glyphs it was used for. */
 export interface FoldApplied {
@@ -48,7 +65,7 @@ export interface FoldApplied {
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.
-   * `mismatch` when a glyph is missing or unmapped or the texts differ.
+   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, which a person must check.
    */
   readonly status: 'match' | 'mismatch' | 'unverified';
   readonly intended: string;
@@ -94,6 +111,8 @@ const clusters = (text: string, keep: (character: string) => boolean): Cluster[]
 interface FoundCluster {
   readonly text: string;
   readonly glyphs: readonly number[];
+  /** Whether the cluster's variation selectors come from ActualText only. */
+  readonly variantFromActualText: boolean;
   readonly failure: { readonly kind: 'missing-glyph' } | { readonly kind: 'unmapped'; readonly reason: GlyphTextReason } | undefined;
 }
 
@@ -118,7 +137,22 @@ const defaultSelection =
 
 const onlyWhiteSpace = (text: string): boolean => /^\p{White_Space}*$/u.test(text);
 
+type GlyphFailure = NonNullable<FoundCluster['failure']>;
+
+// A glyph that stands for no text: .notdef, or an empty glyph that claims text, is a missing glyph; a glyph without text is unmapped; an empty glyph without text stands for nothing (null).
+const glyphFailure = (glyph: PageGlyph): GlyphFailure | null | undefined => {
+  const { text } = glyph;
+  if (glyph.notdef || (glyph.empty && text !== null && !onlyWhiteSpace(text))) return { kind: 'missing-glyph' };
+  if (text === null) return glyph.empty ? null : { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' };
+  return undefined;
+};
+
+const isFailure = (failure: GlyphFailure | null | undefined): failure is GlyphFailure => failure !== undefined && failure !== null;
+
+const SELECTORS = /[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu;
+
 interface Settings {
+  readonly actualText: 'checked' | 'ignore';
   readonly whitespace: 'ignore' | 'exact';
   readonly folds: readonly TextFold[];
   readonly equivalents: ReadonlyMap<string, string>;
@@ -127,6 +161,8 @@ interface Settings {
 
 class FoundText {
   readonly clusters: FoundCluster[] = [];
+  /** Differences that are not about alignment: spans that disagree with their glyphs or have none compared. */
+  readonly notes: TextDifference[] = [];
   private readonly settings: Settings;
   private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: number[] }>();
 
@@ -161,20 +197,54 @@ class FoundText {
     return equivalent;
   }
 
-  /** Adds a glyph: a failure when it is .notdef or an empty glyph that claims text, nothing when it is an empty glyph without text, else its clusters. */
+  private push(text: string, glyphs: readonly number[], variantFromActualText: (cluster: string) => boolean): void {
+    for (const cluster of clusters(text, character => this.keep(character))) {
+      this.clusters.push({ text: cluster.text, glyphs, variantFromActualText: variantFromActualText(cluster.text), failure: undefined });
+    }
+  }
+
+  /** Adds a glyph outside any span used: a failure, nothing, or its clusters. */
   add(glyph: PageGlyph): void {
     const glyphs = [glyph.index];
-    const { text } = glyph;
-    if (glyph.notdef || (glyph.empty && text !== null && !onlyWhiteSpace(text))) {
-      this.clusters.push({ text: text ?? REPLACEMENT, glyphs, failure: { kind: 'missing-glyph' } });
+    const failure = glyphFailure(glyph);
+    if (failure === null) return;
+    if (failure !== undefined) {
+      this.clusters.push({ text: glyph.text ?? REPLACEMENT, glyphs, variantFromActualText: false, failure });
       return;
     }
-    if (text === null) {
-      if (!glyph.empty) this.clusters.push({ text: REPLACEMENT, glyphs, failure: { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' } });
+    this.push(this.read(glyph.text ?? '', glyphs), glyphs, () => false);
+  }
+
+  /**
+   * Adds the glyphs of an ActualText span as one unit (ISO 32000-1:2008, 14.9.4: "The value of ActualText shall be considered to be a character substitution for the structure element or marked-content sequence").
+   * A missing glyph fails the unit whatever the span claims, and the span's text is compared only when it agrees with the glyphs' folded text.
+   */
+  addSpan(glyphs: readonly PageGlyph[], { index, text }: { index: number; text: string }): void {
+    const indexes = glyphs.map(glyph => glyph.index);
+    const failures = glyphs.map(glyph => glyphFailure(glyph)).filter(found => isFailure(found));
+    const failure = failures.find(found => found.kind === 'missing-glyph') ?? failures[0];
+    if (failure !== undefined) {
+      this.clusters.push({ text: failure.kind === 'missing-glyph' ? text : REPLACEMENT, glyphs: indexes, variantFromActualText: false, failure });
       return;
     }
-    const read = this.read(text, glyphs);
-    for (const cluster of clusters(read, character => this.keep(character))) this.clusters.push({ text: cluster.text, glyphs, failure: undefined });
+    const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph.text, [glyph.index]))).join('');
+    // Variation selectors the span has and the glyphs lack are set aside here and reported by the alignment.
+    const comparable = (value: string): string =>
+      clusters(value, character => this.keep(character) && !isSelector(character.codePointAt(0) ?? 0))
+        .map(cluster => cluster.text)
+        .join('');
+    if (comparable(text) === comparable(glyphText)) {
+      this.push(text, indexes, cluster => (cluster.match(SELECTORS) ?? []).some(selector => !glyphText.includes(selector)));
+      return;
+    }
+    this.notes.push({ kind: 'actual-text-disagrees', actualText: text, glyphText, span: index, glyphs: indexes });
+    this.push(glyphText, indexes, () => false);
+  }
+
+  /** Notes a span with no compared glyph between compared glyphs, unless its text is only white space that is ignored. */
+  addUnseenSpan({ index, text }: { index: number; text: string }): void {
+    if (this.settings.whitespace === 'ignore' && onlyWhiteSpace(text)) return;
+    this.notes.push({ kind: 'no-glyph-evidence', text, span: index });
   }
 }
 
@@ -212,8 +282,14 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
     had = [];
   };
   for (const step of steps) {
-    if (step.kind === 'equal') flush();
-    else if (step.kind === 'missing') {
+    if (step.kind === 'equal') {
+      flush();
+      const want = intended[step.intended];
+      const have = found[step.found];
+      if (want !== undefined && have?.variantFromActualText === true) {
+        differences.push({ kind: 'variant-unverified', intended: want.text, intendedIndex: want.offset, glyphs: have.glyphs });
+      }
+    } else if (step.kind === 'missing') {
       const cluster = intended[step.intended];
       if (cluster !== undefined) wanted.push(cluster);
     } else {
@@ -227,6 +303,42 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
 
 const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped', 'substituted', 'missing', 'extra']);
 
+/** A glyph compared on its own, or the compared glyphs of an ActualText span, or a span none of whose glyphs is compared. */
+type Unit =
+  | { readonly kind: 'glyph'; readonly glyph: PageGlyph }
+  | { readonly kind: 'span'; readonly index: number; readonly glyphs: readonly PageGlyph[] }
+  | { readonly kind: 'unseen'; readonly index: number };
+
+// Units in reading order: a span is taken whole where its first compared glyph is read; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
+const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'checked' | 'ignore'): Unit[] => {
+  if (actualText === 'ignore') return selected.map(glyph => ({ kind: 'glyph', glyph }));
+  const bySpan = new Map<number, PageGlyph[]>();
+  for (const glyph of selected) if (glyph.actualText !== undefined) bySpan.set(glyph.actualText, [...(bySpan.get(glyph.actualText) ?? []), glyph]);
+  const selectedIndexes = selected.map(glyph => glyph.index);
+  const first = Math.min(...selectedIndexes);
+  const last = Math.max(...selectedIndexes);
+  const unseen = page.actualText
+    .flatMap((span, index) => {
+      if (bySpan.has(index) || span.glyphs.length === 0) return [];
+      const start = Math.min(...span.glyphs);
+      return first < start && last > Math.max(...span.glyphs) ? [{ index, start }] : [];
+    })
+    .toSorted((a, b) => a.start - b.start);
+  const units: Unit[] = [];
+  const taken = new Set<number>();
+  let next = 0;
+  for (const glyph of selected) {
+    for (let note = unseen[next]; note !== undefined && note.start < glyph.index; note = unseen[++next]) units.push({ kind: 'unseen', index: note.index });
+    const spanIndex = glyph.actualText;
+    if (spanIndex === undefined) units.push({ kind: 'glyph', glyph });
+    else if (!taken.has(spanIndex)) {
+      taken.add(spanIndex);
+      units.push({ kind: 'span', index: spanIndex, glyphs: bySpan.get(spanIndex) ?? [glyph] });
+    }
+  }
+  return units;
+};
+
 /**
  * Compares the text a page shows with the text it is meant to show, such as a customer's name on a proof, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
  * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
@@ -234,6 +346,7 @@ const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped',
  */
 export const matchText = (page: PageText, intended: string, options: MatchTextOptions = {}): TextMatch => {
   const settings: Settings = {
+    actualText: options.actualText ?? 'checked',
     whitespace: options.whitespace ?? 'ignore',
     folds: options.folds ?? TEXT_FOLDS,
     equivalents: new Map(options.equivalents),
@@ -241,7 +354,14 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
   };
   const selected = orderGlyphs(page.glyphs.filter(options.select ?? defaultSelection(page)), options.order ?? 'content');
   const found = new FoundText(settings);
-  for (const glyph of selected) found.add(glyph);
+  for (const unit of unitsOf(page, selected, settings.actualText)) {
+    if (unit.kind === 'glyph') found.add(unit.glyph);
+    else {
+      const text = page.actualText[unit.index]?.text ?? '';
+      if (unit.kind === 'span') found.addSpan(unit.glyphs, { index: unit.index, text });
+      else found.addUnseenSpan({ index: unit.index, text });
+    }
+  }
   const keep = (character: string): boolean =>
     !(settings.whitespace === 'ignore' && WHITE_SPACE.test(character)) && !(settings.selectors === 'ignore' && isSelector(character.codePointAt(0) ?? 0));
   const wanted = clusters(intended, keep);
@@ -249,10 +369,13 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     const have = found.clusters[b];
     return have !== undefined && have.failure === undefined && have.text === wanted[a]?.text;
   });
-  const differences = differencesOf(steps, wanted, found.clusters);
+  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes];
   const mismatch = differences.some(difference => MISMATCHES.has(difference.kind));
+  let status: TextMatch['status'] = 'match';
+  if (mismatch) status = 'mismatch';
+  else if (differences.length > 0) status = 'unverified';
   return {
-    status: mismatch ? 'mismatch' : 'match',
+    status,
     intended,
     found: found.clusters.map(cluster => cluster.text).join(''),
     differences,

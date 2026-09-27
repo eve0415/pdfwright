@@ -74,6 +74,15 @@ const page = ({ texts, content, resources = '', objects = [], entries = '' }: Pr
 
 const match = (proof: Proof, intended: string, options: MatchTextOptions = {}): TextMatch => matchText(page(proof), intended, options);
 
+/** Wraps content in a Span marked-content sequence whose ActualText is the text, as UTF-16BE. */
+const span = (text: string, content: string): string => `/Span <</ActualText <FEFF${utf16(text)}>>> BDC ${content} EMC`;
+
+const spanOf = ([text, ...codes]: readonly [string, ...number[]]): string => span(text, show(...codes));
+
+/** Shows each code in its own Tj at 10 points from (100, 700), the codes of `spans` inside ActualText spans. */
+const spanned = (...parts: readonly (number | readonly [string, ...number[]])[]): string =>
+  `BT /T 10 Tf 100 700 Td ${parts.map(part => (typeof part === 'number' ? show(part) : spanOf(part))).join(' ')} ET`;
+
 const summary = (result: TextMatch): unknown[] => [result.status, result.found, result.differences];
 
 const summaryOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): unknown[] => summary(match(proof, intended, options));
@@ -257,6 +266,71 @@ describe('text matching', () => {
         '𠮷野',
       );
       expect(summary(result)).toStrictEqual(['mismatch', '𠮷野', [{ kind: 'missing-glyph', glyphs: [0], intendedIndex: 0 }]]);
+    });
+  });
+
+  describe('actual text', () => {
+    it('uses a span whose text agrees with its glyphs after folds', () => {
+      // Chromium wraps Noto's radical, vertical and ligature glyphs in spans giving the source characters.
+      const texts = ['⼭', '田', '︑', 'ﬁ', '‧'];
+      expect(summaryOf({ texts, content: spanned(['山', 1], 2, ['、', 3], ['fi', 4], ['・', 5]) }, '山田、fi・')).toStrictEqual(['match', '山田、fi・', []]);
+    });
+
+    it('never matches a substituted glyph under a span claiming the source character', () => {
+      // font-feature-settings "jis78" prints 侭 (ToUnicode U+4FAD) under ActualText 儘 (U+5118); "nlck" prints 曾 under ActualText 曽.
+      const result = match({ texts: ['侭', '曾'], content: spanned(['儘', 1], ['曽', 2]) }, '儘曽');
+      expect(summary(result)).toStrictEqual([
+        'mismatch',
+        '侭曾',
+        [
+          { kind: 'substituted', intended: '儘', found: '侭', intendedIndex: 0, glyphs: [0] },
+          { kind: 'substituted', intended: '曽', found: '曾', intendedIndex: 1, glyphs: [1] },
+          { kind: 'actual-text-disagrees', actualText: '儘', glyphText: '侭', span: 0, glyphs: [0] },
+          { kind: 'actual-text-disagrees', actualText: '曽', glyphText: '曾', span: 1, glyphs: [1] },
+        ],
+      ]);
+      expect(statusOf({ texts: ['侭'], content: spanned(['儘', 1]) }, '儘', { actualText: 'ignore' })).toBe('mismatch');
+    });
+
+    it('leaves a variation selector only the span carries unverified', () => {
+      // IPAGothic paints plain 葛 under ActualText U+845B U+E0100; Noto's glyph text carries the selector itself.
+      expect(summaryOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛󠄀城')).toStrictEqual([
+        'unverified',
+        '葛󠄀城',
+        [{ kind: 'variant-unverified', intended: '葛󠄀', intendedIndex: 0, glyphs: [0] }],
+      ]);
+      expect(statusOf({ texts: ['葛󠄀', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛󠄀城')).toBe('match');
+      expect(statusOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛城')).toBe('mismatch');
+    });
+
+    it('reports a missing glyph under a span whatever the span claims', () => {
+      // Chromium wraps 𠮷 painted as CID 0 in a span like any other character.
+      expect(summaryOf({ texts: ['野'], content: spanned(['𠮷', 0], 1) }, '𠮷野')).toStrictEqual([
+        'mismatch',
+        '𠮷野',
+        [{ kind: 'missing-glyph', glyphs: [0], intendedIndex: 0 }],
+      ]);
+    });
+
+    it('does not take a span as the text of a glyph without text', () => {
+      expect(summaryOf({ texts: [null, '田'], content: spanned(['山', 1], 2) }, '山田')).toStrictEqual([
+        'mismatch',
+        '�田',
+        [{ kind: 'unmapped', glyphs: [0], reason: 'no-mapping' }],
+      ]);
+    });
+
+    it('reports a span whose glyphs are not selected between selected glyphs as having no glyph evidence', () => {
+      const content = `BT /T 10 Tf 100 700 Td ${show(1)} 3 Tr ${span('中', show(2))} 0 Tr ${show(3)} ET`;
+      expect(summaryOf({ texts: ['山', '中', '田'], content }, '山田')).toStrictEqual([
+        'unverified',
+        '山田',
+        [{ kind: 'no-glyph-evidence', text: '中', span: 0 }],
+      ]);
+    });
+
+    it('reads the shared hyphenation point without spans when they are ignored', () => {
+      expect(statusOf({ texts: ['‧'], content: spanned(['・', 1]) }, '・', { actualText: 'ignore' })).toBe('match');
     });
   });
 });
