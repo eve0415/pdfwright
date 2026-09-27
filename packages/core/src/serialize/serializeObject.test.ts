@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfNameFromBytes, pdfReal, pdfReference, pdfString } from '../object/pdfObject.ts';
 
 import { serializeObject } from './serializeObject.ts';
@@ -34,6 +35,12 @@ describe('object serialization', () => {
     expect(write(shiftJis)).toBe('/#82#A0');
     expect(write(delimiters)).toBe('/#28#29#2F#25');
     expect(write(pdfName(''))).toBe('/');
+  });
+
+  it('rejects hand-built names with a null byte or more than 127 bytes', () => {
+    expect(() => write({ kind: 'name', bytes: new Uint8Array([0x41, 0]) })).toThrow(InvalidArgumentError);
+    expect(() => write({ kind: 'name', bytes: new Uint8Array(128).fill(0x41) })).toThrow(InvalidArgumentError);
+    expect(write({ kind: 'name', bytes: new Uint8Array(127).fill(0x41) })).toBe(`/${'A'.repeat(127)}`);
   });
 
   it('writes literal and hex strings with exact escapes', () => {

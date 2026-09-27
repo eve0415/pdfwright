@@ -1,6 +1,7 @@
 import type { PdfObject } from '../object/pdfObject.ts';
 
 import { formatInteger, formatNumber } from '../number/formatNumber.ts';
+import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
 
@@ -24,6 +25,7 @@ const writeEscape = (writer: ByteWriter, letter: number): void => {
 };
 
 const writeName = (writer: ByteWriter, bytes: Uint8Array): void => {
+  assertNameBytes(bytes);
   // ISO 32000-1:2008, 7.3.5 requires hexadecimal escapes for nonregular name bytes and for NUMBER SIGN.
   writer.writeByte(0x2f);
   for (const byte of bytes) {

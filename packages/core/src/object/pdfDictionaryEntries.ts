@@ -1,5 +1,7 @@
 import type { PdfObject } from './pdfObject.ts';
 
+import { assertNameBytes } from './nameBytes.ts';
+
 const byteKey = (bytes: Uint8Array): string => {
   let key = '';
   for (const byte of bytes) key += String.fromCodePoint(byte);
@@ -20,6 +22,7 @@ export class PdfDictionaryEntries {
   }
 
   set(nameBytes: Uint8Array, value: PdfObject): this {
+    assertNameBytes(nameBytes);
     this.values.set(byteKey(nameBytes), { key: Uint8Array.from(nameBytes), value });
     return this;
   }

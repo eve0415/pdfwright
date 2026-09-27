@@ -25,6 +25,14 @@ describe('pdf objects', () => {
     expect(pdfNameFromBytes(new Uint8Array(127).fill(65)).bytes).toHaveLength(127);
   });
 
+  it('rejects dictionary keys that are not valid name bytes', () => {
+    const entries = new PdfDictionaryEntries();
+    expect(() => entries.set(new Uint8Array([0x41, 0]), pdfInteger(1))).toThrow(InvalidArgumentError);
+    expect(() => entries.set(new Uint8Array(128).fill(0x41), pdfInteger(1))).toThrow(InvalidArgumentError);
+    expect(() => new PdfDictionaryEntries([[new Uint8Array([0]), pdfInteger(1)]])).toThrow(InvalidArgumentError);
+    expect(entries.set(new Uint8Array(127).fill(0x41), pdfInteger(1)).size).toBe(1);
+  });
+
   it('reads null dictionary values as absent and keeps insertion order', () => {
     const entries = new PdfDictionaryEntries();
     const first = new Uint8Array([65]);
