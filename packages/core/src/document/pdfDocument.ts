@@ -2,7 +2,8 @@ import type { Length } from '../length/length.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
-import type { ContentBuilder, GraphicsStateOptions } from './contentBuilder.ts';
+import type { ContentBuilder, ContentHooks, GraphicsStateOptions } from './contentBuilder.ts';
+import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, PdfImage } from './image.ts';
 import type { PdfRect } from './rect.ts';
 import type { Separation, SeparationOptions } from './separation.ts';
@@ -16,6 +17,7 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } f
 import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
+import { createGroup, groupObject } from './group.ts';
 import { createImage, imageObject, softMaskObject } from './image.ts';
 import { rect } from './rect.ts';
 import { colorantKey, createSeparation, separationObject } from './separation.ts';
@@ -39,6 +41,7 @@ export interface PdfDocument {
   addPage: (options: PageOptions) => PdfPage;
   separation: (options: SeparationOptions) => Separation;
   image: (options: ImageOptions) => PdfImage;
+  group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
   save: () => SavedPdf;
 }
 
@@ -46,12 +49,21 @@ export interface PdfPage {
   draw: (render: (content: ContentBuilder) => void) => void;
 }
 
-interface PageRecord {
-  options: PageOptions;
-  contents: Uint8Array[];
+interface ResourceRecord {
   graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
   separations: Map<string, { name: string; separation: Separation }>;
   images: Map<number, { name: string; image: PdfImage }>;
+  groups: Map<number, { name: string; group: PdfGroup }>;
+}
+
+interface PageRecord extends ResourceRecord {
+  options: PageOptions;
+  contents: Uint8Array[];
+}
+
+interface GroupRecord extends ResourceRecord {
+  handle: PdfGroup;
+  content: Uint8Array;
 }
 
 interface ImageObjectNumbers {
@@ -62,7 +74,12 @@ interface ImageObjectNumbers {
 interface PageBuildContext {
   fractionDigits: number;
   contentStart: number;
+  resourceNumbers: ResourceNumbers;
+}
+
+interface ResourceNumbers {
   imageNumbers: Map<number, ImageObjectNumbers>;
+  groupNumbers: Map<number, number>;
 }
 
 const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEntries => {
@@ -105,6 +122,52 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
   }
 };
 
+const createResourceRecord = (): ResourceRecord => ({ graphicsStates: new Map(), separations: new Map(), images: new Map(), groups: new Map() });
+
+const createContentHooks = (resources: ResourceRecord, owner: symbol, colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray'): ContentHooks => ({
+  colorSpace,
+  registerGraphicsState: stateOptions => {
+    const key = JSON.stringify([
+      stateOptions.fillAlpha,
+      stateOptions.strokeAlpha,
+      stateOptions.blendMode,
+      stateOptions.overprintStroke,
+      stateOptions.overprintFill,
+      stateOptions.overprintMode,
+      stateOptions.softMask,
+    ]);
+    const existing = resources.graphicsStates.get(key);
+    if (existing !== undefined) return existing.name;
+    const name = `GS${resources.graphicsStates.size + 1}`;
+    resources.graphicsStates.set(key, { name, options: stateOptions });
+    return name;
+  },
+  registerSeparation: separation => {
+    const key = colorantKey(separation.name);
+    const existing = resources.separations.get(key);
+    if (existing !== undefined) return existing.name;
+    const name = `CS${resources.separations.size + 1}`;
+    resources.separations.set(key, { name, separation });
+    return name;
+  },
+  registerImage: image => {
+    if (image.owner !== owner) throw new ValidationError('image belongs to a different document');
+    const existing = resources.images.get(image.id);
+    if (existing !== undefined) return existing.name;
+    const name = `Im${resources.images.size + 1}`;
+    resources.images.set(image.id, { name, image });
+    return name;
+  },
+  registerGroup: group => {
+    if (group.owner !== owner) throw new ValidationError('group belongs to a different document');
+    const existing = resources.groups.get(group.id);
+    if (existing !== undefined) return existing.name;
+    const name = `Fm${resources.groups.size + 1}`;
+    resources.groups.set(group.id, { name, group });
+    return name;
+  },
+});
+
 const allocateImageNumbers = (images: readonly PdfImage[], pages: readonly PageRecord[]): Map<number, ImageObjectNumbers> => {
   let nextNumber = pages.length + 3 + pages.reduce((sum, page) => sum + page.contents.length, 0);
   const numbersByImage = new Map<number, ImageObjectNumbers>();
@@ -120,8 +183,16 @@ const allocateImageNumbers = (images: readonly PdfImage[], pages: readonly PageR
   return numbersByImage;
 };
 
-const pageResources = (record: PageRecord, imageNumbers: Map<number, ImageObjectNumbers>): PdfObject | undefined => {
-  if (record.graphicsStates.size === 0 && record.separations.size === 0 && record.images.size === 0) return undefined;
+const allocateGroupNumbers = (images: readonly PdfImage[], pages: readonly PageRecord[], groups: readonly GroupRecord[]): Map<number, number> => {
+  let nextNumber = pages.length + 3 + pages.reduce((sum, page) => sum + page.contents.length, 0);
+  nextNumber += images.reduce((sum, image) => sum + (image.softMask === undefined ? 1 : 2), 0);
+  const numbers = new Map<number, number>();
+  for (const group of groups) numbers.set(group.handle.id, nextNumber++);
+  return numbers;
+};
+
+const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfObject | undefined => {
+  if (record.graphicsStates.size === 0 && record.separations.size === 0 && record.images.size === 0 && record.groups.size === 0) return undefined;
   const resources = new PdfDictionaryEntries();
   if (record.separations.size > 0) {
     const colorSpaces = new PdfDictionaryEntries();
@@ -133,12 +204,17 @@ const pageResources = (record: PageRecord, imageNumbers: Map<number, ImageObject
     for (const state of record.graphicsStates.values()) states.set(pdfName(state.name).bytes, pdfDictionary(graphicsStateDictionary(state.options)));
     resources.set(pdfName('ExtGState').bytes, pdfDictionary(states));
   }
-  if (record.images.size > 0) {
+  if (record.images.size > 0 || record.groups.size > 0) {
     const xObjects = new PdfDictionaryEntries();
     for (const image of record.images.values()) {
-      const number = imageNumbers.get(image.image.id)?.parent;
+      const number = numbers.imageNumbers.get(image.image.id)?.parent;
       if (number === undefined) throw new ValidationError('image reference is missing');
       xObjects.set(pdfName(image.name).bytes, pdfReference(number, 0));
+    }
+    for (const group of record.groups.values()) {
+      const number = numbers.groupNumbers.get(group.group.id);
+      if (number === undefined) throw new ValidationError('group reference is missing');
+      xObjects.set(pdfName(group.name).bytes, pdfReference(number, 0));
     }
     resources.set(pdfName('XObject').bytes, pdfDictionary(xObjects));
   }
@@ -161,7 +237,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfObject =>
     ]);
     entries.set(pdfName('Group').bytes, pdfDictionary(group));
   }
-  const resources = pageResources(record, context.imageNumbers);
+  const resources = pageResources(record, context.resourceNumbers);
   if (resources !== undefined) entries.set(pdfName('Resources').bytes, resources);
   for (const [key, box] of [
     ['CropBox', page.cropBox],
@@ -183,10 +259,23 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const pages: PageRecord[] = [];
   const documentSeparations = new Map<string, Separation>();
   const images: PdfImage[] = [];
+  const groups: GroupRecord[] = [];
   const owner = Symbol('pdfwright document');
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
 
   return {
+    group: (groupOptions, render): PdfGroup => {
+      const handle = createGroup(groups.length + 1, owner, groupOptions, fractionDigits);
+      const resources = createResourceRecord();
+      const content = createContentBuilder(fractionDigits, createContentHooks(resources, owner, handle.colorSpace));
+      render(content);
+      const data = content.finish();
+      const inherited = content.inheritedWhitePaint();
+      handle.inheritedWhiteFill = inherited.fill;
+      handle.inheritedWhiteStroke = inherited.stroke;
+      groups.push({ handle, content: data, ...resources });
+      return handle;
+    },
     image: (imageOptions): PdfImage => {
       const image = createImage(images.length + 1, owner, imageOptions);
       images.push(image);
@@ -216,45 +305,11 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
         validateBox(box, normalized.mediaBox, fractionDigits);
       }
-      const record: PageRecord = { options: normalized, contents: [], graphicsStates: new Map(), separations: new Map(), images: new Map() };
+      const record: PageRecord = { options: normalized, contents: [], ...createResourceRecord() };
       pages.push(record);
       return {
         draw: (render): void => {
-          const content = createContentBuilder(fractionDigits, {
-            colorSpace: normalized.group?.colorSpace,
-            registerGraphicsState: stateOptions => {
-              const key = JSON.stringify([
-                stateOptions.fillAlpha,
-                stateOptions.strokeAlpha,
-                stateOptions.blendMode,
-                stateOptions.overprintStroke,
-                stateOptions.overprintFill,
-                stateOptions.overprintMode,
-                stateOptions.softMask,
-              ]);
-              const existing = record.graphicsStates.get(key);
-              if (existing !== undefined) return existing.name;
-              const name = `GS${record.graphicsStates.size + 1}`;
-              record.graphicsStates.set(key, { name, options: stateOptions });
-              return name;
-            },
-            registerSeparation: separation => {
-              const key = colorantKey(separation.name);
-              const existing = record.separations.get(key);
-              if (existing !== undefined) return existing.name;
-              const name = `CS${record.separations.size + 1}`;
-              record.separations.set(key, { name, separation });
-              return name;
-            },
-            registerImage: image => {
-              if (image.owner !== owner) throw new ValidationError('image belongs to a different document');
-              const existing = record.images.get(image.id);
-              if (existing !== undefined) return existing.name;
-              const name = `Im${record.images.size + 1}`;
-              record.images.set(image.id, { name, image });
-              return name;
-            },
-          });
+          const content = createContentBuilder(fractionDigits, createContentHooks(record, owner, normalized.group?.colorSpace));
           render(content);
           record.contents.push(content.finish());
         },
@@ -277,11 +332,13 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         { objectNumber: 2, generation: 0, value: pdfDictionary(pageTree) },
       ];
       const imageNumbers = allocateImageNumbers(images, pages);
+      const groupNumbers = allocateGroupNumbers(images, pages, groups);
+      const resourceNumbers: ResourceNumbers = { imageNumbers, groupNumbers };
       let nextContentNumber = pages.length + 3;
       for (let index = 0; index < pages.length; index++) {
         const record = pages[index];
         if (record === undefined) continue;
-        const value = pageObject(record, { fractionDigits, contentStart: nextContentNumber, imageNumbers });
+        const value = pageObject(record, { fractionDigits, contentStart: nextContentNumber, resourceNumbers });
         objects.push({ objectNumber: index + 3, generation: 0, value });
         nextContentNumber += record.contents.length;
       }
@@ -300,6 +357,12 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           objects.push({ objectNumber: numbers.mask, generation: 0, value: softMaskObject(image.softMask) });
         }
         objects.push({ objectNumber: numbers.parent, generation: 0, value: imageObject(image, numbers.mask) });
+      }
+      for (const record of groups) {
+        const number = groupNumbers.get(record.handle.id);
+        if (number === undefined) throw new ValidationError('group reference is missing');
+        const resources = pageResources(record, resourceNumbers) ?? pdfDictionary();
+        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, fractionDigits) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
       return writeDocument(objects, trailer, { fractionDigits, version: '1.7', fileIdentifier: options.fileIdentifier });

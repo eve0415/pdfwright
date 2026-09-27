@@ -36,6 +36,7 @@ export type { DeviceColor } from './document/color.ts';
 export type { GraphicsStateOptions, PaintOptions } from './document/contentBuilder.ts';
 export type { Separation, SeparationOptions } from './document/separation.ts';
 export type { ImageColorSpace, ImageOptions, PdfImage } from './document/image.ts';
+export type { GroupOptions, PdfGroup } from './document/group.ts';
 export type { SavedPdf } from './write/savedPdf.ts';
 export { rect } from './document/rect.ts';
 export type { PdfRect } from './document/rect.ts';
