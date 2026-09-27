@@ -1,0 +1,117 @@
+{
+  "govdocs1/000011.pdf": {
+    "orphans": 0,
+    "superseded": 1,
+    "mismatches": []
+  },
+  "govdocs1/000028.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000140.pdf": {
+    "orphans": 0,
+    "superseded": 1,
+    "mismatches": []
+  },
+  "govdocs1/000141.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000142.pdf": {
+    "orphans": 0,
+    "superseded": 1,
+    "mismatches": []
+  },
+  "govdocs1/000147.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000324.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000338.pdf": {
+    "orphans": 3,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000346.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000362.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000366.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000371.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000588.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000618.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["Title", "Subject", "ModDate"]
+  },
+  "govdocs1/000748.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000755.pdf": {
+    "orphans": 0,
+    "superseded": 1,
+    "mismatches": []
+  },
+  "govdocs1/000813.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000817.pdf": {
+    "orphans": 0,
+    "superseded": 7,
+    "mismatches": []
+  },
+  "govdocs1/000826.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000834.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  },
+  "govdocs1/000843.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000899.pdf": {
+    "orphans": 0,
+    "superseded": 0,
+    "mismatches": ["ModDate"]
+  },
+  "govdocs1/000955.pdf": {
+    "orphans": 1,
+    "superseded": 0,
+    "mismatches": []
+  }
+}

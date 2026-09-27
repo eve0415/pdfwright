@@ -11,4 +11,6 @@ These files feed the corpus round trip in `packages/core/src/document/corpus.ora
 
 Each directory's `README.md` records the source repository and commit, the licence and the SHA-256 of every file; the committed PDFs total about 1 MB.
 
+`metadata-summary.json` lists the files that load and have metadata findings, with what `packages/core/src/metadata/metadata.oracle.test.ts` expects for each: orphaned metadata objects, packet headers that only earlier revisions hold, and the keys on which Info and XMP disagree.
+
 `expected-failures.json` lists the files that must fail and why: encrypted files, which pdfwright refuses with a named error, and files whose structure readers disagree about, where pdfwright throws rather than chooses, or where comparisons must report the listed places as undecodable.
