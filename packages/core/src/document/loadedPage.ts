@@ -1,0 +1,143 @@
+import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { PageEntry } from './pageTree.ts';
+
+import { ParseError } from '../error/parseError.ts';
+import { formatLength } from '../length/length.ts';
+import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
+import { cloneDirect, cloneObject } from '../object/cloneObject.ts';
+import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { pdfName } from '../object/pdfObject.ts';
+
+export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
+
+export interface EffectiveBox {
+  /** Normalised to lower-left and upper-right corners. */
+  readonly rect: readonly [number, number, number, number];
+  /** Whether the page or an ancestor sets the box, rather than a Table 30 default applying. */
+  readonly explicit: boolean;
+  /** The page tree node the value is inherited from. */
+  readonly inheritedFrom?: PdfReference;
+}
+
+export type EffectiveBoxes = Readonly<Record<BoxName, EffectiveBox>> & { readonly rotate: number; readonly userUnit: number };
+
+export interface LoadedPage {
+  readonly index: number;
+  readonly reference: PdfReference;
+  /** The five page boxes with inheritance and defaults applied (ISO 32000-1:2008, 7.7.3.3, Table 30 and 7.7.3.4). */
+  boxes: () => EffectiveBoxes;
+  /** The effective resource dictionary, own or inherited, as a fresh copy. */
+  resources: () => PdfDictionaryEntries;
+  lastModified: () => PdfObject | undefined;
+  pieceInfo: () => PdfObject | undefined;
+}
+
+/** Resolves indirect objects, including changes made to the document. */
+export interface ObjectResolver {
+  resolve: (objectNumber: number, generation: number) => PdfObject;
+  deref: (value: PdfDirectObject | undefined) => PdfObject | undefined;
+}
+
+const MEDIA_BOX = pdfName('MediaBox').bytes;
+const CROP_BOX = pdfName('CropBox').bytes;
+const ROTATE = pdfName('Rotate').bytes;
+const USER_UNIT = pdfName('UserUnit').bytes;
+const RESOURCES = pdfName('Resources').bytes;
+const LAST_MODIFIED = pdfName('LastModified').bytes;
+const PIECE_INFO = pdfName('PieceInfo').bytes;
+
+const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
+
+const dictionaryOf = (resolver: ObjectResolver, reference: PdfReference): PdfDictionaryEntries => {
+  const value = resolver.resolve(reference.objectNumber, reference.generation);
+  if (value.kind !== 'dictionary') throw new ParseError(`page tree object ${label(reference)} is not a dictionary`, 0);
+  return value.entries;
+};
+
+/** Reads a number, or throws ParseError naming the object and key; a real may hold an exact length set by an edit. */
+export const numberValue = (value: PdfObject | undefined, where: string): number => {
+  if (value?.kind === 'integer') return value.value;
+  if (value?.kind === 'real') return typeof value.value === 'number' ? value.value : Number(formatLength(value.value, DEFAULT_FRACTION_DIGITS));
+  const found = value?.kind === 'invalid' ? `the token ${new TextDecoder('latin1').decode(value.bytes)}` : (value?.kind ?? 'nothing');
+  throw new ParseError(`${where} must be a number but is ${found}`, 0);
+};
+
+// ISO 32000-1:2008, 7.9.5: "A rectangle shall be written as an array of four numbers giving the coordinates of a pair of diagonally opposite corners." Rectangles are normalised, as its NOTE says readers should be prepared to do.
+const rectangle = (resolver: ObjectResolver, value: PdfDirectObject, where: string): EffectiveBox['rect'] => {
+  const array = resolver.deref(value);
+  if (array?.kind !== 'array' || array.items.length !== 4) throw new ParseError(`${where} is not an array of four numbers`, 0);
+  const [x1, y1, x2, y2] = array.items.map((item, index) => numberValue(resolver.deref(item), `${where}[${String(index)}]`));
+  return [Math.min(x1 ?? 0, x2 ?? 0), Math.min(y1 ?? 0, y2 ?? 0), Math.max(x1 ?? 0, x2 ?? 0), Math.max(y1 ?? 0, y2 ?? 0)];
+};
+
+interface Found {
+  readonly value: PdfDirectObject;
+  readonly from?: PdfReference;
+}
+
+// 7.7.3.4: "If such an attribute is omitted from a page object, its value shall be inherited from an ancestor node in the page tree."
+const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
+  const own = dictionaryOf(resolver, entry.reference).get(key);
+  if (own !== undefined) return { value: own };
+  for (const ancestor of entry.ancestors) {
+    const value = dictionaryOf(resolver, ancestor).get(key);
+    if (value !== undefined) return { value, from: ancestor };
+  }
+  return undefined;
+};
+
+const box = (resolver: ObjectResolver, found: Found, where: string): EffectiveBox => {
+  const rect = rectangle(resolver, found.value, where);
+  return found.from === undefined ? { rect, explicit: true } : { rect, explicit: true, inheritedFrom: found.from };
+};
+
+export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): EffectiveBoxes => {
+  const page = label(entry.reference);
+  const media = inherited(resolver, entry, MEDIA_BOX);
+  // Table 30, MediaBox: "(Required; inheritable)".
+  if (media === undefined) throw new ParseError(`page ${page} has no MediaBox, on itself or on an ancestor`, 0);
+  const mediaBox = box(resolver, media, `the MediaBox of page ${page}`);
+  const crop = inherited(resolver, entry, CROP_BOX);
+  // Table 30, CropBox: "Default value: the value of MediaBox"; BleedBox, TrimBox and ArtBox: "Default value: the value of CropBox". Those three are not inheritable.
+  const cropBox = crop === undefined ? { rect: mediaBox.rect, explicit: false } : box(resolver, crop, `the CropBox of page ${page}`);
+  const own = dictionaryOf(resolver, entry.reference);
+  const production = (name: 'BleedBox' | 'TrimBox' | 'ArtBox'): EffectiveBox => {
+    const value = own.get(pdfName(name).bytes);
+    return value === undefined ? { rect: cropBox.rect, explicit: false } : box(resolver, { value }, `the ${name} of page ${page}`);
+  };
+  const rotate = inherited(resolver, entry, ROTATE);
+  const userUnit = own.get(USER_UNIT);
+  return {
+    MediaBox: mediaBox,
+    CropBox: cropBox,
+    BleedBox: production('BleedBox'),
+    TrimBox: production('TrimBox'),
+    ArtBox: production('ArtBox'),
+    // Table 30, Rotate: "(Optional; inheritable) ... Default value: 0"; UserUnit: "(Optional; PDF 1.6) ... Default value: 1.0".
+    rotate: rotate === undefined ? 0 : numberValue(resolver.deref(rotate.value), `the Rotate of page ${page}`),
+    userUnit: userUnit === undefined ? 1 : numberValue(resolver.deref(userUnit), `the UserUnit of page ${page}`),
+  };
+};
+
+export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry): PdfDictionaryEntries | undefined => {
+  const found = inherited(resolver, entry, RESOURCES);
+  if (found === undefined) return undefined;
+  const value = resolver.deref(found.value);
+  if (value?.kind !== 'dictionary') throw new ParseError(`the Resources of page ${label(entry.reference)} is not a dictionary`, 0);
+  return value.entries;
+};
+
+const copied = (value: PdfObject | undefined): PdfObject | undefined => (value === undefined ? undefined : cloneObject(value));
+
+export const createLoadedPage = (resolver: ObjectResolver, entry: PageEntry, index: number): LoadedPage => ({
+  index,
+  reference: entry.reference,
+  boxes: () => effectiveBoxes(resolver, entry),
+  resources: () => {
+    const resources = effectiveResources(resolver, entry);
+    return parsedDictionaryEntries(resources === undefined ? [] : [...resources.entries()].map(([key, value]) => [key, cloneDirect(value)] as const));
+  },
+  lastModified: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(LAST_MODIFIED))),
+  pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),
+});

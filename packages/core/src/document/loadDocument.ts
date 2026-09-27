@@ -1,7 +1,9 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { LoadWarning } from '../parse/loadWarning.ts';
+import type { LoadedPage } from './loadedPage.ts';
 import type { ObjectStore } from './objectStore.ts';
+import type { PageEntry } from './pageTree.ts';
 import type { DocumentStructure, LoadSession, ReadStructure } from './readStructure.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -11,7 +13,9 @@ import { ByteSource } from '../parse/byteSource.ts';
 import { locateHeader } from '../xref/locate.ts';
 import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
 
+import { createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
+import { enumeratePages } from './pageTree.ts';
 import { readFromChain, reconstruct } from './readStructure.ts';
 
 export interface LoadOptions {
@@ -34,6 +38,9 @@ export interface LoadOptions {
 export interface LoadedDocument {
   readonly structure: DocumentStructure;
   readonly warnings: readonly LoadWarning[];
+  readonly pageCount: number;
+  /** The page at a 0-based index; InvalidArgumentError when out of range. */
+  page: (index: number) => LoadedPage;
   /** A fresh parse of the object on every call; null for free and absent objects. */
   get: (reference: PdfReference) => PdfObject;
   /** A fresh copy of the document catalog. */
@@ -41,6 +48,7 @@ export interface LoadedDocument {
 }
 
 const ROOT = pdfName('Root').bytes;
+const PAGES = pdfName('Pages').bytes;
 
 const count = (value: number | undefined, fallback: number, name: string): number => {
   const result = value ?? fallback;
@@ -57,15 +65,35 @@ const sessionOptions = (options: LoadOptions): LoadSession['options'] => ({
   recovery: options.recovery ?? 'refuse-ambiguous',
 });
 
+interface LoadedParts {
+  readonly read: ReadStructure;
+  readonly warnings: readonly LoadWarning[];
+  readonly pages: readonly PageEntry[];
+}
+
 class LoadedPdf implements LoadedDocument {
   readonly structure: DocumentStructure;
   readonly warnings: readonly LoadWarning[];
   private readonly store: ObjectStore;
+  private readonly pages: readonly PageEntry[];
 
-  constructor(read: ReadStructure, warnings: readonly LoadWarning[]) {
-    this.structure = read.structure;
-    this.store = read.store;
-    this.warnings = warnings;
+  constructor(parts: LoadedParts) {
+    this.structure = parts.read.structure;
+    this.store = parts.read.store;
+    this.warnings = parts.warnings;
+    this.pages = parts.pages;
+  }
+
+  get pageCount(): number {
+    return this.pages.length;
+  }
+
+  page(index: number): LoadedPage {
+    const entry = this.pages[index];
+    if (!Number.isSafeInteger(index) || entry === undefined) {
+      throw new InvalidArgumentError(`page index ${String(index)} is outside 0 to ${String(this.pages.length - 1)}`);
+    }
+    return createLoadedPage(this.store, entry, index);
   }
 
   get(reference: PdfReference): PdfObject {
@@ -108,7 +136,25 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     }
   }
   read ??= reconstruct(session, reason, header ?? { offset: 0, version: '' });
+  const { store } = read;
+  const warn = (warning: LoadWarning): void => {
+    log.warn(warning);
+  };
+  const root = read.structure.trailer.get(ROOT);
+  const catalog = root?.kind === 'reference' ? store.resolve(root.objectNumber, root.generation) : undefined;
+  if (catalog?.kind !== 'dictionary') throw new ParseError('the document catalog is not a dictionary', 0);
+  const pages = enumeratePages(store, catalog.entries.get(PAGES), { pageCountMismatch: options.pageCountMismatch ?? 'error', warn });
+  for (const entry of pages) {
+    // ISO 32000-1:2008, Table 30, Resources: "(Required; inheritable)"; many writers omit it for pages that need no resources, which reads as an empty dictionary.
+    if (effectiveResources(store, entry) === undefined) {
+      warn({
+        code: 'resources-missing',
+        detail: `page ${String(entry.reference.objectNumber)} has no Resources, on itself or on an ancestor`,
+        objectNumber: entry.reference.objectNumber,
+      });
+    }
+  }
   let { status } = read.structure;
   if (status === 'intact' && log.tolerated) status = 'tolerated';
-  return new LoadedPdf({ store: read.store, structure: { ...read.structure, status } }, log.warnings);
+  return new LoadedPdf({ read: { store, structure: { ...read.structure, status } }, warnings: log.warnings, pages });
 };
