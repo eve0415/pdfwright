@@ -53,6 +53,8 @@ export interface ContentHooks {
   groupSummary?: (group: PdfGroup) => ContentSummary;
   registerGroup?: (group: PdfGroup) => string;
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
+  // True for a form, which starts from the graphics state of whatever content invokes it (ISO 32000-1:2008, 8.10.1).
+  inheritsState?: boolean;
   maxDepth?: number;
 }
 
@@ -99,26 +101,36 @@ export interface ContentSession {
 
 const EMPTY_SUMMARY: ContentSummary = { inheritedWhite: { fill: false, stroke: false }, depth: 0, colorSpace: undefined };
 
-const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
-  // ISO 32000-1:2008, 8.4.5, Table 58 makes OP set both overprint flags unless op is also supplied; this writer writes both explicitly.
-  if (options.fillAlpha !== undefined && (!Number.isFinite(options.fillAlpha) || options.fillAlpha < 0 || options.fillAlpha > 1)) {
-    throw new ValidationError('fill alpha must be in [0, 1]');
+const validAlpha = (value: number | undefined): boolean => value === undefined || (Number.isFinite(value) && value >= 0 && value <= 1);
+
+// ISO 32000-1:2008, 8.4.5, Table 58: "Specifying an OP entry shall set both parameters unless there is also an op entry in the same graphics state parameter dictionary", and for op, "If this entry is absent, the OP entry, if any, shall also set this parameter."
+// So op alone sets only the fill flag, while the stroke flag alone needs op beside OP to keep the fill flag. Page content knows both flags and writes both; a form cannot know the flags it inherits, so it writes op alone and refuses OP alone.
+const overprintFlags = (
+  ...[options, state, inheritsState]: [GraphicsStateOptions, CurrentGraphicsState, boolean]
+): Pick<GraphicsStateOptions, 'overprintFill' | 'overprintStroke'> => {
+  if (options.overprintFill === undefined && options.overprintStroke === undefined) return {};
+  if (!inheritsState) return { overprintFill: options.overprintFill ?? state.overprintFill, overprintStroke: options.overprintStroke ?? state.overprintStroke };
+  if (options.overprintFill === undefined) {
+    throw new ValidationError(
+      'inside a group, overprintStroke also needs overprintFill: OP alone sets both flags, and a group cannot know the fill flag it inherits',
+    );
   }
-  if (options.strokeAlpha !== undefined && (!Number.isFinite(options.strokeAlpha) || options.strokeAlpha < 0 || options.strokeAlpha > 1)) {
-    throw new ValidationError('stroke alpha must be in [0, 1]');
-  }
-  const normalized: GraphicsStateOptions = {};
+  return options.overprintStroke === undefined
+    ? { overprintFill: options.overprintFill }
+    : { overprintFill: options.overprintFill, overprintStroke: options.overprintStroke };
+};
+
+const normalizeGraphicsState = (...[options, state, inheritsState]: [GraphicsStateOptions, CurrentGraphicsState, boolean]): GraphicsStateOptions => {
+  if (!validAlpha(options.fillAlpha)) throw new ValidationError('fill alpha must be in [0, 1]');
+  if (!validAlpha(options.strokeAlpha)) throw new ValidationError('stroke alpha must be in [0, 1]');
+  const normalized: GraphicsStateOptions = overprintFlags(options, state, inheritsState);
   if (options.fillAlpha !== undefined) normalized.fillAlpha = options.fillAlpha;
   if (options.strokeAlpha !== undefined) normalized.strokeAlpha = options.strokeAlpha;
   if (options.blendMode !== undefined) normalized.blendMode = options.blendMode;
   if (options.overprintMode !== undefined) normalized.overprintMode = options.overprintMode;
   if (options.softMask !== undefined) normalized.softMask = options.softMask;
-  if (options.overprintFill !== undefined || options.overprintStroke !== undefined) {
-    normalized.overprintFill = options.overprintFill ?? state.overprintFill;
-    normalized.overprintStroke = options.overprintStroke ?? state.overprintStroke;
-    state.overprintFill = normalized.overprintFill;
-    state.overprintStroke = normalized.overprintStroke;
-  }
+  if (normalized.overprintFill !== undefined) state.overprintFill = normalized.overprintFill;
+  if (normalized.overprintStroke !== undefined) state.overprintStroke = normalized.overprintStroke;
   if (options.overprintMode !== undefined) state.overprintMode = options.overprintMode;
   state.ownExtGState = true;
   return normalized;
@@ -300,7 +312,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       paintColor(color, tint, true);
     },
     graphicsState: (options): void => {
-      const normalized = normalizeGraphicsState(options, state);
+      const normalized = normalizeGraphicsState(options, state, hooks.inheritsState === true);
       const key = JSON.stringify([
         normalized.fillAlpha,
         normalized.strokeAlpha,

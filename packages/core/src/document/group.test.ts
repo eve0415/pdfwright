@@ -138,4 +138,23 @@ describe('transparency groups', () => {
       content.restore();
     });
   });
+
+  it('writes only the overprint keys a group sets, since it cannot know the flags it inherits', () => {
+    const document = createDocument();
+    const box = rect(pt(0), pt(0), pt(20), pt(20));
+    document.group({ bbox: box }, content => {
+      content.graphicsState({ overprintFill: true });
+    });
+    document.group({ bbox: box }, content => {
+      content.graphicsState({ overprintFill: false, overprintStroke: true });
+    });
+    expect(() =>
+      document.group({ bbox: box }, content => {
+        content.graphicsState({ overprintStroke: true });
+      }),
+    ).toThrow(/overprintFill/u);
+    const pdf = ascii(document.save().toBytes());
+    expect(pdf).toContain('/ExtGState<</GS1<</op true>>>>');
+    expect(pdf).toContain('/ExtGState<</GS1<</OP true/op false>>>>');
+  });
 });

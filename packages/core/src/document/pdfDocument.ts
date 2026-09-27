@@ -339,6 +339,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       const hooks = createContentHooks(resources, records, attributes.colorSpace);
       // A group is drawn only through a page, so its content always starts inside the page's isolating q, the placement's q and the save made by Do (ISO 32000-1:2008, 8.10.1).
       hooks.maxDepth = 25;
+      hooks.inheritsState = true;
       const session = createContentBuilder(fractionDigits, hooks);
       render(session.content);
       const { data, summary } = session.finish();
