@@ -133,6 +133,12 @@ describe('setting document metadata', () => {
     ]).toStrictEqual(['kept', undefined, 'kept too', true]);
   });
 
+  it('reports replacing a direct Info dictionary with an indirect one', () => {
+    const change = setMetadata(load('', [], `${ID}/Info<</Custom(kept)>>`), INPUT);
+    expect(change.findings.map(finding => finding.code)).toStrictEqual(['info-not-indirect']);
+    expect(setMetadata(load(''), INPUT).findings).toStrictEqual([]);
+  });
+
   it('reconciles values the input leaves out from the authoritative side and reports what it discarded', () => {
     const document = load(
       '/Metadata 4 0 R',

@@ -4,6 +4,7 @@ import type { EditedObjects, ObjectChange } from '../document/editedObjects.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { MappedKey, MappedProperty, MetadataMapping } from './mapping.ts';
+import type { MetadataFinding } from './metadataFinding.ts';
 import type { ComponentPacket, DocumentPacket, MetadataState } from './readMetadata.ts';
 import type { SignatureProtection } from './signatures.ts';
 import type { ReadPacket } from './xmp/readXmp.ts';
@@ -78,6 +79,8 @@ export interface MetadataChange {
   readonly saveMode: 'full-required' | 'any';
   /** With revisions 'keep', how many packets an incremental update leaves in earlier revisions or in deleted objects; undefined when a full rewrite removes them. */
   readonly supersededPackets: number | undefined;
+  /** What the edit did that a caller may need to know beyond the values: a direct Info dictionary made indirect, a packet re-encoded as UTF-8, values it left as they were stored. */
+  readonly findings: readonly MetadataFinding[];
 }
 
 interface ResolvedValues {
@@ -447,6 +450,11 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   objects.setSaveHook((changes, context) => {
     changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes, context.fractionDigits).value });
   });
+  const findings: MetadataFinding[] = [];
+  // ISO 32000-1:2008, Table 15, Info: "(Optional; shall be an indirect reference)".
+  if (state.info !== undefined && state.info.reference === undefined) {
+    findings.push({ code: 'info-not-indirect', detail: 'the direct document information dictionary was replaced by an indirect one' });
+  }
   internals.objects.adopt(objects);
   previousInstanceIds.set(internals.objects, previous);
   return {
@@ -457,5 +465,6 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
     instanceId: current.instanceId,
     saveMode: keep ? 'any' : 'full-required',
     supersededPackets,
+    findings,
   };
 };
