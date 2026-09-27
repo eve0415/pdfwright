@@ -30,6 +30,11 @@ export interface MatchTextOptions {
    * `ignore`: spans are not used.
    */
   readonly actualText?: 'checked' | 'ignore';
+  /**
+   * `collapse` (the default): when the selected glyphs are two or more consecutive runs of the same codes in the same fonts, each an exact translation of the first by less than half its advance, as Chromium draws text with text-shadow, -webkit-text-stroke or mask-image, only the last run drawn is compared.
+   * `keep`: every run is compared.
+   */
+  readonly duplicates?: 'collapse' | 'keep';
 }
 
 /**
@@ -66,6 +71,12 @@ export interface FoldApplied {
   readonly glyphs: readonly number[];
 }
 
+/** Runs of glyphs drawn as copies of one text: the glyphs of each copy, and the index of the copy compared. */
+export interface DuplicateRuns {
+  readonly copies: readonly (readonly number[])[];
+  readonly kept: number;
+}
+
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.
@@ -77,6 +88,7 @@ export interface TextMatch {
   readonly found: string;
   readonly differences: readonly TextDifference[];
   readonly folds: readonly FoldApplied[];
+  readonly duplicates: readonly DuplicateRuns[];
   /** The keys of the fonts of the compared glyphs, in the order of first use. */
   readonly fonts: readonly string[];
   /** The compared glyphs in the order compared. */
@@ -338,6 +350,43 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
   return differences;
 };
 
+// Copies of a run must repeat its glyph origins within this fraction of the font size.
+const TRANSLATION_TOLERANCE = 0.005;
+
+const sameCode = (a: PageGlyph, b: PageGlyph): boolean =>
+  a.font === b.font && a.code.length === b.code.length && a.code.every((byte, index) => byte === b.code[index]);
+
+// Whether the runs are copies of the first: the same codes in the same fonts, with origins moved by one translation per copy, shorter than half the run's advance so that the copies overlap.
+const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
+  const [first, ...rest] = runs;
+  if (first === undefined) return false;
+  const length = first.reduce((sum, glyph) => sum + Math.hypot(...glyph.advance), 0);
+  return rest.every(run => {
+    const [head] = run;
+    const [base] = first;
+    if (head === undefined || base === undefined) return false;
+    const [dx, dy] = [head.origin[0] - base.origin[0], head.origin[1] - base.origin[1]];
+    if (Math.hypot(dx, dy) >= length / 2) return false;
+    return run.every((glyph, index) => {
+      const original = first[index];
+      if (original === undefined || !sameCode(glyph, original) || !glyph.positionKnown || !original.positionKnown) return false;
+      const drift = Math.hypot(glyph.origin[0] - original.origin[0] - dx, glyph.origin[1] - original.origin[1] - dy);
+      return drift <= TRANSLATION_TOLERANCE * original.fontSize;
+    });
+  });
+};
+
+/** Splits the glyphs into the most consecutive equal-length runs that are copies of the first, when there are two or more. */
+const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] | undefined => {
+  for (let count = glyphs.length; count >= 2; count--) {
+    if (glyphs.length % count !== 0) continue;
+    const size = glyphs.length / count;
+    const runs = Array.from({ length: count }, (_, index) => glyphs.slice(index * size, (index + 1) * size));
+    if (copies(runs)) return runs;
+  }
+  return undefined;
+};
+
 const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped', 'substituted', 'missing', 'extra']);
 
 /** A glyph compared on its own, or the compared glyphs of an ActualText span, or a span none of whose glyphs is compared. */
@@ -376,23 +425,17 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
   return units;
 };
 
-/**
- * Compares the text a page shows with the text it is meant to show, such as a customer's name on a proof, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
- * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
- * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
- */
-export const matchText = (page: PageText, intended: string, options: MatchTextOptions = {}): TextMatch => {
-  const settings: Settings = {
-    actualText: options.actualText ?? 'checked',
-    whitespace: options.whitespace ?? 'ignore',
-    folds: options.folds ?? TEXT_FOLDS,
-    equivalents: new Map(options.equivalents),
-    selectors: options.variationSelectors ?? 'require-glyph-evidence',
-    cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
-  };
-  const selected = orderGlyphs(page.glyphs.filter(options.select ?? defaultSelection(page)), options.order ?? 'content');
-  const found = new FoundText(settings);
-  for (const unit of unitsOf(page, selected, settings.actualText)) {
+const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
+  actualText: options.actualText ?? 'checked',
+  whitespace: options.whitespace ?? 'ignore',
+  folds: options.folds ?? TEXT_FOLDS,
+  equivalents: new Map(options.equivalents),
+  selectors: options.variationSelectors ?? 'require-glyph-evidence',
+  cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
+});
+
+const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): void => {
+  for (const unit of units) {
     if (unit.kind === 'glyph') found.add(unit.glyph);
     else {
       const text = page.actualText[unit.index]?.text ?? '';
@@ -400,6 +443,26 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
       else found.addUnseenSpan({ index: unit.index, text });
     }
   }
+};
+
+// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText or text a glyph's font program contradicts.
+const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
+  if (differences.some(difference => MISMATCHES.has(difference.kind))) return 'mismatch';
+  return differences.length > 0 ? 'unverified' : 'match';
+};
+
+/**
+ * Compares the text a page shows with the text it is meant to show, such as a customer's name on a proof, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
+ * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
+ * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
+ */
+export const matchText = (page: PageText, intended: string, options: MatchTextOptions = {}): TextMatch => {
+  const settings = settingsOf(page, options);
+  const ordered = orderGlyphs(page.glyphs.filter(options.select ?? defaultSelection(page)), options.order ?? 'content');
+  const runs = (options.duplicates ?? 'collapse') === 'collapse' ? duplicateRuns(ordered) : undefined;
+  const selected = runs?.at(-1) ?? ordered;
+  const found = new FoundText(settings);
+  readUnits(found, page, unitsOf(page, selected, settings.actualText));
   const keep = (character: string): boolean =>
     !(settings.whitespace === 'ignore' && WHITE_SPACE.test(character)) && !(settings.selectors === 'ignore' && isSelector(character.codePointAt(0) ?? 0));
   const wanted = clusters(intended, keep);
@@ -408,16 +471,13 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     return have !== undefined && have.failure === undefined && have.text === wanted[a]?.text;
   });
   const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes];
-  const mismatch = differences.some(difference => MISMATCHES.has(difference.kind));
-  let status: TextMatch['status'] = 'match';
-  if (mismatch) status = 'mismatch';
-  else if (differences.length > 0) status = 'unverified';
   return {
-    status,
+    status: statusOf(differences),
     intended,
     found: found.clusters.map(cluster => cluster.text).join(''),
     differences,
     folds: found.foldsApplied(),
+    duplicates: runs === undefined ? [] : [{ copies: runs.map(run => run.map(glyph => glyph.index)), kept: runs.length - 1 }],
     fonts: [...new Set(selected.map(glyph => glyph.font))],
     glyphs: selected.map(glyph => glyph.index),
     evidence: selected.length > 0 && selected.every(glyph => found.confirmed.has(glyph.index)) ? 'glyph-checked' : 'glyph-text-only',

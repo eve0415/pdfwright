@@ -91,6 +91,9 @@ const spanOf = ([text, ...codes]: readonly [string, ...number[]]): string => spa
 const spanned = (...parts: readonly (number | readonly [string, ...number[]])[]): string =>
   `BT /T 10 Tf 100 700 Td ${parts.map(part => (typeof part === 'number' ? show(part) : spanOf(part))).join(' ')} ET`;
 
+/** Shows the codes at 10 points from (x, y). */
+const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${String(x)} ${String(y)} Td ${codes} ET`;
+
 const summary = (result: TextMatch): unknown[] => [result.status, result.found, result.differences];
 
 const summaryOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): unknown[] => summary(match(proof, intended, options));
@@ -399,6 +402,47 @@ describe('text matching', () => {
       ];
       const result = match({ texts: [], content: 'BT /E 10 Tf 100 700 Td (a) Tj ET', resources: '/Font<</E 120 0 R>>', objects: type3 }, 'a');
       expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
+    });
+  });
+
+  describe('duplicated runs', () => {
+    it('collapses copies drawn as exact translations and compares the last one drawn', () => {
+      // text-shadow draws the text once offset, then again on top; -webkit-text-stroke draws it again in place.
+      const shadow = `${drawnAt(101, 699, show(1, 2))} ${drawnAt(100, 700, show(1, 2))}`;
+      const result = match({ texts: ['山', '田'], content: shadow }, '山田');
+      expect([result.status, result.glyphs, result.duplicates]).toStrictEqual([
+        'match',
+        [2, 3],
+        [
+          {
+            copies: [
+              [0, 1],
+              [2, 3],
+            ],
+            kept: 1,
+          },
+        ],
+      ]);
+      const stroke = `${drawnAt(100, 700, show(1, 2))} ${drawnAt(101, 699, show(1, 2))} BT 1 Tr /T 10 Tf 100 700 Td ${show(1, 2)} ET`;
+      expect(match({ texts: ['山', '田'], content: stroke }, '山田').duplicates).toStrictEqual([
+        {
+          copies: [
+            [0, 1],
+            [2, 3],
+            [4, 5],
+          ],
+          kept: 2,
+        },
+      ]);
+      expect(statusOf({ texts: ['山', '田'], content: shadow }, '山田', { duplicates: 'keep' })).toBe('mismatch');
+    });
+
+    it('leaves copies that are not exact translations, and repeated text side by side, alone', () => {
+      const spaced = `${drawnAt(100, 700, show(1, 2))} BT /T 10 Tf 2 Tc 101 699 Td ${show(1, 2)} ET`;
+      expect(statusOf({ texts: ['山', '田'], content: spaced }, '山田')).toBe('mismatch');
+      const repeated = drawnAt(100, 700, show(1, 1));
+      expect(statusOf({ texts: ['こ'], content: repeated }, 'こ')).toBe('mismatch');
+      expect(statusOf({ texts: ['こ'], content: repeated }, 'ここ')).toBe('match');
     });
   });
 });
