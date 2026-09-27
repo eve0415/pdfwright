@@ -1,8 +1,6 @@
-import type { Runtime } from '../../../../tests/providedContext.ts';
-
 import { zlibSync as compressFflate } from 'fflate';
 import { deflate } from 'pako';
-import { describe, expect, inject, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
@@ -51,9 +49,7 @@ describe('zlib inflation', () => {
     }
   });
 
-  const runtime: Runtime = inject('runtime');
-
-  it.runIf(runtime === 'node')('decodes ten MiB of highly compressible data on Node', () => {
+  it('decodes ten MiB of highly compressible data', () => {
     const data = largeData();
     for (const level of [0, 1, 6, 9] as const) {
       const fflateResult = inflateZlib(compressFflate(data, { level }));

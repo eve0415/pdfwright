@@ -52,7 +52,7 @@ describe('deterministic deflate encoding', () => {
   const runtime: Runtime = inject('runtime');
 
   it('round-trips levels 0 through 9 through three independent decoders', () => {
-    for (const [, data] of corpus(runtime === 'node')) {
+    for (const [, data] of corpus(true)) {
       for (const level of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as const) {
         const encoded = deflateZlib(data, { level });
         expect(encoded.length).toBeGreaterThan(0);
