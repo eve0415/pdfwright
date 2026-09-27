@@ -1,5 +1,8 @@
 import type { LoadWarning } from './loadWarning.ts';
 
+import { ByteWriter } from '../bytes/byteWriter.ts';
+import { ParseError } from '../error/parseError.ts';
+
 import { isRegular, isWhitespace } from './characterClass.ts';
 import { WindowEndError } from './windowEndError.ts';
 
@@ -12,6 +15,7 @@ export type Token =
   | { kind: 'real'; value: number; start: number; end: number }
   | { kind: 'invalid'; reason: InvalidTokenReason; start: number; end: number }
   | { kind: 'name'; bytes: Uint8Array; start: number; end: number }
+  | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex'; start: number; end: number }
   | { kind: 'arrayOpen' | 'arrayClose' | 'dictionaryOpen' | 'dictionaryClose'; start: number; end: number }
   | { kind: 'keyword'; keyword: Keyword; start: number; end: number }
   | { kind: 'eof'; start: number; end: number };
@@ -32,6 +36,18 @@ export interface LexContext {
 const KEYWORDS: ReadonlyMap<string, Keyword> = new Map(
   (['true', 'false', 'null', 'obj', 'endobj', 'stream', 'endstream', 'R', 'xref', 'trailer', 'startxref'] as const).map(keyword => [keyword, keyword]),
 );
+
+// ISO 32000-1:2008, 7.3.4.2, Table 3: \n \r \t \b \f \( \) \\.
+const ESCAPES: ReadonlyMap<number, number> = new Map([
+  [0x6e, 0x0a],
+  [0x72, 0x0d],
+  [0x74, 0x09],
+  [0x62, 0x08],
+  [0x66, 0x0c],
+  [0x28, 0x28],
+  [0x29, 0x29],
+  [0x5c, 0x5c],
+]);
 
 const latin1 = (bytes: Uint8Array, start: number, end: number): string => {
   let text = '';
@@ -174,9 +190,12 @@ export class Lexer {
       case 0x5d: {
         return { kind: 'arrayClose', start, end: start + 1 };
       }
+      case 0x28: {
+        return this.readLiteralString(start);
+      }
       case 0x3c: {
         if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3c) return { kind: 'dictionaryOpen', start, end: start + 2 };
-        break;
+        return this.readHexString(start);
       }
       case 0x3e: {
         if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3e) return { kind: 'dictionaryClose', start, end: start + 2 };
@@ -218,5 +237,94 @@ export class Lexer {
       this.context.names.set(key, interned);
     }
     return { kind: 'name', bytes: interned, start, end };
+  }
+
+  private unterminated(position: number, start: number, what: string): void {
+    if (this.atEnd(position)) throw new ParseError(`unterminated ${what}`, this.base + start);
+  }
+
+  // ISO 32000-1:2008, 7.3.4.2 defines literal strings: balanced parentheses, the escapes of Table 3, line continuation and end-of-line normalisation.
+  private readLiteralString(start: number): Token {
+    const { bytes } = this;
+    const output = new ByteWriter();
+    let depth = 1;
+    let index = start + 1;
+    for (;;) {
+      this.unterminated(index, start, 'literal string');
+      const byte = bytes[index] ?? 0;
+      index++;
+      if (byte === 0x5c) {
+        this.unterminated(index, start, 'literal string');
+        index = this.readEscape(index, output, start);
+      } else if (byte === 0x0d) {
+        // "An end-of-line marker appearing within a literal string without a preceding REVERSE SOLIDUS shall be treated as a byte value of (0Ah), irrespective of whether the end-of-line marker was a CARRIAGE RETURN (0Dh), a LINE FEED (0Ah), or both."
+        this.unterminated(index, start, 'literal string');
+        if (bytes[index] === 0x0a) index++;
+        output.writeByte(0x0a);
+      } else {
+        // "Balanced pairs of parentheses within a string require no special treatment."
+        if (byte === 0x28) depth++;
+        else if (byte === 0x29) depth--;
+        if (depth === 0) break;
+        output.writeByte(byte);
+      }
+    }
+    return { kind: 'string', bytes: output.toUint8Array(), encoding: 'literal', start, end: index };
+  }
+
+  private readEscape(position: number, output: ByteWriter, start: number): number {
+    const { bytes } = this;
+    const letter = bytes[position] ?? 0;
+    const simple = ESCAPES.get(letter);
+    if (simple !== undefined) {
+      output.writeByte(simple);
+      return position + 1;
+    }
+    if (letter >= 0x30 && letter <= 0x37) {
+      // "The number ddd may consist of one, two, or three octal digits; high-order overflow shall be ignored."
+      let value = 0;
+      let index = position;
+      while (index < position + 3) {
+        this.unterminated(index, start, 'literal string');
+        const digit = bytes[index] ?? 0;
+        if (digit < 0x30 || digit > 0x37) break;
+        value = value * 8 + (digit - 0x30);
+        index++;
+      }
+      output.writeByte(value % 256);
+      return index;
+    }
+    // "The REVERSE SOLIDUS (5Ch) (backslash character) at the end of a line shall be used to indicate that the string continues on the following line. A conforming reader shall disregard the REVERSE SOLIDUS and the end-of-line marker following it"
+    if (letter === 0x0d) {
+      this.unterminated(position + 1, start, 'literal string');
+      return bytes[position + 1] === 0x0a ? position + 2 : position + 1;
+    }
+    if (letter === 0x0a) return position + 1;
+    // "If the character following the REVERSE SOLIDUS is not one of those shown in Table 3, the REVERSE SOLIDUS shall be ignored."
+    return position;
+  }
+
+  // ISO 32000-1:2008, 7.3.4.3: white space is ignored, and "if there is an odd number of digits—the final digit shall be assumed to be 0."
+  private readHexString(start: number): Token {
+    const { bytes } = this;
+    const output = new ByteWriter();
+    let high = -1;
+    let index = start + 1;
+    for (;;) {
+      this.unterminated(index, start, 'hexadecimal string');
+      const byte = bytes[index] ?? 0;
+      index++;
+      if (byte === 0x3e) break;
+      if (isWhitespace(byte)) continue;
+      const value = hexValue(byte);
+      if (value < 0) throw new ParseError('invalid digit in a hexadecimal string', this.base + index - 1);
+      if (high < 0) high = value;
+      else {
+        output.writeByte(high * 16 + value);
+        high = -1;
+      }
+    }
+    if (high >= 0) output.writeByte(high * 16);
+    return { kind: 'string', bytes: output.toUint8Array(), encoding: 'hex', start, end: index };
   }
 }

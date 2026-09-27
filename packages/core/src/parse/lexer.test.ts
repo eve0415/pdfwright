@@ -3,6 +3,8 @@ import type { LoadWarning } from './loadWarning.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { ParseError } from '../error/parseError.ts';
+
 import { Lexer } from './lexer.ts';
 import { WindowEndError } from './windowEndError.ts';
 
@@ -37,10 +39,17 @@ const summary = (token: Token): number | string => {
   if (token.kind === 'invalid') return token.reason;
   if (token.kind === 'keyword') return token.keyword;
   if (token.kind === 'name') return `/${String.fromCodePoint(...token.bytes)}`;
+  if (token.kind === 'string') return token.encoding;
   return token.kind;
 };
 
 const summaries = (text: string): (number | string)[] => lex(text).tokens.map(token => summary(token));
+
+const stringBytes = (text: string): number[][] => {
+  const strings: number[][] = [];
+  for (const token of lex(text).tokens) if (token.kind === 'string') strings.push([...token.bytes]);
+  return strings;
+};
 
 const nameLengths = (text: string): number[] => lex(text).tokens.map(token => (token.kind === 'name' ? token.bytes.length : -1));
 
@@ -102,6 +111,37 @@ describe('pdf lexer', () => {
     expect([sameNameArray(source.next(), source.next())]).toStrictEqual([true]);
   });
 
+  it('decodes the escapes of Table 3 and ignores a backslash before any other byte', () => {
+    expect(stringBytes(String.raw`(\n\r\t\b\f\(\)\\\q)`)).toStrictEqual([[0x0a, 0x0d, 0x09, 0x08, 0x0c, 0x28, 0x29, 0x5c, 0x71]]);
+    expect(stringBytes(String.raw`(\0053 \053 \53 \777 \7)`)).toStrictEqual([[5, 0x33, 0x20, 0x2b, 0x20, 0x2b, 0x20, 0xff, 0x20, 7]]);
+  });
+
+  it('keeps balanced parentheses and normalises line ends in literal strings', () => {
+    expect(stringBytes('(a(b)c)')).toStrictEqual([[0x61, 0x28, 0x62, 0x29, 0x63]]);
+    expect(stringBytes('(a\r\nb\rc\nd)')).toStrictEqual([[0x61, 0x0a, 0x62, 0x0a, 0x63, 0x0a, 0x64]]);
+    expect(stringBytes('(a\\\r\nb\\\rc\\\nd)')).toStrictEqual([[0x61, 0x62, 0x63, 0x64]]);
+    expect(lex('(x) (y)').tokens.map(token => [token.start, token.end])).toStrictEqual([
+      [0, 3],
+      [4, 7],
+    ]);
+  });
+
+  it('reads hexadecimal strings with white space and an odd final digit', () => {
+    expect(stringBytes('<901FA3> < 90 1f\nA >')).toStrictEqual([
+      [0x90, 0x1f, 0xa3],
+      [0x90, 0x1f, 0xa0],
+    ]);
+    expect(lex('<> ()').tokens.map(token => summary(token))).toStrictEqual(['hex', 'literal']);
+  });
+
+  it('rejects unterminated strings and invalid hexadecimal digits at their offsets', () => {
+    expect(() => lex(' (abc')).toThrow(new ParseError('unterminated literal string', 1));
+    expect(() => lex('(a\\')).toThrow(ParseError);
+    expect(() => lex('<12')).toThrow(new ParseError('unterminated hexadecimal string', 0));
+    expect(() => lex('<12G4>')).toThrow(new ParseError('invalid digit in a hexadecimal string', 3));
+    expect(() => lexer('(abc', false).next()).toThrow(WindowEndError);
+  });
+
   it('skips comments as white space and reads delimiters', () => {
     expect(summaries('abc% comment ( /% ) blah\n123 [ ] << >> { } ) >')).toStrictEqual([
       'other',
@@ -115,6 +155,7 @@ describe('pdf lexer', () => {
       'stray-delimiter',
       'stray-delimiter',
     ]);
+    expect(summaries('% (unbalanced\n(% not a comment)')).toStrictEqual(['literal']);
   });
 
   it('peeks without consuming and seeks to an offset', () => {
