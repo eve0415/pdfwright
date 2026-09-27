@@ -119,6 +119,10 @@ const dynamicTrees = (reader: BitReader): [Huffman, Huffman] => {
   // RFC 1951, 3.2.7 encodes the code-length alphabet in a fixed permutation, then run-length encodes the two trees.
   const literalCount = reader.readBits(5) + 257;
   const distanceCount = reader.readBits(5) + 1;
+  // RFC 1951, 3.2.7 gives HLIT the range "(257 - 286)". Its HDIST range is "(1 - 32)", but 3.2.6 says "distance codes 30-31 will never actually occur in the compressed data", and zlib's inflate rejects more than 30 distance codes, so this decoder does too.
+  const headerOffset = Math.ceil(reader.bitPosition / 8);
+  if (literalCount > 286) throw new ParseError(`dynamic block declares ${String(literalCount)} literal/length codes; at most 286 are allowed`, headerOffset);
+  if (distanceCount > 30) throw new ParseError(`dynamic block declares ${String(distanceCount)} distance codes; at most 30 are allowed`, headerOffset);
   const codeCount = reader.readBits(4) + 4;
   const codeLengths = Array.from({ length: 19 }, () => 0);
   for (let index = 0; index < codeCount; index++) codeLengths[CODE_ORDER[index] ?? 0] = reader.readBits(3);
@@ -154,6 +158,8 @@ const decodeCompressed = (reader: BitReader, output: InflateOutput, trees: reado
       const base = LENGTH_BASE[index];
       if (base === undefined) throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
       const length = base + reader.readBits(LENGTH_EXTRA[index] ?? 0);
+      // RFC 1951, 3.2.7: "One distance code of zero bits means that there are no distance codes used at all (the data is all literals)."
+      if (trees[1].empty) throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
       const distanceCode = trees[1].read(reader);
       const distanceBase = DISTANCE_BASE[distanceCode];
       if (distanceBase === undefined) throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));

@@ -7,6 +7,8 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
+import { BitWriter } from './bitWriter.ts';
+import { canonicalCodes } from './huffmanEncoder.ts';
 import { inflateRaw, inflateZlib } from './inflate.ts';
 
 const dataSet = (): Uint8Array[] => {
@@ -25,6 +27,26 @@ const largeData = (): Uint8Array => {
   const data = new Uint8Array(10 * 1024 * 1024);
   for (let index = 0; index < data.length; index++) data[index] = 65 + (index % 4);
   return data;
+};
+
+const CODE_LENGTH_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+const lengths = (count: number, used: Record<number, number>): number[] => Array.from({ length: count }, (_, symbol) => used[symbol] ?? 0);
+
+// One final dynamic block whose code lengths use four-bit codes for lengths 0-15, followed by the given literal/length symbols.
+const dynamicBlock = (literal: number[], distance: number[], symbols: number[]): Uint8Array => {
+  const writer = new BitWriter();
+  writer.writeBits(0b101, 3);
+  writer.writeBits(literal.length - 257, 5);
+  writer.writeBits(distance.length - 1, 5);
+  writer.writeBits(19 - 4, 4);
+  const codeLengths = lengths(19, Object.fromEntries(Array.from({ length: 16 }, (_, symbol) => [symbol, 4])));
+  for (const symbol of CODE_LENGTH_ORDER) writer.writeBits(codeLengths[symbol] ?? 0, 3);
+  const codeCodes = canonicalCodes(codeLengths);
+  for (const length of [...literal, ...distance]) writer.writeBits(codeCodes[length] ?? 0, 4);
+  const literalCodes = canonicalCodes(literal);
+  for (const symbol of symbols) writer.writeBits(literalCodes[symbol] ?? 0, literal[symbol] ?? 0);
+  return writer.finish();
 };
 
 const expectBytes = (actual: Uint8Array, expected: Uint8Array): void => {
@@ -94,6 +116,28 @@ describe('zlib inflation', () => {
     }
     expect(() => inflateZlib(compressFflate(new Uint8Array([1])), { maxOutputBytes: 0 })).toThrow(ResourceLimitError);
     for (const maxOutputBytes of [-1, 1.5, Number.NaN]) expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects more literal/length or distance codes than zlib accepts', () => {
+    const literalOnly = lengths(257, { 65: 1, 256: 1 });
+    const thirtyDistances = dynamicBlock(literalOnly, lengths(30, { 0: 1 }), [65, 256]);
+    expect(inflateRaw(thirtyDistances)).toStrictEqual(new Uint8Array([65]));
+    for (const literalCount of [287, 288]) {
+      const block = dynamicBlock(lengths(literalCount, { 65: 1, 256: 1 }), [0], [65, 256]);
+      expect(() => inflateRaw(block)).toThrow(/literal\/length codes/u);
+    }
+    for (const distanceCount of [31, 32]) {
+      const block = dynamicBlock(literalOnly, lengths(distanceCount, { 0: 1 }), [65, 256]);
+      expect(() => inflateRaw(block)).toThrow(/distance codes/u);
+    }
+  });
+
+  it('decodes literals with an empty distance tree and names its misuse', () => {
+    const literals = dynamicBlock(lengths(257, { 65: 1, 256: 1 }), [0], [65, 65, 256]);
+    expect(inflateRaw(literals)).toStrictEqual(new Uint8Array([65, 65]));
+    const lengthSymbol = dynamicBlock(lengths(258, { 65: 2, 256: 2, 257: 1 }), [0], [65, 257, 256]);
+    expect(() => inflateRaw(lengthSymbol)).toThrow(ParseError);
+    expect(() => inflateRaw(lengthSymbol)).toThrow(/^distance code used with an empty distance tree$/u);
   });
 
   it('rejects truncated blocks and preset dictionaries', () => {

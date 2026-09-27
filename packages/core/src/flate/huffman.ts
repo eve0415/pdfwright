@@ -16,6 +16,7 @@ export class Huffman {
   private readonly symbols: Int16Array;
   private readonly lengths: Uint8Array;
   private readonly maxBits: number;
+  readonly empty: boolean;
 
   constructor(codeLengths: readonly number[], offset: number) {
     // RFC 1951, 3.2.2 assigns canonical codes by length and symbol order.
@@ -34,6 +35,7 @@ export class Huffman {
       if (space < 0) throw new ParseError('oversubscribed Huffman tree', offset);
     }
     this.maxBits = maxBits;
+    this.empty = maxBits === 0;
     this.symbols = new Int16Array(1 << maxBits);
     this.lengths = new Uint8Array(1 << maxBits);
     const nextCodes = new Uint16Array(16);
