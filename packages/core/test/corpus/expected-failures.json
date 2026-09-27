@@ -1,0 +1,29 @@
+{
+  "qpdf/bad1.pdf": { "error": "ParseError", "reason": "The file is five bytes long and holds no PDF objects." },
+  "qpdf/duplicate-page-inherited.pdf": {
+    "error": "ParseError",
+    "reason": "The same page object appears twice in the page tree, which pdfwright refuses as a page tree node reached twice."
+  },
+  "qpdf/recover-xref-stream.pdf": {
+    "error": "ParseError",
+    "reason": "The cross-reference stream places object 8 at an index of object stream 14 that holds another object, and pdfwright does not guess which object is meant."
+  },
+  "qpdf/V4-aes.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "qpdf/encrypted-40-bit-R3.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "cabinet/encryption_nocopy.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "cabinet/encryption_openpassword.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "safedocs/Dialect-DictIsStream.pdf": { "error": "ParseError", "reason": "A page tree kid is a stream, which readers treat differently." },
+  "govdocs1/000018.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000029.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000187.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000282.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000334.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000341.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000342.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000344.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000351.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000567.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000674.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000757.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
+  "govdocs1/000809.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." }
+}
