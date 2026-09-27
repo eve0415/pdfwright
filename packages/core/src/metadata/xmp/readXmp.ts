@@ -103,7 +103,11 @@ const declarations = (attributes: readonly XmlAttribute[], scope: ReadonlyMap<st
   const declared = attributes.filter(attribute => attribute.name === 'xmlns' || attribute.name.startsWith('xmlns:'));
   if (declared.length === 0) return scope;
   const next = new Map(scope);
-  for (const attribute of declared) next.set(attribute.name === 'xmlns' ? '' : attribute.name.slice(6), attribute.value);
+  for (const attribute of declared) {
+    // Namespaces in XML 1.0, 3, Namespace constraint No Prefix Undeclaring: "In a namespace declaration for a prefix (i.e., where the NSAttName is a PrefixedAttName), the attribute value MUST NOT be empty."
+    if (attribute.name !== 'xmlns' && attribute.value === '') throw new UnreadableError('not-well-formed');
+    next.set(attribute.name === 'xmlns' ? '' : attribute.name.slice(6), attribute.value);
+  }
   return next;
 };
 

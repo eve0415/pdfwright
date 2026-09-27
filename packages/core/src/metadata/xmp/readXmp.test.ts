@@ -161,7 +161,9 @@ describe('reading XMP packets', () => {
       refusal(packet('<rdf:Bag/>')),
       refusal(packet('text')),
       refusal(packet('<rdf:Description><u:a/></rdf:Description>')),
+      refusal(packet(`<rdf:Description xmlns:q=""/>`)),
+      refusal(packet(`<rdf:Description xmlns=""/>`)),
       readXmp(Uint8Array.of(0x3c, 0xff)).ok,
-    ]).toStrictEqual(['not-well-formed', 'doctype', 'no-rdf', 'multiple-rdf', 'not-xmp', 'not-xmp', 'unbound-prefix', false]);
+    ]).toStrictEqual(['not-well-formed', 'doctype', 'no-rdf', 'multiple-rdf', 'not-xmp', 'not-xmp', 'unbound-prefix', 'not-well-formed', undefined, false]);
   });
 });
