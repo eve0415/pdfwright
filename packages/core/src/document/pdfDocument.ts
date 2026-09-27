@@ -435,7 +435,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
         }
       }
-      return writeDocument(objects, trailer, { fractionDigits, version: '1.7', fileIdentifier: options.fileIdentifier });
+      return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
     },
   };
 };

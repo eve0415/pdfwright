@@ -8,13 +8,7 @@ interface Codebook {
   codes: number[];
 }
 
-interface EncodedValue {
-  symbol: number;
-  extra: number;
-  extraBits: number;
-}
-
-interface RunCode {
+interface CodedValue {
   symbol: number;
   extra: number;
   extraBits: number;
@@ -36,7 +30,7 @@ const CODE_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1
 const LENGTH_TABLE: ValueTable = { bases: LENGTH_BASE, extras: LENGTH_EXTRA, offset: 257 };
 const DISTANCE_TABLE: ValueTable = { bases: DISTANCE_BASE, extras: DISTANCE_EXTRA, offset: 0 };
 
-const encodeValue = (value: number, table: ValueTable): EncodedValue => {
+const encodeValue = (value: number, table: ValueTable): CodedValue => {
   for (let index = table.bases.length - 1; index >= 0; index--) {
     const base = table.bases[index] ?? 0;
     if (value >= base) return { symbol: index + table.offset, extra: value - base, extraBits: table.extras[index] ?? 0 };
@@ -59,9 +53,9 @@ const fixedCodebooks = (): [Codebook, Codebook] => {
 
 const FIXED = fixedCodebooks();
 
-const runLengthCodes = (lengths: readonly number[]): RunCode[] => {
+const runLengthCodes = (lengths: readonly number[]): CodedValue[] => {
   // RFC 1951, 3.2.7 defines repeat codes 16, 17 and 18 for code-length sequences.
-  const runs: RunCode[] = [];
+  const runs: CodedValue[] = [];
   let position = 0;
   while (position < lengths.length) {
     const value = lengths[position] ?? 0;

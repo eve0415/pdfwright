@@ -24,14 +24,14 @@ const sample = (fileIdentifier?: [Uint8Array, Uint8Array]): Uint8Array => {
       { objectNumber: 2, generation: 0, value: pdfDictionary(pages) },
     ],
     trailer,
-    { fractionDigits: 5, version: '1.7', fileIdentifier },
+    { fractionDigits: 5, fileIdentifier },
   ).toBytes();
 };
 
 describe('classic PDF writer', () => {
   it('exposes ordered chunks to a stream without joining them', async () => {
     const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
-    const saved = writeDocument([{ objectNumber: 1, generation: 0, value: pdfDictionary() }], trailer, { fractionDigits: 5, version: '1.7' });
+    const saved = writeDocument([{ objectNumber: 1, generation: 0, value: pdfDictionary() }], trailer, { fractionDigits: 5 });
     expect(saved.chunks.length).toBeGreaterThan(1);
     expect(saved.byteLength).toBe(saved.toBytes().length);
     const chunks: Uint8Array[] = [];
@@ -66,6 +66,6 @@ describe('classic PDF writer', () => {
   it('rejects gaps in a first xref section', () => {
     const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(2, 0)]]);
     const object = { objectNumber: 2, generation: 0, value: pdfDictionary() };
-    expect(() => writeDocument([object], trailer, { fractionDigits: 5, version: '1.7' })).toThrow(InvalidArgumentError);
+    expect(() => writeDocument([object], trailer, { fractionDigits: 5 })).toThrow(InvalidArgumentError);
   });
 });

@@ -18,7 +18,6 @@ export interface IndirectObject {
 
 export interface WriteOptions {
   readonly fractionDigits: number;
-  readonly version: '1.7';
   readonly fileIdentifier?: [Uint8Array, Uint8Array] | undefined;
 }
 
