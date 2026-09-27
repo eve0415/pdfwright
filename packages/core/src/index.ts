@@ -31,3 +31,5 @@ export { serializeObject } from './serialize/serializeObject.ts';
 export { createDocument } from './document/pdfDocument.ts';
 export type { DocumentOptions, PageOptions, PdfDocument } from './document/pdfDocument.ts';
 export type { SavedPdf } from './write/savedPdf.ts';
+export { pdfDate, pdfDateFromDate, pdfDateString } from './date/pdfDate.ts';
+export type { PdfDate, PdfDateComponents } from './date/pdfDate.ts';
