@@ -79,6 +79,9 @@ export type {
 export type { ActualTextSpan } from './inspect/text/textUnits.ts';
 export { orderGlyphs } from './inspect/text/orderGlyphs.ts';
 export type { GlyphLayout } from './inspect/text/orderGlyphs.ts';
+export { matchText } from './inspect/text/matchText.ts';
+export type { FoldApplied, MatchTextOptions, TextDifference, TextMatch } from './inspect/text/matchText.ts';
+export type { TextFold } from './inspect/text/folds.ts';
 export type { InspectWarning, InspectWarningCode } from './content/inspectWarning.ts';
 export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
