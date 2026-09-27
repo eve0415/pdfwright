@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { EncryptedDocumentError } from './encryptedDocumentError.ts';
 import { InvalidArgumentError } from './invalidArgumentError.ts';
+import { InvalidProfileError } from './invalidProfileError.ts';
 import { ParseError } from './parseError.ts';
 import { PdfwrightError } from './pdfwrightError.ts';
 import { ResourceLimitError } from './resourceLimitError.ts';
@@ -17,6 +18,7 @@ describe('pdf errors', () => {
       [new UnsupportedFeatureError('unsupported'), 'unsupported-feature', 'UnsupportedFeatureError'],
       [new ValidationError('invalid'), 'validation', 'ValidationError'],
       [new ResourceLimitError('too large'), 'resource-limit', 'ResourceLimitError'],
+      [new InvalidProfileError('bad ICC header', 'bad-signature', { offset: 36 }), 'invalid-profile', 'InvalidProfileError'],
     ] as const;
 
     for (const [error, code, name] of errors) {
@@ -25,6 +27,14 @@ describe('pdf errors', () => {
       expect(error.name).toBe(name);
     }
     expect(errors[1][0].offset).toBe(17);
+  });
+});
+
+describe('invalid ICC profile errors', () => {
+  it('reports a typed reason, byte offset and optional tag signature', () => {
+    const error = new InvalidProfileError('invalid curve', 'bad-tag-data', { offset: 256, tag: 'rTRC' });
+    expect([error.reason, error.offset, error.tag]).toStrictEqual(['bad-tag-data', 256, 'rTRC']);
+    expect(new UnsupportedFeatureError('unsupported tag', 'icc-mpet').reason).toBe('icc-mpet');
   });
 });
 

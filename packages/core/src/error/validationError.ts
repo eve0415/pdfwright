@@ -1,7 +1,13 @@
 import { PdfwrightError } from './pdfwrightError.ts';
 
 /** Why a validation failed, for the failures callers are expected to handle by reason. */
-export type ValidationReason = 'document-id-required' | 'metadata-date-required' | 'xmp-unreadable' | 'xmp-unrepresentable' | 'signed-document';
+export type ValidationReason =
+  | 'document-id-required'
+  | 'metadata-date-required'
+  | 'xmp-unreadable'
+  | 'xmp-unrepresentable'
+  | 'signed-document'
+  | 'output-intent-conflict';
 
 export class ValidationError extends PdfwrightError {
   override readonly code = 'validation' as const;

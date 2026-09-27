@@ -1,4 +1,11 @@
-export type PdfwrightErrorCode = 'invalid-argument' | 'parse' | 'encrypted-document' | 'unsupported-feature' | 'validation' | 'resource-limit';
+export type PdfwrightErrorCode =
+  | 'invalid-argument'
+  | 'invalid-profile'
+  | 'parse'
+  | 'encrypted-document'
+  | 'unsupported-feature'
+  | 'validation'
+  | 'resource-limit';
 
 export class PdfwrightError extends Error {
   readonly code: PdfwrightErrorCode;

@@ -1,5 +1,6 @@
 export { EncryptedDocumentError } from './error/encryptedDocumentError.ts';
 export { InvalidArgumentError } from './error/invalidArgumentError.ts';
+export { InvalidProfileError } from './error/invalidProfileError.ts';
 export { ParseError } from './error/parseError.ts';
 export { ResourceLimitError } from './error/resourceLimitError.ts';
 export { PdfwrightError } from './error/pdfwrightError.ts';
@@ -7,6 +8,8 @@ export { UnsupportedFeatureError } from './error/unsupportedFeatureError.ts';
 export { ValidationError } from './error/validationError.ts';
 export type { PdfwrightErrorCode } from './error/pdfwrightError.ts';
 export type { InvalidArgumentReason } from './error/invalidArgumentError.ts';
+export type { InvalidProfileReason } from './error/invalidProfileError.ts';
+export type { UnsupportedFeatureReason } from './error/unsupportedFeatureError.ts';
 export type { ValidationReason } from './error/validationError.ts';
 export { add, compare, equals, formatLength, inch, mm, multiply, negate, pt, subtract } from './length/length.ts';
 export type { Length } from './length/length.ts';
