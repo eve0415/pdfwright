@@ -665,6 +665,7 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
  * - Boxes are boxes, not ink, tested at a grid of points: a clip or rectangle that hides ink only between the points or outside the core box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
  * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
  * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
+ * - A half-width glyph whose ToUnicode claims the full-width character, as Chromium's hwid feature draws without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too.
  * - Optional content is not evaluated: text and covering fills in an optional content group count as printed whether the group is on or off.
  * - Annotations drawn over the text count only when the page was extracted with `annotations: 'printable'`, which a caller checking a print proof passes to `extractText`; with the default `'none'` they are not read.
  * - Alpha is tested only for 0: text at an alpha near zero counts as visible. `PageGlyph.fillAlpha` and `strokeAlpha` give the alpha of each glyph for a caller to set its own bound.
