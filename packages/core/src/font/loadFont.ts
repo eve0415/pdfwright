@@ -1,7 +1,7 @@
 import type { Matrix } from '../content/matrix.ts';
 import type { Found } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
-import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { CMap } from './cmap/cmap.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { CMapResult } from './cmap/cmapResolver.ts';
@@ -26,6 +26,7 @@ import type { Standard14Metrics } from './standard14.ts';
 import type { CmapReading } from './trueType/cmapTable.ts';
 import type { ProcedureSummary } from './type3Procedures.ts';
 
+import { unreadable } from '../content/unreadable.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
@@ -368,7 +369,13 @@ const compositeEncoding = (
   const encoding = source.objects.deref(value);
   const available = result.kind === 'cmap' && result.cmap.unavailableParent === undefined;
   if (encoding?.kind === 'name') return { kind: 'cmap', name: encoding.bytes, predefined: true, embedded: false, writingMode, available };
-  const stored = encoding?.kind === 'stream' ? source.objects.deref(encoding.dictionary.get(CMAP_NAME)) : undefined;
+  let stored: PdfObject | undefined = undefined;
+  try {
+    stored = encoding?.kind === 'stream' ? source.objects.deref(encoding.dictionary.get(CMAP_NAME)) : undefined;
+  } catch (error: unknown) {
+    // The CMap was read from its stream; a CMapName entry that cannot be read leaves the name the program defines.
+    if (!unreadable(error)) throw error;
+  }
   const parsed = result.kind === 'cmap' ? result.cmap.name : undefined;
   const name = stored?.kind === 'name' ? stored.bytes : latin1Bytes(parsed ?? '');
   return { kind: 'cmap', name, predefined: false, embedded: true, writingMode, available };

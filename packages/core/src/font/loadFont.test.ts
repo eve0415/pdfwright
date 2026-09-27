@@ -180,6 +180,22 @@ describe('composite fonts', () => {
     expect(pick(glyphs, 'wordSpace')).toStrictEqual([true, false]);
   });
 
+  it('names an embedded CMap by its parsed name when the CMapName entry cannot be read', () => {
+    const cmap = streamBody(
+      '/Type/CMap/CMapName 13 0 R',
+      '/CMapName /Parsed def 1 begincodespacerange <00> <FF> endcodespacerange 1 begincidrange <00> <FF> 1 endcidrange',
+    );
+    const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [
+      { number: 12, body: cmap },
+      { number: 13, body: '<</A [ 1 2' },
+    ]);
+    const glyphs = glyphsOf(font, Uint8Array.of(0x41));
+    expect([font.encoding, pick(glyphs, 'cid')]).toStrictEqual([
+      { kind: 'cmap', name: latin1Bytes('Parsed'), predefined: false, embedded: true, writingMode: 0, available: true },
+      [66],
+    ]);
+  });
+
   it('reports a string in a predefined CMap no provider supplies, and reads it with a provider', () => {
     const font = type0Font('/UniJIS-UTF16-H', '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>');
     const without = fontOf(font);
