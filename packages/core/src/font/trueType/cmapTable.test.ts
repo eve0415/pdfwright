@@ -100,6 +100,52 @@ const cmapOf = (reading: CmapReading): TrueTypeCmap => {
 const programWith = (subtables: readonly (readonly [number, number, readonly number[]])[]): Uint8Array => program([['cmap', cmapTable(subtables)]]);
 
 describe('embedded TrueType cmap tables', () => {
+  it('refuses unsorted or overlapping format 4 segments and format 12 groups', () => {
+    const cases = [
+      programWith([
+        [
+          3,
+          10,
+          format12([
+            [100, 100, 7],
+            [65, 65, 3],
+          ]),
+        ],
+      ]),
+      programWith([
+        [
+          3,
+          10,
+          format12([
+            [65, 100, 3],
+            [100, 120, 7],
+          ]),
+        ],
+      ]),
+      programWith([
+        [
+          3,
+          1,
+          format4([
+            { start: 100, end: 100, delta: 1 },
+            { start: 65, end: 65, delta: 1 },
+          ]),
+        ],
+      ]),
+      programWith([
+        [
+          3,
+          1,
+          format4([
+            { start: 65, end: 100, delta: 1 },
+            { start: 100, end: 120, delta: 1 },
+          ]),
+        ],
+      ]),
+    ];
+    expect(cases.map(input => readTrueTypeCmap(input).kind)).toStrictEqual(['unreadable', 'unreadable', 'unreadable', 'unreadable']);
+  });
+
   it('maps characters through format 4 deltas and glyph arrays, and nothing outside its segments', () => {
     const subtable = format4([
       { start: 0x41, end: 0x43, delta: -0x3f },

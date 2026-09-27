@@ -54,9 +54,14 @@ const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined)
   const segments: Segment[] = [];
   for (let index = 0; index < count; index++) {
     const rangeOffset = read.u16(16 + 6 * count + 2 * index);
+    const end = read.u16(14 + 2 * index);
+    const start = read.u16(16 + 2 * count + 2 * index);
+    if (start > end || (segments.length > 0 && start <= (segments.at(-1)?.end ?? 0))) {
+      throw new ParseError('the format 4 segments are not ordered and disjoint', 0);
+    }
     segments.push({
-      end: read.u16(14 + 2 * index),
-      start: read.u16(16 + 2 * count + 2 * index),
+      end,
+      start,
       delta: read.u16(16 + 4 * count + 2 * index),
       glyphs: rangeOffset === 0 ? 0 : 16 + 6 * count + 2 * index + rangeOffset,
     });
@@ -92,7 +97,12 @@ const format12 = (table: Uint8Array): ((codePoint: number) => number | undefined
   const groups: Group[] = [];
   for (let index = 0; index < count; index++) {
     const at = 16 + 12 * index;
-    groups.push({ start: read.u32(at), end: read.u32(at + 4), glyph: read.u32(at + 8) });
+    const start = read.u32(at);
+    const end = read.u32(at + 4);
+    if (start > end || end > 0x10ffff || (groups.length > 0 && start <= (groups.at(-1)?.end ?? 0))) {
+      throw new ParseError('the format 12 groups are not ordered and disjoint', 0);
+    }
+    groups.push({ start, end, glyph: read.u32(at + 8) });
   }
   return (codePoint: number): number | undefined => {
     const group = bySearch(groups, codePoint);
