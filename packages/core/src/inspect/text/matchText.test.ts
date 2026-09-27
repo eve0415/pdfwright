@@ -277,6 +277,10 @@ describe('text matching', () => {
         '𠮷野',
       );
       expect(summary(result)).toStrictEqual(['mismatch', '𠮷野', [{ kind: 'missing-glyph', glyphs: [0], intendedIndex: 0 }]]);
+      // Chromium also wraps the tofu g0 in a span claiming a character, here U+F0001.
+      const content = `1 0 0 -1 0 800 cm BT /E 10 Tf 1 0 0 -1 100 100 Tm ${span('\u{F0001}', '<00> Tj')} <01> Tj ET`;
+      const wrapped = match({ texts: [], content, resources: '/Font<</E 120 0 R>>', objects: chromium }, '\u{F0001}野');
+      expect(summary(wrapped)).toStrictEqual(['mismatch', '\u{F0001}野', [{ kind: 'missing-glyph', glyphs: [0], intendedIndex: 0 }]]);
     });
   });
 
