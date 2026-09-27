@@ -61,21 +61,29 @@ const lastIndexOf = (bytes: Uint8Array, pattern: readonly number[]): number => {
 const isDigit = (byte: number | undefined): boolean => byte !== undefined && byte >= 0x30 && byte <= 0x39;
 
 // ISO 32000-1:2008, 7.5.2: "The first line of a PDF file shall be a header consisting of the 5 characters %PDF– followed by a version number of the form 1.N, where N is a digit between 0 and 7." PDF 2.0 headers share the form, so any digit.digit version is read.
-// Readers also accept a header after leading bytes, so the first 1,024 bytes and then the whole first segment are searched.
+// Readers also accept a header after leading bytes, so the first 1,024 bytes and then every segment are searched.
 export const locateHeader = (source: ByteSource): HeaderLocation | undefined => {
   const head = source.copy(0, HEADER_SEARCH);
-  let window: LexWindow = head;
   let position = indexOf(head.bytes, HEADER, 0);
   if (position < 0) {
-    window = source.window(0);
-    position = indexOf(window.bytes, HEADER, 0);
+    let base = 0;
+    for (const segment of source.segments) {
+      for (let local = segment.indexOf(HEADER[0] ?? 0); local >= 0; local = segment.indexOf(HEADER[0] ?? 0, local + 1)) {
+        const candidate = base + local;
+        if (HEADER.every((byte, index) => source.byteAt(candidate + index) === byte)) {
+          position = candidate;
+          break;
+        }
+      }
+      if (position >= 0) break;
+      base += segment.length;
+    }
   }
   if (position < 0) return undefined;
-  const { bytes } = window;
-  const major = bytes[position + 5];
-  const minor = bytes[position + 7];
-  const version = isDigit(major) && bytes[position + 6] === 0x2e && isDigit(minor) ? String.fromCodePoint(major ?? 0, 0x2e, minor ?? 0) : '';
-  return { offset: window.base + position, version };
+  const major = source.byteAt(position + 5);
+  const minor = source.byteAt(position + 7);
+  const version = isDigit(major) && source.byteAt(position + 6) === 0x2e && isDigit(minor) ? String.fromCodePoint(major ?? 0, 0x2e, minor ?? 0) : '';
+  return { offset: position, version };
 };
 
 const readStartxref = (source: ByteSource, keyword: number): StartxrefLocation | undefined =>

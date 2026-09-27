@@ -23,6 +23,11 @@ describe('header and startxref location', () => {
     expect(locateHeader(source('no header here'))).toBeUndefined();
   });
 
+  it('finds a displaced header across segmented input', () => {
+    const junk = 'junk '.repeat(300);
+    expect(locateHeader(source(`${junk}%PDF-2.0\n`, 7))).toStrictEqual({ offset: 1500, version: '2.0' });
+  });
+
   it('reads the last startxref and its offset, ignoring trailing garbage and earlier ones', () => {
     const text = '%PDF-1.4\nstartxref\n0\n%%EOF\nxref\nstartxref\n  1234\r\n%%EOF\r\n\u0000\u0000garbage';
     expect(locateStartxref(source(text))).toStrictEqual({ keyword: 32, offset: 1234 });
