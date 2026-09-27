@@ -7,6 +7,8 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { effectiveBoxes } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 
+import { comparePageContent } from './pageContent.ts';
+
 const AREAS: readonly DifferenceArea[] = [
   'pages',
   'boxes',
@@ -68,6 +70,7 @@ export const compareDocuments = (a: LoadedDocument, b: LoadedDocument, options: 
     const entryB = pagesB[page];
     if (entryA === undefined || entryB === undefined) continue;
     if (include.has('boxes')) compareBoxes(page, [effectiveBoxes(sides.a.objects, entryA), effectiveBoxes(sides.b.objects, entryB)], differences);
+    if (include.has('content')) comparePageContent(page, { ...sides, pageA: entryA, pageB: entryB }, differences);
   }
   return { equal: differences.length === 0, differences };
 };
