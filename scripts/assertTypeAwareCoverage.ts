@@ -34,6 +34,7 @@ const targetFiles = async (): Promise<string[]> => {
     ...checked.filter(file => file !== null),
     'packages/core/src/document/coverageCanary.oracle.test.ts',
     'packages/core/src/save/coverageCanary.oracle.test.ts',
+    'packages/core/src/inspect/coverageCanary.oracle.test.ts',
     'packages/core/src/inspect/fonts/coverageCanary.oracle.test.ts',
     'packages/core/src/inspect/colorants/coverageCanary.oracle.test.ts',
     'packages/core/src/inspect/text/coverageCanary.oracle.test.ts',
