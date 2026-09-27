@@ -45,7 +45,7 @@ export interface MatchTextOptions {
 export type TextDifference =
   /** A .notdef glyph, or a Type 3 glyph that paints nothing, stands where text is shown: the print shows a box or nothing. */
   | { readonly kind: 'missing-glyph'; readonly glyphs: readonly number[]; readonly intendedIndex: number | undefined }
-  /** A glyph without text. */
+  /** A glyph without text, or whose text is the empty string, as a ToUnicode mapping to `<>` gives. */
   | { readonly kind: 'unmapped'; readonly glyphs: readonly number[]; readonly reason: GlyphTextReason }
   | { readonly kind: 'substituted'; readonly intended: string; readonly found: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
   | { readonly kind: 'missing'; readonly intended: string; readonly intendedIndex: number }
@@ -164,11 +164,11 @@ const onlyWhiteSpace = (text: string): boolean => /^\p{White_Space}*$/u.test(tex
 
 type GlyphFailure = NonNullable<FoundCluster['failure']>;
 
-// A glyph that stands for no text: .notdef, or an empty glyph that claims text, is a missing glyph; a glyph without text is unmapped; an empty glyph without text stands for nothing (null).
+// A glyph that stands for no text: .notdef, or an empty glyph that claims text, is a missing glyph; a glyph without text, or whose text layer maps it to the empty string, is unmapped; an empty glyph without text stands for nothing (null).
 const glyphFailure = (glyph: PageGlyph): GlyphFailure | null | undefined => {
   const { text } = glyph;
   if (glyph.notdef || (glyph.empty && text !== null && !onlyWhiteSpace(text))) return { kind: 'missing-glyph' };
-  if (text === null) return glyph.empty ? null : { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' };
+  if (text === null || text === '') return glyph.empty ? null : { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' };
   return undefined;
 };
 
@@ -269,7 +269,7 @@ class FoundText {
     const failure = glyphFailure(glyph);
     if (failure === null) return;
     if (failure !== undefined) {
-      this.clusters.push({ text: glyph.text ?? REPLACEMENT, glyphs, variantFromActualText: false, failure });
+      this.clusters.push({ text: failure.kind === 'missing-glyph' ? (glyph.text ?? REPLACEMENT) : REPLACEMENT, glyphs, variantFromActualText: false, failure });
       return;
     }
     this.push(this.read(glyph, glyph.text ?? ''), glyphs, () => false);

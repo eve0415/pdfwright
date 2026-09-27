@@ -194,6 +194,17 @@ describe('text matching', () => {
     expect(summaryOf({ texts: ['山'], content: line(1) }, '山田')).toStrictEqual(['mismatch', '山', [{ kind: 'missing', intended: '田', intendedIndex: 1 }]]);
   });
 
+  it('reports a glyph whose ToUnicode maps it to no text as unmapped, alone or in a span', () => {
+    const unmapped = { kind: 'unmapped', glyphs: [1], reason: 'no-mapping' };
+    expect(summaryOf({ texts: ['山', '', '田'], content: line(3) }, '山田')).toStrictEqual(['mismatch', '山�田', [unmapped]]);
+    expect(summaryOf({ texts: ['山', '', '田'], content: spanned(1, ['田', 2, 3]) }, '山田')).toStrictEqual([
+      'mismatch',
+      '山�',
+      [{ ...unmapped, glyphs: [1, 2] }],
+    ]);
+    expect(statusOf({ texts: [''], content: line(1) }, '')).toBe('mismatch');
+  });
+
   it('reads ruby after its base text in content order, which a caller selects away by size', () => {
     // Chromium draws ruby after all base text of the line.
     const proof = { texts: ['山', '田', 'や', 'ま', 'だ'], content: `${line(2)} BT /T 5 Tf 100 712 Td ${show(3, 4, 5)} ET` };
