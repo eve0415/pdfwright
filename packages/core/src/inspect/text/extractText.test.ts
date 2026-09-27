@@ -97,6 +97,17 @@ const provider: CMapProvider = { cmap: name => PROVIDED.get(name) };
 
 const spans = (content: string, resources = FONT_RESOURCES, objects: readonly TestObject[] = []): PageText => extract({ content, resources }, objects);
 
+const vertical = (cidFont: string): readonly TestObject[] => [
+  { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-V/DescendantFonts[106 0 R]>>' },
+  {
+    number: 106,
+    body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000${cidFont}/FontDescriptor 111 0 R>>`,
+  },
+];
+const boxes = (shown: readonly PageGlyph[]): unknown[] => shown.map(glyph => [glyph.writingMode, round(glyph.origin), round(glyph.advance), round(glyph.quad)]);
+
+const shownIn = (content: string, cidFont = ''): readonly PageGlyph[] => glyphs(content, vertical(cidFont), '/Font<</V 105 0 R>>');
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -316,6 +327,46 @@ describe('text extraction', () => {
     it('ignores ActualText on sequences with other tags', () => {
       const text = spans('BT /F1 10 Tf /P <</ActualText (x)>> BDC (A) Tj EMC ET');
       expect([text.actualText, text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([[], [undefined]]);
+    });
+  });
+
+  describe('vertical writing', () => {
+    // CID 65 is 1000 thousandths wide; Identity-V selects writing mode 1.
+    it('places the glyph by its position vector and its vertical displacement with the default DW2', () => {
+      // 9.7.4.3: without W2 the position vector is (w0 ÷ 2, DW2[0]) and w1 is DW2[1], by default [880 −1000]; 9.2.4: the text position is origin 1.
+      expect(boxes(shownIn('BT /V 20 Tf 80 200 Td <00410041> Tj ET'))).toStrictEqual([
+        [1, [80, 200], [0, -20], [70, 180, 90, 180, 90, 200, 70, 200]],
+        [1, [80, 180], [0, -20], [70, 160, 90, 160, 90, 180, 70, 180]],
+      ]);
+    });
+
+    it('reads W2 in both forms and a DW2 of the font', () => {
+      // 9.7.4.3: each W2 group is "c [ w11y v1x v1y w12y v2x v2y … ]" or "cfirst clast w11y v1x v1y".
+      expect(boxes(shownIn('BT /V 20 Tf 80 200 Td <0041> Tj ET', '/W2[65[-500 250 772]]'))).toStrictEqual([
+        [1, [80, 200], [0, -10], [75, 190, 95, 190, 95, 200, 75, 200]],
+      ]);
+      expect(boxes(shownIn('BT /V 20 Tf 80 200 Td <0042> Tj ET', '/W2[65 70 -800 400 900]'))).toStrictEqual([
+        [1, [80, 200], [0, -16], [72, 184, 92, 184, 92, 200, 72, 200]],
+      ]);
+      expect(boxes(shownIn('BT /V 20 Tf 80 200 Td <0041> Tj ET', '/DW2[900 -1100]'))).toStrictEqual([
+        [1, [80, 200], [0, -22], [70, 178, 90, 178, 90, 200, 70, 200]],
+      ]);
+    });
+
+    it('adds character spacing without horizontal scaling, which scales only the glyph', () => {
+      // 9.4.4: ty = (w1 − Tj/1000) × Tfs + Tc + Tw; 9.3.4 scales Tc and Tw only "If the writing mode is horizontal".
+      expect(boxes(shownIn('BT /V 20 Tf 50 Tz 2 Tc 80 200 Td <00410041> Tj ET'))).toStrictEqual([
+        [1, [80, 200], [0, -18], [75, 180, 85, 180, 85, 200, 75, 200]],
+        [1, [80, 182], [0, -18], [75, 162, 85, 162, 85, 182, 75, 182]],
+      ]);
+    });
+
+    it('subtracts TJ numbers from the vertical coordinate', () => {
+      // Table 109: the number is "subtracted from the current horizontal or vertical coordinate, depending on the writing mode", so −500 moves the next glyph up by 10.
+      expect(origins(shownIn('BT /V 20 Tf 80 200 Td [<0041> -500 <0041>] TJ ET'))).toStrictEqual([
+        [80, 200],
+        [80, 190],
+      ]);
     });
   });
 });
