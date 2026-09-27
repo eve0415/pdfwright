@@ -2,6 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { EditedObjects, ObjectChange } from '../document/editedObjects.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { MappedKey } from './mapping.ts';
 import type { MetadataFinding } from './metadataFinding.ts';
 import type { ComponentPacket, DocumentPacket, MetadataState } from './readMetadata.ts';
 import type { MetadataInput, ReconciledValue, ResolvedInput } from './resolveMetadata.ts';
@@ -93,7 +94,14 @@ type PacketWriter = (values: ManagedValues) => WrittenPacket;
 const writeNew: PacketWriter = values => ({ bytes: newPacket(values), removedLegacy: [], transcoded: false });
 
 // The packet is spliced when it can be read; one that cannot be read, or whose edit does not read back, is replaced only when the caller allows it.
-const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptions, sample: ManagedValues): PacketWriter => {
+interface PacketSample {
+  /** Values of the form the packet will hold, to check that they can be written. */
+  readonly sample: ManagedValues;
+  /** The keys whose properties the splice leaves as they are. */
+  readonly kept: ReadonlySet<MappedKey>;
+}
+
+const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptions, { sample, kept }: PacketSample): PacketWriter => {
   if (xmp === undefined || (xmp.stream === undefined && !('packet' in xmp))) {
     writeNew(sample);
     return writeNew;
@@ -107,7 +115,7 @@ const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptio
     throw new ValidationError(`the document packet cannot be read (${xmp.unreadable}); pass unreadableXmp 'replace' to discard it`, 'xmp-unreadable');
   }
   const { packet } = xmp;
-  const splice: PacketWriter = values => splicePacket(packet, values);
+  const splice: PacketWriter = values => splicePacket(packet, values, kept);
   try {
     splice(sample);
     return splice;
@@ -249,8 +257,11 @@ const prepare = (document: DocumentInternals, input: MetadataInput, options: Set
   const { objects } = document;
   const previous = previousInstanceIds.has(objects) ? previousInstanceIds.get(objects) : packetText(packet, 'InstanceID');
   const documentId = documentIdOf(document, packet, options.documentId);
-  const write = packetWriter(state.xmp, options, managedValues(resolved.values, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }));
-  const info = infoDictionary(state.info?.entries, resolved.values, input);
+  const write = packetWriter(state.xmp, options, {
+    sample: managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }),
+    kept: resolved.kept,
+  });
+  const info = infoDictionary(state.info?.entries, resolved, input);
   const reachable = reachableObjects(document).objects;
   const components = state.reader.components(reachable, state.catalog?.reference.objectNumber);
   const target = packetTarget(state, components);
@@ -282,13 +293,13 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
     const serializeOptions = { store: objects.store, maxNesting: internals.maxNesting, fractionDigits };
     const serialize = ({ objectNumber, value }: { readonly objectNumber: number; readonly value: PdfObject }): Uint8Array =>
       changedObjectBytes(objectNumber, value, serializeOptions);
-    const draft = write(managedValues(resolved.values, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }));
+    const draft = write(managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }));
     const digest = createMd5()
       .update(changesDigest(changes, excluded, serialize))
       .update(draft.bytes)
       .digest();
     const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: digest });
-    const written = write(managedValues(resolved.values, input, { documentId, instanceId }));
+    const written = write(managedValues(resolved, input, { documentId, instanceId }));
     return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, written };
   };
   const current = produce(objects.changes, DEFAULT_FRACTION_DIGITS);

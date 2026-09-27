@@ -28,6 +28,8 @@ const arrayValue = (type: 'Alt' | 'Seq', value: string | undefined): XmpValue | 
 
 const sameValue = (left: XmpValue, right: XmpValue): boolean => {
   if (left.kind === 'text' && right.kind === 'text') return left.text === right.text && left.language === right.language;
+  if (left.kind === 'uri' && right.kind === 'uri') return left.uri === right.uri;
+  if (left.kind === 'opaque' || right.kind === 'opaque') return left.kind === right.kind;
   if (left.kind !== 'array' || right.kind !== 'array' || left.type !== right.type || left.items.length !== right.items.length) return false;
   return left.items.every((item, index) => {
     const other = right.items[index];
@@ -35,8 +37,8 @@ const sameValue = (left: XmpValue, right: XmpValue): boolean => {
   });
 };
 
-/** Each managed property's key with the value the new rdf:Description gives it. */
-const expectedValues = (values: ManagedValues): ReadonlyMap<string, XmpValue | undefined> => {
+/** Each managed property's key with the value the new rdf:Description gives it, or the value a kept property already has. */
+const expectedValues = (packet: ReadPacket, values: ManagedValues, kept: ReadonlySet<MappedKey>): ReadonlyMap<string, XmpValue | undefined> => {
   const byKey = {
     Title: arrayValue('Alt', values.title),
     Author: arrayValue('Seq', values.author),
@@ -48,8 +50,10 @@ const expectedValues = (values: ManagedValues): ReadonlyMap<string, XmpValue | u
     ModDate: textValue(values.modifyDate),
     Trapped: textValue(values.trapped),
   } as const satisfies Record<MappedKey, XmpValue | undefined>;
+  const value = (row: (typeof MAPPED_ROWS)[number]): XmpValue | undefined =>
+    kept.has(row.key) ? packet.properties.find(property => property.namespace === row.namespace && property.localName === row.name)?.value : byKey[row.key];
   return new Map([
-    ...MAPPED_ROWS.map(row => [key(row.namespace, row.name), byKey[row.key]] as const),
+    ...MAPPED_ROWS.map(row => [key(row.namespace, row.name), value(row)] as const),
     [key(XMP_NAMESPACE, 'MetadataDate'), textValue(values.metadataDate)],
     [key(XMP_MM_NAMESPACE, 'DocumentID'), textValue(values.documentId)],
     [key(XMP_MM_NAMESPACE, 'InstanceID'), textValue(values.instanceId)],
@@ -90,14 +94,19 @@ const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | u
 
 /**
  * Replaces the managed properties of a readable packet: every managed and legacy property is removed wherever it occurs, as an element or an attribute of any top-level rdf:Description, and one new rdf:Description holding the managed values is inserted before the rdf:RDF end tag.
+ * The properties of the `kept` keys, which the values leave out, stay as they are.
  * Every other byte of the packet is copied unchanged: other properties and namespaces, the wrapper, x:xmpmeta and its attributes, comments and padding.
  * The new element takes the packet's subject as rdf:about (XMP Part 1 7.4), declares rdf itself, and resets xml:lang when an enclosing element sets one.
  * Throws ValidationError xmp-unreadable when the result does not read back with exactly the managed values.
  */
-export const splicePacket = (packet: ReadPacket, values: ManagedValues): SplicedPacket => {
-  const expected = expectedValues(values);
+export const splicePacket = (packet: ReadPacket, values: ManagedValues, kept: ReadonlySet<MappedKey> = new Set()): SplicedPacket => {
+  const expected = expectedValues(packet, values, kept);
+  const keptNames = new Set(MAPPED_ROWS.filter(row => kept.has(row.key)).map(row => key(row.namespace, row.name)));
   const removed = packet.properties
-    .filter(property => expected.has(key(property.namespace, property.localName)) || LEGACY.has(key(property.namespace, property.localName)))
+    .filter(property => {
+      const name = key(property.namespace, property.localName);
+      return (expected.has(name) && !keptNames.has(name)) || LEGACY.has(name);
+    })
     .toSorted((left, right) => left.textSpan.start - right.textSpan.start);
   const { text } = packet;
   let result = '';

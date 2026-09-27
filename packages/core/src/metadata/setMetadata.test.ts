@@ -106,6 +106,24 @@ const editedInstanceId = (input: MetadataInput): string => {
   return instanceIdOf(saved(document));
 };
 
+const CREATORS = '<dc:creator><rdf:Seq><rdf:li>A</rdf:li><rdf:li>B</rdf:li><rdf:li>C</rdf:li></rdf:Seq></dc:creator>';
+const TITLES = '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">T</rdf:li><rdf:li xml:lang="ja">題</rdf:li></rdf:Alt></dc:title>';
+
+// UTF-8 packet text as the latin1 string the builder writes byte for byte.
+const utf8 = (text: string): string => latin1Text(new TextEncoder().encode(text));
+
+const ARRAYS_PACKET = streamBody('/Type/Metadata/Subtype/XML', utf8(packet(`${CREATORS}${TITLES}`)));
+
+const withArrays = (info = '<<>>'): LoadedDocument =>
+  load(
+    '/Metadata 4 0 R',
+    [
+      { number: 4, body: ARRAYS_PACKET },
+      { number: 5, body: info },
+    ],
+    `${ID}/Info 5 0 R`,
+  );
+
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
@@ -175,6 +193,42 @@ describe('setting document metadata', () => {
     const reloaded = saved(document);
     const rows = agreements(reloaded);
     expect([rows['Title'], rows['Subject'], rows['Keywords'], codes(reloaded)]).toStrictEqual(['absent', 'absent', 'absent', []]);
+  });
+
+  it('leaves packet properties that agree with the resolved value as they are, and fills Info from them', () => {
+    const document = withArrays();
+    const change = setMetadata(document, { modificationDate: MODIFIED, keywords: 'k' });
+    const bytes = latin1Text(document.save().toBytes());
+    const reloaded = saved(document);
+    const rows = agreements(reloaded);
+    const kept = [bytes.includes(CREATORS), bytes.includes(utf8(TITLES))];
+    expect([change.reconciled, ...kept, infoText(reloaded, 'Author'), infoText(reloaded, 'Title'), rows['Author'], rows['Title']]).toStrictEqual([
+      [],
+      true,
+      true,
+      'A',
+      'T',
+      'agree',
+      'agree',
+    ]);
+  });
+
+  it('lists every item it discards when it writes one', () => {
+    const set = setMetadata(withArrays(), { modificationDate: MODIFIED, title: 'T', author: 'Z' });
+    const fromInfo = setMetadata(withArrays('<</Author(Info author)/ModDate(D:20300101000000Z)>>'), { modificationDate: MODIFIED });
+    expect([set.reconciled, fromInfo.reconciled]).toStrictEqual([
+      [
+        { key: 'Title', from: 'input', discarded: '題' },
+        { key: 'Author', from: 'input', discarded: 'A' },
+        { key: 'Author', from: 'input', discarded: 'B' },
+        { key: 'Author', from: 'input', discarded: 'C' },
+      ],
+      [
+        { key: 'Author', from: 'info', discarded: 'A' },
+        { key: 'Author', from: 'info', discarded: 'B' },
+        { key: 'Author', from: 'info', discarded: 'C' },
+      ],
+    ]);
   });
 
   it('reconciles values the input leaves out from the authoritative side and reports what it discarded', () => {
