@@ -30,7 +30,7 @@ export interface MappedProperty {
   readonly property: string;
   /** The Info value as text, or undefined when it is absent, empty or not of the kind Table 317 requires. */
   readonly info: string | undefined;
-  /** The value of the first occurrence of the XMP property. */
+  /** The value of the first occurrence of the XMP property, or undefined when it is absent or empty. */
   readonly xmp: XmpValue | undefined;
   /** Properties that XMP versions before Part 2 used for the same key, as the packet carries them. */
   readonly legacy: readonly LegacyValue[];
@@ -136,6 +136,14 @@ class RowMapper {
     return value.text;
   }
 
+  // An empty XMP value is unknown, as ISO 32000-1:2008, 14.3.3 has an unknown Info value omitted "rather than included with an empty string as its value".
+  xmpValue(row: Row, value: XmpValue | undefined): XmpValue | undefined {
+    const empty = value?.kind === 'text' ? value.text === '' : value?.kind === 'array' && value.items.every(item => item.text === '');
+    if (!empty) return value;
+    this.report('xmp-empty-value', `${row.prefix}:${row.name} is empty`);
+    return undefined;
+  }
+
   private dateAgreement(row: Row, info: string, xmp: string): Agreement {
     const pdfDate = parsePdfDate(info);
     const xmpDate = parseXmpDate(xmp);
@@ -217,7 +225,7 @@ export const mapMetadata = (info: ReadonlyMap<string, InfoValue> | undefined, pa
   const rows: { property: MappedProperty; row: Row }[] = [];
   for (const row of MAPPED_ROWS) {
     const infoValue = mapper.infoText(row, info?.get(row.key));
-    const xmp = find(packet, row.namespace, row.name)?.value;
+    const xmp = mapper.xmpValue(row, find(packet, row.namespace, row.name)?.value);
     const compared = xmp === undefined ? infoValue : comparableText(xmp);
     const legacy = mapper.legacyValues(row, packet, compared);
     const agreement = mapper.agreement(row, infoValue, xmp);

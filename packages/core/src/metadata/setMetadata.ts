@@ -31,7 +31,7 @@ import { newPacket } from './xmp/writeXmp.ts';
 import { parseXmpDate, xmpDateString } from './xmp/xmpDate.ts';
 
 export interface MetadataInput {
-  /** Info Title and dc:title; left out, the document's value is kept, taken from the authoritative side where Info and XMP disagree; null removes it. */
+  /** Info Title and dc:title; left out, the document's value is kept, taken from the authoritative side where Info and XMP disagree; null or an empty string removes it. */
   title?: string | null;
   /** Info Author and dc:creator, written as one creator. */
   author?: string | null;
@@ -135,8 +135,9 @@ class Resolver {
     return from === 'xmp' ? xmp : info;
   }
 
+  // An empty input is an unknown value, which ISO 32000-1:2008, 14.3.3 has omitted rather than written empty.
   text(key: MappedKey, input: string | null | undefined): string | undefined {
-    if (input !== undefined) return input ?? undefined;
+    if (input !== undefined) return input === null || input === '' ? undefined : input;
     const row = this.row(key);
     const xmp = row?.xmp === undefined ? undefined : comparableText(row.xmp);
     return this.pick(key, { info: row?.info, xmp }, value => value);

@@ -139,6 +139,27 @@ describe('mapping Info to XMP', () => {
     ]);
   });
 
+  it('takes an empty XMP value as unknown, like an empty Info string', () => {
+    const mapping = mapMetadata(
+      info({ Title: text('T'), Subject: text('') }),
+      packet(`<dc:title>${alt('')}</dc:title><dc:description>${alt('S')}</dc:description><pdf:Producer></pdf:Producer><dc:creator><rdf:Seq/></dc:creator>`),
+    );
+    expect([agreements(mapping), codes(mapping)]).toStrictEqual([
+      {
+        Title: 'info-only',
+        Author: 'absent',
+        Subject: 'xmp-only',
+        Keywords: 'absent',
+        Creator: 'absent',
+        Producer: 'absent',
+        CreationDate: 'absent',
+        ModDate: 'absent',
+        Trapped: 'absent',
+      },
+      ['xmp-empty-value', 'xmp-empty-value', 'info-empty-string', 'xmp-empty-value'],
+    ]);
+  });
+
   it('is Info-authoritative without a packet and XMP-authoritative without Info', () => {
     const withoutPacket = mapMetadata(info({ Title: text('T') }), packet('<not-well-formed'));
     const withoutInfo = mapMetadata(undefined, packet(''));

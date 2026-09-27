@@ -145,6 +145,24 @@ describe('setting document metadata', () => {
     expect(setMetadata(document, INPUT).findings.map(finding => finding.code)).toStrictEqual(['xmp-transcoded']);
   });
 
+  it('writes no empty value on either side', () => {
+    const document = load(
+      '/Metadata 4 0 R',
+      [
+        {
+          number: 4,
+          body: streamBody('/Type/Metadata/Subtype/XML', packet('<dc:description><rdf:Alt><rdf:li xml:lang="x-default"/></rdf:Alt></dc:description>')),
+        },
+        { number: 5, body: '<</Keywords()>>' },
+      ],
+      `${ID}/Info 5 0 R`,
+    );
+    setMetadata(document, { ...INPUT, title: '' });
+    const reloaded = saved(document);
+    const rows = agreements(reloaded);
+    expect([rows['Title'], rows['Subject'], rows['Keywords'], codes(reloaded)]).toStrictEqual(['absent', 'absent', 'absent', []]);
+  });
+
   it('reconciles values the input leaves out from the authoritative side and reports what it discarded', () => {
     const document = load(
       '/Metadata 4 0 R',

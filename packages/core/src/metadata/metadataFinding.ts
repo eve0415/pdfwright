@@ -19,6 +19,7 @@ export type MetadataFindingCode =
   | 'trapped-not-name'
   | 'info-not-text-string'
   | 'info-empty-string'
+  | 'xmp-empty-value'
   | 'info-text-undecodable'
   | 'date-unparseable'
   | 'date-zone-unknown'
