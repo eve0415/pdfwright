@@ -31,7 +31,7 @@ oxlint fails to start without the anti-slop submodule. In a clone made without `
 pnpm exec oxlint
 pnpm exec oxfmt --check
 pnpm run check:type-aware-coverage
-pnpm test            # the node, browser (headless Chromium) and workers (workerd) projects
+pnpm test            # the node, browser (headless Chromium), workers (workerd) and oracle projects
 pnpm run test:bun
 pnpm run test:deno
 pnpm run build
@@ -46,9 +46,11 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 - **oxlint does not report `isolatedDeclarations` errors (TS9xxx).** The tsdown build reports them when it emits declarations, so a change to an exported signature is checked only once `pnpm run build` passes.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
+The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, LittleCMS, Argyll and free ICC profiles for external checks.
+
 ## Runtime rules
 
-- **Library source uses web-standard APIs only**: no Node built-ins, no WebAssembly, no native code. oxlint's `import/no-nodejs-modules` rejects `node:` imports in `packages/*/src` and `tests/`, the root tsconfig sets `types: []` so Node globals such as `process` and `Buffer` do not type-check, and the browser project runs the suite where neither exists.
+- **Library source uses web-standard APIs only**: no Node built-ins, no WebAssembly, no native code. oxlint's `import/no-nodejs-modules` rejects `node:` imports in `packages/*/src` and `tests/` except oracle tests, the root tsconfig sets `types: []` so Node globals such as `process` and `Buffer` do not type-check, and the browser project runs the suite where neither exists.
 - **The workers project cannot prove the absence of Node APIs**, because `@cloudflare/vitest-plugin` enables `nodejs_compat`. The lint rule, the tsconfigs and the browser project are what enforce the rule above.
 - **`scripts/` and `*.config.ts` run on Node** and may import `node:` modules.
 

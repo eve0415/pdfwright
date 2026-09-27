@@ -112,7 +112,7 @@ export default defineConfig({
       },
     },
     {
-      files: ['scripts/**/*.ts', '**/*.config.ts'],
+      files: ['scripts/**/*.ts', '**/*.config.ts', '**/*.oracle.test.ts'],
       rules: {
         'import/no-nodejs-modules': 'off',
       },
