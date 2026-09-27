@@ -24,6 +24,7 @@ import { incrementalSave } from '../save/incrementalSave.ts';
 import { locateHeader } from '../xref/locate.ts';
 
 import { createDocumentHandles } from './documentHandles.ts';
+import { registerInternals } from './documentInternals.ts';
 import { EditedObjects } from './editedObjects.ts';
 import { createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
@@ -106,6 +107,7 @@ interface LoadedParts {
   readonly warnings: readonly LoadWarning[];
   readonly pages: readonly PageEntry[];
   readonly maxNesting: number;
+  readonly maxDecodedBytes: number;
 }
 
 const VERSION = pdfName('Version').bytes;
@@ -132,6 +134,13 @@ class LoadedPdf implements LoadedDocument {
     this.objects = new EditedObjects(parts.read.store, parts.read.structure.trailer.get(SIZE));
     this.warnings = parts.warnings;
     this.pages = parts.pages;
+    registerInternals(this, {
+      objects: this.objects,
+      pages: this.pages,
+      structure: this.structure,
+      maxDecodedBytes: parts.maxDecodedBytes,
+      maxNesting: parts.maxNesting,
+    });
   }
 
   separation(options: SeparationOptions): Separation {
@@ -268,5 +277,11 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
   }
   let { status } = read.structure;
   if (status === 'intact' && log.tolerated) status = 'tolerated';
-  return new LoadedPdf({ read: { ...read, structure: { ...read.structure, status } }, warnings: log.warnings, pages, maxNesting: session.options.maxNesting });
+  return new LoadedPdf({
+    read: { ...read, structure: { ...read.structure, status } },
+    warnings: log.warnings,
+    pages,
+    maxNesting: session.options.maxNesting,
+    maxDecodedBytes: session.options.maxDecodedBytes,
+  });
 };
