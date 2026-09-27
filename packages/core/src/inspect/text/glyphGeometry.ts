@@ -12,7 +12,7 @@ export interface GlyphGeometry {
   readonly advance: readonly [number, number];
   readonly quad: Quad;
   readonly fontSize: number;
-  /** Whether the text rendering matrix is degenerate: its absolute determinant is below 10⁻⁶, or the em square is shorter than 0.5 along either axis. */
+  /** Whether the glyph cannot be seen for its size: the em square, 1000 glyph units, maps to the page with an absolute determinant below 10⁻⁶ or narrower than 0.5 in its thinnest direction. */
   readonly degenerate: boolean;
   readonly extentEstimated: boolean;
 }
@@ -20,6 +20,15 @@ export interface GlyphGeometry {
 // Below these a glyph cannot be seen: a matrix that flattens it, or an em square under half a unit of default user space.
 const DEGENERATE_DETERMINANT = 1e-6;
 const SMALLEST_EM = 0.5;
+
+// Whether 1000 units of glyph space, mapped by the glyph matrix times Trm, flatten to nothing or to less than half a unit across in the thinnest direction: the smallest singular value of the linear part is its determinant over the largest.
+const degenerate = ([a, b, c, d]: Matrix): boolean => {
+  const [p, q, r, t] = [a * 1000, b * 1000, c * 1000, d * 1000];
+  const determinant = Math.abs(p * t - q * r);
+  const sum = p * p + q * q + r * r + t * t;
+  const largest = Math.sqrt((sum + Math.sqrt(Math.max(0, sum * sum - 4 * determinant * determinant))) / 2);
+  return determinant < DEGENERATE_DETERMINANT || largest === 0 || determinant / largest < SMALLEST_EM;
+};
 
 /**
  * The text rendering matrix of ISO 32000-1:2008, 9.4.4: Trm = [Tfs×Th 0 0 Tfs 0 Trise] × Tm × CTM, mapping text space to the page's default user space.
@@ -146,10 +155,7 @@ export const glyphGeometry = (
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
     fontSize: Math.hypot(trm[2], trm[3]),
-    degenerate:
-      Math.abs(trm[0] * trm[3] - trm[1] * trm[2]) < DEGENERATE_DETERMINANT ||
-      Math.hypot(trm[0], trm[1]) < SMALLEST_EM ||
-      Math.hypot(trm[2], trm[3]) < SMALLEST_EM,
+    degenerate: degenerate(multiply(font.glyphMatrix, trm)),
     extentEstimated: box.estimated,
   };
 };
