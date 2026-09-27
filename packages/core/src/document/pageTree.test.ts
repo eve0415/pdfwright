@@ -82,6 +82,18 @@ describe('page tree', () => {
     expect(() => bare.page(0).boxes()).toThrow(new ParseError('page 3 0 R has no MediaBox, on itself or on an ancestor', 0));
   });
 
+  it('reads inherited attributes that refer to missing objects as absent', () => {
+    const document = load([
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 5 5]/Resources<</Font<<>>>>>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox 9 0 R/Resources 9 0 R/TrimBox 9 0 R>>' },
+    ]);
+    expect([document.page(0).boxes().MediaBox.rect, document.page(0).boxes().TrimBox.explicit, resourceKeys(document, 0)]).toStrictEqual([
+      [0, 0, 5, 5],
+      false,
+      ['Font'],
+    ]);
+  });
+
   it('keeps a malformed box number as read and throws when the box is used', () => {
     const malformed = load([
       { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/Resources<<>>>>' },

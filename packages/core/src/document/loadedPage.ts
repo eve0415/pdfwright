@@ -111,13 +111,17 @@ interface Found {
   readonly from?: PdfReference;
 }
 
+// ISO 32000-1:2008, 7.3.10 reads a reference to a missing object as null, and 7.3.7 treats a null value as an absent entry.
+const present = (resolver: ObjectResolver, value: PdfDirectObject | undefined): value is PdfDirectObject =>
+  value !== undefined && resolver.deref(value)?.kind !== 'null';
+
 // 7.7.3.4: "If such an attribute is omitted from a page object, its value shall be inherited from an ancestor node in the page tree."
 const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
   const own = dictionaryOf(resolver, entry.reference).get(key);
-  if (own !== undefined) return { value: own };
+  if (present(resolver, own)) return { value: own };
   for (const ancestor of ancestorsOf(entry)) {
     const value = dictionaryOf(resolver, ancestor).get(key);
-    if (value !== undefined) return { value, from: ancestor };
+    if (present(resolver, value)) return { value, from: ancestor };
   }
   return undefined;
 };
@@ -139,10 +143,11 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): Effe
   const own = dictionaryOf(resolver, entry.reference);
   const production = (name: 'BleedBox' | 'TrimBox' | 'ArtBox'): EffectiveBox => {
     const value = own.get(pdfName(name).bytes);
-    return value === undefined ? { rect: cropBox.rect, explicit: false } : effectiveBox(resolver, { value }, `the ${name} of page ${page}`);
+    return present(resolver, value) ? effectiveBox(resolver, { value }, `the ${name} of page ${page}`) : { rect: cropBox.rect, explicit: false };
   };
   const rotate = inherited(resolver, entry, ROTATE);
-  const userUnit = own.get(USER_UNIT);
+  const unit = own.get(USER_UNIT);
+  const userUnit = present(resolver, unit) ? unit : undefined;
   return {
     MediaBox: mediaBox,
     CropBox: cropBox,

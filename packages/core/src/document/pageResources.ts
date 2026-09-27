@@ -47,11 +47,13 @@ const dictionaryOf = (objects: ObjectResolver, reference: PdfReference): PdfDict
 
 // The Resources value that applies to a page: its own, or the nearest ancestor's (7.7.3.4), with where it was found.
 const resourcesEntry = (objects: ObjectResolver, entry: PageEntry): { value: PdfDirectObject; inherited: boolean } | undefined => {
+  // A reference to a missing object reads as null (7.3.10), which is the same as an absent entry (7.3.7).
+  const present = (value: PdfDirectObject | undefined): value is PdfDirectObject => value !== undefined && objects.deref(value)?.kind !== 'null';
   const own = dictionaryOf(objects, entry.reference).get(RESOURCES);
-  if (own !== undefined) return { value: own, inherited: false };
+  if (present(own)) return { value: own, inherited: false };
   for (const ancestor of ancestorsOf(entry)) {
     const value = dictionaryOf(objects, ancestor).get(RESOURCES);
-    if (value !== undefined) return { value, inherited: true };
+    if (present(value)) return { value, inherited: true };
   }
   return undefined;
 };
