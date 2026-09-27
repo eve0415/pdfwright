@@ -493,6 +493,15 @@ describe('patterns', () => {
     expect(selects.map(select => select.context.colour)).toStrictEqual(['used', 'uncoloured-pattern']);
   });
 
+  it('paints image masks in a pattern colour', () => {
+    const { paints } = run({ content: '/Pattern cs /Shaded scn /Im Do BI /W 1 /H 1 /IM true ID \u0000 EI', resources: `${PATTERNS}/XObject<</Im 114 0 R>>` }, [
+      ...OBJECTS,
+      { number: 114, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/ImageMask true', '\u0000') },
+    ]);
+    // 8.9.5, Table 89, ImageMask: "unmasked areas shall be painted using the current nonstroking colour", which may be a pattern.
+    expect(paintSpaces(paints)).toStrictEqual(['image-mask:Pattern,DeviceCMYK', 'inline-image-mask:Pattern,DeviceCMYK']);
+  });
+
   it('paints a shading pattern in the shading colour space', () => {
     const { paints } = run({ content: '/Pattern cs /Shaded scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
     expect(paintSpaces(paints)).toStrictEqual(['fill:Pattern,DeviceCMYK']);

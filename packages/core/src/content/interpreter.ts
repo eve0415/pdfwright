@@ -1165,7 +1165,7 @@ class Interpreter {
     if (kind !== 'Image') return;
     // 8.9.5, Table 89, ImageMask: "unmasked areas shall be painted using the current nonstroking colour".
     const mask = this.deref(object.dictionary.get(IMAGE_MASK));
-    if (mask?.kind === 'boolean' && mask.value) this.emitPaint('image-mask', [this.state.fill], scope);
+    if (mask?.kind === 'boolean' && mask.value) this.paintWith('image-mask', [this.state.fill], step);
     else this.emitPaint('image', [this.imageUse(object.dictionary.get(COLOR_SPACE))], scope);
   }
 
@@ -1186,7 +1186,7 @@ class Interpreter {
     };
     const mask = parameter(['IM', 'ImageMask']);
     if (mask?.kind === 'boolean' && mask.value) {
-      this.emitPaint('inline-image-mask', [this.state.fill], scope);
+      this.paintWith('inline-image-mask', [this.state.fill], step);
       return;
     }
     const space = parameter(['CS', 'ColorSpace']);
