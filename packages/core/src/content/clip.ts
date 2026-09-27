@@ -102,10 +102,12 @@ const classifyAgainst = (path: ClipPath, corners: readonly Point[], quadBounds: 
   const samples = [...corners, [(x0 + x2) / 2, (y0 + y2) / 2] as const];
   const inside = samples.filter(sample => insidePath(path, sample)).length;
   if (inside !== 0 && inside !== samples.length) return 'partial';
-  // All samples agree, but the boundary may still pass through the quad: an edge crossing one of its sides, or a vertex within it.
+  // All samples agree, but the boundary may still pass through the quad: an edge crossing one of its sides, a vertex within it, or an edge between two points of its boundary, whose midpoint is then within it.
   const sides = corners.map((corner, index) => [corner, corners[(index + 1) % corners.length] ?? corner] as const);
   for (const edge of edgesOf(path.polygons)) {
-    if (sides.some(side => crosses(side, edge)) || strictlyInsideQuad(corners, edge[0])) return 'partial';
+    const [[ax, ay], [bx, by]] = edge;
+    const midpoint = [(ax + bx) / 2, (ay + by) / 2] as const;
+    if (sides.some(side => crosses(side, edge)) || strictlyInsideQuad(corners, edge[0]) || strictlyInsideQuad(corners, midpoint)) return 'partial';
   }
   return inside === 0 ? 'outside' : 'inside';
 };

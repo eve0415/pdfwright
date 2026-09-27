@@ -137,6 +137,25 @@ describe('clip classification', () => {
     expect(small.classifyQuad(quad([0, 0, 100, 100]))).toBe('partial');
   });
 
+  it('finds a notch whose vertices lie on the quad boundary', () => {
+    const notched = new PathBuilder(IDENTITY);
+    for (const [x, y] of [
+      [-100, -100],
+      [5, -100],
+      [5, 0],
+      [10, 10],
+      [6, 0],
+      [6, -100],
+      [100, -100],
+      [100, 100],
+      [-100, 100],
+    ] as const) {
+      notched.lineTo(x, y);
+    }
+    // The triangle (5, 0), (10, 10), (6, 0) is cut out of the quad although no clip vertex is strictly inside it and no clip edge crosses a side.
+    expect(Clip.NONE.intersect(notched, 'nonzero').classifyQuad(quad([0, 0, 10, 10]))).toBe('partial');
+  });
+
   it('gives up past 10,000 clip vertices', () => {
     const path = new PathBuilder(IDENTITY);
     path.moveTo(0, 0);
