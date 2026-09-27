@@ -7,7 +7,7 @@ import { deepEqual } from '../object/deepEqual.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
-import { operationHashes } from './contentTokens.ts';
+import { readOperations } from './contentTokens.ts';
 import { decodeForComparison } from './pageContent.ts';
 import { encodingText } from './resolvedText.ts';
 
@@ -183,9 +183,13 @@ export class ValueGraph {
     if (!decodedA.ok || !decodedB.ok || sameBytes(decodedA.bytes, decodedB.bytes)) return;
     const subtype = left.dictionary.get(SUBTYPE);
     if (subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form') {
-      const operationsA = operationHashes(decodedA.bytes);
-      const operationsB = operationHashes(decodedB.bytes);
-      if (operationsA.length === operationsB.length && operationsA.every((hash, index) => hash === operationsB[index])) return;
+      const operationsA = readOperations(decodedA.bytes, this.a.maxNesting);
+      const operationsB = readOperations(decodedB.bytes, this.b.maxNesting);
+      if (!operationsA.ok) this.report.undecodable(path, 'a', operationsA.reason);
+      if (!operationsB.ok) this.report.undecodable(path, 'b', operationsB.reason);
+      if (!operationsA.ok || !operationsB.ok) return;
+      const [listA, listB] = [operationsA.operations, operationsB.operations];
+      if (listA.length === listB.length && listA.every((operation, index) => operation === listB[index])) return;
     }
     this.report.mismatch({
       path,

@@ -1,6 +1,7 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
+import type { ContentOperations } from './contentTokens.ts';
 import type { PdfDifference } from './pdfDifference.ts';
 
 import { ParseError } from '../error/parseError.ts';
@@ -8,7 +9,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
-import { operationHashes } from './contentTokens.ts';
+import { readOperations } from './contentTokens.ts';
 import { encodingText } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
@@ -102,8 +103,17 @@ export const comparePageContent = (page: number, sides: PageSides, differences: 
     if (!result.ok) differences.push({ kind: 'undecodable', where: ['page', page, 'Contents'], document: side, reason: result.reason });
   }
   if (!decoded.a.ok || !decoded.b.ok || sameBytes(decoded.a.bytes, decoded.b.bytes)) return;
-  const operationsA = operationHashes(decoded.a.bytes);
-  const operationsB = operationHashes(decoded.b.bytes);
+  const read: Record<Side, ContentOperations> = {
+    a: readOperations(decoded.a.bytes, sides.a.maxNesting),
+    b: readOperations(decoded.b.bytes, sides.b.maxNesting),
+  };
+  for (const side of ['a', 'b'] as const) {
+    const result = read[side];
+    if (!result.ok) differences.push({ kind: 'undecodable', where: ['page', page, 'Contents'], document: side, reason: result.reason });
+  }
+  if (!read.a.ok || !read.b.ok) return;
+  const operationsA = read.a.operations;
+  const operationsB = read.b.operations;
   let prefix = 0;
   while (prefix < operationsA.length && prefix < operationsB.length && operationsA[prefix] === operationsB[prefix]) prefix++;
   if (prefix === operationsA.length && prefix === operationsB.length) return;

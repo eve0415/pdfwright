@@ -1,6 +1,7 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext, Token } from '../parse/lexer.ts';
 
+import { ParseError } from '../error/parseError.ts';
 import { isWhitespace } from '../parse/characterClass.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
@@ -11,15 +12,6 @@ const quiet = (): LexContext => ({
   },
   names: new Map(),
 });
-
-const HASH_MODULUS = 2 ** 45;
-
-// A polynomial hash below 2^45, so that every step stays within the exact range of a number.
-const hashText = (text: string): number => {
-  let hash = 0;
-  for (let index = 0; index < text.length; index++) hash = (hash * 257 + (text.codePointAt(index) ?? 0)) % HASH_MODULUS;
-  return hash;
-};
 
 const hex = (bytes: Uint8Array): string => {
   let text = '';
@@ -87,25 +79,38 @@ const inlineImageData = (lexer: Lexer): string => {
 };
 
 /**
- * Splits content into operations, each its operands followed by its operator, and hashes each operation canonically, ignoring white space, comments and number spellings.
+ * Splits content into operations, each its operands followed by its operator, as canonical text that ignores white space, comments and number spellings; operations compare as exact text.
  * ISO 32000-1:2008, 7.8.2: "A content stream is a PDF stream object whose data consists of a sequence of instructions describing the graphical elements to be painted on a page."
+ * Throws ParseError for operands that cannot be read, such as an unterminated string.
  */
-export const operationHashes = (bytes: Uint8Array): number[] => {
+export const contentOperations = (bytes: Uint8Array, maxNesting: number): string[] => {
   const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
-  const hashes: number[] = [];
+  const operations: string[] = [];
   let operands: string[] = [];
   for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
     if (token.kind === 'keyword' && token.keyword !== 'true' && token.keyword !== 'false' && token.keyword !== 'null') {
       lexer.next();
       const operator = operatorText(lexer, token);
       if (operator === 'ID') operands.push(`ID${inlineImageData(lexer)}`);
-      hashes.push(hashText(`${operands.join(' ')} ${operator}`));
+      operations.push(`${operands.join(' ')} ${operator}`);
       operands = [];
     } else if (token.kind === 'invalid' || token.kind === 'arrayClose' || token.kind === 'dictionaryClose') {
       lexer.next();
       operands.push(`?${hex(bytes.subarray(token.start, token.end))}`);
-    } else operands.push(canonical(parseObject(lexer, 256)));
+    } else operands.push(canonical(parseObject(lexer, maxNesting)));
   }
-  if (operands.length > 0) hashes.push(hashText(operands.join(' ')));
-  return hashes;
+  if (operands.length > 0) operations.push(operands.join(' '));
+  return operations;
+};
+
+export type ContentOperations = { readonly ok: true; readonly operations: readonly string[] } | { readonly ok: false; readonly reason: string };
+
+/** The operations of decoded content, or why they cannot be read; resource limits propagate. */
+export const readOperations = (bytes: Uint8Array, maxNesting: number): ContentOperations => {
+  try {
+    return { ok: true, operations: contentOperations(bytes, maxNesting) };
+  } catch (error: unknown) {
+    if (error instanceof ParseError) return { ok: false, reason: error.message };
+    throw error;
+  }
 };

@@ -8,7 +8,7 @@ import { deflateZlib } from '../flate/deflate.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { compareDocuments } from './compareDocuments.ts';
-import { operationHashes } from './contentTokens.ts';
+import { contentOperations } from './contentTokens.ts';
 
 const document = (contents: string, streams: readonly TestObject[]): ReturnType<typeof loadDocument> =>
   loadDocument(
@@ -76,10 +76,24 @@ describe('page content comparison', () => {
     ]);
   });
 
-  it('hashes inline image data as raw bytes and ignores comments', () => {
-    const [first] = operationHashes(latin1Bytes('BI /W 1 /H 1 ID\nab EI % comment\nQ'));
-    const same = operationHashes(latin1Bytes('BI /W 1 /H 1 ID\nab EI\nQ'));
-    const other = operationHashes(latin1Bytes('BI /W 1 /H 1 ID\nac EI\nQ'));
+  it('reads inline image data as raw bytes and ignores comments', () => {
+    const [first] = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nab EI % comment\nQ'), 32);
+    const same = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nab EI\nQ'), 32);
+    const other = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nac EI\nQ'), 32);
     expect([same.length, same[0] === first, other[1] === same[1], other[2] === same[2]]).toStrictEqual([3, true, false, true]);
+  });
+
+  it('compares operations exactly, so strings no digest could tell apart still differ', () => {
+    const thueMorse = Array.from({ length: 32 }, (_, index) => index.toString(2).split('1').length % 2);
+    const text = (low: string, high: string): string => thueMorse.map(bit => `${high}${low}`.charAt(bit)).join('');
+    const one = document('4 0 R', [{ number: 4, body: streamBody('', `BT <${text('a', 'b')}> Tj ET`) }]);
+    const two = document('4 0 R', [{ number: 4, body: streamBody('', `BT <${text('b', 'a')}> Tj ET`) }]);
+    expect(content(compareDocuments(one, two))).toMatchObject([{ kind: 'page-content', commonPrefix: 1, commonSuffix: 1 }]);
+  });
+
+  it('reports content with operands it cannot read as undecodable', () => {
+    const one = document('4 0 R', [{ number: 4, body: streamBody('', '(abc Tj') }]);
+    const two = document('4 0 R', [{ number: 4, body: streamBody('', '(abd Tj') }]);
+    expect(content(compareDocuments(one, two)).map(difference => difference.kind)).toStrictEqual(['undecodable', 'undecodable']);
   });
 });
