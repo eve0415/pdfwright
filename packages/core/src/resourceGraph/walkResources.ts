@@ -4,6 +4,7 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { fontKey } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { annotationFlags } from './annotationFlags.ts';
@@ -72,11 +73,17 @@ export interface ResourceVisit {
 export interface FontVisit {
   readonly value: PdfDirectObject;
   readonly dictionary: PdfDictionaryEntries;
+  /** The name of the Font resource, or of the ExtGState resource whose Font entry holds the font. */
+  readonly name: Uint8Array;
+  /** The owner that `fontKey` in `font/loadFont.ts` takes with `name` to key a direct font as the content interpreter does. */
+  readonly owner: string;
 }
 
 export interface ResourceWalk {
   /** The page's Resources value, own or inherited, as `inherited` in `document/loadedPage.ts` finds it with the caller's inheritance cache. */
   readonly resources: PdfDirectObject | undefined;
+  /** The owner of the page's resource dictionary that names its direct fonts, as `pageResourcesOwner` in `font/loadFont.ts` gives it; `page` when absent. */
+  readonly owner?: string;
   /** Called once per resource dictionary after the walk, in the order the walk read them. */
   readonly visit?: (visit: ResourceVisit) => void;
   /** Called once per font object; a ParseError it throws is reported as an unreadable object. */
@@ -86,11 +93,19 @@ export interface ResourceWalk {
 // What an object holding resources is to the walk; the origin is completed with the object's reference.
 type OwnerRole = { readonly kind: 'form' | 'tiling-pattern' | 'soft-mask' } | Extract<ResourceOrigin, { kind: 'annotation' }>;
 
+// `owner` is what names direct fonts: of a resource dictionary, of the object holding one, or of a font visit's resource name.
 type Visit =
-  | { readonly kind: 'resources'; readonly key: string; readonly value: PdfDirectObject; readonly origin: ResourceOrigin; readonly from: WalkEntry }
+  | {
+      readonly kind: 'resources';
+      readonly key: string;
+      readonly value: PdfDirectObject;
+      readonly origin: ResourceOrigin;
+      readonly from: WalkEntry;
+      readonly owner: string;
+    }
   | { readonly kind: 'origin'; readonly key: string; readonly origin: ResourceOrigin }
-  | { readonly kind: 'owner'; readonly value: PdfDirectObject | undefined; readonly role: OwnerRole; readonly from: WalkEntry }
-  | { readonly kind: 'font'; readonly value: PdfDirectObject | undefined; readonly from: WalkEntry };
+  | { readonly kind: 'owner'; readonly value: PdfDirectObject | undefined; readonly role: OwnerRole; readonly from: WalkEntry; readonly owner: string }
+  | { readonly kind: 'font'; readonly value: PdfDirectObject | undefined; readonly from: WalkEntry; readonly name: Uint8Array; readonly owner: string };
 
 interface VisitRecord {
   readonly resources: PdfDictionaryEntries;
@@ -163,7 +178,15 @@ class Walk {
 
   page(resources: PdfDirectObject | undefined): void {
     this.pageKey = referenceKey(resources) ?? 'page';
-    if (resources !== undefined) this.visits.push({ kind: 'resources', key: this.pageKey, value: resources, origin: { kind: 'page' }, from: 'Resources' });
+    if (resources === undefined) return;
+    this.visits.push({
+      kind: 'resources',
+      key: this.pageKey,
+      value: resources,
+      origin: { kind: 'page' },
+      from: 'Resources',
+      owner: this.handlers.owner ?? 'page',
+    });
   }
 
   annotations(page: PageEntry): void {
@@ -182,19 +205,21 @@ class Walk {
         const prints = printable && state === 'N';
         // Table 168: an entry holds "either a single appearance stream or an appearance subdictionary"; Table 164, AS: "The annotation's appearance state, which selects the applicable appearance stream from an appearance subdictionary".
         // Without an AS naming one of its states, no state of a subdictionary prints.
-        if (resolved?.kind === 'stream') this.owner(value, { kind: 'annotation', index, state, printable: prints });
+        // An appearance stream is indirect (7.3.8.1), so the page owner stands in only for a malformed direct one.
+        const owner = this.handlers.owner ?? 'page';
+        if (resolved?.kind === 'stream') this.owner(value, { kind: 'annotation', index, state, printable: prints }, owner);
         else {
           for (const [name, stream] of resolved?.kind === 'dictionary' ? resolved.entries.entries() : []) {
             const chosen = prints && selected?.kind === 'name' && sameBytes(selected.bytes, name);
-            this.owner(stream, { kind: 'annotation', index, state, printable: chosen });
+            this.owner(stream, { kind: 'annotation', index, state, printable: chosen }, owner);
           }
         }
       }
     }
   }
 
-  private owner(value: PdfDirectObject | undefined, role: OwnerRole): void {
-    this.visits.push({ kind: 'owner', value, role, from: this.from });
+  private owner(value: PdfDirectObject | undefined, role: OwnerRole, owner: string): void {
+    this.visits.push({ kind: 'owner', value, role, from: this.from, owner });
   }
 
   run(): readonly UnreadableObject[] {
@@ -206,7 +231,7 @@ class Walk {
       this.from = visit.from;
       if (visit.kind === 'resources') this.resources(visit);
       else if (visit.kind === 'owner') this.ownerVisit(visit);
-      else this.fontVisit(visit.value);
+      else this.fontVisit(visit);
     }
     for (const record of this.records.values()) {
       if (record === undefined) continue;
@@ -239,7 +264,7 @@ class Walk {
     record.origins.push(origin);
   }
 
-  private resources({ key, value, origin }: Extract<Visit, { kind: 'resources' }>): void {
+  private resources({ key, value, origin, owner }: Extract<Visit, { kind: 'resources' }>): void {
     if (this.records.has(key)) {
       this.origin(key, origin);
       return;
@@ -254,17 +279,17 @@ class Walk {
     for (const waiting of this.pending.get(key) ?? []) this.origin(key, waiting);
     this.pending.delete(key);
     if (dictionary === undefined) return;
-    this.category(dictionary, FONT, font => {
-      this.visits.push({ kind: 'font', value: font, from: this.from });
+    this.category(dictionary, FONT, (name, font) => {
+      this.visits.push({ kind: 'font', value: font, from: this.from, name, owner });
     });
-    this.category(dictionary, XOBJECT, form => {
-      this.owner(form, { kind: 'form' });
+    this.category(dictionary, XOBJECT, (_, form) => {
+      this.owner(form, { kind: 'form' }, owner);
     });
-    this.category(dictionary, PATTERN, pattern => {
-      this.owner(pattern, { kind: 'tiling-pattern' });
+    this.category(dictionary, PATTERN, (_, pattern) => {
+      this.owner(pattern, { kind: 'tiling-pattern' }, owner);
     });
-    this.category(dictionary, EXT_G_STATE, state => {
-      this.graphicsState(state);
+    this.category(dictionary, EXT_G_STATE, (name, state) => {
+      this.graphicsState(state, name, owner);
     });
   }
 
@@ -274,7 +299,8 @@ class Walk {
   }
 
   // A form XObject, a pattern, a soft-mask group or an appearance stream has its own resources.
-  private ownerVisit({ value, role }: Extract<Visit, { kind: 'owner' }>): void {
+  // The content interpreter names direct fonts in a stream's resources by the resource dictionary's reference, else the stream's, else the parent's owner.
+  private ownerVisit({ value, role, owner: parent }: Extract<Visit, { kind: 'owner' }>): void {
     const owner = referenceKey(value);
     const origin = ownerOrigin(role, referenceOf(value));
     if (owner !== undefined && this.owners.has(owner)) {
@@ -285,15 +311,17 @@ class Walk {
     const resources = dictionaryOf(this.read(value))?.get(RESOURCES);
     const key = resources === undefined ? undefined : this.resourcesKey(owner, resources);
     if (owner !== undefined) this.owners.set(owner, key);
-    if (key !== undefined && resources !== undefined) this.visits.push({ kind: 'resources', key, value: resources, origin, from: this.from });
+    if (key !== undefined && resources !== undefined) {
+      this.visits.push({ kind: 'resources', key, value: resources, origin, from: this.from, owner: referenceKey(resources) ?? owner ?? parent });
+    }
   }
 
-  private fontVisit(value: PdfDirectObject | undefined): void {
+  private fontVisit({ value, name, owner }: Extract<Visit, { kind: 'font' }>): void {
     if (value === undefined || !this.once(value)) return;
     const dictionary = dictionaryOf(this.read(value));
     if (dictionary === undefined) return;
     try {
-      this.handlers.font?.({ value, dictionary });
+      this.handlers.font?.({ value, dictionary, name, owner });
     } catch (error: unknown) {
       this.record(error);
     }
@@ -308,20 +336,28 @@ class Walk {
       return;
     }
     const key = this.resourcesKey(referenceKey(value), resources);
-    this.visits.push({ kind: 'resources', key, value: resources, origin: { kind: 'type3', font, inheritsPageResources: false }, from: this.from });
+    // The interpreter names direct fonts in a Type 3 font's direct resources after the Type 3 font itself.
+    this.visits.push({
+      kind: 'resources',
+      key,
+      value: resources,
+      origin: { kind: 'type3', font, inheritsPageResources: false },
+      from: this.from,
+      owner: referenceKey(resources) ?? fontKey(value, owner, name),
+    });
   }
 
-  private category(resources: PdfDictionaryEntries, key: Uint8Array, visit: (value: PdfDirectObject) => void): void {
+  private category(resources: PdfDictionaryEntries, key: Uint8Array, visit: (name: Uint8Array, value: PdfDirectObject) => void): void {
     const entries = dictionaryOf(this.read(resources.get(key)));
-    for (const [, value] of entries?.entries() ?? []) visit(value);
+    for (const [name, value] of entries?.entries() ?? []) visit(name, value);
   }
 
-  private graphicsState(value: PdfDirectObject): void {
+  private graphicsState(value: PdfDirectObject, name: Uint8Array, owner: string): void {
     const state = dictionaryOf(this.read(value));
     const font = this.read(state?.get(FONT));
-    if (font?.kind === 'array') this.visits.push({ kind: 'font', value: font.items[0], from: this.from });
+    if (font?.kind === 'array') this.visits.push({ kind: 'font', value: font.items[0], from: this.from, name, owner: `${owner}:ExtGState` });
     const mask = dictionaryOf(this.read(state?.get(SOFT_MASK)));
-    if (mask !== undefined) this.owner(mask.get(GROUP), { kind: 'soft-mask' });
+    if (mask !== undefined) this.owner(mask.get(GROUP), { kind: 'soft-mask' }, owner);
   }
 }
 

@@ -14,7 +14,7 @@ import { createInheritedCache, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData, dictionaryOf, latin1, numberOf, numbersOf } from '../font/fontValues.ts';
-import { FontCache, fontKey } from '../font/loadFont.ts';
+import { FontCache, fontKey, pageResourcesOwner } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { annotationFlags } from '../resourceGraph/annotationFlags.ts';
 
@@ -1255,7 +1255,7 @@ const pageResources = (
 ): PageResources => {
   try {
     const found = inherited(document.objects, page, { key: RESOURCES, cache });
-    const owner = found?.value.kind === 'reference' ? referenceKey(found.value) : referenceKey(found?.from ?? page.reference);
+    const owner = pageResourcesOwner(found, page);
     const resources = found === undefined ? undefined : dictionaryOf(document.objects.deref(found.value));
     if (found !== undefined && resources === undefined) interpreter.warn('resource-missing', 'the Resources of the page is not a dictionary', true);
     return { resources, owner };

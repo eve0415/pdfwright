@@ -8,19 +8,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { inherited } from '../document/loadedPage.ts';
+import { fontKey, pageResourcesOwner } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { walkResources } from './walkResources.ts';
 
-const internals = (page: string, objects: readonly TestObject[]): DocumentInternals => {
+const internals = (page: string, objects: readonly TestObject[], tree = ''): DocumentInternals => {
   const document = loadDocument(
     buildPdf([
       {
         xref: 'classic',
         objects: [
           { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+          { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]${tree}>>` },
           { number: 3, body: `<</Type/Page/Parent 2 0 R${page}>>` },
           ...objects,
         ],
@@ -36,6 +37,8 @@ const internals = (page: string, objects: readonly TestObject[]): DocumentIntern
 interface Walked {
   readonly visits: readonly ResourceVisit[];
   readonly fonts: readonly PdfDirectObject[];
+  /** The key the content interpreter gives each font, from the name and owner the walk reports. */
+  readonly keys: readonly string[];
   readonly unreadable: readonly UnreadableObject[];
 }
 
@@ -44,16 +47,20 @@ const walk = (document: DocumentInternals): Walked => {
   if (page === undefined) throw new Error('the document has no page');
   const visits: ResourceVisit[] = [];
   const fonts: PdfDirectObject[] = [];
+  const keys: string[] = [];
+  const found = inherited(document.objects, page, { key: pdfName('Resources').bytes });
   const unreadable = walkResources(document, page, {
-    resources: inherited(document.objects, page, { key: pdfName('Resources').bytes })?.value,
+    resources: found?.value,
+    owner: pageResourcesOwner(found, page),
     visit: visit => {
       visits.push(visit);
     },
-    font: ({ value }) => {
+    font: ({ value, owner, name }) => {
       fonts.push(value);
+      keys.push(fontKey(value, owner, name));
     },
   });
-  return { visits, fonts, unreadable };
+  return { visits, fonts, keys, unreadable };
 };
 
 // The origins of the visit whose dictionary is the given indirect object, or of the page's direct dictionary.
@@ -190,6 +197,35 @@ describe('resource walks', () => {
       [{ kind: 'soft-mask', group: reference(12) }],
       [{ kind: 'page' }],
     ]);
+  });
+
+  it('names each font as content interpretation keys it: by reference, or by resource name and the owner of its resource dictionary', () => {
+    const helvetica = '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>';
+    const type3 = `/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<<>>/Encoding<</Differences[]>>/FirstChar 0/LastChar 0/Widths[0]`;
+    const document = internals(
+      `/Resources<</Font<</F1 ${helvetica}/F2 30 0 R/T3 31 0 R>>/ExtGState<</GS1<</Font[${helvetica} 12]>>>>/XObject<</X1 10 0 R/X2 12 0 R>>>>`,
+      [
+        form(10, `<</Font<</F3 ${helvetica}>>>>`),
+        form(12, '20 0 R'),
+        { number: 20, body: `<</Font<</F4 ${helvetica}>>>>` },
+        { number: 30, body: helvetica },
+        { number: 31, body: `<<${type3}/Resources<</Font<</F5 ${helvetica}>>>>>>` },
+      ],
+    );
+    expect(walk(document).keys.toSorted()).toStrictEqual([
+      '30.0',
+      '31.0',
+      'direct:10.0:4633',
+      'direct:20.0:4634',
+      'direct:3.0:4631',
+      'direct:3.0:ExtGState:475331',
+      'direct:31.0:4635',
+    ]);
+  });
+
+  it('names a direct font in inherited direct resources by the page tree node holding them', () => {
+    const document = internals('', [], '/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Courier>>>>>>');
+    expect(walk(document).keys).toStrictEqual(['direct:2.0:4631']);
   });
 
   it('returns objects it cannot parse with the page entry they were reached from', () => {

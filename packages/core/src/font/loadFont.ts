@@ -1,4 +1,6 @@
 import type { Matrix } from '../content/matrix.ts';
+import type { Found } from '../document/loadedPage.ts';
+import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { CMap } from './cmap/cmap.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
@@ -66,6 +68,8 @@ const codeBytes = (code: CMapCode): Uint8Array => {
   return bytes;
 };
 
+const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)}.${String(reference.generation)}`;
+
 const subtypeOf = (name: string | undefined): FontSubtype =>
   name === 'Type0' || name === 'Type1' || name === 'MMType1' || name === 'TrueType' || name === 'Type3' ? name : 'other';
 
@@ -73,7 +77,13 @@ const subtypeOf = (name: string | undefined): FontSubtype =>
  * The key a font is cached and reported under (the design's font key rule): `objectNumber.generation` for an indirect font; for a font dictionary written directly in a resource dictionary, `direct:` followed by the caller's name for the resource dictionary's owner and the resource name in hexadecimal.
  */
 export const fontKey = (value: PdfDirectObject, owner: string, name: Uint8Array): string =>
-  value.kind === 'reference' ? `${String(value.objectNumber)}.${String(value.generation)}` : `direct:${owner}:${hex(name)}`;
+  value.kind === 'reference' ? referenceKey(value) : `direct:${owner}:${hex(name)}`;
+
+/**
+ * The owner that names direct fonts in a page's resource dictionary (see `fontKey`): the dictionary's own reference, else the page or page tree node it is written in, as `inherited` in `document/loadedPage.ts` found it.
+ */
+export const pageResourcesOwner = (found: Found | undefined, page: PageEntry): string =>
+  found?.value.kind === 'reference' ? referenceKey(found.value) : referenceKey(found?.from ?? page.reference);
 
 interface LoadContext {
   readonly source: FontSource;
