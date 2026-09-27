@@ -1,7 +1,6 @@
 import type { ObjectChange } from '../document/editedObjects.ts';
 import type { ObjectStore } from '../document/objectStore.ts';
 import type { DocumentStructure, SaveBase } from '../document/readStructure.ts';
-import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext } from '../parse/lexer.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
@@ -11,7 +10,7 @@ import type { SaveWarning } from './saveWarning.ts';
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { createMd5 } from '../hash/md5.ts';
-import { pdfArray, pdfInteger, pdfString } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName, pdfString } from '../object/pdfObject.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseAnnotated } from '../parse/parseObject.ts';
 import { savedPdf } from '../write/savedPdf.ts';
@@ -126,42 +125,131 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
   return written;
 };
 
-interface TrailerRequest {
+interface SectionRequest {
   readonly appendStart: number;
   readonly previousSection: number;
+  readonly entries: readonly Entry[];
   readonly warn: (warning: SaveWarning) => void;
 }
 
 // ISO 32000-1:2008, 7.5.6: "The added trailer shall contain all the entries except the Prev entry (if present) from the previous trailer, whether modified or not. In addition, the added trailer dictionary shall contain a Prev entry".
-const writeTrailer = (emitter: PdfEmitter, input: SaveInput, request: TrailerRequest): void => {
+const trailerEntries = (input: SaveInput, request: SectionRequest, size: number): PdfDictionaryEntries => {
   const { structure } = input;
-  const shift = input.base?.shift ?? 0;
-  const trailer = copiedTrailerEntries(structure.trailer, 'classic');
+  const trailer = copiedTrailerEntries(structure.trailer, structure.lastSectionKind ?? 'classic');
   const previousSize = structure.trailer.get(TRAILER_KEYS.size);
-  trailer.set(TRAILER_KEYS.size, pdfInteger(Math.max(previousSize?.kind === 'integer' ? previousSize.value : 0, input.size)));
-  trailer.set(TRAILER_KEYS.prev, pdfInteger(request.previousSection - shift));
+  trailer.set(TRAILER_KEYS.size, pdfInteger(Math.max(previousSize?.kind === 'integer' ? previousSize.value : 0, size)));
+  trailer.set(TRAILER_KEYS.prev, pdfInteger(request.previousSection - (input.base?.shift ?? 0)));
   trailer.delete(TRAILER_KEYS.id);
+  return trailer;
+};
+
+interface Identified {
+  readonly emitter: PdfEmitter;
+  readonly appendStart: number;
+  /** Serializes the trailer or stream dictionary as it will be written, without ID. */
+  readonly withoutId: () => Uint8Array;
+}
+
+// ISO 32000-1:2008, 14.4: the first identifier "shall not change when the file is incrementally updated"; the second is "a changing identifier based on the file's contents at the time it was last updated". A source without ID gets none unless the caller supplies one.
+const fileIdentifier = (input: SaveInput, request: Identified): readonly [Uint8Array, Uint8Array] | undefined => {
+  if (input.fileIdentifier !== 'derive') return input.fileIdentifier;
+  const previous = identifiers(input.structure.trailer);
+  if (previous === undefined) return undefined;
+  const { emitter } = request;
+  const appended = emitter.writer.toUint8Array().subarray(request.appendStart - (emitter.offset - emitter.writer.length));
+  return [previous[0], createMd5().update(previous[0]).update(previous[1]).update(appended).update(request.withoutId()).digest()];
+};
+
+const writeClassicSection = (emitter: PdfEmitter, input: SaveInput, request: SectionRequest): number => {
+  const { offset } = emitter;
+  writeTable(emitter.writer, request.entries);
+  const trailer = trailerEntries(input, request, input.size);
   const original = baseTrailerNode(input);
   const context = { original: original?.node, bytes: original?.bytes ?? new Uint8Array(), fractionDigits: input.fractionDigits, warn: request.warn };
-  const previous = identifiers(structure.trailer);
-  let pair = input.fileIdentifier === 'derive' ? undefined : input.fileIdentifier;
-  if (pair === undefined && previous !== undefined) {
-    // ISO 32000-1:2008, 14.4: the first identifier "shall not change when the file is incrementally updated"; the second is "a changing identifier based on the file's contents at the time it was last updated".
-    const withoutId = new ByteWriter();
-    mergeSerialize(withoutId, { kind: 'dictionary', entries: trailer }, context);
-    const appended = emitter.writer.toUint8Array().subarray(request.appendStart - (emitter.offset - emitter.writer.length));
-    pair = [previous[0], createMd5().update(previous[0]).update(previous[1]).update(appended).update(withoutId.toUint8Array()).digest()];
-  }
+  const pair = fileIdentifier(input, {
+    emitter,
+    appendStart: request.appendStart,
+    withoutId: () => {
+      const writer = new ByteWriter();
+      mergeSerialize(writer, { kind: 'dictionary', entries: trailer }, context);
+      return writer.toUint8Array();
+    },
+  });
   if (pair !== undefined) trailer.set(TRAILER_KEYS.id, idArray(pair));
   emitter.writer.writeAscii('trailer\n');
   mergeSerialize(emitter.writer, { kind: 'dictionary', entries: trailer }, context);
+  return offset;
+};
+
+const byteWidth = (value: number): number => {
+  let width = 1;
+  while (value >= 256 ** width) width++;
+  return width;
+};
+
+// ISO 32000-1:2008, 7.5.8.3, Table 18: type 0 entries hold the next free object number and a generation, type 1 entries an offset and a generation, high-order byte first.
+const streamData = (entries: readonly Entry[], widths: readonly [number, number]): Uint8Array => {
+  const data = new Uint8Array(entries.length * (1 + widths[0] + widths[1]));
+  let position = 0;
+  const put = (value: number, width: number): void => {
+    for (let index = width - 1; index >= 0; index--) data[position++] = Math.floor(value / 256 ** index) % 256;
+  };
+  for (const entry of entries) {
+    put(entry.use === 'n' ? 1 : 0, 1);
+    put(entry.field, widths[0]);
+    put(entry.generation, widths[1]);
+  }
+  return data;
+};
+
+const indexRuns = (entries: readonly Entry[]): PdfDirectObject => {
+  const pairs: number[] = [];
+  for (const entry of entries) {
+    const last = pairs.length - 2;
+    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === entry.objectNumber) pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
+    else pairs.push(entry.objectNumber, 1);
+  }
+  return pdfArray(pairs.map(value => pdfInteger(value)));
+};
+
+// ISO 32000-1:2008, 7.5.8: the update's cross-reference information is a new cross-reference stream; 7.5.8.3: "an entry for it shall exist in either a cross-reference stream (usually itself) or in a cross-reference table". It is written unfiltered, with the smallest field widths that hold its values.
+const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: SectionRequest): number => {
+  const { offset } = emitter;
+  const number = input.size;
+  const shift = input.base?.shift ?? 0;
+  const entries = [...request.entries, { objectNumber: number, use: 'n', field: offset - shift, generation: 0 } as const].toSorted(
+    (left, right) => left.objectNumber - right.objectNumber,
+  );
+  const widths = [byteWidth(Math.max(...entries.map(entry => entry.field))), byteWidth(Math.max(...entries.map(entry => entry.generation)))] as const;
+  const dictionary = new PdfDictionaryEntries([[TRAILER_KEYS.type, pdfName('XRef')]]);
+  for (const [key, value] of trailerEntries(input, request, number + 1).entries()) dictionary.set(key, value);
+  dictionary.set(TRAILER_KEYS.index, indexRuns(entries));
+  dictionary.set(TRAILER_KEYS.w, pdfArray([pdfInteger(1), pdfInteger(widths[0]), pdfInteger(widths[1])]));
+  const original = baseTrailerNode(input);
+  const context = { original: original?.node, bytes: original?.bytes ?? new Uint8Array(), fractionDigits: input.fractionDigits, warn: request.warn };
+  const data = streamData(entries, widths);
+  const pair = fileIdentifier(input, {
+    emitter,
+    appendStart: request.appendStart,
+    withoutId: () => {
+      const writer = new ByteWriter();
+      mergeSerialize(writer, { kind: 'stream', dictionary, data }, context);
+      return writer.toUint8Array();
+    },
+  });
+  if (pair !== undefined) dictionary.set(TRAILER_KEYS.id, idArray(pair));
+  emitter.writer.writeAscii(`${String(number)} 0 obj\n`);
+  mergeSerialize(emitter.writer, { kind: 'stream', dictionary, data }, context);
+  emitter.writer.writeAscii('\nendobj');
+  return offset;
 };
 
 /**
- * Appends the changes to the source as an incremental update: the source bytes stay as they are, and a classic cross-reference section and trailer follow the changed objects.
+ * Appends the changes to the source as an incremental update in the format of the section startxref names: after a classic section a classic section and trailer, after a cross-reference stream a cross-reference stream.
+ * Readers were seen to repair or misread files whose Prev entries link sections of different formats, so the format is never mixed.
  * ISO 32000-1:2008, 7.5.6: "changes shall be appended to the end of the file, leaving its original contents intact."
  */
-export const classicIncrementalSave = (input: SaveInput): SavedPdf => {
+export const incrementalSave = (input: SaveInput): SavedPdf => {
   const { store, structure } = input;
   const [newest] = structure.sections;
   if (newest === undefined || structure.status === 'reconstructed') {
@@ -183,13 +271,10 @@ export const classicIncrementalSave = (input: SaveInput): SavedPdf => {
   const last = store.source.byteAt(store.source.length - 1);
   if (last !== 0x0a && last !== 0x0d) emitter.writer.writeByte(0x0a);
   const appendStart = emitter.offset;
-  const { entries, freed } = writeObjects(emitter, input, warn);
-  const xrefOffset = emitter.offset;
-  writeTable(
-    emitter.writer,
-    [...entries, ...freeEntries(store, freed)].toSorted((left, right) => left.objectNumber - right.objectNumber),
-  );
-  writeTrailer(emitter, input, { appendStart, previousSection: newest.offset, warn });
+  const written = writeObjects(emitter, input, warn);
+  const entries = [...written.entries, ...freeEntries(store, written.freed)].toSorted((left, right) => left.objectNumber - right.objectNumber);
+  const request = { appendStart, previousSection: newest.offset, entries, warn };
+  const xrefOffset = structure.lastSectionKind === 'stream' ? writeStreamSection(emitter, input, request) : writeClassicSection(emitter, input, request);
   // 7.5.5: the file ends with startxref, the offset of the last cross-reference section, and %%EOF.
   emitter.writer.writeAscii(`\nstartxref\n${String(xrefOffset - (input.base?.shift ?? 0))}\n%%EOF\n`);
   return savedPdf(emitter.finish(), { mode: 'incremental', warnings });

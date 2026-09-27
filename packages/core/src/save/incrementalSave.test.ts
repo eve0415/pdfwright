@@ -39,7 +39,7 @@ const editedBytes = (): Uint8Array => {
 
 const lastTrailer = (bytes: Uint8Array): string => latin1Text(bytes).split('trailer').at(-1) ?? '';
 
-describe('classic incremental save', () => {
+describe('incremental save', () => {
   it('returns the source unchanged when nothing changed', () => {
     const source = base();
     const saved = loadDocument(source).save({ mode: 'incremental' });
@@ -106,5 +106,45 @@ describe('classic incremental save', () => {
     const damaged = latin1Text(base()).replace(/startxref\n\d+/u, 'startxref\n3');
     const broken = loadDocument(latin1Bytes(damaged));
     expect(() => broken.save({ mode: 'incremental' })).toThrow(InvalidArgumentError);
+  });
+
+  it('appends a cross-reference stream after a cross-reference stream, keeping the PieceInfo bytes of a compressed page', () => {
+    const source = buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 9, body: '(private data)' },
+        ],
+        objectStreams: [
+          {
+            number: 6,
+            members: [
+              { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+              { number: 3, body: illustratorPage },
+              { number: 4, body: '(gone)' },
+            ],
+          },
+        ],
+        trailer: `/Root 1 0 R/ID[<${'33'.repeat(16)}><${'44'.repeat(16)}>]/Private(kept)`,
+      },
+    ]).bytes;
+    const document = loadDocument(source);
+    document.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
+    document.delete(pdfReference(4, 0));
+    const saved = document.save();
+    const appended = latin1Text(saved.toBytes().subarray(source.length));
+    expect(appended).toContain(
+      "3 0 obj\n<</Type/Page/Parent 2 0 R/ArtBox[0.242187 2.38184 611.611 792.0]/PieceInfo<</Illustrator 9 0 R>>/LastModified(D:20070624192720-05'00')",
+    );
+    expect(appended).toMatch(
+      /\n11 0 obj\n<<\/Type\/XRef\/Size 12\/Root 1 0 R\/Private\(kept\)\/Prev \d+\/Index\[0 1 3 2 11 1\]\/W\[1 2 2\]\/ID\[<3{32}><[0-9A-F]{32}>\]\/Length 20>>\nstream\n/u,
+    );
+    const reloaded = loadDocument(saved.chunks);
+    expect([reloaded.structure.sections.map(section => section.kind), reloaded.page(0).boxes().TrimBox.rect, reloaded.get(pdfReference(4, 0))]).toStrictEqual([
+      ['stream', 'stream'],
+      [10, 10, 600, 780],
+      { kind: 'null' },
+    ]);
   });
 });

@@ -20,7 +20,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
-import { classicIncrementalSave } from '../save/incrementalSave.ts';
+import { incrementalSave } from '../save/incrementalSave.ts';
 import { locateHeader } from '../xref/locate.ts';
 
 import { createDocumentHandles } from './documentHandles.ts';
@@ -203,8 +203,7 @@ class LoadedPdf implements LoadedDocument {
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
     if (mode === 'full') throw new UnsupportedFeatureError('full rewrites are not supported yet');
-    if (this.structure.lastSectionKind === 'stream') throw new UnsupportedFeatureError('updates after cross-reference streams are not supported yet');
-    return classicIncrementalSave({
+    return incrementalSave({
       store: this.objects.store,
       changes,
       size: this.objects.size,

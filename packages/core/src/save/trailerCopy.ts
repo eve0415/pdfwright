@@ -28,4 +28,7 @@ export const TRAILER_KEYS = {
   id: pdfName('ID').bytes,
   root: pdfName('Root').bytes,
   info: pdfName('Info').bytes,
+  type: pdfName('Type').bytes,
+  index: pdfName('Index').bytes,
+  w: pdfName('W').bytes,
 } as const;
