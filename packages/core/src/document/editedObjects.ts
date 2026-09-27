@@ -50,12 +50,9 @@ export class EditedObjects implements ObjectResolver {
     return this.resolve(value.objectNumber, value.generation);
   }
 
+  /** A copy of the object that shares nothing with the document; the source object is parsed once and cached, so its warnings are reported once. */
   get(reference: PdfReference): PdfObject {
-    const change = this.changes.get(reference.objectNumber);
-    if (change !== undefined) return cloneObject(this.resolve(reference.objectNumber, reference.generation));
-    // Resolving first applies the generation rules; the value returned is a fresh parse the caller may change freely.
-    if (this.store.resolve(reference.objectNumber, reference.generation).kind === 'null') return { kind: 'null' };
-    return this.store.parse(reference.objectNumber)?.value ?? { kind: 'null' };
+    return cloneObject(this.resolve(reference.objectNumber, reference.generation));
   }
 
   private current(reference: PdfReference): void {

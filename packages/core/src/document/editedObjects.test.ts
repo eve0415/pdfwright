@@ -49,6 +49,25 @@ describe('object changes', () => {
     expect(copy).toStrictEqual(document.get(pdfReference(3, 0)));
   });
 
+  it('reports the warnings of a source object once however often it is read', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+            { number: 3, body: '<</A 1/A 2>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    document.get(pdfReference(3, 0));
+    document.get(pdfReference(3, 0));
+    expect(document.warnings.map(warning => warning.code)).toStrictEqual(['duplicate-key']);
+  });
+
   it('deletes objects and numbers new objects above every number in use', () => {
     const document = load();
     document.delete(pdfReference(5, 2));
