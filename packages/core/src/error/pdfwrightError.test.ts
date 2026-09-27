@@ -4,6 +4,7 @@ import { EncryptedDocumentError } from './encryptedDocumentError.ts';
 import { InvalidArgumentError } from './invalidArgumentError.ts';
 import { ParseError } from './parseError.ts';
 import { PdfwrightError } from './pdfwrightError.ts';
+import { ResourceLimitError } from './resourceLimitError.ts';
 import { UnsupportedFeatureError } from './unsupportedFeatureError.ts';
 import { ValidationError } from './validationError.ts';
 
@@ -15,6 +16,7 @@ describe('pdf errors', () => {
       [new EncryptedDocumentError('encrypted'), 'encrypted-document', 'EncryptedDocumentError'],
       [new UnsupportedFeatureError('unsupported'), 'unsupported-feature', 'UnsupportedFeatureError'],
       [new ValidationError('invalid'), 'validation', 'ValidationError'],
+      [new ResourceLimitError('too large'), 'resource-limit', 'ResourceLimitError'],
     ] as const;
 
     for (const [error, code, name] of errors) {

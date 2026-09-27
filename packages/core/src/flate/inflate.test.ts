@@ -2,7 +2,9 @@ import { zlibSync as compressFflate } from 'fflate';
 import { deflate } from 'pako';
 import { describe, expect, it } from 'vitest';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { inflateRaw, inflateZlib } from './inflate.ts';
@@ -80,6 +82,18 @@ describe('zlib inflation', () => {
     const corrupted = Uint8Array.from(compressed);
     corrupted.fill(0, -1);
     expect(inflateZlib(corrupted).warnings.map(warning => warning.code)).toStrictEqual(['checksum-mismatch']);
+  });
+
+  it('stops at the output limit for literal, copied and stored bytes', () => {
+    const zeros = new Uint8Array(1024 * 1024);
+    for (const level of [0, 6] as const) {
+      const compressed = compressFflate(zeros, { level });
+      expect(() => inflateZlib(compressed, { maxOutputBytes: 1000 })).toThrow(ResourceLimitError);
+      expect(() => inflateRaw(compressed.subarray(2, -4), { maxOutputBytes: zeros.length - 1 })).toThrow(ResourceLimitError);
+      expect(inflateZlib(compressed, { maxOutputBytes: zeros.length }).data).toHaveLength(zeros.length);
+    }
+    expect(() => inflateZlib(compressFflate(new Uint8Array([1])), { maxOutputBytes: 0 })).toThrow(ResourceLimitError);
+    for (const maxOutputBytes of [-1, 1.5, Number.NaN]) expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
   });
 
   it('rejects truncated blocks and preset dictionaries', () => {

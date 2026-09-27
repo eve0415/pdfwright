@@ -1,6 +1,7 @@
 export { EncryptedDocumentError } from './error/encryptedDocumentError.ts';
 export { InvalidArgumentError } from './error/invalidArgumentError.ts';
 export { ParseError } from './error/parseError.ts';
+export { ResourceLimitError } from './error/resourceLimitError.ts';
 export { PdfwrightError } from './error/pdfwrightError.ts';
 export { UnsupportedFeatureError } from './error/unsupportedFeatureError.ts';
 export { ValidationError } from './error/validationError.ts';
@@ -13,7 +14,7 @@ export { adler32 } from './flate/adler32.ts';
 export { deflateRaw, deflateZlib } from './flate/deflate.ts';
 export type { DeflateOptions } from './flate/deflate.ts';
 export { inflateRaw, inflateZlib } from './flate/inflate.ts';
-export type { FlateWarning } from './flate/inflate.ts';
+export type { FlateWarning, InflateOptions } from './flate/inflate.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,

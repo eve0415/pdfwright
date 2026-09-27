@@ -1,4 +1,6 @@
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { adler32 } from './adler32.ts';
@@ -8,6 +10,11 @@ import { Huffman } from './huffman.ts';
 export interface FlateWarning {
   readonly code: 'trailing-data' | 'truncated-trailer' | 'checksum-mismatch';
   readonly offset: number;
+}
+
+export interface InflateOptions {
+  /** Largest decoded size accepted, in bytes; larger output throws ResourceLimitError. Defaults to 256 MiB. */
+  maxOutputBytes?: number;
 }
 
 interface DecodedRaw {
@@ -20,9 +27,24 @@ interface InflatedZlib {
   warnings: FlateWarning[];
 }
 
+const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
+
+const maxOutputBytes = (options?: InflateOptions): number => {
+  const limit = options?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  if (!Number.isSafeInteger(limit) || limit < 0) throw new InvalidArgumentError('maxOutputBytes must be a non-negative integer');
+  return limit;
+};
+
 class InflateOutput {
-  private bytes = new Uint8Array(256);
+  private bytes: Uint8Array;
   private used = 0;
+  private readonly limit: number;
+
+  // Capacity never exceeds the limit, so a write that fits the buffer is within the limit.
+  constructor(limit: number) {
+    this.limit = limit;
+    this.bytes = new Uint8Array(Math.min(256, limit));
+  }
 
   get length(): number {
     return this.used;
@@ -31,8 +53,10 @@ class InflateOutput {
   private reserve(additional: number): void {
     const needed = this.used + additional;
     if (needed <= this.bytes.length) return;
-    let capacity = this.bytes.length;
+    if (needed > this.limit) throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
+    let capacity = Math.max(this.bytes.length, 1);
     while (capacity < needed) capacity *= 2;
+    capacity = Math.min(capacity, this.limit);
     const grown = new Uint8Array(capacity);
     grown.set(this.bytes);
     this.bytes = grown;
@@ -139,9 +163,9 @@ const decodeCompressed = (reader: BitReader, output: InflateOutput, trees: reado
   }
 };
 
-const decodeRaw = (data: Uint8Array): DecodedRaw => {
+const decodeRaw = (data: Uint8Array, limit: number): DecodedRaw => {
   const reader = new BitReader(data);
-  const output = new InflateOutput();
+  const output = new InflateOutput(limit);
   let last = 0;
   while (last === 0) {
     last = reader.readBits(1);
@@ -161,16 +185,17 @@ const decodeRaw = (data: Uint8Array): DecodedRaw => {
   return { data: output.toUint8Array(), bytesConsumed: Math.ceil(reader.bitPosition / 8) };
 };
 
-export const inflateRaw = (data: Uint8Array): Uint8Array => decodeRaw(data).data;
+export const inflateRaw = (data: Uint8Array, options?: InflateOptions): Uint8Array => decodeRaw(data, maxOutputBytes(options)).data;
 
-export const inflateZlib = (data: Uint8Array): InflatedZlib => {
+export const inflateZlib = (data: Uint8Array, options?: InflateOptions): InflatedZlib => {
+  const limit = maxOutputBytes(options);
   // RFC 1950, 2.2 requires CM=8, CINFO≤7, a header divisible by 31, and a preset dictionary marker when FDICT is set.
   if (data.length < 2) throw new ParseError('truncated zlib header', data.length);
   const cmf = data[0] ?? 0;
   const flg = data[1] ?? 0;
   if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) throw new ParseError('invalid zlib header', 0);
   if ((flg & 0x20) !== 0) throw new UnsupportedFeatureError('preset dictionaries are unsupported');
-  const decoded = decodeRaw(data.subarray(2));
+  const decoded = decodeRaw(data.subarray(2), limit);
   const trailerOffset = decoded.bytesConsumed + 2;
   const warnings: FlateWarning[] = [];
   // RFC 1950, 2.2 ends the stream with a four-byte ADLER32 field; without all four bytes there is no checksum to compare.
