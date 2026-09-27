@@ -1,3 +1,4 @@
+import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -6,6 +7,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { adler32 } from './adler32.ts';
 import { BitReader } from './bitReader.ts';
 import { Huffman } from './huffman.ts';
+import { CODE_LENGTH_ORDER, DISTANCE_BASE, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
 
 export interface FlateWarning {
   readonly code: 'trailing-data' | 'truncated-trailer' | 'checksum-mismatch';
@@ -36,78 +38,34 @@ const maxOutputBytes = (options?: InflateOptions): number => {
 };
 
 class InflateOutput {
-  private bytes: Uint8Array;
-  private used = 0;
+  private readonly bytes = new ByteWriter();
   private readonly limit: number;
 
-  // Capacity never exceeds the limit, so a write that fits the buffer is within the limit.
   constructor(limit: number) {
     this.limit = limit;
-    this.bytes = new Uint8Array(Math.min(256, limit));
-  }
-
-  get length(): number {
-    return this.used;
   }
 
   private reserve(additional: number): void {
-    const needed = this.used + additional;
-    if (needed <= this.bytes.length) return;
-    if (needed > this.limit) throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
-    let capacity = Math.max(this.bytes.length, 1);
-    while (capacity < needed) capacity *= 2;
-    capacity = Math.min(capacity, this.limit);
-    const grown = new Uint8Array(capacity);
-    grown.set(this.bytes);
-    this.bytes = grown;
+    if (this.bytes.length + additional > this.limit) throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
   }
 
   push(byte: number): void {
     this.reserve(1);
-    this.bytes[this.used++] = byte;
+    this.bytes.writeByte(byte);
   }
 
   copy(distance: number, length: number, offset: number): void {
-    if (distance < 1 || distance > this.used || distance > 32768) throw new ParseError('invalid backward distance', offset);
+    if (distance < 1 || distance > this.bytes.length || distance > 32768) throw new ParseError('invalid backward distance', offset);
     this.reserve(length);
-    for (let index = 0; index < length; index++) {
-      this.bytes[this.used] = this.bytes[this.used - distance] ?? 0;
-      this.used++;
-    }
+    this.bytes.copyBack(distance, length);
   }
 
   toUint8Array(): Uint8Array {
-    return this.bytes.slice(0, this.used);
+    return this.bytes.toUint8Array();
   }
 }
 
-const LENGTH_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
-const LENGTH_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
-const DISTANCE_BASE = [
-  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577,
-];
-const DISTANCE_EXTRA = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
-const CODE_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
-
-const fixedTrees = (): [Huffman, Huffman] => {
-  // RFC 1951, 3.2.6 gives fixed literal/length code widths and five-bit distance codes.
-  const literalLengths = Array.from({ length: 288 }, () => 0);
-  for (let symbol = 0; symbol < 288; symbol++) {
-    if (symbol < 144) literalLengths[symbol] = 8;
-    else if (symbol < 256) literalLengths[symbol] = 9;
-    else if (symbol < 280) literalLengths[symbol] = 7;
-    else literalLengths[symbol] = 8;
-  }
-  return [
-    new Huffman(literalLengths, 0),
-    new Huffman(
-      Array.from({ length: 32 }, () => 5),
-      0,
-    ),
-  ];
-};
-
-const FIXED = fixedTrees();
+const FIXED: [Huffman, Huffman] = [new Huffman(FIXED_LITERAL_LENGTHS, 0), new Huffman(FIXED_DISTANCE_LENGTHS, 0)];
 
 const repeatCount = (symbol: number, reader: BitReader): number => {
   if (symbol === 16) return reader.readBits(2) + 3;
@@ -125,7 +83,7 @@ const dynamicTrees = (reader: BitReader): [Huffman, Huffman] => {
   if (distanceCount > 30) throw new ParseError(`dynamic block declares ${String(distanceCount)} distance codes; at most 30 are allowed`, headerOffset);
   const codeCount = reader.readBits(4) + 4;
   const codeLengths = Array.from({ length: 19 }, () => 0);
-  for (let index = 0; index < codeCount; index++) codeLengths[CODE_ORDER[index] ?? 0] = reader.readBits(3);
+  for (let index = 0; index < codeCount; index++) codeLengths[CODE_LENGTH_ORDER[index] ?? 0] = reader.readBits(3);
   const codeTree = new Huffman(codeLengths, Math.ceil(reader.bitPosition / 8));
   const lengths: number[] = [];
   const total = literalCount + distanceCount;

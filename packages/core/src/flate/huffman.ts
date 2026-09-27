@@ -2,15 +2,7 @@ import type { BitReader } from './bitReader.ts';
 
 import { ParseError } from '../error/parseError.ts';
 
-const reverseBits = (code: number, length: number): number => {
-  let reversed = 0;
-  let remaining = code;
-  for (let bit = 0; bit < length; bit++) {
-    reversed = (reversed << 1) | (remaining & 1);
-    remaining >>>= 1;
-  }
-  return reversed;
-};
+import { reverseBits } from './tables.ts';
 
 export class Huffman {
   private readonly symbols: Int16Array;

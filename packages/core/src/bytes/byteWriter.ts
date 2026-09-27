@@ -32,6 +32,15 @@ export class ByteWriter {
     for (let index = 0; index < text.length; index++) this.buffer[this.used++] = text.codePointAt(index) ?? 0;
   }
 
+  // Appends length bytes that start distance bytes before the end; when distance < length the source overlaps the bytes being written, as in an LZ77 back-reference.
+  copyBack(distance: number, length: number): void {
+    this.reserve(length);
+    const source = this.used - distance;
+    if (distance >= length) this.buffer.copyWithin(this.used, source, source + length);
+    else for (let index = 0; index < length; index++) this.buffer[this.used + index] = this.buffer[source + index] ?? 0;
+    this.used += length;
+  }
+
   toUint8Array(): Uint8Array {
     return this.buffer.slice(0, this.used);
   }

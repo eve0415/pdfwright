@@ -1,10 +1,10 @@
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { SavedPdf } from './savedPdf.ts';
 
+import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName, pdfString } from '../object/pdfObject.ts';
-import { ByteWriter } from '../serialize/byteWriter.ts';
 import { serializeObject, writePdfObject } from '../serialize/serializeObject.ts';
 
 import { fileIdentifier } from './fileIdentifier.ts';

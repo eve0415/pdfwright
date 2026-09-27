@@ -1,3 +1,5 @@
+import { reverseBits } from './tables.ts';
+
 interface TreeNode {
   readonly weight: number;
   readonly minimumSymbol: number;
@@ -78,16 +80,6 @@ export const buildCodeLengths = (frequencies: readonly number[], maxBits: number
   const tree = treeCodeLengths(frequencies);
   if (tree.leaves.length < 2) return tree.lengths;
   return limitCodeLengths(tree.lengths, tree.leaves, maxBits);
-};
-
-const reverseBits = (code: number, length: number): number => {
-  let reversed = 0;
-  let remaining = code;
-  for (let bit = 0; bit < length; bit++) {
-    reversed = (reversed << 1) | (remaining & 1);
-    remaining >>>= 1;
-  }
-  return reversed;
 };
 
 export const canonicalCodes = (lengths: readonly number[]): number[] => {

@@ -2,10 +2,11 @@ import type { BitWriter } from './bitWriter.ts';
 import type { Token } from './lz77.ts';
 
 import { buildCodeLengths, canonicalCodes } from './huffmanEncoder.ts';
+import { CODE_LENGTH_ORDER, DISTANCE_BASE, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
 
 interface Codebook {
-  lengths: number[];
-  codes: number[];
+  lengths: readonly number[];
+  codes: readonly number[];
 }
 
 interface CodedValue {
@@ -20,13 +21,6 @@ interface ValueTable {
   offset: number;
 }
 
-const LENGTH_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
-const LENGTH_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
-const DISTANCE_BASE = [
-  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577,
-];
-const DISTANCE_EXTRA = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
-const CODE_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 const LENGTH_TABLE: ValueTable = { bases: LENGTH_BASE, extras: LENGTH_EXTRA, offset: 257 };
 const DISTANCE_TABLE: ValueTable = { bases: DISTANCE_BASE, extras: DISTANCE_EXTRA, offset: 0 };
 
@@ -38,20 +32,9 @@ const encodeValue = (value: number, table: ValueTable): CodedValue => {
   throw new RangeError('invalid length or distance');
 };
 
-const makeCodebook = (lengths: number[]): Codebook => ({ lengths, codes: canonicalCodes(lengths) });
+const makeCodebook = (lengths: readonly number[]): Codebook => ({ lengths, codes: canonicalCodes(lengths) });
 
-const fixedCodebooks = (): [Codebook, Codebook] => {
-  // RFC 1951, 3.2.6 gives the fixed literal widths and five-bit distance codes.
-  const literal = Array.from({ length: 288 }, (_, symbol) => {
-    if (symbol < 144) return 8;
-    if (symbol < 256) return 9;
-    if (symbol < 280) return 7;
-    return 8;
-  });
-  return [makeCodebook(literal), makeCodebook(Array.from({ length: 32 }, () => 5))];
-};
-
-const FIXED = fixedCodebooks();
+const FIXED: [Codebook, Codebook] = [makeCodebook(FIXED_LITERAL_LENGTHS), makeCodebook(FIXED_DISTANCE_LENGTHS)];
 
 const runLengthCodes = (lengths: readonly number[]): CodedValue[] => {
   // RFC 1951, 3.2.7 defines repeat codes 16, 17 and 18 for code-length sequences.
@@ -157,8 +140,8 @@ export const writeCompressedBlock = (writer: BitWriter, tokens: readonly Token[]
   for (const run of runs) codeFrequencies[run.symbol] = (codeFrequencies[run.symbol] ?? 0) + 1;
   const codeLengths = buildCodeLengths(codeFrequencies, 7);
   const codeBook = makeCodebook(codeLengths);
-  let codeCount = CODE_ORDER.length;
-  while (codeCount > 4 && codeLengths[CODE_ORDER[codeCount - 1] ?? 0] === 0) codeCount--;
+  let codeCount = CODE_LENGTH_ORDER.length;
+  while (codeCount > 4 && codeLengths[CODE_LENGTH_ORDER[codeCount - 1] ?? 0] === 0) codeCount--;
   let dynamicBits = 3 + 5 + 5 + 4 + codeCount * 3 + tokenBitCost(tokens, books[0], books[1]);
   for (const run of runs) dynamicBits += (codeLengths[run.symbol] ?? 0) + run.extraBits;
   const fixedBits = 3 + tokenBitCost(tokens, FIXED[0], FIXED[1]);
@@ -171,7 +154,7 @@ export const writeCompressedBlock = (writer: BitWriter, tokens: readonly Token[]
   writer.writeBits(literalCount - 257, 5);
   writer.writeBits(distanceCount - 1, 5);
   writer.writeBits(codeCount - 4, 4);
-  for (let index = 0; index < codeCount; index++) writer.writeBits(codeLengths[CODE_ORDER[index] ?? 0] ?? 0, 3);
+  for (let index = 0; index < codeCount; index++) writer.writeBits(codeLengths[CODE_LENGTH_ORDER[index] ?? 0] ?? 0, 3);
   for (const run of runs) {
     writeSymbol(writer, codeBook, run.symbol);
     writer.writeBits(run.extra, run.extraBits);

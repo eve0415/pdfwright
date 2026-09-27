@@ -1,13 +1,12 @@
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
+import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { formatLength } from '../length/length.ts';
 import { formatInteger, formatNumber } from '../number/formatNumber.ts';
 import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
-
-import { ByteWriter } from './byteWriter.ts';
 
 export interface SerializeOptions {
   fractionDigits: number;
