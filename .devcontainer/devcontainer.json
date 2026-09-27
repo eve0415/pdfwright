@@ -8,5 +8,5 @@
   },
   "image": "mcr.microsoft.com/devcontainers/typescript-node:5.2.1-24-trixie",
   "name": "pdfwright",
-  "postCreateCommand": "git submodule update --init --recursive && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps --only-shell chromium && sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf ghostscript mupdf-tools poppler-utils liblcms2-utils argyll icc-profiles-free"
+  "postCreateCommand": "git submodule update --init --recursive && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps --only-shell chromium && sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf ghostscript mupdf-tools poppler-utils liblcms2-utils argyll icc-profiles-free fonts-noto-cjk"
 }

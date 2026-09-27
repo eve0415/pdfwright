@@ -124,7 +124,7 @@ jobs:
           cache: true
 
       - name: Install oracle tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf ghostscript mupdf-tools poppler-utils liblcms2-utils argyll icc-profiles-free
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf ghostscript mupdf-tools poppler-utils liblcms2-utils argyll icc-profiles-free fonts-noto-cjk
 
       - name: Test
         run: pnpm exec vitest run --project oracle
