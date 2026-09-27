@@ -66,13 +66,14 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
   const visited = new Set<number>();
   let mixed = false;
   for (let offset: number | undefined = first.offset; offset !== undefined;) {
-    if (visited.has(offset)) {
+    const located = sectionStartNear(source, offset);
+    if (located?.corrected !== false) throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    // Sections are recognised by where they start, so offsets that differ only by the white space before a section are the same section.
+    if (visited.has(located.offset)) {
       context.warn({ code: 'prev-cycle', detail: 'a Prev entry points back at a section already read', offset });
       break;
     }
-    visited.add(offset);
-    const located = sectionStartNear(source, offset);
-    if (located?.corrected !== false) throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    visited.add(located.offset);
     const section = readSection(source, located.offset, context);
     const previous = sections.at(-1)?.section;
     if (previous !== undefined && previous.kind !== section.kind) {

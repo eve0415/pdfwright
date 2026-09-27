@@ -75,6 +75,9 @@ describe('cross-reference section chains', () => {
     const [, newest = 0] = pdf.sections;
     const cyclic = pdf.text.replace(/\/Prev \d+/u, `/Prev ${String(newest)}`);
     expect(chainOf(latin1Bytes(cyclic)).warnings.map(warning => warning.code)).toStrictEqual(['prev-cycle']);
+    const aliased = pdf.text.replace(/\/Prev \d+/u, `/Prev ${String(newest - 1)}`);
+    const aliasedChain = chainOf(latin1Bytes(aliased));
+    expect([aliasedChain.chain.sections.length, aliasedChain.warnings.map(warning => warning.code)]).toStrictEqual([1, ['prev-cycle']]);
     const shifted = pdf.text.replace(/startxref\n(\d+)\n%%EOF\n$/u, (_, offset: string) => `startxref\n${String(Number(offset) + 3)}\n%%EOF\n`);
     const corrected = chainOf(latin1Bytes(shifted));
     expect([corrected.chain.startxrefCorrected, corrected.warnings.map(warning => warning.code)]).toStrictEqual([true, ['startxref-corrected']]);
