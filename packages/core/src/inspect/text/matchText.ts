@@ -31,7 +31,7 @@ export interface MatchTextOptions {
    */
   readonly actualText?: 'checked' | 'ignore';
   /**
-   * `collapse` (the default): when the selected glyphs are two or more consecutive runs of the same codes in the same fonts, each an exact translation of the first by less than half its advance, as Chromium draws text with text-shadow, -webkit-text-stroke or mask-image, only the last run drawn is compared.
+   * `collapse` (the default): when the selected glyphs are two or more consecutive runs of the same codes in the same fonts, each an exact translation of the first by less than a quarter of the font size and half the run's advance, as Chromium draws text with text-shadow, -webkit-text-stroke or mask-image, only the last run drawn is compared.
    * `keep`: every run is compared.
    */
   readonly duplicates?: 'collapse' | 'keep';
@@ -350,10 +350,13 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
 // Copies of a run must repeat its glyph origins within this fraction of the font size.
 const TRANSLATION_TOLERANCE = 0.005;
 
+// A copy lies closer than this fraction of the font size to the first run: a shadow's offset, not a character set beside another.
+const COPY_DISTANCE = 0.25;
+
 const sameCode = (a: PageGlyph, b: PageGlyph): boolean =>
   a.font === b.font && a.code.length === b.code.length && a.code.every((byte, index) => byte === b.code[index]);
 
-// Whether the runs are copies of the first: the same codes in the same fonts, with origins moved by one translation per copy, shorter than half the run's advance so that the copies overlap.
+// Whether the runs are copies of the first: the same codes in the same fonts, with origins moved by one translation per copy, shorter than a quarter of the font size and half the run's advance so that the copies overlap.
 const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
   const [first, ...rest] = runs;
   if (first === undefined) return false;
@@ -363,7 +366,8 @@ const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
     const [base] = first;
     if (head === undefined || base === undefined) return false;
     const [dx, dy] = [head.origin[0] - base.origin[0], head.origin[1] - base.origin[1]];
-    if (Math.hypot(dx, dy) >= length / 2) return false;
+    const distance = Math.hypot(dx, dy);
+    if (distance >= length / 2 || distance >= COPY_DISTANCE * base.fontSize) return false;
     return run.every((glyph, index) => {
       const original = first[index];
       if (original === undefined || !sameCode(glyph, original) || !glyph.positionKnown || !original.positionKnown) return false;

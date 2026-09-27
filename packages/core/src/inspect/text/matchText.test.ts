@@ -451,6 +451,11 @@ describe('text matching', () => {
     it('leaves copies that are not exact translations, and repeated text side by side, alone', () => {
       const spaced = `${drawnAt(100, 700, show(1, 2))} BT /T 10 Tf 2 Tc 101 699 Td ${show(1, 2)} ET`;
       expect(statusOf({ texts: ['山', '田'], content: spaced }, '山田')).toBe('mismatch');
+      // Two こ set 4 points apart overlap, but a shadow copy lies within a quarter of the font size.
+      const close = drawnAt(100, 700, `[<${code(1)}> 600 <${code(1)}>] TJ`);
+      expect([statusOf({ texts: ['こ'], content: close }, 'こ'), statusOf({ texts: ['こ'], content: close }, 'ここ')]).toStrictEqual(['mismatch', 'match']);
+      const name = `${drawnAt(100, 700, show(1, 2, 3, 4, 5, 6))} ${drawnAt(129, 700, show(1, 2, 3, 4, 5, 6))}`;
+      expect(statusOf({ texts: ['あ', 'い', 'う', 'え', 'お', 'か'], content: name }, 'あいうえおか')).toBe('mismatch');
       const repeated = drawnAt(100, 700, show(1, 1));
       expect(statusOf({ texts: ['こ'], content: repeated }, 'こ')).toBe('mismatch');
       expect(statusOf({ texts: ['こ'], content: repeated }, 'ここ')).toBe('match');
