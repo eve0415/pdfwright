@@ -6,6 +6,7 @@ import type { PdfDifference, ValuePath, ValueSummary } from './pdfDifference.ts'
 import type { Owner } from './pieceInfo.ts';
 import type { GraphContext } from './valueGraph.ts';
 
+import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { originalValue } from '../save/originalValue.ts';
 
@@ -68,13 +69,20 @@ interface Summaries {
   readonly b: ValueSummary;
 }
 
-const graph = (sides: GraphContext, differences: PdfDifference[], push: (path: ValuePath, summaries: Summaries) => void): ValueGraph =>
+interface GraphOutput {
+  readonly differences: PdfDifference[];
+  /** Where the compared values are, which undecodable differences start with. */
+  readonly within: ValuePath;
+  readonly push: (path: ValuePath, summaries: Summaries) => void;
+}
+
+const graph = (sides: GraphContext, { differences, within, push }: GraphOutput): ValueGraph =>
   new ValueGraph(sides, {
     mismatch: ({ path, a, b }) => {
       push(path, { a, b });
     },
     undecodable: (where, document, reason) => {
-      differences.push({ kind: 'undecodable', where, document, reason });
+      differences.push({ kind: 'undecodable', where: [...within, ...where], document, reason });
     },
   });
 
@@ -87,9 +95,10 @@ export const comparePageAttributes = (
   const left = pageDictionary(sides.a, pages.a);
   const right = pageDictionary(sides.b, pages.b);
   if (left === undefined || right === undefined) return;
-  graph(sides, differences, (path, { a, b }) => {
+  const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'page-attribute', page: pages.page, path, a, b });
-  }).entries({ left, right, path: [], skip: PAGE_COMPARED_ELSEWHERE });
+  };
+  graph(sides, { differences, within: ['page', pages.page], push }).entries({ left, right, path: [], skip: PAGE_COMPARED_ELSEWHERE });
 };
 
 /** Compares the catalog, apart from the page tree and page-piece data, and the document information dictionary (ISO 32000-1:2008, 7.7.2 and 14.3.3). */
@@ -99,7 +108,7 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
   };
   const left = catalogDictionary(sides.a);
   const right = catalogDictionary(sides.b);
-  const values = graph(sides, differences, push);
+  const values = graph(sides, { differences, within: [], push });
   if (left !== undefined && right !== undefined) values.entries({ left, right, path: ['Root'], skip: CATALOG_COMPARED_ELSEWHERE });
   values.compare(sides.a.structure.trailer.get(INFO), sides.b.structure.trailer.get(INFO), ['Info']);
 };
@@ -131,35 +140,52 @@ export const compareDuplicateKeys = (
   for (const [name, key] of right) if (!left.has(name)) differences.push({ kind: 'ambiguous-duplicate-key', where: objects.where, key, document: 'b' });
 };
 
-const isForm = (document: DocumentInternals, value: PdfDirectObject | undefined): PdfDictionaryEntries | undefined => {
-  const resolved = document.objects.deref(value);
-  const subtype = resolved?.kind === 'stream' ? resolved.dictionary.get(SUBTYPE) : undefined;
-  return resolved?.kind === 'stream' && subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form' ? resolved.dictionary : undefined;
-};
+type Side = 'a' | 'b';
 
-const xObjects = (document: DocumentInternals, resources: PdfDirectObject | undefined): PdfDictionaryEntries | undefined => {
-  const dictionary = dictionaryOf(document.objects.deref(resources));
-  return dictionaryOf(document.objects.deref(dictionary?.get(XOBJECT)));
-};
+/** Reports an object that cannot be parsed, from the document it is in. */
+export type Unreadable = (where: ValuePath, side: Side, reason: string) => void;
 
-/** Form XObjects present under the same resource name in both documents, recursively through their own resources, as owners of page-piece data. */
+/** Form XObjects present under the same resource name in both documents, through their own resources, as owners of page-piece data; objects that cannot be parsed are reported and skipped. */
 export const formOwners = (
   sides: Sides,
   start: { readonly page: number; readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined },
+  unreadable: Unreadable,
 ): Owner[] => {
   const owners: Owner[] = [];
   const visited = new Set<string>();
-  const walk = (resourcesA: PdfDirectObject | undefined, resourcesB: PdfDirectObject | undefined, path: ValuePath): void => {
-    const formsA = xObjects(sides.a, resourcesA);
-    const formsB = xObjects(sides.b, resourcesB);
+  const read = (side: Side, value: PdfDirectObject | undefined, where: ValuePath): PdfObject | undefined => {
+    try {
+      return sides[side].objects.deref(value);
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) throw error;
+      unreadable(['page', start.page, ...where], side, error.message);
+      return undefined;
+    }
+  };
+  const xObjects = (side: Side, resources: PdfDirectObject | undefined, where: ValuePath): PdfDictionaryEntries | undefined => {
+    const dictionary = dictionaryOf(read(side, resources, where));
+    return dictionaryOf(read(side, dictionary?.get(XOBJECT), [...where, 'XObject']));
+  };
+  const isForm = (side: Side, value: PdfDirectObject | undefined, where: ValuePath): PdfDictionaryEntries | undefined => {
+    const resolved = read(side, value, where);
+    const subtype = resolved?.kind === 'stream' ? resolved.dictionary.get(SUBTYPE) : undefined;
+    return resolved?.kind === 'stream' && subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form' ? resolved.dictionary : undefined;
+  };
+  const pending: { readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined; readonly path: ValuePath }[] = [
+    { a: start.a, b: start.b, path: ['Resources'] },
+  ];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const formsA = xObjects('a', next.a, next.path);
+    const formsB = xObjects('b', next.b, next.path);
     for (const [key, valueA] of formsA?.entries() ?? []) {
       const valueB = formsB?.get(key);
-      const formA = isForm(sides.a, valueA);
-      const formB = isForm(sides.b, valueB);
+      const formPath = [...next.path, 'XObject', latin1(key)];
       const pair = `${JSON.stringify(valueA)}|${JSON.stringify(valueB)}`;
-      if (formA === undefined || formB === undefined || visited.has(pair)) continue;
+      if (visited.has(pair)) continue;
       visited.add(pair);
-      const formPath = [...path, 'XObject', latin1(key)];
+      const formA = isForm('a', valueA, formPath);
+      const formB = isForm('b', valueB, formPath);
+      if (formA === undefined || formB === undefined) continue;
       owners.push({
         owner: { kind: 'form', page: start.page, path: formPath },
         a: formA,
@@ -167,9 +193,8 @@ export const formOwners = (
         referenceA: valueA.kind === 'reference' ? valueA : undefined,
         referenceB: valueB?.kind === 'reference' ? valueB : undefined,
       });
-      walk(formA.get(RESOURCES), formB.get(RESOURCES), [...formPath, 'Resources']);
+      pending.push({ a: formA.get(RESOURCES), b: formB.get(RESOURCES), path: [...formPath, 'Resources'] });
     }
-  };
-  walk(start.a, start.b, ['Resources']);
+  }
   return owners;
 };

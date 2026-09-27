@@ -56,3 +56,41 @@ describe('document comparison: pages and boxes', () => {
     expect(() => compareDocuments(source, { ...source })).toThrow(InvalidArgumentError);
   });
 });
+
+const unreadable = (entry: string): Uint8Array =>
+  pdf([
+    { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+    { number: 3, body: `<</Type/Page/Parent 2 0 R${entry}>>` },
+    { number: 8, body: '<</Type/Font/Subtype [1 2>>' },
+  ]);
+
+describe('document comparison: objects that cannot be parsed', () => {
+  it.each([
+    ['/PieceInfo 8 0 R', [['page', 0, 'PieceInfo']]],
+    ['/Contents[8 0 R]', [['page', 0, 'Contents']]],
+    ['/MediaBox 8 0 R', [['page', 0]]],
+    [
+      '/Annots[8 0 R]',
+      [
+        ['page', 0, 'Annots', 0],
+        ['page', 0, 'Annots'],
+      ],
+    ],
+    [
+      '/Resources<</XObject<</X1 8 0 R>>>>',
+      [
+        ['page', 0, 'Resources', 'XObject', 'X1'],
+        ['page', 0, 'Resources'],
+        ['page', 0, 'Resources', 'XObject', 'X1'],
+      ],
+    ],
+  ])('reports %s in each document instead of throwing', (entry, places) => {
+    const bytes = unreadable(entry);
+    const { differences } = compareDocuments(loadDocument(bytes), loadDocument(Uint8Array.from(bytes)));
+    const expected = places.flatMap(where => [
+      { kind: 'undecodable', where, document: 'a' },
+      { kind: 'undecodable', where, document: 'b' },
+    ]);
+    expect(differences).toMatchObject(expected);
+  });
+});

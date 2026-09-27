@@ -29,10 +29,15 @@ const referenceKey = (value: PdfDirectObject): string | undefined =>
 /** What a font walk found: fonts by identity, and why objects on the way could not be read. */
 export interface FontSet {
   readonly fonts: Map<string, FontIdentity>;
-  readonly unreadable: string[];
+  /** Objects that could not be parsed, by the page entry the walk started from. */
+  readonly unreadable: { readonly from: Origin; readonly reason: string }[];
 }
 
+/** The page entry a walk reached an object from. */
+export type Origin = 'Resources' | 'Annots';
+
 interface Visit {
+  readonly from: Origin;
   readonly kind: 'resources' | 'font' | 'form';
   readonly value: PdfDirectObject | undefined;
 }
@@ -45,13 +50,14 @@ class FontWalk {
   private readonly seen = new Set<string>();
   private readonly visits: Visit[] = [];
   private readonly found: FontSet = { fonts: new Map(), unreadable: [] };
+  private from: Origin = 'Resources';
 
   constructor(fonts: DocumentFonts) {
     this.fonts = fonts;
   }
 
-  push(visit: Visit): void {
-    this.visits.push(visit);
+  push(visit: Omit<Visit, 'from'>): void {
+    this.visits.push({ ...visit, from: this.from });
   }
 
   private read(value: PdfDirectObject | undefined): PdfObject | undefined {
@@ -59,12 +65,13 @@ class FontWalk {
       return this.fonts.resolve(value);
     } catch (error: unknown) {
       if (!(error instanceof ParseError)) throw error;
-      this.found.unreadable.push(error.message);
+      this.found.unreadable.push({ from: this.from, reason: error.message });
       return undefined;
     }
   }
 
   annotations(page: PageEntry): void {
+    this.from = 'Annots';
     const pageDictionary = dictionaryOf(this.read(page.reference));
     const annotations = this.read(pageDictionary?.get(ANNOTS));
     for (const annotation of annotations?.kind === 'array' ? annotations.items : []) {
@@ -96,7 +103,8 @@ class FontWalk {
     return this.found;
   }
 
-  private visit({ kind, value }: Visit): void {
+  private visit({ kind, value, from }: Visit): void {
+    this.from = from;
     const dictionary = dictionaryOf(this.read(value));
     if (dictionary === undefined || value === undefined) return;
     if (kind === 'font') this.font(dictionary, value);
@@ -124,7 +132,7 @@ class FontWalk {
       this.found.fonts.set(JSON.stringify(identity), identity);
     } catch (error: unknown) {
       if (!(error instanceof ParseError)) throw error;
-      this.found.unreadable.push(error.message);
+      this.found.unreadable.push({ from: this.from, reason: error.message });
     }
   }
 

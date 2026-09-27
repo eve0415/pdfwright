@@ -97,6 +97,21 @@ const sameStored = (
   );
 };
 
+// The content stream references of a page, or undefined with a difference when an object on the way cannot be parsed.
+const readReferences = (
+  page: number,
+  [document, entry, side]: readonly [DocumentInternals, PageEntry, Side],
+  differences: PdfDifference[],
+): PdfDirectObject[] | undefined => {
+  try {
+    return contentReferences(document, entry);
+  } catch (error: unknown) {
+    if (!(error instanceof ParseError)) throw error;
+    differences.push({ kind: 'undecodable', where: ['page', page, 'Contents'], document: side, reason: error.message });
+    return undefined;
+  }
+};
+
 interface PageSides {
   readonly a: DocumentInternals;
   readonly b: DocumentInternals;
@@ -104,12 +119,30 @@ interface PageSides {
   readonly pageB: PageEntry;
 }
 
+// Operations compare as exact text; a difference records how many operations each side has and how many they share at the start and at the end.
+const reportOperations = (page: number, [operationsA, operationsB]: readonly [readonly string[], readonly string[]], differences: PdfDifference[]): void => {
+  let prefix = 0;
+  while (prefix < operationsA.length && prefix < operationsB.length && operationsA[prefix] === operationsB[prefix]) prefix++;
+  if (prefix === operationsA.length && prefix === operationsB.length) return;
+  let suffix = 0;
+  while (suffix < operationsA.length - prefix && suffix < operationsB.length - prefix && operationsA.at(-1 - suffix) === operationsB.at(-1 - suffix)) suffix++;
+  differences.push({
+    kind: 'page-content',
+    page,
+    operationsA: operationsA.length,
+    operationsB: operationsB.length,
+    commonPrefix: prefix,
+    commonSuffix: suffix,
+  });
+};
+
 /**
  * Compares the content of one page, however it is split across streams or compressed: by stored bytes under the same filters, then by decoded bytes, then operation by operation.
  */
 export const comparePageContent = (page: number, sides: PageSides, differences: PdfDifference[]): void => {
-  const left = contentReferences(sides.a, sides.pageA);
-  const right = contentReferences(sides.b, sides.pageB);
+  const left = readReferences(page, [sides.a, sides.pageA, 'a'], differences);
+  const right = readReferences(page, [sides.b, sides.pageB, 'b'], differences);
+  if (left === undefined || right === undefined) return;
   if (left.length === right.length && left.every((reference, index) => sameStored(sides, [reference, right[index]]))) return;
   const decoded: Record<Side, Decoded> = { a: joinedContent(sides.a, left), b: joinedContent(sides.b, right) };
   for (const side of ['a', 'b'] as const) {
@@ -126,19 +159,5 @@ export const comparePageContent = (page: number, sides: PageSides, differences: 
     if (!result.ok) differences.push({ kind: 'undecodable', where: ['page', page, 'Contents'], document: side, reason: result.reason });
   }
   if (!read.a.ok || !read.b.ok) return;
-  const operationsA = read.a.operations;
-  const operationsB = read.b.operations;
-  let prefix = 0;
-  while (prefix < operationsA.length && prefix < operationsB.length && operationsA[prefix] === operationsB[prefix]) prefix++;
-  if (prefix === operationsA.length && prefix === operationsB.length) return;
-  let suffix = 0;
-  while (suffix < operationsA.length - prefix && suffix < operationsB.length - prefix && operationsA.at(-1 - suffix) === operationsB.at(-1 - suffix)) suffix++;
-  differences.push({
-    kind: 'page-content',
-    page,
-    operationsA: operationsA.length,
-    operationsB: operationsB.length,
-    commonPrefix: prefix,
-    commonSuffix: suffix,
-  });
+  reportOperations(page, [read.a.operations, read.b.operations], differences);
 };

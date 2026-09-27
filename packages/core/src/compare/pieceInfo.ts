@@ -4,6 +4,7 @@ import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObje
 import type { PdfDifference, PieceOwner, ValuePath } from './pdfDifference.ts';
 import type { GraphContext } from './valueGraph.ts';
 
+import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { originalValue } from '../save/originalValue.ts';
 
@@ -35,9 +36,24 @@ const dictionaryOf = (value: PdfObject | undefined): PdfDictionaryEntries | unde
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
+// An object that cannot be parsed reads as absent here; the value graph walks the same values and reports it.
+const read = (document: DocumentInternals, value: PdfDirectObject | undefined): PdfObject | undefined => {
+  try {
+    return document.objects.deref(value);
+  } catch (error: unknown) {
+    if (error instanceof ParseError) return undefined;
+    throw error;
+  }
+};
+
 const dateBytes = (document: DocumentInternals, value: PdfDirectObject | undefined): Uint8Array | undefined => {
-  const resolved = document.objects.deref(value);
+  const resolved = read(document, value);
   return resolved?.kind === 'string' ? resolved.bytes : undefined;
+};
+
+const ownerPath = (owner: PieceOwner): ValuePath => {
+  if (owner.kind === 'catalog') return ['Root'];
+  return owner.kind === 'page' ? ['page', owner.page] : ['page', owner.page, ...owner.path];
 };
 
 const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined): boolean =>
@@ -65,19 +81,19 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
       differences.push({ kind: 'piece-info', owner: owner.owner, aspect, ...mismatch });
     },
     undecodable: (where, document, reason) => {
-      differences.push({ kind: 'undecodable', where, document, reason });
+      differences.push({ kind: 'undecodable', where: [...ownerPath(owner.owner), ...where], document, reason });
     },
   });
-  const dataA = dictionaryOf(sides.a.objects.deref(pieceA));
-  const dataB = dictionaryOf(sides.b.objects.deref(pieceB));
+  const dataA = dictionaryOf(read(sides.a, pieceA));
+  const dataB = dictionaryOf(read(sides.b, pieceB));
   const values = new ValueGraph(sides, report('value'));
   if (dataA === undefined || dataB === undefined) values.compare(pieceA, pieceB, path);
   else {
     const applications = new Set([...dataA.entries(), ...dataB.entries()].map(([key]) => latin1(key)));
     for (const application of applications) {
       const key = pdfName(application).bytes;
-      const appA = dictionaryOf(sides.a.objects.deref(dataA.get(key)));
-      const appB = dictionaryOf(sides.b.objects.deref(dataB.get(key)));
+      const appA = dictionaryOf(read(sides.a, dataA.get(key)));
+      const appB = dictionaryOf(read(sides.b, dataB.get(key)));
       if (appA === undefined || appB === undefined) values.compare(dataA.get(key), dataB.get(key), [...path, application]);
       else {
         values.entries({ left: appA, right: appB, path: [...path, application], skip: SKIP_LAST_MODIFIED });
