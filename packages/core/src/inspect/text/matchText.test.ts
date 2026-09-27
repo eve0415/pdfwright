@@ -6,6 +6,7 @@ import type { MatchTextOptions, TextMatch } from './matchText.ts';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
+import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
 import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
@@ -205,6 +206,22 @@ describe('text matching', () => {
     const content = `BT /T 10 Tf 100 700 Td ${show(1)} 0 -10 Td ${show(2)} ET BT /T 10 Tf 120 700 Td ${show(3)} 0 -10 Td ${show(4)} ET`;
     const proof = { texts: ['山', '田', '太', '郎'], content };
     expect([statusOf(proof, '太郎山田'), statusOf(proof, '太郎山田', { order: 'columns-rtl' })]).toStrictEqual(['mismatch', 'match']);
+  });
+
+  it('refuses option values it does not know', () => {
+    const proof = page({ texts: ['山'], content: line(1) });
+    for (const [key, value] of [
+      ['order', 'nope'],
+      ['whitespace', 'nope'],
+      ['folds', ['nope']],
+      ['actualText', 'nope'],
+      ['variationSelectors', 'nope'],
+      ['duplicates', 'nope'],
+    ] as const) {
+      const options: MatchTextOptions = {};
+      Reflect.set(options, key, value);
+      expect(() => matchText(proof, '山', options)).toThrow(InvalidArgumentError);
+    }
   });
 
   it('leaves out glyphs outside the CropBox', () => {
