@@ -130,3 +130,19 @@ export const renderRgbPixel = async (...[pdfFile, output, x, y]: [string, string
   if (depth !== 3 || red === undefined || green === undefined || blue === undefined) throw new Error('invalid MuPDF RGB pixel');
   return [red, green, blue];
 };
+
+export const renderGsCmykPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number, number]> => {
+  const child = spawn('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiff32nc', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
+  const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
+  if (closed[0] !== 0) throw new Error(`Ghostscript exited ${String(closed[0])}: ${stderr}`);
+  const tiff = await readTiff(output);
+  const offset = (y * tiff.width + x) * tiff.samplesPerPixel;
+  const cyan = tiff.data[offset];
+  const magenta = tiff.data[offset + 1];
+  const yellow = tiff.data[offset + 2];
+  const black = tiff.data[offset + 3];
+  if (tiff.samplesPerPixel !== 4 || cyan === undefined || magenta === undefined || yellow === undefined || black === undefined) {
+    throw new Error('invalid Ghostscript CMYK TIFF pixel');
+  }
+  return [cyan, magenta, yellow, black];
+};

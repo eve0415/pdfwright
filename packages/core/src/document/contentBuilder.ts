@@ -1,5 +1,6 @@
 import type { Length } from '../length/length.ts';
 import type { DeviceColor } from './color.ts';
+import type { PdfImage } from './image.ts';
 import type { Separation } from './separation.ts';
 
 import { ValidationError } from '../error/validationError.ts';
@@ -35,6 +36,7 @@ export interface PaintOptions {
 export interface ContentHooks {
   registerGraphicsState?: (options: GraphicsStateOptions) => string;
   registerSeparation?: (separation: Separation) => string;
+  registerImage?: (image: PdfImage) => string;
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
 }
 
@@ -63,6 +65,7 @@ export interface ContentBuilder {
   fillColor: (color: DeviceColor | Separation, tint?: number) => void;
   strokeColor: (color: DeviceColor | Separation, tint?: number) => void;
   graphicsState: (options: GraphicsStateOptions) => void;
+  image: (image: PdfImage, matrix: [ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber, ContentNumber]) => void;
   finish: () => Uint8Array;
 }
 
@@ -102,6 +105,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const stack: CurrentGraphicsState[] = [];
   const localStates = new Map<string, string>();
   const localSeparations = new Map<string, string>();
+  const localImages = new Map<PdfImage, string>();
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
   const emit = (operator: string, operands: ContentNumber[] = []): void => {
     commands.push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
@@ -254,6 +258,19 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
         localStates.set(key, name);
       }
       commands.push(`/${name} gs\n`);
+    },
+    image: (image, matrix): void => {
+      if (depth === 28) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      let name = localImages.get(image);
+      if (name === undefined) {
+        name = hooks.registerImage?.(image) ?? `Im${localImages.size + 1}`;
+        localImages.set(image, name);
+      }
+      // ISO 32000-1:2008, 8.9.4 paints an image XObject into the unit square under the current transformation matrix.
+      emit('q');
+      emit('cm', matrix);
+      commands.push(`/${name} Do\n`);
+      emit('Q');
     },
     finish: (): Uint8Array => {
       if (depth !== 0) throw new ValidationError('graphics state save and restore must be balanced');
