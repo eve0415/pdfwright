@@ -1,13 +1,14 @@
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
-import type { BlendingSpace, ContentBuilder, ContentHooks, ContentSummary, GraphicsStateOptions } from './contentBuilder.ts';
+import type { ContentBuilder } from './contentBuilder.ts';
 import type { DocumentInfo } from './documentInfo.ts';
-import type { GroupAttributes, GroupOptions, PdfGroup } from './group.ts';
+import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, ImageRecord, PdfImage } from './image.ts';
 import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
-import type { Separation, SeparationOptions, SeparationRecord } from './separation.ts';
+import type { GroupRecord, ImageObjectNumbers, ResourceNumbers, ResourceRecord } from './resourceRecord.ts';
+import type { Separation, SeparationOptions } from './separation.ts';
 
 import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -19,12 +20,13 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } f
 import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
+import { createDocumentHandles } from './documentHandles.ts';
 import { documentInfoDictionary } from './documentInfo.ts';
-import { groupAttributes, groupObject } from './group.ts';
-import { createImageRecord, imageObject, softMaskObject } from './image.ts';
+import { groupObject } from './group.ts';
+import { imageObject, softMaskObject } from './image.ts';
 import { pieceInfoRecord } from './pieceInfo.ts';
 import { rect } from './rect.ts';
-import { colorantKey, createSeparationRecord, separationObject } from './separation.ts';
+import { createContentHooks, createResourceRecord, resourceDictionary } from './resourceRecord.ts';
 
 export interface DocumentOptions {
   fractionDigits?: number;
@@ -57,11 +59,10 @@ export interface PdfPage {
   pieceInfo: (input: PieceInfoInput) => void;
 }
 
-interface ResourceRecord {
-  graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
-  separations: Map<string, { name: string; separation: SeparationRecord }>;
-  images: Map<ImageRecord, string>;
-  groups: Map<GroupRecord, string>;
+interface PageBuildContext {
+  fractionDigits: number;
+  contentStart: number;
+  resourceNumbers: ResourceNumbers;
 }
 
 interface PageRecord extends ResourceRecord {
@@ -69,49 +70,6 @@ interface PageRecord extends ResourceRecord {
   contents: Uint8Array[];
   pieceInfo?: PieceInfoRecord;
 }
-
-interface GroupRecord extends ResourceRecord {
-  attributes: GroupAttributes;
-  content: Uint8Array;
-  summary: ContentSummary;
-  pieceInfo?: PieceInfoRecord;
-}
-
-// Handles are opaque: each document maps the handles it issued to their records, so a handle from another document or built by hand has no record.
-interface DocumentRecords {
-  separations: WeakMap<Separation, SeparationRecord>;
-  images: WeakMap<PdfImage, ImageRecord>;
-  groups: WeakMap<PdfGroup, GroupRecord>;
-}
-
-interface ImageObjectNumbers {
-  parent: number;
-  mask?: number;
-}
-
-interface PageBuildContext {
-  fractionDigits: number;
-  contentStart: number;
-  resourceNumbers: ResourceNumbers;
-}
-
-interface ResourceNumbers {
-  imageNumbers: Map<ImageRecord, ImageObjectNumbers>;
-  groupNumbers: Map<GroupRecord, number>;
-}
-
-const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEntries => {
-  // ISO 32000-1:2008, 8.4.5, Table 58 defines the ExtGState keys and says OP also sets op when op is absent.
-  const entries = new PdfDictionaryEntries();
-  if (options.strokeAlpha !== undefined) entries.set(pdfName('CA').bytes, pdfReal(options.strokeAlpha));
-  if (options.fillAlpha !== undefined) entries.set(pdfName('ca').bytes, pdfReal(options.fillAlpha));
-  if (options.blendMode !== undefined) entries.set(pdfName('BM').bytes, pdfName(options.blendMode));
-  if (options.overprintStroke !== undefined) entries.set(pdfName('OP').bytes, { kind: 'boolean', value: options.overprintStroke });
-  if (options.overprintFill !== undefined) entries.set(pdfName('op').bytes, { kind: 'boolean', value: options.overprintFill });
-  if (options.overprintMode !== undefined) entries.set(pdfName('OPM').bytes, pdfInteger(options.overprintMode));
-  if (options.softMask !== undefined) entries.set(pdfName('SMask').bytes, pdfName('None'));
-  return entries;
-};
 
 const normalize = (box: PdfRect): PdfRect => rect(...box);
 
@@ -138,8 +96,6 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
   }
 };
 
-const createResourceRecord = (): ResourceRecord => ({ graphicsStates: new Map(), separations: new Map(), images: new Map(), groups: new Map() });
-
 const isolateContent = (data: Uint8Array): Uint8Array => {
   // ISO 32000-1:2008, 8.4.2 defines q and Q as saving and restoring the entire graphics state.
   const isolated = new Uint8Array(data.length + 4);
@@ -148,70 +104,6 @@ const isolateContent = (data: Uint8Array): Uint8Array => {
   isolated.set([0x51, 0x0a], data.length + 2);
   return isolated;
 };
-
-const separationRecord = (records: DocumentRecords, separation: Separation): SeparationRecord => {
-  const record = records.separations.get(separation);
-  if (record === undefined) throw new ValidationError('separation was not created by this document');
-  return record;
-};
-
-const imageRecord = (records: DocumentRecords, image: PdfImage): ImageRecord => {
-  const record = records.images.get(image);
-  if (record === undefined) throw new ValidationError('image was not created by this document');
-  return record;
-};
-
-const groupRecord = (records: DocumentRecords, group: PdfGroup): GroupRecord => {
-  const record = records.groups.get(group);
-  if (record === undefined) throw new ValidationError('group was not created by this document, or its render callback has not returned');
-  return record;
-};
-
-const createContentHooks = (...[resources, records, blendingSpace]: [ResourceRecord, DocumentRecords, BlendingSpace]): ContentHooks => ({
-  blendingSpace,
-  registerGraphicsState: stateOptions => {
-    const key = JSON.stringify([
-      stateOptions.fillAlpha,
-      stateOptions.strokeAlpha,
-      stateOptions.blendMode,
-      stateOptions.overprintStroke,
-      stateOptions.overprintFill,
-      stateOptions.overprintMode,
-      stateOptions.softMask,
-    ]);
-    const existing = resources.graphicsStates.get(key);
-    if (existing !== undefined) return existing.name;
-    const name = `GS${resources.graphicsStates.size + 1}`;
-    resources.graphicsStates.set(key, { name, options: stateOptions });
-    return name;
-  },
-  registerSeparation: separation => {
-    const record = separationRecord(records, separation);
-    const key = colorantKey(record.name);
-    const existing = resources.separations.get(key);
-    if (existing !== undefined) return existing.name;
-    const name = `CS${resources.separations.size + 1}`;
-    resources.separations.set(key, { name, separation: record });
-    return name;
-  },
-  registerImage: image => {
-    const record = imageRecord(records, image);
-    const existing = resources.images.get(record);
-    if (existing !== undefined) return existing;
-    const name = `Im${resources.images.size + 1}`;
-    resources.images.set(record, name);
-    return name;
-  },
-  groupSummary: group => groupRecord(records, group).summary,
-  registerGroup: group => {
-    const record = groupRecord(records, group);
-    const existing = resources.groups.get(record);
-    if (existing !== undefined) return existing;
-    const name = `Fm${resources.groups.size + 1}`;
-    resources.groups.set(record, name);
-    return name;
-  },
-});
 
 const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: number): Map<ImageRecord, ImageObjectNumbers> => {
   let nextNumber = firstNumber;
@@ -235,36 +127,6 @@ const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: numbe
   return numbers;
 };
 
-const pageResources = (record: ResourceRecord, numbers: ResourceNumbers): PdfDirectObject | undefined => {
-  if (record.graphicsStates.size === 0 && record.separations.size === 0 && record.images.size === 0 && record.groups.size === 0) return undefined;
-  const resources = new PdfDictionaryEntries();
-  if (record.separations.size > 0) {
-    const colorSpaces = new PdfDictionaryEntries();
-    for (const space of record.separations.values()) colorSpaces.set(pdfName(space.name).bytes, separationObject(space.separation));
-    resources.set(pdfName('ColorSpace').bytes, pdfDictionary(colorSpaces));
-  }
-  if (record.graphicsStates.size > 0) {
-    const states = new PdfDictionaryEntries();
-    for (const state of record.graphicsStates.values()) states.set(pdfName(state.name).bytes, pdfDictionary(graphicsStateDictionary(state.options)));
-    resources.set(pdfName('ExtGState').bytes, pdfDictionary(states));
-  }
-  if (record.images.size > 0 || record.groups.size > 0) {
-    const xObjects = new PdfDictionaryEntries();
-    for (const [image, name] of record.images) {
-      const number = numbers.imageNumbers.get(image)?.parent;
-      if (number === undefined) throw new ValidationError('image reference is missing');
-      xObjects.set(pdfName(name).bytes, pdfReference(number, 0));
-    }
-    for (const [group, name] of record.groups) {
-      const number = numbers.groupNumbers.get(group);
-      if (number === undefined) throw new ValidationError('group reference is missing');
-      xObjects.set(pdfName(name).bytes, pdfReference(number, 0));
-    }
-    resources.set(pdfName('XObject').bytes, pdfDictionary(xObjects));
-  }
-  return pdfDictionary(resources);
-};
-
 const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObject => {
   const page = record.options;
   // ISO 32000-1:2008, 7.7.3.3, Table 30 makes MediaBox required and Contents optional; an absent Contents means an empty page.
@@ -286,7 +148,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
     ]);
     entries.set(pdfName('Group').bytes, pdfDictionary(group));
   }
-  const resources = pageResources(record, context.resourceNumbers);
+  const resources = resourceDictionary(record, context.resourceNumbers);
   if (resources !== undefined) entries.set(pdfName('Resources').bytes, resources);
   for (const [key, box] of [
     ['CropBox', page.cropBox],
@@ -308,11 +170,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined = undefined;
-  const documentSeparations = new Map<string, Separation>();
-  const images: ImageRecord[] = [];
-  const groups: GroupRecord[] = [];
-  const records: DocumentRecords = { separations: new WeakMap(), images: new WeakMap(), groups: new WeakMap() };
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
+  const handles = createDocumentHandles({ fractionDigits, asciiOnlyColorants: options.colorantPolicy?.asciiOnly === true });
+  const { records, images, groups } = handles;
 
   return {
     object: (value): PdfReference => {
@@ -325,50 +185,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       if (modificationDate === undefined) throw new ValidationError('document PieceInfo requires info.modificationDate');
       documentPieceInfo = pieceInfoRecord(modificationDate, input.data);
     },
-    group: (groupOptions, render): PdfGroup => {
-      const attributes = groupAttributes(groupOptions, fractionDigits);
-      const handle: PdfGroup = Object.freeze({
-        kind: 'PdfGroup',
-        pieceInfo: (input: PieceInfoInput): void => {
-          groupRecord(records, handle).pieceInfo = pieceInfoRecord(input.lastModified, input.data);
-        },
-      });
-      const resources = createResourceRecord();
-      // ISO 32000-1:2008, 11.6.6, Table 147, CS: "Default value: the colour space of the parent group or page into which this transparency group is painted."
-      const hooks = createContentHooks(resources, records, attributes.colorSpace ?? 'inherited');
-      // A group is drawn only through a page, so its content always starts inside the page's isolating q, the placement's q and the save made by Do (ISO 32000-1:2008, 8.10.1).
-      hooks.maxDepth = 25;
-      hooks.inheritsState = true;
-      const session = createContentBuilder(fractionDigits, hooks);
-      render(session.content);
-      const { data, summary } = session.finish();
-      const record: GroupRecord = { attributes, content: data, summary, ...resources };
-      records.groups.set(handle, record);
-      groups.push(record);
-      return handle;
-    },
-    image: (imageOptions): PdfImage => {
-      const record = createImageRecord(imageOptions, separation => separationRecord(records, separation));
-      const handle: PdfImage = Object.freeze({ kind: 'PdfImage' });
-      records.images.set(handle, record);
-      images.push(record);
-      return handle;
-    },
-    separation: (separationOptions): Separation => {
-      const record = createSeparationRecord(separationOptions, options.colorantPolicy?.asciiOnly === true);
-      const key = colorantKey(record.name);
-      const existing = documentSeparations.get(key);
-      if (existing !== undefined) {
-        if (JSON.stringify(separationRecord(records, existing).alternate) !== JSON.stringify(record.alternate)) {
-          throw new ValidationError('the same colorant name cannot use conflicting alternate colours');
-        }
-        return existing;
-      }
-      const handle: Separation = Object.freeze({ kind: 'Separation' });
-      records.separations.set(handle, record);
-      documentSeparations.set(key, handle);
-      return handle;
-    },
+    group: handles.group,
+    image: handles.image,
+    separation: handles.separation,
     addPage: (page: PageOptions): PdfPage => {
       const normalized: PageOptions = { mediaBox: normalize(page.mediaBox) };
       if (page.cropBox !== undefined) normalized.cropBox = normalize(page.cropBox);
@@ -386,7 +205,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       return {
         draw: (render): void => {
           // Writer policy: without a page group the blending space is the device's own, and print devices are DeviceCMYK.
-          const hooks = createContentHooks(record, records, normalized.group?.colorSpace ?? 'DeviceCMYK');
+          const hooks = createContentHooks(record, records, { blendingSpace: normalized.group?.colorSpace ?? 'DeviceCMYK' });
           hooks.maxDepth = 27;
           const session = createContentBuilder(fractionDigits, hooks);
           render(session.content);
@@ -452,7 +271,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       for (const record of groups) {
         const number = groupNumbers.get(record);
         if (number === undefined) throw new ValidationError('group reference is missing');
-        const resources = pageResources(record, resourceNumbers) ?? pdfDictionary();
+        const resources = resourceDictionary(record, resourceNumbers) ?? pdfDictionary();
         objects.push({ objectNumber: number, generation: 0, value: groupObject(record.attributes, record.content, resources, record.pieceInfo) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
