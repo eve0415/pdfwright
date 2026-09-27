@@ -302,7 +302,8 @@ class Walk {
     const font = referenceOf(value);
     const resources = dictionary.get(RESOURCES);
     // Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
-    if (resources === undefined) {
+    // 7.3.7: "A dictionary entry whose value is null … shall be treated the same as if the entry does not exist", which covers a reference to a missing object (7.3.10).
+    if (resources === undefined || this.read(resources)?.kind === 'null') {
       this.visits.push({ kind: 'origin', key: this.pageKey, origin: { kind: 'type3', font, inheritsPageResources: true } });
       return;
     }

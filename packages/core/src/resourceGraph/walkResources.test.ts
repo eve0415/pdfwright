@@ -155,20 +155,25 @@ describe('resource walks', () => {
     ]);
   });
 
-  it('adds a Type 3 font without Resources as an origin of the page resources', () => {
+  it('adds a Type 3 font without Resources, or whose Resources is a missing object, as an origin of the page resources', () => {
     const type3 =
       '/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<<>>/Encoding<</Differences[]>>/FirstChar 0/LastChar 0/Widths[0]';
     const document = internals('/Resources 20 0 R', [
-      { number: 20, body: '<</Font<</T1 10 0 R/T2 12 0 R>>>>' },
+      { number: 20, body: '<</Font<</T1 10 0 R/T2 12 0 R/T3 13 0 R>>>>' },
       { number: 10, body: `<<${type3}>>` },
+      { number: 13, body: `<<${type3}/Resources 99 0 R>>` },
       { number: 12, body: `<<${type3}/Resources 21 0 R>>` },
       { number: 21, body: '<<>>' },
     ]);
     const walked = walk(document);
     expect([originsOf(walked, 20), originsOf(walked, 21), walked.fonts]).toStrictEqual([
-      [{ kind: 'page' }, { kind: 'type3', font: reference(10), inheritsPageResources: true }],
+      [
+        { kind: 'page' },
+        { kind: 'type3', font: reference(13), inheritsPageResources: true },
+        { kind: 'type3', font: reference(10), inheritsPageResources: true },
+      ],
       [{ kind: 'type3', font: reference(12), inheritsPageResources: false }],
-      [reference(12), reference(10)],
+      [reference(13), reference(12), reference(10)],
     ]);
   });
 
