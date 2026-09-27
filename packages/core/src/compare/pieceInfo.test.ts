@@ -42,6 +42,12 @@ const paths = (differences: readonly PdfDifference[]): ValuePath[] =>
 const source = load(objects());
 
 describe('page-piece data, LastModified and attribute comparison', () => {
+  it('compares non-ASCII application names by their original name bytes', () => {
+    const first = load(objects([page('<</#E9 9 0 R>>')]));
+    const second = load(objects([page('<</#E9 9 0 R>>')]));
+    expect(compareDocuments(first, second).differences).toStrictEqual([]);
+  });
+
   it('keeps page-piece data identical in all three aspects across a box edit', () => {
     const edited = load(objects());
     edited.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));

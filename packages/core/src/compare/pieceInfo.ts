@@ -95,9 +95,8 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
   const values = new ValueGraph(sides, report('value'));
   if (dataA === undefined || dataB === undefined) values.compare(pieceA, pieceB, path);
   else {
-    const applications = new Set([...dataA.entries(), ...dataB.entries()].map(([key]) => latin1(key)));
-    for (const application of applications) {
-      const key = pdfName(application).bytes;
+    const applications = new Map([...dataA.entries(), ...dataB.entries()].map(([key]): readonly [string, Uint8Array] => [latin1(key), key]));
+    for (const [application, key] of applications) {
       reportDuplicates([...where, PIECE_INFO_NAME, application], [duplicatesOf(sides.a, dataA.get(key)), duplicatesOf(sides.b, dataB.get(key))], differences);
       const appA = dictionaryOf(read(sides.a, dataA.get(key)));
       const appB = dictionaryOf(read(sides.b, dataB.get(key)));
