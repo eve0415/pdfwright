@@ -91,4 +91,26 @@ export class PathBuilder {
   polygons(): readonly (readonly Point[])[] {
     return this.subpaths;
   }
+
+  /** The path's corners [left bottom right top] when it is a single rectangle with sides parallel to the page axes and positive area, as re draws it under a CTM without rotation or skew; otherwise undefined. */
+  axisAlignedRectangle(): readonly [number, number, number, number] | undefined {
+    const [polygon, ...rest] = this.subpaths;
+    if (polygon === undefined || rest.length > 0) return undefined;
+    const [first] = polygon;
+    const last = polygon.at(-1);
+    const corners =
+      polygon.length === 5 && first !== undefined && last !== undefined && first[0] === last[0] && first[1] === last[1] ? polygon.slice(0, 4) : polygon;
+    if (corners.length !== 4) return undefined;
+    const xs = new Set(corners.map(([x]) => x));
+    const ys = new Set(corners.map(([, y]) => y));
+    // Each side is horizontal or vertical, and they alternate.
+    const sides = corners.map((corner, index) => {
+      const next = corners[(index + 1) % 4] ?? corner;
+      if (corner[1] === next[1] && corner[0] !== next[0]) return 'horizontal';
+      return corner[0] === next[0] && corner[1] !== next[1] ? 'vertical' : 'other';
+    });
+    const alternate = sides.every((side, index) => side !== 'other' && side !== sides[(index + 1) % 4]);
+    if (xs.size !== 2 || ys.size !== 2 || !alternate) return undefined;
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  }
 }

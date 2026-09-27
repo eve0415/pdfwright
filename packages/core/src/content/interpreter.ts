@@ -33,6 +33,12 @@ const SHADING = pdfName('Shading').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const IMAGE_MASK = pdfName('ImageMask').bytes;
 const PROPERTIES = pdfName('Properties').bytes;
+const FILL_ALPHA = pdfName('ca').bytes;
+const STROKE_ALPHA = pdfName('CA').bytes;
+const BLEND_MODE = pdfName('BM').bytes;
+const SOFT_MASK = pdfName('SMask').bytes;
+const MASK_SUBTYPE = pdfName('S').bytes;
+const MASK_GROUP = pdfName('G').bytes;
 
 /** A content stream being interpreted. */
 export interface ContentSource {
@@ -64,6 +70,17 @@ export interface ColorSpaceUse {
   readonly pattern: PatternUse | undefined;
 }
 
+/** A soft mask set by a graphics state parameter dictionary's SMask entry (ISO 32000-1:2008, 11.6.5.2, Table 144). */
+export interface SoftMask {
+  readonly dictionary: PdfDictionaryEntries;
+  /** S: `Alpha` or `Luminosity`. */
+  readonly subtype: string | undefined;
+  /** G: the transparency group XObject whose rendering defines the mask. */
+  readonly group: PdfReference | undefined;
+  /** 11.6.5.2: the group's Matrix concatenated with "the current transformation matrix at the moment the soft mask is established in the graphics state with the gs operator" defines the mask's coordinate system. */
+  readonly ctm: Matrix;
+}
+
 /** The graphics state parameters the interpreter keeps (ISO 32000-1:2008, 8.4.1), including the text state (9.3.1), which q and Q save and restore with the rest. */
 export interface GraphicsState {
   readonly ctm: Matrix;
@@ -86,6 +103,13 @@ export interface GraphicsState {
   readonly renderMode: number;
   /** Trise. */
   readonly rise: number;
+  /** ca, the nonstroking alpha constant (8.4.5, Table 58). */
+  readonly fillAlpha: number;
+  /** CA, the stroking alpha constant. */
+  readonly strokeAlpha: number;
+  /** The current blend mode, a name from 11.3.5, Tables 136 and 137; Compatible reads as Normal. */
+  readonly blendMode: string;
+  readonly softMask: SoftMask | undefined;
 }
 
 /** A marked-content sequence open where an event happened (ISO 32000-1:2008, 14.6). */
@@ -145,8 +169,20 @@ export interface TextShowEvent {
   readonly sequence: number;
 }
 
+/**
+ * An opaque fill of a rectangle with sides parallel to the page axes, lying wholly inside the clip: alpha 1, blend mode Normal, no soft mask, a colour space that is not a Pattern or a None separation.
+ * Whatever the page showed there before is hidden. Fills of other shapes, images and shadings that hide content are not reported.
+ */
+export interface CoverEvent {
+  /** [left bottom right top] in page space. */
+  readonly rectangle: readonly [number, number, number, number];
+  readonly context: PaintContext;
+  readonly sequence: number;
+}
+
 export interface InterpretHandlers {
   readonly paint?: (event: PaintEvent) => void;
+  readonly cover?: (event: CoverEvent) => void;
   readonly text?: (event: TextShowEvent) => void;
   readonly select?: (event: ColorSelectEvent) => void;
 }
@@ -182,7 +218,32 @@ const INITIAL_STATE: GraphicsState = {
   leading: 0,
   renderMode: 0,
   rise: 0,
+  fillAlpha: 1,
+  strokeAlpha: 1,
+  blendMode: 'Normal',
+  softMask: undefined,
 };
+
+// 11.3.5, Tables 136 and 137: the standard blend modes.
+const BLEND_MODES = new Set([
+  'Normal',
+  'Compatible',
+  'Multiply',
+  'Screen',
+  'Overlay',
+  'Darken',
+  'Lighten',
+  'ColorDodge',
+  'ColorBurn',
+  'HardLight',
+  'SoftLight',
+  'Difference',
+  'Exclusion',
+  'Hue',
+  'Saturation',
+  'Color',
+  'Luminosity',
+]);
 
 // 8.6.5.1 and 8.6.6.1: these family names select a colour space directly; any other name is a ColorSpace resource.
 const FAMILIES = new Set(['DeviceGray', 'DeviceRGB', 'DeviceCMYK', 'Pattern']);
@@ -214,6 +275,17 @@ const PATH_PAINTS = new Map<string, 'fill' | 'stroke' | 'fill-stroke'>([
   ['b', 'fill-stroke'],
   ['b*', 'fill-stroke'],
 ]);
+
+// A colour that paints over what is below: not a pattern, whose cells may leave gaps, and not the None colorant, which 8.6.6.4 says "shall not produce any visible output".
+const opaqueSpace = ({ space }: ColorSpaceUse): boolean => {
+  if (space === undefined) return false;
+  if (space.kind === 'name') return latin1(space.bytes) !== 'Pattern';
+  if (space.kind !== 'array') return false;
+  const [family, colorant] = space.items;
+  if (family?.kind !== 'name') return false;
+  const familyName = latin1(family.bytes);
+  return familyName !== 'Pattern' && !(familyName === 'Separation' && colorant?.kind === 'name' && latin1(colorant.bytes) === 'None');
+};
 
 const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)}.${String(reference.generation)}`;
 
@@ -426,6 +498,7 @@ class Interpreter {
     if (value !== undefined && parameters === undefined) {
       this.warn('resource-missing', `${where}: the ExtGState resource ${latin1(name)} is not a dictionary`, true);
     }
+    if (parameters !== undefined) this.transparency(parameters);
     const font = this.deref(parameters?.get(FONT));
     if (font?.kind === 'array') {
       const [fontValue, size] = font.items;
@@ -433,6 +506,38 @@ class Interpreter {
       if (fontValue === undefined || fontSize === undefined) this.warn('bad-operands', `${where}: the Font entry is not [font size]`, true);
       else this.state = { ...this.state, font: this.fonts.font(fontValue, fontKey(fontValue, `${scope.owner}:ExtGState`, name)), fontSize };
     }
+  }
+
+  // 8.4.5, Table 58: ca, CA, BM and SMask. 11.7.4.2: "The Compatible blend mode shall be treated as equivalent to Normal".
+  private transparency(parameters: PdfDictionaryEntries): void {
+    const fillAlpha = numberOf(this.deref(parameters.get(FILL_ALPHA)));
+    const strokeAlpha = numberOf(this.deref(parameters.get(STROKE_ALPHA)));
+    const blend = this.deref(parameters.get(BLEND_MODE));
+    const names = blend?.kind === 'array' ? blend.items.map(item => this.deref(item)) : [blend];
+    const recognised =
+      blend === undefined ? undefined : (names.map(name => (name?.kind === 'name' ? latin1(name.bytes) : '')).find(name => BLEND_MODES.has(name)) ?? 'Normal');
+    const mask = this.deref(parameters.get(SOFT_MASK));
+    const maskDictionary = dictionaryOf(mask);
+    let { softMask } = this.state;
+    // Table 58, SMask: "altering it with the gs operator completely replaces the old value with the new one"; the name None removes it.
+    if (mask?.kind === 'name') softMask = undefined;
+    else if (maskDictionary !== undefined) {
+      const subtype = this.deref(maskDictionary.get(MASK_SUBTYPE));
+      const group = maskDictionary.get(MASK_GROUP);
+      softMask = {
+        dictionary: maskDictionary,
+        subtype: subtype?.kind === 'name' ? latin1(subtype.bytes) : undefined,
+        group: group?.kind === 'reference' ? group : undefined,
+        ctm: this.state.ctm,
+      };
+    }
+    this.state = {
+      ...this.state,
+      fillAlpha: fillAlpha ?? this.state.fillAlpha,
+      strokeAlpha: strokeAlpha ?? this.state.strokeAlpha,
+      blendMode: recognised === 'Compatible' ? 'Normal' : (recognised ?? this.state.blendMode),
+      softMask,
+    };
   }
 
   private textShow(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
@@ -600,12 +705,23 @@ class Interpreter {
     this.path = undefined;
   }
 
+  private cover(scope: Scope): void {
+    const { fillAlpha, blendMode, softMask, fill, clip } = this.state;
+    if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !opaqueSpace(fill)) return;
+    const rectangle = this.path?.axisAlignedRectangle();
+    if (rectangle === undefined) return;
+    const [left, bottom, right, top] = rectangle;
+    if (clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]) !== 'inside') return;
+    this.handlers.cover?.({ rectangle, context: scope.context, sequence: this.sequence++ });
+  }
+
   private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {
     const { scope } = step;
     const { operator } = operation;
     const paint = PATH_PAINTS.get(operator);
     if (paint !== undefined) {
       this.emitPaint(paint, paint === 'fill-stroke' ? [this.state.fill, this.state.stroke] : [paint === 'fill' ? this.state.fill : this.state.stroke], scope);
+      if (paint !== 'stroke') this.cover(scope);
       this.endPath();
     } else if (operator === 'W' || operator === 'W*') this.pendingClip = operator === 'W' ? 'nonzero' : 'even-odd';
     else if (operator === 'n') {

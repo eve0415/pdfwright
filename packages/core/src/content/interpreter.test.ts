@@ -1,6 +1,6 @@
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { TestPage } from '../testing/textPdf.ts';
-import type { ColorSelectEvent, ColorSpaceUse, InterpretResult, PaintEvent, TextShowEvent } from './interpreter.ts';
+import type { ColorSelectEvent, ColorSpaceUse, CoverEvent, InterpretResult, PaintEvent, TextShowEvent } from './interpreter.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -11,6 +11,7 @@ import { textPdf } from '../testing/textPdf.ts';
 import { interpretPage } from './interpreter.ts';
 
 interface Run {
+  readonly covers: CoverEvent[];
   readonly paints: PaintEvent[];
   readonly texts: TextShowEvent[];
   readonly selects: ColorSelectEvent[];
@@ -35,8 +36,12 @@ const run = (page: TestPage, objects: readonly TestObject[] = []): Run => {
   const paints: PaintEvent[] = [];
   const texts: TextShowEvent[] = [];
   const selects: ColorSelectEvent[] = [];
+  const covers: CoverEvent[] = [];
   const document = textPdf({ pages: [page], objects: [...FONTS, ...objects] });
   const result = interpretPage(document, 0, {
+    cover: event => {
+      covers.push(event);
+    },
     paint: event => {
       paints.push(event);
     },
@@ -47,7 +52,7 @@ const run = (page: TestPage, objects: readonly TestObject[] = []): Run => {
       selects.push(event);
     },
   });
-  return { paints, texts, selects, result };
+  return { covers, paints, texts, selects, result };
 };
 
 const textRun = (content: string, objects: readonly TestObject[] = [], resources = ''): Run =>
@@ -243,6 +248,66 @@ describe('clipping', () => {
       'inside',
       'outside',
     ]);
+  });
+});
+
+describe('transparency', () => {
+  const STATES =
+    '/ExtGState<</Half<</ca 0.5/CA 0.25>>/Multiply<</BM/Multiply>>/Listed<</BM[/NoSuchMode/Normal]>>/Masked<</SMask<</S/Luminosity/G 110 0 R>>>>/Unmasked<</SMask/None>>>>';
+  const GROUP: TestObject = {
+    number: 110,
+    body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceGray>>', '0 g 0 0 10 10 re f'),
+  };
+
+  it('keeps the alpha constants, blend mode and soft mask of graphics state parameter dictionaries', () => {
+    const { texts } = textRun('BT /F1 10 Tf /Half gs /Multiply gs /Masked gs (A) Tj /Unmasked gs /Listed gs (A) Tj ET', [GROUP], STATES);
+    const [first, second] = texts.map(text => text.state);
+    // ISO 32000-1:2008, 11.6.3: from an array a reader "shall use the first blend mode in the array that it recognizes".
+    expect([
+      first?.fillAlpha,
+      first?.strokeAlpha,
+      first?.blendMode,
+      first?.softMask?.subtype,
+      first?.softMask?.group,
+      second?.softMask,
+      second?.blendMode,
+    ]).toStrictEqual([0.5, 0.25, 'Multiply', 'Luminosity', { kind: 'reference', objectNumber: 110, generation: 0 }, undefined, 'Normal']);
+  });
+
+  it('reports opaque fills of axis-aligned rectangles in page space', () => {
+    const { covers } = textRun('1 g 10 20 30 40 re f q 0 1 -1 0 100 0 cm 0 0 10 20 re f Q 0 0 10 10 re B');
+    // The quarter turn maps the rectangle 0…10 by 0…20 onto 80…100 by 0…10.
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([
+      [10, 20, 40, 60],
+      [80, 0, 100, 10],
+      [0, 0, 10, 10],
+    ]);
+  });
+
+  it('does not report fills that could let what is below show through or that are not rectangles', () => {
+    const { covers } = run(
+      {
+        content: [
+          'q /Half gs 0 0 10 10 re f Q',
+          'q /Masked gs 0 0 10 10 re f Q',
+          'q /Multiply gs 0 0 10 10 re f Q',
+          'q /P0 cs /Pat scn 0 0 10 10 re f Q',
+          'q /None cs 1 sc 0 0 10 10 re f Q',
+          'q 1 1 -1 1 0 0 cm 0 0 10 10 re f Q',
+          '0 0 m 10 0 l 0 10 l f 0 0 5 5 re 5 5 5 5 re f 0 0 10 10 re S',
+          'q 0 0 5 5 re W n 0 0 10 10 re f Q',
+          'q /Listed gs 0 0 50 50 re W n 0 0 10 10 re f Q',
+        ],
+        resources: `${STATES}/ColorSpace<</P0/Pattern/None[/Separation/None/DeviceGray 111 0 R]>>/Pattern<</Pat 112 0 R>>`,
+      },
+      [
+        GROUP,
+        { number: 111, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>' },
+        { number: 112, body: streamBody('/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 5 5 re f') },
+      ],
+    );
+    // Only the last fill, whose clip holds all of it, covers; a clip that cuts the rectangle would leave text beside it uncovered.
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([[0, 0, 10, 10]]);
   });
 });
 
