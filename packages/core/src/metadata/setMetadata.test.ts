@@ -143,6 +143,21 @@ const creationDates = (info: string, xmp: string): readonly unknown[] => {
 
 const xmpText = (value: string): XmpValue => ({ kind: 'text', text: value, language: undefined });
 
+const UNREAD_INFO = '<</Title/Foo/Subject/Bar/CreationDate(Tue May 06 2020)/Trapped(True)/ModDate 12>>';
+
+const withUnreadInfo = (): LoadedDocument =>
+  load(
+    '/Metadata 4 0 R',
+    [
+      {
+        number: 4,
+        body: streamBody('/Type/Metadata/Subtype/XML', packet('<dc:description><rdf:Alt><rdf:li xml:lang="x-default">S</rdf:li></rdf:Alt></dc:description>')),
+      },
+      { number: 5, body: UNREAD_INFO },
+    ],
+    `${ID}/Info 5 0 R`,
+  );
+
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
@@ -288,6 +303,36 @@ describe('setting document metadata', () => {
       ['D:20200506101112', xmpText('2020-05-06T10:11:12Z'), 'agree'],
       ['D:20200506', xmpText('2020-05-06T10:11:12'), 'agree'],
       ["D:20200506101100+09'00", xmpText('2020-05-06T10:11+09:00'), 'agree'],
+    ]);
+  });
+
+  it('keeps Info values it cannot read when nothing replaces them, and lists those it replaces', () => {
+    const document = withUnreadInfo();
+    const change = setMetadata(document, { modificationDate: MODIFIED, producer: 'P' });
+    const values = readMetadata(saved(document)).info?.values;
+    const set = setMetadata(withUnreadInfo(), { modificationDate: MODIFIED, title: 'T', creationDate: null });
+    expect([
+      values?.get('Title'),
+      values?.get('CreationDate')?.kind,
+      values?.get('Trapped')?.kind,
+      change.reconciled,
+      change.findings.map(finding => finding.code),
+      set.reconciled,
+    ]).toStrictEqual([
+      { kind: 'name', name: 'Foo' },
+      'text',
+      'text',
+      [
+        { key: 'Subject', from: 'xmp', discarded: '/Bar' },
+        { key: 'ModDate', from: 'input', discarded: '12' },
+      ],
+      ['info-value-kept', 'info-value-kept', 'info-value-kept'],
+      [
+        { key: 'Title', from: 'input', discarded: '/Foo' },
+        { key: 'Subject', from: 'xmp', discarded: '/Bar' },
+        { key: 'CreationDate', from: 'input', discarded: 'Tue May 06 2020' },
+        { key: 'ModDate', from: 'input', discarded: '12' },
+      ],
     ]);
   });
 

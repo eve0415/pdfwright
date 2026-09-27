@@ -1,5 +1,6 @@
 import type { ParsedPdfDate, PdfDate } from '../date/pdfDate.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { InfoValue } from './documentInfo.ts';
 import type { MappedKey, MappedProperty, MetadataMapping } from './mapping.ts';
 import type { MetadataFinding } from './metadataFinding.ts';
 import type { MetadataState } from './readMetadata.ts';
@@ -62,6 +63,13 @@ export interface ResolvedInput {
   readonly kept: ReadonlySet<MappedKey>;
 }
 
+// Each byte as the code point of the same value, so that bytes above 0x7F are shown as they are stored; a loop, since spreading a long string's bytes can exceed the engine's argument limit.
+const latin1 = (bytes: Uint8Array): string => {
+  let text = '';
+  for (const byte of bytes) text += String.fromCodePoint(byte);
+  return text;
+};
+
 const KEEP = { kind: 'keep' } as const;
 const REMOVE = { kind: 'remove' } as const;
 const BOTH_REMOVED: KeyPlan = { info: REMOVE, xmp: REMOVE };
@@ -86,6 +94,29 @@ const TEXT_WRITERS: Writers = { info: pdfTextString, xmp: value => ({ kind: 'wri
 // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
 const TRAPPED_WRITERS: Writers = { info: pdfName, xmp: value => (value === 'True' || value === 'False' ? { kind: 'write', value } : REMOVE) };
 
+interface StoredInfo {
+  readonly entries: PdfDictionaryEntries | undefined;
+  readonly values: ReadonlyMap<string, InfoValue> | undefined;
+}
+
+const readable = (key: MappedKey, value: InfoValue): boolean => {
+  if (key === 'Trapped') return value.kind === 'name' && trappedName(value.name) !== undefined;
+  if (value.kind !== 'text') return false;
+  return (key !== 'CreationDate' && key !== 'ModDate') || value.text === '' || parsePdfDate(value.text) !== undefined;
+};
+
+// A stored Info value of the wrong kind (ISO 32000-1:2008, Table 317), or a date that does not parse (7.9.4), shown as it was stored: a string's bytes, a name with its solidus, a number or a reference as written.
+const storedUnread = (stored: StoredInfo, key: MappedKey): string | undefined => {
+  const value = stored.values?.get(key);
+  if (value === undefined || readable(key, value)) return undefined;
+  const entry = stored.entries?.get(pdfName(key).bytes);
+  if (entry?.kind === 'string') return latin1(entry.bytes);
+  if (entry?.kind === 'name') return `/${latin1(entry.bytes)}`;
+  if (entry?.kind === 'integer' || entry?.kind === 'boolean') return String(entry.value);
+  if (entry?.kind === 'reference') return `${String(entry.objectNumber)} ${String(entry.generation)} R`;
+  return `a value of type ${value.kind === 'other' ? value.type : value.kind}`;
+};
+
 const dateToInfo = (value: ParsedPdfDate): InfoAction => ({ kind: 'set', value: pdfString(new TextEncoder().encode(pdfDateText(value))) });
 const dateToXmp = (value: ParsedPdfDate): XmpAction => ({ kind: 'write', value: xmpDateText(value) });
 
@@ -95,10 +126,12 @@ class Resolver {
   readonly kept = new Set<MappedKey>();
   private readonly mapping: MetadataMapping;
   private readonly packetText: string;
+  private readonly stored: StoredInfo;
   private readonly occurrences: ReadonlyMap<MappedKey, readonly ReadProperty[]>;
 
   constructor(state: MetadataState) {
     this.mapping = state.mapping;
+    this.stored = { entries: state.info?.entries, values: state.info?.values };
     const packet = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet : undefined;
     const properties = packet?.properties ?? [];
     this.packetText = packet?.text ?? '';
@@ -159,6 +192,28 @@ class Resolver {
     return { info: KEEP, xmp: writers.xmp(info) };
   }
 
+  // Where the input or the packet replaces an Info value that cannot be read, the value is listed as it was stored.
+  replaceStored(key: MappedKey, from: ReconciledValue['from']): void {
+    const shown = storedUnread(this.stored, key);
+    if (shown !== undefined) this.reconciled.push({ key, from, discarded: shown });
+  }
+
+  // An Info value that cannot be read and that nothing replaces is kept as it was stored, rather than deleted.
+  private keepStored(key: MappedKey): KeyPlan | undefined {
+    if (storedUnread(this.stored, key) === undefined) return undefined;
+    this.findings.push({ code: 'info-value-kept', detail: `Info ${key} cannot be read and was left as it was stored` });
+    return { info: KEEP, xmp: REMOVE };
+  }
+
+  // The unread value is replaced by the packet's when there is one, and kept otherwise.
+  private storedOr(key: MappedKey, packetHasValue: boolean, resolved: () => KeyPlan): KeyPlan {
+    if (packetHasValue) {
+      this.replaceStored(key, 'xmp');
+      return resolved();
+    }
+    return this.keepStored(key) ?? resolved();
+  }
+
   // A property in a form the mapping does not read, such as a qualified value (XMP Part 1 7.8), is left as it is, and Info as stored.
   private unread(key: MappedKey): KeyPlan | undefined {
     const row = this.row(key);
@@ -167,7 +222,7 @@ class Resolver {
     if (found.length !== 1 || (only?.value.kind !== 'opaque' && only?.value.kind !== 'uri')) return undefined;
     this.kept.add(key);
     this.findings.push({ code: 'opaque-property-kept', detail: `${row?.property ?? key} is in a form the mapping does not read and was left as it is` });
-    return { info: row?.info === undefined ? REMOVE : KEEP, xmp: KEEP };
+    return { info: row?.info === undefined && storedUnread(this.stored, key) === undefined ? REMOVE : KEEP, xmp: KEEP };
   }
 
   // An empty input is an unknown value, which ISO 32000-1:2008, 14.3.3 has omitted rather than written empty.
@@ -176,22 +231,24 @@ class Resolver {
     const unread = input === undefined ? this.unread(key) : undefined;
     if (unread !== undefined) return unread;
     if (input !== undefined) {
+      this.replaceStored(key, 'input');
       const value = input === null || input === '' ? undefined : input;
       this.discardItems(key, 'input', { value: row?.xmp, written: value });
       return value === undefined ? BOTH_REMOVED : { info: { kind: 'set', value: pdfTextString(value) }, xmp: { kind: 'write', value } };
     }
     const xmp = row?.xmp === undefined ? undefined : comparableText(row.xmp);
-    return this.resolve(key, { info: row?.info, xmp }, TEXT_WRITERS);
+    return this.storedOr(key, xmp !== undefined, () => this.resolve(key, { info: row?.info, xmp }, TEXT_WRITERS));
   }
 
   trapped(input: MetadataInput['trapped']): KeyPlan {
+    if (input !== undefined) this.replaceStored('Trapped', 'input');
     if (input === null) return BOTH_REMOVED;
     if (input !== undefined) return { info: { kind: 'set', value: pdfName(input) }, xmp: TRAPPED_WRITERS.xmp(input) };
     const unread = this.unread('Trapped');
     if (unread !== undefined) return unread;
     const row = this.row('Trapped');
     const xmp = trappedName(row?.xmp === undefined ? undefined : comparableText(row.xmp));
-    return this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS);
+    return this.storedOr('Trapped', xmp !== undefined, () => this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS));
   }
 
   private dateSides(): Sides<ParsedPdfDate> & { readonly shown: Sides<string> } {
@@ -207,11 +264,16 @@ class Resolver {
 
   // A date is written to each side to its own precision, from the side that gives more where both agree, so that a coarse date never replaces a finer one and no field or time zone is added (XMP Part 1 8.2.1.2); where they disagree, the authoritative side is kept, and where they cannot be compared, Info, whose time has a zone.
   creationDate(input: PdfDate | null | undefined): KeyPlan {
+    if (input !== undefined) this.replaceStored('CreationDate', 'input');
     if (input === null) return BOTH_REMOVED;
     if (input !== undefined) return { info: { kind: 'set', value: pdfDateObject(input) }, xmp: { kind: 'write', value: xmpDateString(input) } };
     const unread = this.unread('CreationDate');
     if (unread !== undefined) return unread;
     const { info, xmp, shown } = this.dateSides();
+    return this.storedOr('CreationDate', xmp !== undefined, () => this.dateFrom({ info, xmp }, shown));
+  }
+
+  private dateFrom({ info, xmp }: Sides<ParsedPdfDate>, shown: Sides<string>): KeyPlan {
     const keepXmp = (value: ParsedPdfDate): XmpAction => this.keepXmp('CreationDate', () => dateToXmp(value));
     if (info === undefined) return xmp === undefined ? BOTH_REMOVED : { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
     if (xmp === undefined) return { info: KEEP, xmp: dateToXmp(info) };
@@ -242,6 +304,8 @@ export const resolveValues = (state: MetadataState, input: MetadataInput): Resol
     CreationDate: resolver.creationDate(input.creationDate),
     Trapped: resolver.trapped(input.trapped),
   };
+  // ModDate always takes the input's modificationDate.
+  resolver.replaceStored('ModDate', 'input');
   return { plans, reconciled: resolver.reconciled, findings: resolver.findings, kept: resolver.kept };
 };
 

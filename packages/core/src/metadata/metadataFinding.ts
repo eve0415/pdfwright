@@ -25,7 +25,8 @@ export type MetadataFindingCode =
   | 'date-zone-unknown'
   | 'modification-after-metadata'
   | 'xmp-transcoded'
-  | 'opaque-property-kept';
+  | 'opaque-property-kept'
+  | 'info-value-kept';
 
 /** Something about the document's metadata that a reader or a preflight may need to know. */
 export interface MetadataFinding {
