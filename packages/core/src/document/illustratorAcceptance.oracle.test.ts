@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env, stdout } from 'node:process';
 import { promisify } from 'node:util';
 import { inflate, zstdDecompress } from 'node:zlib';
 
@@ -184,7 +185,7 @@ const processDifferenceOutsideMark = async (beforeFiles: readonly PlateFile[], a
     if (before.width !== after.width || before.height !== after.height) return Number.POSITIVE_INFINITY;
     for (let y = 0; y < before.height; y++) {
       for (let x = 0; x < before.width; x++) {
-        const outside = x < 118 || x > 162 || y < 48 || y > 82;
+        const outside = x < 118 || x > 162 || y < before.height - 152 || y > before.height - 118;
         differences += Number(outside && after.inkAt(x, y) !== before.inkAt(x, y));
       }
     }
@@ -193,6 +194,25 @@ const processDifferenceOutsideMark = async (beforeFiles: readonly PlateFile[], a
 };
 
 const acceptanceCases = names.flatMap(name => modes.flatMap(mode => [false, true].map(updateDate => ({ name, mode, updateDate }))));
+
+const assertPlateEdit = async (source: Uint8Array, saved: Uint8Array): Promise<void> => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-plates-'));
+  try {
+    const beforeFile = path.join(directory, 'before.pdf');
+    const afterFile = path.join(directory, 'after.pdf');
+    await Promise.all([writeFile(beforeFile, source), writeFile(afterFile, saved)]);
+    const [beforePlates, afterPlates] = await Promise.all([
+      renderPlates(beforeFile, path.join(directory, 'before'), true),
+      renderPlates(afterFile, path.join(directory, 'after'), true),
+    ]);
+    const varnish = await readPlate(afterPlates, plateName);
+    const centerY = Math.max(0, Math.floor(varnish.height - 130));
+    expect(varnish.inkAt(130, centerY)).toBeGreaterThan(0);
+    await expect(processDifferenceOutsideMark(beforePlates, afterPlates)).resolves.toBe(0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
 
 describe('synthetic Illustrator-shaped acceptance', () => {
   it.each(variants)('loads the $name fixture with its observed structure', async variant => {
@@ -220,19 +240,57 @@ describe('synthetic Illustrator-shaped acceptance', () => {
   it.each(names)('renders process plates outside the added mark and adds Varnish on %s', async name => {
     const source = await readFile(fixture(name));
     const saved = edit(source, 'incremental', false);
-    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-plates-'));
-    try {
-      const beforeFile = path.join(directory, 'before.pdf');
-      const afterFile = path.join(directory, 'after.pdf');
-      await writeFile(beforeFile, source);
-      await writeFile(afterFile, saved);
-      const beforePlates = await renderPlates(beforeFile, path.join(directory, 'before'), true);
-      const afterPlates = await renderPlates(afterFile, path.join(directory, 'after'), true);
-      const varnish = await readPlate(afterPlates, plateName);
-      expect(varnish.inkAt(130, 65)).toBeGreaterThan(0);
-      await expect(processDifferenceOutsideMark(beforePlates, afterPlates)).resolves.toBe(0);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    expect(saved.length).toBeGreaterThan(0);
+    await assertPlateEdit(source, saved);
+  });
+});
+
+const realExports = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
+if (realExports === undefined) stdout.write('Local Adobe export acceptance not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+
+const localSource = async (file: string): Promise<Uint8Array> => {
+  if (realExports === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  return readFile(path.join(realExports, file));
+};
+
+const localFiles = [
+  { label: 'CMYK PDF 1.7', file: 'A-illustrator/A1-ref-cmyk-pdf17.pdf' },
+  { label: 'CMYK PDF 1.3', file: 'A-illustrator/A1-ref-cmyk-pdf13.pdf' },
+  { label: 'CMYK AI', file: 'A-illustrator/A1-ref-cmyk.ai' },
+  { label: 'CMYK layers', file: 'A-illustrator/A1-ref-cmyk-pdf17-acrobat-layers.pdf' },
+  { label: 'RGB PDF 1.7', file: 'A-illustrator/A2-ref-rgb-pdf17.pdf' },
+  { label: 'RGB PDF 1.3', file: 'A-illustrator/A2-ref-rgb-pdf13.pdf' },
+  { label: 'RGB AI', file: 'A-illustrator/A2-ref-rgb.ai' },
+  { label: 'swatches', file: 'A-illustrator/A3-resave-probe-ai-pdf17.pdf' },
+  { label: 'Illustrator rewrite', file: 'B-corpus/B2-illustrator-resave.pdf' },
+  { label: 'Acrobat object stream', file: 'B-corpus/B3-acrobat-incremental.pdf' },
+  { label: 'Acrobat PDF/X-4', file: 'B-corpus/B4-acrobat-pdfx4-jc2001.pdf' },
+];
+const localCases = localFiles.flatMap(({ label, file }) => modes.flatMap(mode => [false, true].map(updateDate => ({ label, file, mode, updateDate }))));
+
+describe('local Adobe export acceptance', () => {
+  it.skipIf(realExports === undefined).each(localCases)(
+    '$label: $mode save with updateDate=$updateDate preserves native data',
+    async ({ file, mode, updateDate }) => {
+      const source = await localSource(file);
+      const saved = edit(source, mode, updateDate);
+      expect(saved.length).toBeGreaterThan(source.length / 2);
+      assertAcceptance(source, saved, updateDate);
+      const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-local-acceptance-'));
+      try {
+        const output = path.join(directory, 'edited.pdf');
+        await writeFile(output, saved);
+        await checkQpdf(output);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(realExports === undefined).each(localFiles)('$label renders unchanged process plates outside the new mark', async ({ file }) => {
+    const source = await localSource(file);
+    const saved = edit(source, 'incremental', false);
+    expect(saved.length).toBeGreaterThan(0);
+    await assertPlateEdit(source, saved);
   });
 });
