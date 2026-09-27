@@ -1,13 +1,17 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { PageEntry } from './pageTree.ts';
+import type { PdfRect } from './rect.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { formatLength } from '../length/length.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { cloneDirect, cloneObject } from '../object/cloneObject.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
+
+import { rect } from './rect.ts';
 
 export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
 
@@ -29,8 +33,19 @@ export interface LoadedPage {
   boxes: () => EffectiveBoxes;
   /** The effective resource dictionary, own or inherited, as a fresh copy. */
   resources: () => PdfDictionaryEntries;
+  /**
+   * Sets one of the page's own boxes, or removes it with undefined so that the inherited value or the Table 30 default applies.
+   * Only the page object changes, never an ancestor it inherits from; the box must have non-zero area and lie within the effective MediaBox.
+   */
+  setBox: (box: BoxName, rect: PdfRect | undefined) => void;
   lastModified: () => PdfObject | undefined;
   pieceInfo: () => PdfObject | undefined;
+}
+
+/** The objects a page reads and changes. */
+export interface PageObjects extends ObjectResolver {
+  get: (reference: PdfReference) => PdfObject;
+  set: (reference: PdfReference, value: PdfObject) => void;
 }
 
 /** Resolves indirect objects, including changes made to the document. */
@@ -87,9 +102,9 @@ const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array):
   return undefined;
 };
 
-const box = (resolver: ObjectResolver, found: Found, where: string): EffectiveBox => {
-  const rect = rectangle(resolver, found.value, where);
-  return found.from === undefined ? { rect, explicit: true } : { rect, explicit: true, inheritedFrom: found.from };
+const effectiveBox = (resolver: ObjectResolver, found: Found, where: string): EffectiveBox => {
+  const corners = rectangle(resolver, found.value, where);
+  return found.from === undefined ? { rect: corners, explicit: true } : { rect: corners, explicit: true, inheritedFrom: found.from };
 };
 
 export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): EffectiveBoxes => {
@@ -97,14 +112,14 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry): Effe
   const media = inherited(resolver, entry, MEDIA_BOX);
   // Table 30, MediaBox: "(Required; inheritable)".
   if (media === undefined) throw new ParseError(`page ${page} has no MediaBox, on itself or on an ancestor`, 0);
-  const mediaBox = box(resolver, media, `the MediaBox of page ${page}`);
+  const mediaBox = effectiveBox(resolver, media, `the MediaBox of page ${page}`);
   const crop = inherited(resolver, entry, CROP_BOX);
   // Table 30, CropBox: "Default value: the value of MediaBox"; BleedBox, TrimBox and ArtBox: "Default value: the value of CropBox". Those three are not inheritable.
-  const cropBox = crop === undefined ? { rect: mediaBox.rect, explicit: false } : box(resolver, crop, `the CropBox of page ${page}`);
+  const cropBox = crop === undefined ? { rect: mediaBox.rect, explicit: false } : effectiveBox(resolver, crop, `the CropBox of page ${page}`);
   const own = dictionaryOf(resolver, entry.reference);
   const production = (name: 'BleedBox' | 'TrimBox' | 'ArtBox'): EffectiveBox => {
     const value = own.get(pdfName(name).bytes);
-    return value === undefined ? { rect: cropBox.rect, explicit: false } : box(resolver, { value }, `the ${name} of page ${page}`);
+    return value === undefined ? { rect: cropBox.rect, explicit: false } : effectiveBox(resolver, { value }, `the ${name} of page ${page}`);
   };
   const rotate = inherited(resolver, entry, ROTATE);
   const userUnit = own.get(USER_UNIT);
@@ -128,15 +143,55 @@ export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry): 
   return value.entries;
 };
 
+const pageDictionary = (objects: PageObjects, reference: PdfReference): PdfDictionaryEntries => {
+  const value = objects.get(reference);
+  if (value.kind !== 'dictionary') throw new ParseError(`page ${label(reference)} is not a dictionary`, 0);
+  return value.entries;
+};
+
+const rounded = (box: PdfRect): number[] => box.map(length => Number(formatLength(length, DEFAULT_FRACTION_DIGITS)));
+
+// Writer policy, as for created pages: a box has non-zero area and every box other than MediaBox lies within MediaBox.
+const checkBox = (name: BoxName, corners: PdfRect, mediaBox: EffectiveBox['rect']): void => {
+  const [left = 0, bottom = 0, right = 0, top = 0] = rounded(corners);
+  if (left >= right || bottom >= top) throw new ValidationError(`the ${name} has zero area after rounding; pdfwright requires page boxes with non-zero area`);
+  if (name === 'MediaBox') return;
+  const [mediaLeft, mediaBottom, mediaRight, mediaTop] = mediaBox;
+  if (left < mediaLeft || bottom < mediaBottom || right > mediaRight || top > mediaTop) {
+    throw new ValidationError(`the ${name} extends beyond the MediaBox; pdfwright requires every page box to lie within it`);
+  }
+};
+
+const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonly [BoxName, PdfRect | undefined]): void => {
+  const dictionary = pageDictionary(objects, entry.reference);
+  const key = pdfName(name).bytes;
+  if (corners === undefined) {
+    // Table 30, MediaBox: "(Required; inheritable)"; removing the page's own value is refused when no ancestor supplies one.
+    if (name === 'MediaBox' && !entry.ancestors.some(ancestor => dictionaryOf(objects, ancestor).has(key))) {
+      throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
+    }
+    dictionary.delete(key);
+  } else {
+    const normalized = rect(...corners);
+    checkBox(name, normalized, effectiveBoxes(objects, entry).MediaBox.rect);
+    // ISO 32000-1:2008, 7.9.5: "A rectangle shall be written as an array of four numbers".
+    dictionary.set(key, pdfArray(normalized.map(length => pdfReal(length))));
+  }
+  objects.set(entry.reference, { kind: 'dictionary', entries: dictionary });
+};
+
 const copied = (value: PdfObject | undefined): PdfObject | undefined => (value === undefined ? undefined : cloneObject(value));
 
-export const createLoadedPage = (resolver: ObjectResolver, entry: PageEntry, index: number): LoadedPage => ({
+export const createLoadedPage = (resolver: PageObjects, entry: PageEntry, index: number): LoadedPage => ({
   index,
   reference: entry.reference,
   boxes: () => effectiveBoxes(resolver, entry),
   resources: () => {
     const resources = effectiveResources(resolver, entry);
     return parsedDictionaryEntries(resources === undefined ? [] : [...resources.entries()].map(([key, value]) => [key, cloneDirect(value)] as const));
+  },
+  setBox: (name, corners) => {
+    setBox(resolver, entry, [name, corners]);
   },
   lastModified: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(LAST_MODIFIED))),
   pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),

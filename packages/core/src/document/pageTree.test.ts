@@ -5,10 +5,13 @@ import { describe, expect, it } from 'vitest';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ValidationError } from '../error/validationError.ts';
+import { mm, pt } from '../length/length.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
 import { loadDocument } from './loadDocument.ts';
+import { rect } from './rect.ts';
 
 const catalog = { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' };
 
@@ -103,5 +106,47 @@ describe('page tree', () => {
         ['page-count-mismatch'],
       ]);
     }
+  });
+});
+
+describe('page box edits', () => {
+  it('sets a box on the page alone, leaving the ancestor it inherits from unchanged', () => {
+    const document = load(tree);
+    document.page(0).setBox('MediaBox', rect(pt(0), pt(0), pt(500), pt(700)));
+    document.page(0).setBox('TrimBox', rect(mm(10), mm(10), mm(5), mm(5)));
+    expect(document.page(0).boxes()).toMatchObject({
+      MediaBox: { rect: [0, 0, 500, 700], explicit: true },
+      TrimBox: { rect: [14.17323, 14.17323, 28.34646, 28.34646] },
+    });
+    expect([document.page(2).boxes().MediaBox.rect, document.get(pdfReference(2, 0))]).toStrictEqual([[0, 0, 600, 800], load(tree).get(pdfReference(2, 0))]);
+  });
+
+  it('removes a box so that the inherited value or the default applies', () => {
+    const document = load(tree);
+    document.page(1).setBox('MediaBox', undefined);
+    document.page(0).setBox('TrimBox', undefined);
+    expect([document.page(1).boxes().MediaBox, document.page(0).boxes().TrimBox]).toStrictEqual([
+      { rect: [0, 0, 600, 800], explicit: true, inheritedFrom: pdfReference(2, 0) },
+      { rect: [10, 10, 590, 790], explicit: false },
+    ]);
+  });
+
+  it('refuses boxes outside the MediaBox, without area, or a removal that leaves no MediaBox', () => {
+    const document = load(tree);
+    const page = document.page(0);
+    expect(() => {
+      page.setBox('TrimBox', rect(pt(0), pt(0), pt(700), pt(10)));
+    }).toThrow(ValidationError);
+    expect(() => {
+      page.setBox('CropBox', rect(pt(5), pt(5), pt(5), pt(10)));
+    }).toThrow(ValidationError);
+    const lone = load([
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/Resources<<>>>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>' },
+    ]);
+    expect(() => {
+      lone.page(0).setBox('MediaBox', undefined);
+    }).toThrow(ValidationError);
+    expect(lone.page(0).boxes().MediaBox.rect).toStrictEqual([0, 0, 10, 10]);
   });
 });
