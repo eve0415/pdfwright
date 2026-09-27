@@ -17,6 +17,7 @@ import { parseObject } from '../parse/parseObject.ts';
 import { refuseEncryption } from './encryption.ts';
 import { ObjectIndex } from './objectIndex.ts';
 import { decodeObjectStream, parseMember } from './objectStream.ts';
+import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
 
 export interface Reconstruction {
   readonly index: ObjectIndex;
@@ -120,7 +121,7 @@ const headerStart = (bytes: Uint8Array, keyword: number): number | undefined => 
   const numberEnd = skipWhitespaceBack(bytes, generationStart);
   if (numberEnd === generationStart) return undefined;
   const numberStart = skipDigitsBack(bytes, numberEnd);
-  if (numberStart === numberEnd || !isBoundary(bytes[numberStart - 1])) return undefined;
+  if (numberStart === numberEnd || !isBoundary(bytes[numberStart - 1]) || numberEnd - numberStart > 10) return undefined;
   return numberStart;
 };
 
@@ -185,6 +186,7 @@ class Scanner {
       return keyword + OBJ.length;
     }
     const { objectNumber, generation, value, source } = object;
+    if (objectNumber > MAX_OBJECT_NUMBER || generation > MAX_GENERATION) return keyword + OBJ.length;
     this.add({
       entry: { objectNumber, type: 'file', location: header, generation },
       position: header,

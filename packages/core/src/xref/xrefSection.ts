@@ -21,3 +21,9 @@ export interface XrefSection {
   readonly trailerStart: number;
   readonly trailerEnd: number;
 }
+
+/** The highest object number pdfwright reads: the largest reference number its object model accepts. */
+export const MAX_OBJECT_NUMBER = 2_147_483_647;
+
+/** The highest generation an index slot holds. */
+export const MAX_GENERATION = 4_294_967_295;

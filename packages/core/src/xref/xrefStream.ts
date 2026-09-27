@@ -9,6 +9,8 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { parseIndirectObject } from '../parse/indirectObject.ts';
 
+import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
+
 export interface StreamSection extends XrefSection {
   readonly kind: 'stream';
   readonly objectNumber: number;
@@ -64,7 +66,12 @@ const layout = (dictionary: PdfDictionaryEntries, at: number): Layout => {
   const index = dictionary.has(INDEX) ? integers(dictionary.get(INDEX), 'Index', at) : [0, size.value];
   if (index.length % 2 !== 0) throw new ParseError('the cross-reference stream Index entry must hold pairs', at);
   let total = 0;
-  for (let pair = 1; pair < index.length; pair += 2) total += index[pair] ?? 0;
+  for (let pair = 1; pair < index.length; pair += 2) {
+    total += index[pair] ?? 0;
+    if ((index[pair - 1] ?? 0) + (index[pair] ?? 0) - 1 > MAX_OBJECT_NUMBER) {
+      throw new ParseError('the cross-reference stream Index names object numbers beyond the supported range', at);
+    }
+  }
   return { widths: [typeWidth, secondWidth, thirdWidth], index, total };
 };
 
@@ -81,7 +88,7 @@ const readEntry = (reader: EntryReader, position: number, objectNumber: number):
   const type = typeWidth === 0 ? 1 : readField(reader.data, position, typeWidth);
   const second = readField(reader.data, position + typeWidth, secondWidth);
   const third = readField(reader.data, position + typeWidth + secondWidth, thirdWidth);
-  if (!Number.isSafeInteger(second) || !Number.isSafeInteger(third)) {
+  if (!Number.isSafeInteger(second) || !Number.isSafeInteger(third) || (type === 1 && third > MAX_GENERATION)) {
     throw new ParseError('a cross-reference stream field exceeds the exact range of a number', reader.at);
   }
   if (type === 1 || type === 2) return { objectNumber, type: type === 1 ? 'file' : 'compressed', location: second, generation: third };

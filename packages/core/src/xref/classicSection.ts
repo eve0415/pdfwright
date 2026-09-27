@@ -7,6 +7,8 @@ import { ParseError } from '../error/parseError.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
 
+import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
+
 export interface ClassicSection extends XrefSection {
   readonly kind: 'classic';
   /** The distinct entry lengths found, end-of-line included; ISO 32000-1:2008, 7.5.4 requires 20. */
@@ -33,7 +35,7 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   let previousStart: number | undefined = undefined;
   for (let token = lexer.next(); !isKeyword(token, 'trailer'); token = lexer.next()) {
     const count = lexer.next();
-    if (token.kind !== 'integer' || count.kind !== 'integer' || token.value < 0 || count.value < 0) {
+    if (token.kind !== 'integer' || count.kind !== 'integer' || token.value < 0 || count.value < 0 || token.value + count.value - 1 > MAX_OBJECT_NUMBER) {
       throw new ParseError('malformed cross-reference subsection header', lexer.base + token.start);
     }
     if (previousStart !== undefined) lengths.add(token.start - previousStart);
@@ -42,7 +44,14 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
       const location = lexer.next();
       const generation = lexer.next();
       const type = entryType(lexer, lexer.next());
-      if (location.kind !== 'integer' || generation.kind !== 'integer' || type === undefined || location.value < 0 || generation.value < 0) {
+      if (
+        location.kind !== 'integer' ||
+        generation.kind !== 'integer' ||
+        type === undefined ||
+        location.value < 0 ||
+        generation.value < 0 ||
+        generation.value > MAX_GENERATION
+      ) {
         throw new ParseError('malformed cross-reference entry', lexer.base + location.start);
       }
       if (previousStart !== undefined) lengths.add(location.start - previousStart);

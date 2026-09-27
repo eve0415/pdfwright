@@ -65,4 +65,8 @@ describe('classic cross-reference sections', () => {
     expect(() => read('xref\n0 1\n0000000000 65535 f \ntrailer 5')).toThrow(new ParseError('the trailer is not a dictionary', 37));
     expect(() => read('  1 0 obj')).toThrow(new ParseError('expected the keyword xref', 2));
   });
+
+  it('rejects object numbers beyond 2^31 - 1', () => {
+    expect(() => read('xref\n4294967297 1\n0000000017 00000 n \ntrailer<<>>')).toThrow(new ParseError('malformed cross-reference subsection header', 5));
+  });
 });
