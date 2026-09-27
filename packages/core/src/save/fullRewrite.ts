@@ -298,13 +298,14 @@ class FullRewriter {
 
   private writeCrossReference(): number {
     const { emitter } = this;
-    let highest = this.input.size;
+    this.freeEntries();
+    // ISO 32000-1:2008, 7.5.8.2, Table 17: Size is one greater than the highest object number kept in the cross-reference data.
+    let highest = 1;
     for (const number of this.entries.keys()) highest = Math.max(highest, number + 1);
     const xrefNumber = this.keptStreams ? highest : undefined;
     const size = xrefNumber === undefined ? highest : highest + 1;
     const { offset } = emitter;
     if (xrefNumber !== undefined) this.entries.set(xrefNumber, { objectNumber: xrefNumber, type: 1, field: offset, generation: 0 });
-    this.freeEntries();
     const entries = [...this.entries.values()].toSorted((left, right) => left.objectNumber - right.objectNumber);
     const trailer = this.trailer(size);
     const serialize = (dictionary: PdfDictionaryEntries): Uint8Array => {

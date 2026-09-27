@@ -32,6 +32,12 @@ describe('full rewrite', () => {
     ]);
   });
 
+  it('sets Size from objects retained after dropping a cross-reference stream', () => {
+    const source = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R', xrefStreamNumber: 10 }]).bytes;
+    const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
+    expect(output).toContain('/Size 5');
+  });
+
   it('copies unchanged objects as one run, keeping their numbers', () => {
     const source = classic([catalog, pages, page, content, { number: 7, body: '(seven)' }]);
     const saved = loadDocument(source).save({ mode: 'full' });
