@@ -454,6 +454,14 @@ describe('forms', () => {
     expect(() => run(page, objects, { maxOperations: 7 })).toThrow(ResourceLimitError);
   });
 
+  it('counts the content bytes of a form each time it is drawn and stops at maxContentBytes', () => {
+    // About 1 MB of comment, which produces no operations for maxOperations to count.
+    const page = { content: '/Fm1 Do\n'.repeat(5), resources: '/XObject<</Fm1 110 0 R>>' };
+    const objects = [form(110, '/BBox[0 0 50 50]', `%${'x'.repeat(1_000_000)}\n0 g`)];
+    expect(run(page, objects).result.operations).toBe(10);
+    expect(() => run(page, objects, { maxContentBytes: 4_000_000 })).toThrow(ResourceLimitError);
+  });
+
   it('stops at forms nested deeper than maxNesting', () => {
     const chain = Array.from({ length: 6 }, (_, index) =>
       form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, '/Next Do'),

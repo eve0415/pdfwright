@@ -58,6 +58,9 @@ const RECT = pdfName('Rect').bytes;
 /** The default for `InterpretOptions.maxOperations`. */
 export const MAX_OPERATIONS = 10_000_000;
 
+/** The default for `InterpretOptions.maxContentBytes`: 256 MiB. */
+export const MAX_CONTENT_BYTES = 268_435_456;
+
 /**
  * A content stream being interpreted: the page's content, a form XObject, a tiling pattern's cell, a Type 3 glyph procedure, an annotation's appearance stream, or the transparency group of a soft mask.
  * Streams are identified by reference, which a well-formed file always has because ISO 32000-1:2008, 7.3.8.1 says "All streams shall be indirect objects".
@@ -237,6 +240,11 @@ export interface InterpretOptions extends InterpretHandlers {
   readonly annotations?: 'printable' | 'none' | 'all';
   /** The operations a page may execute, counting a form's operations each time it is drawn; past it ResourceLimitError is thrown. */
   readonly maxOperations?: number;
+  /**
+   * The decoded content bytes a page may lex: its content streams once, and each form, tiling pattern cell, Type 3 glyph procedure, soft-mask group and annotation appearance each time it is executed; past it ResourceLimitError is thrown.
+   * The operation count does not see bytes that produce no operations, such as comments, so a large form drawn many times would otherwise cost unbounded time.
+   */
+  readonly maxContentBytes?: number;
 }
 
 export interface InterpretResult {
@@ -424,6 +432,8 @@ class Interpreter {
   private readonly warnings: InspectWarning[] = [];
   private readonly reportedFonts = new Set<string>();
   private readonly maxOperations: number;
+  private readonly maxContentBytes: number;
+  private contentBytes = 0;
   // The streams being interpreted, by reference, so that a stream that draws itself is not entered again.
   private readonly active = new Set<string>();
   private depth = 0;
@@ -452,6 +462,7 @@ class Interpreter {
     this.handlers = options;
     this.fonts = fonts;
     this.maxOperations = options.maxOperations ?? MAX_OPERATIONS;
+    this.maxContentBytes = options.maxContentBytes ?? MAX_CONTENT_BYTES;
   }
 
   setPage(page: Pick<Scope, 'resources' | 'owner'>): void {
@@ -509,6 +520,11 @@ class Interpreter {
   }
 
   run(streams: readonly Uint8Array[], scope: Scope): void {
+    // Bytes that produce no operations, such as comments, are invisible to maxOperations, so the bytes lexed are bounded apart.
+    this.contentBytes += streams.reduce((sum, stream) => sum + stream.length, 0);
+    if (this.contentBytes > this.maxContentBytes) {
+      throw new ResourceLimitError(`the page interprets more than maxContentBytes (${String(this.maxContentBytes)} bytes) of content`);
+    }
     try {
       const operations = readContent(streams, this.document.maxNesting);
       for (let step = operations.next(); step.done !== true; step = operations.next()) {
