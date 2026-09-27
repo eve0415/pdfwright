@@ -28,3 +28,5 @@ export {
 } from './object/pdfObject.ts';
 export type { PdfObject } from './object/pdfObject.ts';
 export { serializeObject } from './serialize/serializeObject.ts';
+export { createDocument } from './document/pdfDocument.ts';
+export type { DocumentOptions, PageOptions, PdfDocument } from './document/pdfDocument.ts';
