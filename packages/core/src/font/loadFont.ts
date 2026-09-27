@@ -20,6 +20,7 @@ import type {
 import type { FontSource } from './fontValues.ts';
 import type { SimpleWidths } from './simpleFont.ts';
 import type { Standard14Metrics } from './standard14.ts';
+import type { CmapReading } from './trueType/cmapTable.ts';
 import type { ProcedureSummary } from './type3Procedures.ts';
 
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -29,9 +30,10 @@ import { CMapResolver } from './cmap/cmapResolver.ts';
 import { cidToGid, cidVertical, cidWidths, collectionOf, descendantOf } from './compositeFont.ts';
 import { glyphNameText } from './encoding/glyphNames.ts';
 import { readDescriptor, verticalExtent } from './fontDescriptor.ts';
-import { dictionaryOf, latin1, nameOf, numbersOf, withoutSubsetTag } from './fontValues.ts';
+import { decodedData, dictionaryOf, latin1, nameOf, numbersOf, withoutSubsetTag } from './fontValues.ts';
 import { simpleGlyphNames, simpleWidths } from './simpleFont.ts';
 import { standard14Metrics } from './standard14.ts';
+import { readTrueTypeCmap } from './trueType/cmapTable.ts';
 import { normalised, readProcedure } from './type3Procedures.ts';
 
 const SUBTYPE = pdfName('Subtype').bytes;
@@ -42,6 +44,7 @@ const FONT_MATRIX = pdfName('FontMatrix').bytes;
 const FONT_BBOX = pdfName('FontBBox').bytes;
 const CHAR_PROCS = pdfName('CharProcs').bytes;
 const RESOURCES = pdfName('Resources').bytes;
+const FONT_FILE_2 = pdfName('FontFile2').bytes;
 
 // ISO 32000-1:2008, 9.2.4: glyph space units are 1/1000 of text space for every font type but Type 3, whose FontMatrix maps glyph space to text space.
 const THOUSANDTH = [0.001, 0, 0, 0.001, 0, 0] as const satisfies Matrix;
@@ -135,6 +138,20 @@ const standardWidths = (metrics: Standard14Metrics | undefined, names: EncodingT
 const extentWithMetrics = (extent: VerticalExtent, metrics: Standard14Metrics | undefined): VerticalExtent =>
   extent.estimated && metrics !== undefined ? { descent: metrics.bbox[1], ascent: metrics.bbox[3], estimated: false } : extent;
 
+// Table 122, FontFile2: "(Optional; PDF 1.1) A stream containing a TrueType font program". The program is decoded and read once, on the first call.
+const programCmap = (data: Uint8Array | string): CmapReading => (typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeCmap(data));
+
+const embeddedCmapOf = (source: FontSource, descriptor?: PdfDictionaryEntries): (() => CmapReading | undefined) => {
+  let reading: { readonly value: CmapReading | undefined } | null = null;
+  return () => {
+    if (reading === null) {
+      const program = source.objects.deref(descriptor?.get(FONT_FILE_2));
+      reading = { value: program?.kind === 'stream' ? programCmap(decodedData(source, program)) : undefined };
+    }
+    return reading.value;
+  };
+};
+
 const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyof Loaded | 'toUnicode' | 'warnings'> => {
   const { source } = context;
   const { dictionary, subtype } = loaded;
@@ -199,6 +216,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
     verticalExtent: extentWithMetrics(verticalExtent(source, descriptor.dictionary, subtype === 'Type3' ? dictionary.get(FONT_BBOX) : undefined), standard),
     collectionMap: undefined,
     type3,
+    embeddedCmap: embeddedCmapOf(source, subtype === 'TrueType' ? descriptor.dictionary : undefined),
     glyphs: (string): FontString => ({
       kind: 'glyphs',
       glyphs: [...string].map(code => {
@@ -297,6 +315,22 @@ const splitComposite = (parts: CompositeParts, cache: Map<string, FontGlyph>, st
   return shown;
 };
 
+const gidsOf = (context: LoadContext, descendant: DescendantFont | undefined): ((cid: number) => number) | undefined => {
+  if (descendant?.subtype !== 'CIDFontType2') return undefined;
+  const gids = cidToGid(context.source, descendant.dictionary);
+  if (typeof gids !== 'string') return gids;
+  context.warnings.push({ code: 'font-unreadable', detail: gids });
+  return undefined;
+};
+
+// The registry–ordering–UCS2 map from the provider; its absence is worth a warning only when no ToUnicode CMap gives the text first (9.10.2).
+const unicodeMapOf = (context: LoadContext, name: string, toUnicode: FontModel['toUnicode']): CMap | undefined => {
+  const map = context.cmaps.named(name);
+  if (map.kind === 'cmap') return map.cmap;
+  if (toUnicode !== 'present') context.warnings.push({ code: 'cmap-unavailable', detail: `the CID-to-Unicode map ${name} is not available` });
+  return undefined;
+};
+
 const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyof Loaded | 'toUnicode' | 'warnings'> => {
   const { source } = context;
   const encodingValue = loaded.dictionary.get(ENCODING);
@@ -306,14 +340,9 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
   cmapProblems(context, result);
   const descendant = descendantOf(source, loaded.dictionary);
   if (descendant === undefined) context.warnings.push({ code: 'font-unreadable', detail: 'the Type 0 font has no descendant CIDFont dictionary' });
-  const gids = descendant?.subtype === 'CIDFontType2' ? cidToGid(source, descendant.dictionary) : undefined;
-  if (typeof gids === 'string') context.warnings.push({ code: 'font-unreadable', detail: gids });
+  const gids = gidsOf(context, descendant);
   const mapName = collectionMapName(source, { result, encodingName, descendant });
-  const unicodeMap = mapName === undefined ? undefined : context.cmaps.named(mapName);
-  if (unicodeMap !== undefined && unicodeMap.kind !== 'cmap' && loaded.toUnicodeState !== 'present') {
-    context.warnings.push({ code: 'cmap-unavailable', detail: `the CID-to-Unicode map ${mapName ?? ''} is not available` });
-  }
-  const ucs2 = unicodeMap?.kind === 'cmap' ? unicodeMap.cmap : undefined;
+  const ucs2 = mapName === undefined ? undefined : unicodeMapOf(context, mapName, loaded.toUnicodeState);
   const parts: CompositeParts | undefined =
     result.kind === 'cmap'
       ? {
@@ -321,18 +350,20 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
           toUnicode: loaded.toUnicode,
           widths: descendant === undefined ? undefined : cidWidths(source, descendant.dictionary),
           vertical: descendant === undefined ? undefined : cidVertical(source, descendant.dictionary),
-          gids: typeof gids === 'string' ? undefined : gids,
+          gids,
           ucs2,
         }
       : undefined;
   const cache = new Map<string, FontGlyph>();
+  const descriptorDictionary = descendant === undefined ? undefined : readDescriptor(source, descendant.dictionary).dictionary;
   return {
     descendant,
     writingMode: writingModeOf(result, encodingName),
     glyphMatrix: THOUSANDTH,
-    verticalExtent: verticalExtent(source, descendant === undefined ? undefined : readDescriptor(source, descendant.dictionary).dictionary),
+    verticalExtent: verticalExtent(source, descriptorDictionary),
     collectionMap: mapName === undefined ? undefined : { name: mapName, available: ucs2 !== undefined },
     type3: undefined,
+    embeddedCmap: embeddedCmapOf(source, descendant?.subtype === 'CIDFontType2' ? descriptorDictionary : undefined),
     glyphs: (string): FontString => {
       if (result.kind === 'unavailable') return { kind: 'cmap-unavailable', cmap: result.name };
       if (result.kind === 'unreadable') return { kind: 'undecodable', reason: result.reason };
@@ -361,6 +392,7 @@ const loadFont = (context: LoadContext, value: PdfDirectObject, key: string): Fo
       toUnicode: 'absent',
       collectionMap: undefined,
       type3: undefined,
+      embeddedCmap: embeddedCmapOf(source),
       warnings: [{ code: 'font-unreadable', detail: reason }],
       glyphs: () => ({ kind: 'undecodable', reason }),
     };

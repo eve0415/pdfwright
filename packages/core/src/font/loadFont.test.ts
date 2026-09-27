@@ -270,6 +270,41 @@ describe('fonts of subtype Type3', () => {
   });
 });
 
+// A TrueType program with only a table directory and a cmap table whose (3, 1) format 4 subtable maps U+0041 to glyph 5 and U+3042 to glyph 6.
+const PROGRAM =
+  '000100000001000000000000636d6170000000000000001c0000003400000001000300010000000c000400280000000600000000000000413042ffff000000413042ffffffc4cfc40001000000000000';
+
+const embeddedGlyphs = (font: FontModel): readonly (number | undefined)[] | string => {
+  const reading = font.embeddedCmap();
+  if (reading?.kind !== 'cmap') return reading?.kind ?? 'none';
+  return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x3042), reading.cmap.glyph(0x42)];
+};
+
+describe('embedded TrueType programs', () => {
+  it('reads the cmap table of a CIDFontType2 font program through its descendant descriptor', () => {
+    const objects: readonly TestObject[] = [
+      { number: 12, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontFile2 13 0 R>>' },
+      { number: 13, body: streamBody('/Filter/ASCIIHexDecode', `${PROGRAM}>`) },
+    ];
+    const composite = fontOf(type0Font('/Identity-H', `${CID_FONT_TYPE2}/FontDescriptor 12 0 R`), objects);
+    const simple = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/FontDescriptor 12 0 R>>', objects);
+    expect([embeddedGlyphs(composite), embeddedGlyphs(simple)]).toStrictEqual([
+      [5, 6, undefined],
+      [5, 6, undefined],
+    ]);
+  });
+
+  it('has no embedded cmap without a FontFile2 program and reports one that cannot be read', () => {
+    const broken: readonly TestObject[] = [
+      { number: 12, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontFile2 13 0 R>>' },
+      { number: 13, body: streamBody('', 'not a font') },
+    ];
+    const none = fontOf(type0Font('/Identity-H', CID_FONT_TYPE2));
+    const damaged = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/FontDescriptor 12 0 R>>', broken);
+    expect([embeddedGlyphs(none), embeddedGlyphs(damaged)]).toStrictEqual(['none', 'unreadable']);
+  });
+});
+
 describe('the font cache', () => {
   it('loads each font once per key', () => {
     const cache = new FontCache(documentWith([{ number: 10, body: type0Font('/Identity-H', CID_FONT_TYPE2) }]), undefined);
