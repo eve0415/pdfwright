@@ -3,7 +3,9 @@ import type { DocumentMetadata } from './readMetadata.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { readMetadata } from './readMetadata.ts';
@@ -111,5 +113,25 @@ describe('reading document metadata', () => {
       [['info-missing', 'xmp-doctype'], 'doctype'],
       [['info-missing', 'xmp-unreadable'], 'not-well-formed'],
     ]);
+  });
+});
+
+describe('reading metadata of an edited document', () => {
+  it('reads the Info dictionary the trailer names as edited', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+            { number: 3, body: '<</Producer(P)>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    internalsOf(document)?.objects.setTrailerEntry(pdfName('Info').bytes, pdfReference(3, 0));
+    expect(readMetadata(document).info?.reference).toStrictEqual(pdfReference(3, 0));
   });
 });

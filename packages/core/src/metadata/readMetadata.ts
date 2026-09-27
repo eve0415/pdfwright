@@ -92,7 +92,7 @@ class MetadataReader {
 
   // ISO 32000-1:2008, Table 15, Info: "(Optional; shall be an indirect reference)".
   info(): DocumentMetadata['info'] {
-    const stored = this.document.structure.trailer.get(INFO);
+    const stored = this.document.objects.trailer(this.document.structure.trailer).get(INFO);
     const value = this.resolve(stored);
     if (value?.kind !== 'dictionary') {
       this.report('info-missing', 'the trailer has no document information dictionary');
@@ -195,7 +195,7 @@ export const readMetadata = (document: LoadedDocument): DocumentMetadata => {
   if (internals === undefined) throw new InvalidArgumentError('readMetadata needs a document from loadDocument');
   const reader = new MetadataReader(internals);
   const info = reader.info();
-  const root = internals.structure.trailer.get(ROOT);
+  const root = internals.objects.trailer(internals.structure.trailer).get(ROOT);
   const catalog = internals.objects.deref(root);
   const xmp = reader.xmp(catalog?.kind === 'dictionary' ? catalog.entries : undefined);
   const mapping = mapMetadata(info?.values, xmp !== undefined && 'packet' in xmp ? xmp.packet : undefined);
