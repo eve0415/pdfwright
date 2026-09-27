@@ -21,6 +21,17 @@ const classic = (objects: readonly TestObject[], trailer = '/Root 1 0 R'): Uint8
 const text = (bytes: Uint8Array): string => latin1Text(bytes);
 
 describe('full rewrite', () => {
+  it('writes sparse cross-reference subsections for a high object number', () => {
+    const source = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content, { number: 10_000, body: '(high)' }], trailer: '/Root 1 0 R' }]).bytes;
+    const saved = loadDocument(source).save({ mode: 'full' });
+    const output = text(saved.toBytes());
+    expect([output.length < 2000, output.includes('10000 1\n'), loadDocument(saved.chunks).get(pdfReference(10_000, 0))]).toStrictEqual([
+      true,
+      true,
+      { kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' },
+    ]);
+  });
+
   it('copies unchanged objects as one run, keeping their numbers', () => {
     const source = classic([catalog, pages, page, content, { number: 7, body: '(seven)' }]);
     const saved = loadDocument(source).save({ mode: 'full' });

@@ -126,6 +126,13 @@ export class ObjectIndex {
       if (type === IN_FILE || type === COMPRESSED) yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
     }
   }
+
+  /** Object numbers with an explicit free entry, ascending. */
+  *freeEntries(): Generator<number> {
+    for (let slot = 0; slot < this.types.length; slot++) {
+      if (this.types[slot] === FREE) yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
+    }
+  }
 }
 
 export interface HeaderMismatch {

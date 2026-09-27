@@ -243,13 +243,16 @@ class FullRewriter {
   }
 
   // ISO 32000-1:2008, 7.5.4: object 0 heads the linked list of free entries and "The last free entry (the tail of the linked list) links back to object number 0".
-  private freeEntries(size: number): void {
+  private freeEntries(): void {
     const { store, changes } = this.input;
     const free: { objectNumber: number; generation: number }[] = [];
-    for (let number = 1; number < size; number++) {
+    const candidates = new Set([...store.index.freeEntries(), ...changes.keys(), ...this.dropped]);
+    for (const number of [...candidates].toSorted((left, right) => left - right)) {
+      if (number === 0) continue;
       if (this.entries.has(number)) continue;
       const change = changes.get(number);
       const entry = store.index.get(number);
+      if (change === undefined && entry.type !== FREE && !this.dropped.has(number)) continue;
       let generation = entry.type === FREE ? entry.generation : 0;
       if (change !== undefined || entry.type === IN_FILE) generation = Math.min((change?.generation ?? entry.generation) + 1, 65_535);
       free.push({ objectNumber: number, generation });
@@ -301,7 +304,7 @@ class FullRewriter {
     const size = xrefNumber === undefined ? highest : highest + 1;
     const { offset } = emitter;
     if (xrefNumber !== undefined) this.entries.set(xrefNumber, { objectNumber: xrefNumber, type: 1, field: offset, generation: 0 });
-    this.freeEntries(size);
+    this.freeEntries();
     const entries = [...this.entries.values()].toSorted((left, right) => left.objectNumber - right.objectNumber);
     const trailer = this.trailer(size);
     const serialize = (dictionary: PdfDictionaryEntries): Uint8Array => {
