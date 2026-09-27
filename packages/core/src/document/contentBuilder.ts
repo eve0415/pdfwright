@@ -41,6 +41,8 @@ export interface InheritedWhitePaint {
 // What a finished content stream tells a caller that places it as a form.
 export interface ContentSummary {
   readonly inheritedWhite: InheritedWhitePaint;
+  // The deepest q/Q nesting the content reaches, counted from the start of the stream.
+  readonly depth: number;
   readonly colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
 }
 
@@ -95,7 +97,7 @@ export interface ContentSession {
   readonly finish: () => FinishedContent;
 }
 
-const EMPTY_SUMMARY: ContentSummary = { inheritedWhite: { fill: false, stroke: false }, colorSpace: undefined };
+const EMPTY_SUMMARY: ContentSummary = { inheritedWhite: { fill: false, stroke: false }, depth: 0, colorSpace: undefined };
 
 const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
   // ISO 32000-1:2008, 8.4.5, Table 58 makes OP set both overprint flags unless op is also supplied; this writer writes both explicitly.
@@ -130,6 +132,13 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     commands.push(command);
   };
   let depth = 0;
+  let deepest = 0;
+  // ISO 32000-1:2008, Annex C, Table C.1 limits graphics state nesting to 28 levels.
+  const maxDepth = hooks.maxDepth ?? 28;
+  const reach = (level: number): void => {
+    if (level > maxDepth) throw new ValidationError('graphics state nesting exceeds 28 levels');
+    deepest = Math.max(deepest, level);
+  };
   let state: CurrentGraphicsState = {
     fillColor: { kind: 'DeviceGray', components: [0] },
     strokeColor: { kind: 'DeviceGray', components: [0] },
@@ -218,8 +227,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   };
   const content: ContentBuilder = {
     save: (): void => {
-      // ISO 32000-1:2008, Annex C, Table C.1 limits graphics state nesting to 28 levels.
-      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      reach(depth + 1);
       depth++;
       stack.push({ ...state });
       emit('q');
@@ -310,7 +318,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       push(`/${name} gs\n`);
     },
     image: (image, matrix): void => {
-      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
+      reach(depth + 1);
       let name = localImages.get(image);
       if (name === undefined) {
         name = hooks.registerImage?.(image) ?? `Im${localImages.size + 1}`;
@@ -323,8 +331,9 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       emit('Q');
     },
     group: (group, matrix, options): void => {
-      if (depth >= (hooks.maxDepth ?? 28)) throw new ValidationError('graphics state nesting exceeds 28 levels');
       const summary = hooks.groupSummary?.(group) ?? EMPTY_SUMMARY;
+      // The placement's own q, then Do, which ISO 32000-1:2008, 8.10.1 says "Saves the current graphics state", then the form's own nesting.
+      reach(depth + 2 + summary.depth);
       const inheritedOverprint = (summary.inheritedWhite.fill && state.overprintFill) || (summary.inheritedWhite.stroke && state.overprintStroke);
       // ISO 32000-1:2008, 8.10.1 makes a form inherit the graphics state at Do; 8.6.7 and Table 148 leave zero DeviceCMYK components unchanged under OPM 1.
       if (
@@ -355,7 +364,10 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     finish: (): FinishedContent => {
       if (depth !== 0) throw new ValidationError('graphics state save and restore must be balanced');
       finished = true;
-      return { data: new TextEncoder().encode(commands.join('')), summary: { inheritedWhite: { ...inheritedWhite }, colorSpace: hooks.colorSpace } };
+      return {
+        data: new TextEncoder().encode(commands.join('')),
+        summary: { inheritedWhite: { ...inheritedWhite }, depth: deepest, colorSpace: hooks.colorSpace },
+      };
     },
   };
 };
