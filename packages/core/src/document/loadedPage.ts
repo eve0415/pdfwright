@@ -1,5 +1,6 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { ResourceCategory, ResourceContext, ResourceObjects } from './pageResources.ts';
 import type { PageEntry } from './pageTree.ts';
 import type { PdfRect } from './rect.ts';
 
@@ -11,6 +12,7 @@ import { cloneDirect, cloneObject } from '../object/cloneObject.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 
+import { addPageResource } from './pageResources.ts';
 import { rect } from './rect.ts';
 
 export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
@@ -38,15 +40,17 @@ export interface LoadedPage {
    * Only the page object changes, never an ancestor it inherits from; the box must have non-zero area and lie within the effective MediaBox.
    */
   setBox: (box: BoxName, rect: PdfRect | undefined) => void;
+  /**
+   * Adds a resource under the first free name made of the prefix and a number (CS1, CS2, … for colour spaces by default) and returns the name's bytes.
+   * A stream value is added as a new object. Only the page, its own resources object, or new copies of resources other pages share are changed.
+   */
+  addResource: (category: ResourceCategory, value: PdfObject, options?: { prefix?: string }) => Uint8Array;
   lastModified: () => PdfObject | undefined;
   pieceInfo: () => PdfObject | undefined;
 }
 
 /** The objects a page reads and changes. */
-export interface PageObjects extends ObjectResolver {
-  get: (reference: PdfReference) => PdfObject;
-  set: (reference: PdfReference, value: PdfObject) => void;
-}
+export type PageObjects = ResourceObjects;
 
 /** Resolves indirect objects, including changes made to the document. */
 export interface ObjectResolver {
@@ -182,17 +186,22 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
 
 const copied = (value: PdfObject | undefined): PdfObject | undefined => (value === undefined ? undefined : cloneObject(value));
 
-export const createLoadedPage = (resolver: PageObjects, entry: PageEntry, index: number): LoadedPage => ({
-  index,
-  reference: entry.reference,
-  boxes: () => effectiveBoxes(resolver, entry),
-  resources: () => {
-    const resources = effectiveResources(resolver, entry);
-    return parsedDictionaryEntries(resources === undefined ? [] : [...resources.entries()].map(([key, value]) => [key, cloneDirect(value)] as const));
-  },
-  setBox: (name, corners) => {
-    setBox(resolver, entry, [name, corners]);
-  },
-  lastModified: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(LAST_MODIFIED))),
-  pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),
-});
+export const createLoadedPage = (context: ResourceContext, entry: PageEntry, index: number): LoadedPage => {
+  const resolver = context.objects;
+  return {
+    index,
+    reference: entry.reference,
+    boxes: () => effectiveBoxes(resolver, entry),
+    resources: () => {
+      const resources = effectiveResources(resolver, entry);
+      return parsedDictionaryEntries(resources === undefined ? [] : [...resources.entries()].map(([key, value]) => [key, cloneDirect(value)] as const));
+    },
+    setBox: (name, corners) => {
+      setBox(resolver, entry, [name, corners]);
+    },
+    addResource: (category, value, options) =>
+      addPageResource(context, entry, options?.prefix === undefined ? { category, value } : { category, value, prefix: options.prefix }),
+    lastModified: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(LAST_MODIFIED))),
+    pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),
+  };
+};

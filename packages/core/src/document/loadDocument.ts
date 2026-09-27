@@ -99,7 +99,7 @@ class LoadedPdf implements LoadedDocument {
     if (!Number.isSafeInteger(index) || entry === undefined) {
       throw new InvalidArgumentError(`page index ${String(index)} is outside 0 to ${String(this.pages.length - 1)}`);
     }
-    return createLoadedPage(this.objects, entry, index);
+    return createLoadedPage({ objects: this.objects, pages: this.pages }, entry, index);
   }
 
   get(reference: PdfReference): PdfObject {
