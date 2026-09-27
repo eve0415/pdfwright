@@ -31,10 +31,11 @@ export type { InvalidObjectReason, PdfDirectObject, PdfObject, PdfReference } fr
 export { serializeObject } from './serialize/serializeObject.ts';
 export { createDocument } from './document/pdfDocument.ts';
 export { loadDocument } from './document/loadDocument.ts';
-export type { LoadOptions, LoadedDocument } from './document/loadDocument.ts';
+export type { LoadOptions, LoadedDocument, SaveOptions } from './document/loadDocument.ts';
 export type { DocumentStructure, StructureStatus } from './document/readStructure.ts';
 export type { BoxName, EffectiveBox, EffectiveBoxes, LoadedPage } from './document/loadedPage.ts';
 export type { ResourceCategory } from './document/pageResources.ts';
+export type { SaveWarning, SaveWarningCode } from './save/saveWarning.ts';
 export type { LoadWarning, LoadWarningCode } from './parse/loadWarning.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';

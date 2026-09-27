@@ -43,9 +43,18 @@ export interface LoadSession {
   readonly names: Map<string, Uint8Array>;
 }
 
+/** Where the newest cross-reference section's trailer is, for copying it into an update; absent when reconstructed. */
+export interface SaveBase {
+  readonly trailerStart: number;
+  readonly trailerEnd: number;
+  /** Offset the section chain's offsets are relative to: the header position when they were read relative to it, else 0. */
+  readonly shift: number;
+}
+
 export interface ReadStructure {
   readonly store: ObjectStore;
   readonly structure: DocumentStructure;
+  readonly base?: SaveBase;
 }
 
 const ROOT = pdfName('Root').bytes;
@@ -167,7 +176,8 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
     linearized: linearized(store),
     trailer,
   };
-  return { store, structure };
+  const base = newest === undefined ? undefined : { trailerStart: newest.section.trailerStart, trailerEnd: newest.section.trailerEnd, shift };
+  return base === undefined ? { store, structure } : { store, structure, base };
 };
 
 /** Rebuilds the cross-reference data by scanning the file (ISO 32000-1:2008 defines no such procedure; this follows what common readers do). */

@@ -1,20 +1,25 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { LoadWarning } from '../parse/loadWarning.ts';
+import type { SaveWarning } from '../save/saveWarning.ts';
+import type { SavedPdf } from '../write/savedPdf.ts';
 import type { ContentBuilder } from './contentBuilder.ts';
+import type { ObjectChange } from './editedObjects.ts';
 import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, PdfImage } from './image.ts';
 import type { LoadedPage } from './loadedPage.ts';
 import type { PageEntry } from './pageTree.ts';
-import type { DocumentStructure, LoadSession, ReadStructure } from './readStructure.ts';
+import type { DocumentStructure, LoadSession, ReadStructure, SaveBase } from './readStructure.ts';
 import type { ResourceNumbers } from './resourceRecord.ts';
 import type { Separation, SeparationOptions } from './separation.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
+import { classicIncrementalSave } from '../save/incrementalSave.ts';
 import { locateHeader } from '../xref/locate.ts';
 
 import { createDocumentHandles } from './documentHandles.ts';
@@ -41,6 +46,15 @@ export interface LoadOptions {
   recovery?: 'refuse-ambiguous' | 'latest';
 }
 
+export interface SaveOptions {
+  /** 'auto' (the default) appends an update to an intact file and rewrites any other; 'incremental' and 'full' choose one. */
+  mode?: 'auto' | 'incremental' | 'full';
+  /** 'derive' (the default) keeps the source identifier and derives a new second string; a pair is written as given. */
+  fileIdentifier?: 'derive' | [Uint8Array, Uint8Array];
+  /** Fraction digits for new reals; default 5. */
+  fractionDigits?: number;
+}
+
 export interface LoadedDocument {
   readonly structure: DocumentStructure;
   readonly warnings: readonly LoadWarning[];
@@ -61,6 +75,8 @@ export interface LoadedDocument {
   image: (options: ImageOptions) => PdfImage;
   /** A transparency group for content appended to this document's pages. */
   group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
+  /** Saves the document with its changes as chunks: views of the source and new buffers. */
+  save: (options?: SaveOptions) => SavedPdf;
   /** A fresh copy of the document catalog. */
   catalog: () => PdfDictionaryEntries;
 }
@@ -88,7 +104,15 @@ interface LoadedParts {
   readonly read: ReadStructure;
   readonly warnings: readonly LoadWarning[];
   readonly pages: readonly PageEntry[];
+  readonly maxNesting: number;
 }
+
+const VERSION = pdfName('Version').bytes;
+
+const versionNumber = (text: string): number => {
+  const match = /^(\d+)\.(\d+)$/u.exec(text);
+  return match === null ? 0 : Number(match[1]) * 10 + Number(match[2]);
+};
 
 class LoadedPdf implements LoadedDocument {
   readonly structure: DocumentStructure;
@@ -97,8 +121,12 @@ class LoadedPdf implements LoadedDocument {
   private readonly pages: readonly PageEntry[];
   private readonly handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: false });
   private readonly placed: ResourceNumbers = { imageNumbers: new Map(), groupNumbers: new Map() };
+  private readonly base: SaveBase | undefined;
+  private readonly maxNesting: number;
 
   constructor(parts: LoadedParts) {
+    this.base = parts.read.base;
+    this.maxNesting = parts.maxNesting;
     this.structure = parts.read.structure;
     this.objects = new EditedObjects(parts.read.store, parts.read.structure.trailer.get(SIZE));
     this.warnings = parts.warnings;
@@ -147,6 +175,45 @@ class LoadedPdf implements LoadedDocument {
 
   object(value: PdfObject): PdfReference {
     return this.objects.add(value);
+  }
+
+  // ISO 32000-1:2008, 7.5.2: the catalog Version, "if present, shall be used instead of the version specified in the Header"; a transparency group or soft mask needs PDF 1.4 (11.1).
+  private versionChange(changes: Map<number, ObjectChange>, warnings: SaveWarning[]): void {
+    const needsTransparency = this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
+    const root = this.structure.trailer.get(ROOT);
+    if (!needsTransparency || root?.kind !== 'reference') return;
+    const catalog = this.get(root);
+    if (catalog.kind !== 'dictionary') return;
+    const declared = catalog.entries.get(VERSION);
+    const effective = Math.max(
+      versionNumber(this.structure.headerVersion),
+      declared?.kind === 'name' ? versionNumber(new TextDecoder().decode(declared.bytes)) : 0,
+    );
+    if (effective >= 14) return;
+    catalog.entries.set(VERSION, pdfName('1.4'));
+    changes.set(root.objectNumber, { generation: root.generation, value: catalog });
+    warnings.push({ code: 'version-raised', detail: 'the catalog Version is set to 1.4 for the transparency the new content uses' });
+  }
+
+  save(options: SaveOptions = {}): SavedPdf {
+    let mode = options.mode ?? 'auto';
+    if (mode === 'auto') mode = this.structure.status === 'intact' ? 'incremental' : 'full';
+    const changes = new Map(this.objects.changes);
+    const warnings: SaveWarning[] = [];
+    this.versionChange(changes, warnings);
+    if (mode === 'full') throw new UnsupportedFeatureError('full rewrites are not supported yet');
+    if (this.structure.lastSectionKind === 'stream') throw new UnsupportedFeatureError('updates after cross-reference streams are not supported yet');
+    return classicIncrementalSave({
+      store: this.objects.store,
+      changes,
+      size: this.objects.size,
+      structure: this.structure,
+      base: this.base,
+      fractionDigits: options.fractionDigits ?? DEFAULT_FRACTION_DIGITS,
+      maxNesting: this.maxNesting,
+      fileIdentifier: options.fileIdentifier ?? 'derive',
+      warnings,
+    });
   }
 
   catalog(): PdfDictionaryEntries {
@@ -201,5 +268,5 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
   }
   let { status } = read.structure;
   if (status === 'intact' && log.tolerated) status = 'tolerated';
-  return new LoadedPdf({ read: { store, structure: { ...read.structure, status } }, warnings: log.warnings, pages });
+  return new LoadedPdf({ read: { ...read, structure: { ...read.structure, status } }, warnings: log.warnings, pages, maxNesting: session.options.maxNesting });
 };
