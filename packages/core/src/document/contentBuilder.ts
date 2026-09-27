@@ -20,30 +20,38 @@ export interface GraphicsStateOptions {
   softMask?: 'None';
 }
 
+// A form starts from the graphics state of the content that invokes it (ISO 32000-1:2008, 8.10.1), so until it sets a parameter itself the value is 'inherited'.
 export interface CurrentGraphicsState {
-  fillColor: DeviceColor | Separation;
-  strokeColor: DeviceColor | Separation;
-  overprintFill: boolean;
-  overprintStroke: boolean;
-  overprintMode: 0 | 1;
-  ownExtGState: boolean;
+  fillColor: DeviceColor | Separation | 'inherited';
+  strokeColor: DeviceColor | Separation | 'inherited';
+  overprintFill: boolean | 'inherited';
+  overprintStroke: boolean | 'inherited';
+  overprintMode: 0 | 1 | 'inherited';
+}
+
+export type BlendingSpace = 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | 'inherited';
+
+// Whether one condition of an invisible white paint holds, or depends on the state the form inherits.
+export type WhiteCondition = boolean | 'inherited';
+
+// A paint in a form that is invisible white if every inherited condition turns out true where the form is placed.
+export interface WhiteRequirement {
+  readonly stroking: boolean;
+  readonly color: WhiteCondition;
+  readonly overprint: WhiteCondition;
+  readonly mode: WhiteCondition;
+  readonly space: WhiteCondition;
 }
 
 export interface PaintOptions {
   acknowledgeInvisibleOverprint?: boolean;
 }
 
-export interface InheritedWhitePaint {
-  fill: boolean;
-  stroke: boolean;
-}
-
 // What a finished content stream tells a caller that places it as a form.
 export interface ContentSummary {
-  readonly inheritedWhite: InheritedWhitePaint;
+  readonly whiteRequirements: readonly WhiteRequirement[];
   // The deepest q/Q nesting the content reaches, counted from the start of the stream.
   readonly depth: number;
-  readonly colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
 }
 
 export interface ContentHooks {
@@ -52,7 +60,8 @@ export interface ContentHooks {
   registerImage?: (image: PdfImage) => string;
   groupSummary?: (group: PdfGroup) => ContentSummary;
   registerGroup?: (group: PdfGroup) => string;
-  colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
+  // The blending colour space paint is composited in; DeviceCMYK when omitted.
+  blendingSpace?: BlendingSpace;
   // True for a form, which starts from the graphics state of whatever content invokes it (ISO 32000-1:2008, 8.10.1).
   inheritsState?: boolean;
   maxDepth?: number;
@@ -99,31 +108,49 @@ export interface ContentSession {
   readonly finish: () => FinishedContent;
 }
 
-const EMPTY_SUMMARY: ContentSummary = { inheritedWhite: { fill: false, stroke: false }, depth: 0, colorSpace: undefined };
+const EMPTY_SUMMARY: ContentSummary = { whiteRequirements: [], depth: 0 };
+
+const INHERITED_STATE: CurrentGraphicsState = {
+  fillColor: 'inherited',
+  strokeColor: 'inherited',
+  overprintFill: 'inherited',
+  overprintStroke: 'inherited',
+  overprintMode: 'inherited',
+};
+
+// ISO 32000-1:2008, 8.4.1, Tables 52 and 53: the initial colour is black in DeviceGray, both overprint flags are false and the overprint mode is 0.
+const INITIAL_STATE: CurrentGraphicsState = {
+  fillColor: { kind: 'DeviceGray', components: [0] },
+  strokeColor: { kind: 'DeviceGray', components: [0] },
+  overprintFill: false,
+  overprintStroke: false,
+  overprintMode: 0,
+};
 
 const validAlpha = (value: number | undefined): boolean => value === undefined || (Number.isFinite(value) && value >= 0 && value <= 1);
 
 // ISO 32000-1:2008, 8.4.5, Table 58: "Specifying an OP entry shall set both parameters unless there is also an op entry in the same graphics state parameter dictionary", and for op, "If this entry is absent, the OP entry, if any, shall also set this parameter."
-// So op alone sets only the fill flag, while the stroke flag alone needs op beside OP to keep the fill flag. Page content knows both flags and writes both; a form cannot know the flags it inherits, so it writes op alone and refuses OP alone.
-const overprintFlags = (
-  ...[options, state, inheritsState]: [GraphicsStateOptions, CurrentGraphicsState, boolean]
-): Pick<GraphicsStateOptions, 'overprintFill' | 'overprintStroke'> => {
-  if (options.overprintFill === undefined && options.overprintStroke === undefined) return {};
-  if (!inheritsState) return { overprintFill: options.overprintFill ?? state.overprintFill, overprintStroke: options.overprintStroke ?? state.overprintStroke };
-  if (options.overprintFill === undefined) {
-    throw new ValidationError(
-      'inside a group, overprintStroke also needs overprintFill: OP alone sets both flags, and a group cannot know the fill flag it inherits',
-    );
+// So op alone sets only the fill flag, while the stroke flag alone needs op beside OP to keep the fill flag. A missing flag is filled in only from a value this content set itself: a form cannot know a flag it inherits, so it writes op alone and refuses OP alone.
+const overprintFlags = (options: GraphicsStateOptions, state: CurrentGraphicsState): Pick<GraphicsStateOptions, 'overprintFill' | 'overprintStroke'> => {
+  const { overprintFill, overprintStroke } = options;
+  if (overprintFill === undefined) {
+    if (overprintStroke === undefined) return {};
+    if (state.overprintFill === 'inherited') {
+      throw new ValidationError(
+        'inside a group, overprintStroke also needs overprintFill: OP alone sets both flags, and a group cannot know the fill flag it inherits',
+      );
+    }
+    return { overprintFill: state.overprintFill, overprintStroke };
   }
-  return options.overprintStroke === undefined
-    ? { overprintFill: options.overprintFill }
-    : { overprintFill: options.overprintFill, overprintStroke: options.overprintStroke };
+  if (overprintStroke !== undefined) return { overprintFill, overprintStroke };
+  if (state.overprintStroke === 'inherited') return { overprintFill };
+  return { overprintFill, overprintStroke: state.overprintStroke };
 };
 
-const normalizeGraphicsState = (...[options, state, inheritsState]: [GraphicsStateOptions, CurrentGraphicsState, boolean]): GraphicsStateOptions => {
+const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
   if (!validAlpha(options.fillAlpha)) throw new ValidationError('fill alpha must be in [0, 1]');
   if (!validAlpha(options.strokeAlpha)) throw new ValidationError('stroke alpha must be in [0, 1]');
-  const normalized: GraphicsStateOptions = overprintFlags(options, state, inheritsState);
+  const normalized: GraphicsStateOptions = overprintFlags(options, state);
   if (options.fillAlpha !== undefined) normalized.fillAlpha = options.fillAlpha;
   if (options.strokeAlpha !== undefined) normalized.strokeAlpha = options.strokeAlpha;
   if (options.blendMode !== undefined) normalized.blendMode = options.blendMode;
@@ -132,7 +159,6 @@ const normalizeGraphicsState = (...[options, state, inheritsState]: [GraphicsSta
   if (normalized.overprintFill !== undefined) state.overprintFill = normalized.overprintFill;
   if (normalized.overprintStroke !== undefined) state.overprintStroke = normalized.overprintStroke;
   if (options.overprintMode !== undefined) state.overprintMode = options.overprintMode;
-  state.ownExtGState = true;
   return normalized;
 };
 
@@ -151,20 +177,14 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     if (level > maxDepth) throw new ValidationError('graphics state nesting exceeds 28 levels');
     deepest = Math.max(deepest, level);
   };
-  let state: CurrentGraphicsState = {
-    fillColor: { kind: 'DeviceGray', components: [0] },
-    strokeColor: { kind: 'DeviceGray', components: [0] },
-    overprintFill: false,
-    overprintStroke: false,
-    overprintMode: 0,
-    ownExtGState: false,
-  };
+  let state: CurrentGraphicsState = { ...(hooks.inheritsState === true ? INHERITED_STATE : INITIAL_STATE) };
+  const blendingSpace = hooks.blendingSpace ?? 'DeviceCMYK';
+  const whiteRequirements = new Map<string, WhiteRequirement>();
   const stack: CurrentGraphicsState[] = [];
   const localStates = new Map<string, string>();
   const localSeparations = new Map<Separation, string>();
   const localImages = new Map<PdfImage, string>();
   const localGroups = new Map<PdfGroup, string>();
-  const inheritedWhite = { fill: false, stroke: false };
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
   const emit = (operator: string, operands: ContentNumber[] = []): void => {
     push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
@@ -193,24 +213,46 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       : { DeviceCMYK: 'k', DeviceRGB: 'rg', DeviceGray: 'g' }[color.kind];
     emit(operator, [...color.components]);
   };
-  const checkWhiteOverprint = (stroking: boolean, options?: PaintOptions): void => {
+  const currentConditions = (stroking: boolean): WhiteRequirement => {
     const color = stroking ? state.strokeColor : state.fillColor;
-    const overprint = stroking ? state.overprintStroke : state.overprintFill;
-    if (color.kind === 'DeviceCMYK' && color.components.every(component => component === 0) && !state.ownExtGState) {
-      if (stroking) inheritedWhite.stroke = true;
-      else inheritedWhite.fill = true;
-    }
-    // ISO 32000-1:2008, 8.6.7 and Table 148: with OPM 1, zero DeviceCMYK components specified directly do not paint their process plates.
-    if (
-      color.kind === 'DeviceCMYK' &&
-      color.components.every(component => component === 0) &&
-      overprint &&
-      state.overprintMode === 1 &&
-      (hooks.colorSpace === undefined || hooks.colorSpace === 'DeviceCMYK') &&
-      options?.acknowledgeInvisibleOverprint !== true
-    ) {
-      throw new ValidationError(
-        'Writer policy: DeviceCMYK white with overprint mode 1 leaves underlying colorants unchanged and prints on no plate; pass acknowledgeInvisibleOverprint: true to acknowledge',
+    return {
+      stroking,
+      color: color === 'inherited' ? 'inherited' : color.kind === 'DeviceCMYK' && color.components.every(component => component === 0),
+      overprint: stroking ? state.overprintStroke : state.overprintFill,
+      mode: state.overprintMode === 'inherited' ? 'inherited' : state.overprintMode === 1,
+      space: blendingSpace === 'inherited' ? 'inherited' : blendingSpace === 'DeviceCMYK',
+    };
+  };
+  // ISO 32000-1:2008, 8.6.7: "When the overprint mode is 1 (also called nonzero overprint mode), a tint value of 0.0 for a source colour component shall leave the corresponding component of the previously painted colour unchanged."
+  // 11.7.4.3 applies that only when "the current colour space and group colour space are both DeviceCMYK", so an all-zero DeviceCMYK paint with overprint on prints on no plate.
+  // A condition a form inherits is kept as a requirement and settled where the form is placed.
+  const settle = (...[requirement, options, message]: [WhiteRequirement, PaintOptions | undefined, string]): void => {
+    const conditions = [requirement.color, requirement.overprint, requirement.mode, requirement.space];
+    if (conditions.includes(false) || options?.acknowledgeInvisibleOverprint === true) return;
+    if (conditions.every(condition => condition === true)) throw new ValidationError(message);
+    whiteRequirements.set(JSON.stringify(requirement), requirement);
+  };
+  const checkWhiteOverprint = (stroking: boolean, options?: PaintOptions): void => {
+    settle(
+      currentConditions(stroking),
+      options,
+      'Writer policy: DeviceCMYK white with overprint mode 1 leaves underlying colorants unchanged and prints on no plate; pass acknowledgeInvisibleOverprint: true to acknowledge',
+    );
+  };
+  const checkGroupWhite = (summary: ContentSummary, options?: PaintOptions): void => {
+    for (const requirement of summary.whiteRequirements) {
+      const current = currentConditions(requirement.stroking);
+      const resolve = (condition: WhiteCondition, caller: WhiteCondition): WhiteCondition => (condition === 'inherited' ? caller : condition);
+      settle(
+        {
+          stroking: requirement.stroking,
+          color: resolve(requirement.color, current.color),
+          overprint: resolve(requirement.overprint, current.overprint),
+          mode: resolve(requirement.mode, current.mode),
+          space: resolve(requirement.space, current.space),
+        },
+        options,
+        'Writer policy: DeviceCMYK white inside this group gets overprint mode 1 from the graphics state here and prints on no plate; pass acknowledgeInvisibleOverprint: true to acknowledge',
       );
     }
   };
@@ -312,7 +354,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       paintColor(color, tint, true);
     },
     graphicsState: (options): void => {
-      const normalized = normalizeGraphicsState(options, state, hooks.inheritsState === true);
+      const normalized = normalizeGraphicsState(options, state);
       const key = JSON.stringify([
         normalized.fillAlpha,
         normalized.strokeAlpha,
@@ -346,19 +388,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       const summary = hooks.groupSummary?.(group) ?? EMPTY_SUMMARY;
       // The placement's own q, then Do, which ISO 32000-1:2008, 8.10.1 says "Saves the current graphics state", then the form's own nesting.
       reach(depth + 2 + summary.depth);
-      const inheritedOverprint = (summary.inheritedWhite.fill && state.overprintFill) || (summary.inheritedWhite.stroke && state.overprintStroke);
-      // ISO 32000-1:2008, 8.10.1 makes a form inherit the graphics state at Do; 8.6.7 and Table 148 leave zero DeviceCMYK components unchanged under OPM 1.
-      if (
-        inheritedOverprint &&
-        state.overprintMode === 1 &&
-        (hooks.colorSpace === undefined || hooks.colorSpace === 'DeviceCMYK') &&
-        (summary.colorSpace === undefined || summary.colorSpace === 'DeviceCMYK') &&
-        options?.acknowledgeInvisibleOverprint !== true
-      ) {
-        throw new ValidationError(
-          'Writer policy: DeviceCMYK white inside this group inherits overprint mode 1 and prints on no plate; pass acknowledgeInvisibleOverprint: true to acknowledge',
-        );
-      }
+      checkGroupWhite(summary, options);
       let name = localGroups.get(group);
       if (name === undefined) {
         name = hooks.registerGroup?.(group) ?? `Fm${localGroups.size + 1}`;
@@ -378,7 +408,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       finished = true;
       return {
         data: new TextEncoder().encode(commands.join('')),
-        summary: { inheritedWhite: { ...inheritedWhite }, depth: deepest, colorSpace: hooks.colorSpace },
+        summary: { whiteRequirements: [...whiteRequirements.values()], depth: deepest },
       };
     },
   };

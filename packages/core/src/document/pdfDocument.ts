@@ -1,7 +1,7 @@
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
-import type { ContentBuilder, ContentHooks, ContentSummary, GraphicsStateOptions } from './contentBuilder.ts';
+import type { BlendingSpace, ContentBuilder, ContentHooks, ContentSummary, GraphicsStateOptions } from './contentBuilder.ts';
 import type { DocumentInfo } from './documentInfo.ts';
 import type { GroupAttributes, GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, ImageRecord, PdfImage } from './image.ts';
@@ -167,10 +167,8 @@ const groupRecord = (records: DocumentRecords, group: PdfGroup): GroupRecord => 
   return record;
 };
 
-const createContentHooks = (
-  ...[resources, records, colorSpace]: [ResourceRecord, DocumentRecords, 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined]
-): ContentHooks => ({
-  colorSpace,
+const createContentHooks = (...[resources, records, blendingSpace]: [ResourceRecord, DocumentRecords, BlendingSpace]): ContentHooks => ({
+  blendingSpace,
   registerGraphicsState: stateOptions => {
     const key = JSON.stringify([
       stateOptions.fillAlpha,
@@ -336,7 +334,8 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         },
       });
       const resources = createResourceRecord();
-      const hooks = createContentHooks(resources, records, attributes.colorSpace);
+      // ISO 32000-1:2008, 11.6.6, Table 147, CS: "Default value: the colour space of the parent group or page into which this transparency group is painted."
+      const hooks = createContentHooks(resources, records, attributes.colorSpace ?? 'inherited');
       // A group is drawn only through a page, so its content always starts inside the page's isolating q, the placement's q and the save made by Do (ISO 32000-1:2008, 8.10.1).
       hooks.maxDepth = 25;
       hooks.inheritsState = true;
@@ -386,7 +385,8 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       pages.push(record);
       return {
         draw: (render): void => {
-          const hooks = createContentHooks(record, records, normalized.group?.colorSpace);
+          // Writer policy: without a page group the blending space is the device's own, and print devices are DeviceCMYK.
+          const hooks = createContentHooks(record, records, normalized.group?.colorSpace ?? 'DeviceCMYK');
           hooks.maxDepth = 27;
           const session = createContentBuilder(fractionDigits, hooks);
           render(session.content);
