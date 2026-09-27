@@ -99,7 +99,7 @@ export interface PageGlyph {
   readonly softMasked: boolean;
   /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
-  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit and under a clip made from glyph outlines (render modes 4 to 7), which are not read. */
+  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit, under a clip made from glyph outlines (render modes 4 to 7), which are not read, and in a tiling pattern's cell, whose placement depends on where the pattern is painted. */
   readonly clip: ClipClass;
   /** False after a glyph whose width is unknown or a string that could not be split, until a text-positioning operator sets the position again. */
   readonly positionKnown: boolean;
@@ -276,6 +276,8 @@ class TextCollector {
     const source = sourceOf(event.context.sources);
     const markedContent = markedContentOf(this.document, event.markedContent);
     const { unsplit } = event;
+    // ISO 32000-1:2008, 8.7.3.1: "Painting with the pattern replicates the cell at fixed horizontal and vertical intervals to fill an area"; the area is not tracked, so where the cell's glyphs land is unknown.
+    const inPattern = event.context.sources.some(({ kind }) => kind === 'tiling-pattern');
     const push = (
       glyph: FontGlyph | undefined,
       place: { textMatrix: TextShowEvent['textMatrix']; positionKnown: boolean },
@@ -311,7 +313,7 @@ class TextCollector {
         strokeAlpha: state.strokeAlpha * state.group.alpha,
         softMasked: state.softMask !== undefined || state.group.softMasked,
         covered: false,
-        clip: state.clip.classifyQuad(geometry.quad),
+        clip: inPattern ? 'unknown' : state.clip.classifyQuad(geometry.quad),
         positionKnown: place.positionKnown,
         extentEstimated: geometry.extentEstimated,
         source,

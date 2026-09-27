@@ -529,6 +529,19 @@ describe('text extraction', () => {
       ]);
     });
 
+    it('does not place glyphs in a tiling pattern cell against the clip', () => {
+      // The cell is repeated wherever the pattern paints, here a one-point square, which is not tracked.
+      const pattern: TestObject = {
+        number: 127,
+        body: streamBody(
+          `/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 600 800]/XStep 600/YStep 800/Resources<<${FONT_RESOURCES}>>`,
+          'BT /F1 10 Tf 100 200 Td (A) Tj ET',
+        ),
+      };
+      const shown = glyphs('/Pattern cs /P scn 0 0 1 1 re f', [pattern], `${FONT_RESOURCES}/Pattern<</P 127 0 R>>`);
+      expect(shown.map(glyph => [glyph.source.kind, glyph.clip])).toStrictEqual([['pattern', 'unknown']]);
+    });
+
     it('marks glyphs a later opaque rectangle covers, but not under a translucent or an earlier one', () => {
       const shown = glyphs(
         'BT /F1 10 Tf 100 200 Td (A) Tj ET BT /F1 10 Tf 300 200 Td (A) Tj ET BT /F1 10 Tf 500 200 Td (A) Tj ET 1 g 90 190 30 30 re f q /Half gs 290 190 30 30 re f Q 490 190 30 30 re f',
