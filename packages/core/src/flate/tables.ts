@@ -30,3 +30,20 @@ export const reverseBits = (code: number, length: number): number => {
   }
   return reversed;
 };
+
+// Symbol lookup for the encoder, laid out as in zlib's trees.c: LENGTH_CODE[length - 3] is the index into LENGTH_BASE, and DISTANCE_CODE is indexed by distance - 1 below 256 and by 256 + ((distance - 1) >> 7) above, where every distance code covers whole 128-byte steps.
+export const LENGTH_CODE: Uint8Array = new Uint8Array(256);
+export const DISTANCE_CODE: Uint8Array = new Uint8Array(512);
+for (let code = 0; code < LENGTH_BASE.length; code++) {
+  const base = LENGTH_BASE[code] ?? 0;
+  const end = Math.min(base + (1 << (LENGTH_EXTRA[code] ?? 0)), 259);
+  for (let length = base; length < end; length++) LENGTH_CODE[length - 3] = code;
+}
+for (let code = 0; code < DISTANCE_BASE.length; code++) {
+  const base = DISTANCE_BASE[code] ?? 0;
+  const end = base + (1 << (DISTANCE_EXTRA[code] ?? 0));
+  for (let distance = base; distance < end; distance++) {
+    const index = distance - 1 < 256 ? distance - 1 : 256 + ((distance - 1) >>> 7);
+    DISTANCE_CODE[index] = code;
+  }
+}

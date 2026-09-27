@@ -1,13 +1,8 @@
-export type Token = { kind: 'literal'; byte: number } | { kind: 'match'; length: number; distance: number };
+import { DISTANCE_BASE, DISTANCE_CODE, LENGTH_BASE, LENGTH_CODE } from './tables.ts';
 
 interface LevelLimits {
   chain: number;
   lazy: number;
-}
-
-interface Match {
-  length: number;
-  distance: number;
 }
 
 const DEFAULT_LIMITS: LevelLimits = { chain: 128, lazy: 2 };
@@ -29,13 +24,28 @@ const LEVEL_LIMITS: readonly LevelLimits[] = [
 const hashAt = (data: Uint8Array, position: number): number =>
   ((data[position] ?? 0) * 251 + (data[position + 1] ?? 0) * 31 + (data[position + 2] ?? 0)) & 65535;
 
-export const tokenize = (data: Uint8Array, level: number): Token[] => {
+// Indexed loops over words, because iterating a typed array with for...of allocates an iterator result per element in unoptimized code.
+export interface TokenList {
+  readonly words: Uint32Array;
+  readonly count: number;
+}
+
+// A token is one 32-bit word: bits 0-8 hold the literal/length symbol (a literal byte is below 256), and for a match bits 9-13 hold the distance symbol, bits 14-18 the length extra value and bits 19-31 the distance extra value (RFC 1951, 3.2.5).
+export const matchToken = (length: number, distance: number): number => {
+  const lengthCode = LENGTH_CODE[length - 3] ?? 0;
+  const distanceCode = DISTANCE_CODE[distance <= 256 ? distance - 1 : 256 + ((distance - 1) >>> 7)] ?? 0;
+  return (257 + lengthCode) | (distanceCode << 9) | ((length - (LENGTH_BASE[lengthCode] ?? 0)) << 14) | ((distance - (DISTANCE_BASE[distanceCode] ?? 0)) << 19);
+};
+
+// Writes the tokens for data into tokens, which holds at least data.length entries, and returns how many were written.
+export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): number => {
   // RFC 1951, 3.2 limits backward distances to 32 KiB and match lengths to 258 bytes.
   const end = data.length;
   const heads = new Int32Array(65536).fill(-1);
   const previous = new Int32Array(end).fill(-1);
-  const tokens: Token[] = [];
   const limits = LEVEL_LIMITS[level] ?? DEFAULT_LIMITS;
+  let count = 0;
+  let foundDistance = 0;
 
   const insert = (position: number): void => {
     if (position + 2 >= end) return;
@@ -44,11 +54,12 @@ export const tokenize = (data: Uint8Array, level: number): Token[] => {
     heads[hash] = position;
   };
 
-  const find = (position: number): Match => {
-    if (position + 2 >= end) return { length: 0, distance: 0 };
+  // Returns the best match length at position and leaves its distance in foundDistance.
+  const find = (position: number): number => {
+    foundDistance = 0;
+    if (position + 2 >= end) return 0;
     let candidate = heads[hashAt(data, position)] ?? -1;
     let bestLength = 2;
-    let bestDistance = 0;
     const limit = Math.min(258, end - position);
     let searched = 0;
     while (candidate >= 0 && position - candidate <= 32768 && searched < limits.chain) {
@@ -56,33 +67,33 @@ export const tokenize = (data: Uint8Array, level: number): Token[] => {
       while (length < limit && data[candidate + length] === data[position + length]) length++;
       if (length > bestLength) {
         bestLength = length;
-        bestDistance = position - candidate;
+        foundDistance = position - candidate;
         if (length === limit) break;
       }
       candidate = previous[candidate] ?? -1;
       searched++;
     }
-    return { length: bestLength, distance: bestDistance };
+    return bestLength;
   };
 
   let position = 0;
   while (position < end) {
-    const best = find(position);
+    const length = find(position);
+    const distance = foundDistance;
     insert(position);
-    if (best.length >= 3) {
-      const next = limits.lazy > 0 ? find(position + 1) : { length: 0, distance: 0 };
-      if (next.length > best.length + limits.lazy) {
-        tokens.push({ kind: 'literal', byte: data[position] ?? 0 });
+    if (length >= 3) {
+      if (limits.lazy > 0 && find(position + 1) > length + limits.lazy) {
+        tokens[count++] = data[position] ?? 0;
         position++;
         continue;
       }
-      tokens.push({ kind: 'match', length: best.length, distance: best.distance });
-      for (let index = 1; index < best.length; index++) insert(position + index);
-      position += best.length;
+      tokens[count++] = matchToken(length, distance);
+      for (let index = 1; index < length; index++) insert(position + index);
+      position += length;
     } else {
-      tokens.push({ kind: 'literal', byte: data[position] ?? 0 });
+      tokens[count++] = data[position] ?? 0;
       position++;
     }
   }
-  return tokens;
+  return count;
 };

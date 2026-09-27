@@ -9,6 +9,9 @@ export interface DeflateOptions {
   level?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 }
 
+// Input is tokenized and Huffman-coded in blocks of at most this many bytes; a block never has more tokens than bytes.
+const BLOCK_BYTES = 1024 * 1024;
+
 const compressionLevel = (options?: DeflateOptions): number => {
   const level = options?.level ?? 6;
   if (!Number.isInteger(level) || level < 0 || level > 9) throw new InvalidArgumentError('compression level must be from 0 to 9');
@@ -33,12 +36,13 @@ export const deflateRaw = (data: Uint8Array, options?: DeflateOptions): Uint8Arr
       writer.writeBytes(data.subarray(offset, offset + length));
       offset += length;
     } while (offset < data.length);
-  } else if (data.length === 0) writeCompressedBlock(writer, [], true);
+  } else if (data.length === 0) writeCompressedBlock(writer, { words: new Uint32Array(), count: 0 }, true);
   else {
-    for (let offset = 0; offset < data.length; offset += 1024 * 1024) {
-      const end = Math.min(offset + 1024 * 1024, data.length);
-      const tokens = tokenize(data.subarray(offset, end), level);
-      writeCompressedBlock(writer, tokens, end === data.length);
+    const tokens = new Uint32Array(Math.min(data.length, BLOCK_BYTES));
+    for (let offset = 0; offset < data.length; offset += BLOCK_BYTES) {
+      const end = Math.min(offset + BLOCK_BYTES, data.length);
+      const count = tokenize(data.subarray(offset, end), level, tokens);
+      writeCompressedBlock(writer, { words: tokens, count }, end === data.length);
     }
   }
   return writer.finish();

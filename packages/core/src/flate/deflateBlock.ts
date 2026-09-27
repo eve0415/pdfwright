@@ -1,8 +1,8 @@
 import type { BitWriter } from './bitWriter.ts';
-import type { Token } from './lz77.ts';
+import type { TokenList } from './lz77.ts';
 
 import { buildCodeLengths, canonicalCodes } from './huffmanEncoder.ts';
-import { CODE_LENGTH_ORDER, DISTANCE_BASE, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
+import { CODE_LENGTH_ORDER, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_EXTRA } from './tables.ts';
 
 interface Codebook {
   lengths: readonly number[];
@@ -14,23 +14,6 @@ interface CodedValue {
   extra: number;
   extraBits: number;
 }
-
-interface ValueTable {
-  bases: readonly number[];
-  extras: readonly number[];
-  offset: number;
-}
-
-const LENGTH_TABLE: ValueTable = { bases: LENGTH_BASE, extras: LENGTH_EXTRA, offset: 257 };
-const DISTANCE_TABLE: ValueTable = { bases: DISTANCE_BASE, extras: DISTANCE_EXTRA, offset: 0 };
-
-const encodeValue = (value: number, table: ValueTable): CodedValue => {
-  for (let index = table.bases.length - 1; index >= 0; index--) {
-    const base = table.bases[index] ?? 0;
-    if (value >= base) return { symbol: index + table.offset, extra: value - base, extraBits: table.extras[index] ?? 0 };
-  }
-  throw new RangeError('invalid length or distance');
-};
 
 const makeCodebook = (lengths: readonly number[]): Codebook => ({ lengths, codes: canonicalCodes(lengths) });
 
@@ -77,31 +60,35 @@ const runLengthCodes = (lengths: readonly number[]): CodedValue[] => {
   return runs;
 };
 
-const frequencies = (tokens: readonly Token[]): [number[], number[]] => {
+// Token layout: see matchToken in lz77.ts.
+const frequencies = (tokens: TokenList): [number[], number[]] => {
   const literal = Array.from({ length: 286 }, () => 0);
   const distance = Array.from({ length: 30 }, () => 0);
   literal[256] = 1;
-  for (const token of tokens) {
-    if (token.kind === 'literal') literal[token.byte] = (literal[token.byte] ?? 0) + 1;
-    else {
-      const length = encodeValue(token.length, LENGTH_TABLE);
-      const backward = encodeValue(token.distance, DISTANCE_TABLE);
-      literal[length.symbol] = (literal[length.symbol] ?? 0) + 1;
-      distance[backward.symbol] = (distance[backward.symbol] ?? 0) + 1;
+  let matches = false;
+  for (let index = 0; index < tokens.count; index++) {
+    const token = tokens.words[index] ?? 0;
+    const symbol = token & 511;
+    literal[symbol] = (literal[symbol] ?? 0) + 1;
+    if (symbol > 256) {
+      const distanceSymbol = (token >>> 9) & 31;
+      distance[distanceSymbol] = (distance[distanceSymbol] ?? 0) + 1;
+      matches = true;
     }
   }
-  if (!tokens.some(token => token.kind === 'match')) distance[0] = 1;
+  if (!matches) distance[0] = 1;
   return [literal, distance];
 };
 
-const tokenBitCost = (tokens: readonly Token[], literal: Codebook, distance: Codebook): number => {
+const tokenBitCost = (tokens: TokenList, literal: Codebook, distance: Codebook): number => {
   let bits = literal.lengths[256] ?? 0;
-  for (const token of tokens) {
-    if (token.kind === 'literal') bits += literal.lengths[token.byte] ?? 0;
-    else {
-      const length = encodeValue(token.length, LENGTH_TABLE);
-      const backward = encodeValue(token.distance, DISTANCE_TABLE);
-      bits += (literal.lengths[length.symbol] ?? 0) + length.extraBits + (distance.lengths[backward.symbol] ?? 0) + backward.extraBits;
+  for (let index = 0; index < tokens.count; index++) {
+    const token = tokens.words[index] ?? 0;
+    const symbol = token & 511;
+    bits += literal.lengths[symbol] ?? 0;
+    if (symbol > 256) {
+      const distanceSymbol = (token >>> 9) & 31;
+      bits += (LENGTH_EXTRA[symbol - 257] ?? 0) + (distance.lengths[distanceSymbol] ?? 0) + (DISTANCE_EXTRA[distanceSymbol] ?? 0);
     }
   }
   return bits;
@@ -111,22 +98,22 @@ const writeSymbol = (writer: BitWriter, codes: Codebook, symbol: number): void =
   writer.writeBits(codes.codes[symbol] ?? 0, codes.lengths[symbol] ?? 0);
 };
 
-const writeTokens = (writer: BitWriter, tokens: readonly Token[], books: readonly [Codebook, Codebook]): void => {
-  for (const token of tokens) {
-    if (token.kind === 'literal') writeSymbol(writer, books[0], token.byte);
-    else {
-      const length = encodeValue(token.length, LENGTH_TABLE);
-      const backward = encodeValue(token.distance, DISTANCE_TABLE);
-      writeSymbol(writer, books[0], length.symbol);
-      writer.writeBits(length.extra, length.extraBits);
-      writeSymbol(writer, books[1], backward.symbol);
-      writer.writeBits(backward.extra, backward.extraBits);
+const writeTokens = (writer: BitWriter, tokens: TokenList, books: readonly [Codebook, Codebook]): void => {
+  for (let index = 0; index < tokens.count; index++) {
+    const token = tokens.words[index] ?? 0;
+    const symbol = token & 511;
+    writeSymbol(writer, books[0], symbol);
+    if (symbol > 256) {
+      const distanceSymbol = (token >>> 9) & 31;
+      writer.writeBits((token >>> 14) & 31, LENGTH_EXTRA[symbol - 257] ?? 0);
+      writeSymbol(writer, books[1], distanceSymbol);
+      writer.writeBits(token >>> 19, DISTANCE_EXTRA[distanceSymbol] ?? 0);
     }
   }
   writeSymbol(writer, books[0], 256);
 };
 
-export const writeCompressedBlock = (writer: BitWriter, tokens: readonly Token[], final: boolean): void => {
+export const writeCompressedBlock = (writer: BitWriter, tokens: TokenList, final: boolean): void => {
   const counts = frequencies(tokens);
   const literalLengths = buildCodeLengths(counts[0], 15);
   const distanceLengths = buildCodeLengths(counts[1], 15);
