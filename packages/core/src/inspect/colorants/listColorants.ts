@@ -101,9 +101,8 @@ const DECLARED_ORDER: readonly DeclaredOnlyReason[] = [
   'separation-info',
 ];
 
-// 9.3.6, Table 106: render modes 0, 2, 4 and 6 fill glyphs; 1, 2, 5 and 6 stroke them.
+// 9.3.6, Table 106: render modes 0, 2, 4 and 6 fill glyphs.
 const FILLING_MODES = new Set([0, 2, 4, 6]);
-const STROKING_MODES = new Set([1, 2, 5, 6]);
 
 const PROCESS_NAMES = new Set(['Cyan', 'Magenta', 'Yellow', 'Black']);
 
@@ -136,13 +135,6 @@ const isPatternSpace = ({ space }: ColorSpaceUse): boolean => {
   return family?.kind === 'name' && latin1(family.bytes) === 'Pattern';
 };
 
-// The spaces of a paint event that the operation itself uses, before those the interpreter adds for patterns (see PaintEvent).
-const directSpaces = (event: PaintEvent): number => {
-  if (event.kind === 'fill-stroke' || event.kind === 'clip') return 2;
-  if (event.kind !== 'text') return 1;
-  return (FILLING_MODES.has(event.state.renderMode) ? 1 : 0) + (STROKING_MODES.has(event.state.renderMode) ? 1 : 0);
-};
-
 const OPERATION: Readonly<Record<Exclude<PaintEvent['kind'], 'fill-stroke' | 'clip'>, PaintedBy>> = {
   fill: 'fill',
   stroke: 'stroke',
@@ -160,13 +152,6 @@ const operationAt = (event: PaintEvent, index: number): PaintedBy => {
   if (event.kind === 'clip') return 'fill';
   if (event.kind === 'text' && (index > 0 || !FILLING_MODES.has(event.state.renderMode))) return 'stroke';
   return OPERATION[event.kind];
-};
-
-// The operations whose Pattern spaces the interpreter followed to the spaces after the direct ones.
-const patternOperations = (event: PaintEvent, direct: number): PaintedBy[] => {
-  const operations: PaintedBy[] = [];
-  for (const [index, space] of event.colorSpaces.slice(0, direct).entries()) if (isPatternSpace(space)) operations.push(operationAt(event, index));
-  return operations;
 };
 
 const contextPainters = ({ sources }: PaintContext): PaintedBy[] => {
@@ -254,26 +239,28 @@ class PageScan {
 
   paint(event: PaintEvent): void {
     const place = placeOf(event.context);
-    const direct = directSpaces(event);
     const painters = contextPainters(event.context);
+    // Text, and the painting a Type 3 glyph procedure does for its glyph, marks nothing at alpha 0.
+    const glyph = event.kind === 'text' || event.context.sources.some(source => source.kind === 'type3-glyph');
+    const { fillAlpha, strokeAlpha, group } = event.state;
     for (const [index, space] of event.colorSpaces.entries()) {
-      if (isPatternSpace(space)) continue;
+      // A path that only clips paints nothing; the base of a Pattern space it was built in is read with the space.
       if (event.kind === 'clip') {
         this.placed(place, space.space, use => {
           use.selected.add('clip-only');
         });
         continue;
       }
-      const operation = index < direct ? [operationAt(event, index)] : patternOperations(event, direct);
-      const alpha = (operation.includes('stroke') ? event.state.strokeAlpha : event.state.fillAlpha) * event.state.group.alpha;
-      // A glyph painted at alpha 0 marks nothing.
-      if (event.kind === 'text' && index < direct && alpha === 0) {
+      if (isPatternSpace(space)) continue;
+      const owner = event.spaceOf[index] ?? index;
+      const operation = operationAt(event, owner);
+      if (glyph && (operation === 'stroke' ? strokeAlpha : fillAlpha) * group.alpha === 0) {
         this.placed(place, space.space, use => {
           use.selected.add('invisible-text');
         });
         continue;
       }
-      const by = index < direct ? [...operation, ...painters] : [...operation, 'pattern' as const, ...painters];
+      const by: PaintedBy[] = owner === index ? [operation, ...painters] : [operation, 'pattern', ...painters];
       this.placed(place, space.space, use => {
         for (const painter of by) use.painted.add(painter);
       });

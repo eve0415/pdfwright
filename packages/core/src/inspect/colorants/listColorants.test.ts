@@ -138,6 +138,49 @@ describe('painted colorants', () => {
   });
 });
 
+describe('colorants in patterns', () => {
+  const SHADINGS: TestObject[] = [
+    { number: 160, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Red')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
+    { number: 161, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Green')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
+    { number: 162, body: streamBody('/PatternType 1/PaintType 2/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1/Resources<<>>', '0 0 1 1 re f') },
+  ];
+  const resources = '/Pattern<</R 160 0 R/G 161 0 R/U 162 0 R>>/ExtGState<</Clear<</ca 0>>>>';
+
+  it('tells the fill pattern from the stroke pattern of one operation', () => {
+    expect(colorants('/Pattern cs /R scn /Pattern CS /G SCN 0 0 10 10 re B', { resources, objects: SHADINGS }).slice(1, 3)).toStrictEqual([
+      'Green spot p=stroke,pattern s= d=',
+      'Red spot p=fill,pattern s= d=',
+    ]);
+  });
+
+  it('reports the base of an uncoloured pattern that only clips as clip-only', () => {
+    expect(colorants('/PU cs 1 /U scn 0 0 10 10 re W n', { resources, spaces: `/PU[/Pattern ${separation('Blue')}]`, objects: SHADINGS })[0]).toBe(
+      'Blue spot p= s=clip-only d=resources',
+    );
+  });
+
+  it('reports text at alpha 0 as invisible, in a pattern colour and in the procedures of Type 3 glyphs', () => {
+    const glyphs: TestObject[] = [
+      { number: 110, body: type3Font(SPACES) },
+      { number: 111, body: streamBody('', '1000 0 d0 /CS2 cs 1 scn 0 0 750 750 re f') },
+    ];
+    const inGlyphs = colorants('/Clear gs BT /T3 12 Tf /CS1 cs 1 scn (a) Tj ET', {
+      resources: `${resources}/Font<</T3 110 0 R>>`,
+      objects: [...SHADINGS, ...glyphs],
+    });
+    const inPattern = colorants('/Clear gs BT /F1 12 Tf /Pattern cs /R scn (a) Tj ET', { resources, objects: SHADINGS });
+    expect([inGlyphs, inPattern.find(line => line.startsWith('Red'))]).toStrictEqual([
+      [
+        'Gold spot p= s=invisible-text d=resources',
+        'Green spot p= s= d=resources',
+        'Red spot p= s= d=resources',
+        'Silver spot p= s=invisible-text d=resources',
+      ],
+      'Red spot p= s=invisible-text d=resources',
+    ]);
+  });
+});
+
 describe('selected colorants', () => {
   it('reports a selection without a painting operator, invisible text and a path that only clips', () => {
     const alpha = '/ExtGState<</Clear<</ca 0>>>>';
