@@ -1,7 +1,7 @@
 /** A transformation matrix [a b c d e f], standing for the 3×3 matrix with rows (a b 0), (c d 0) and (e f 1) (ISO 32000-1:2008, 8.3.4). */
 export type Matrix = readonly [number, number, number, number, number, number];
 
-export const IDENTITY = [1, 0, 0, 1, 0, 0] as const satisfies Matrix;
+export const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
 /**
  * The product left × right: the transformation `left` followed by `right`.
