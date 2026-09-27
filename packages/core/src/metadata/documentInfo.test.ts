@@ -53,6 +53,11 @@ describe('document information', () => {
     }
   });
 
+  it('writes Trapped as a name', () => {
+    const texts = (['True', 'False', 'Unknown'] as const).map(trapped => ascii(createDocument({ info: { trapped } }).save().toBytes()));
+    expect(texts.map(text => /\/Trapped\/(\w+)/u.exec(text)?.[1])).toStrictEqual(['True', 'False', 'Unknown']);
+  });
+
   it('writes no implicit metadata or clock values', () => {
     const pdf = ascii(createDocument().save().toBytes());
     expect(pdf).not.toContain('/Info');

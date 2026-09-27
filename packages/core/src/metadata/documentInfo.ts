@@ -16,6 +16,8 @@ export interface DocumentInfo {
   producer?: string;
   creationDate?: PdfDate;
   modificationDate?: PdfDate;
+  /** Whether the document has been trapped (Table 317); written as a name. */
+  trapped?: 'True' | 'False' | 'Unknown';
 }
 
 // ISO 32000-1:2008, Annex D, Table D.2 maps these codes to the same Unicode code points; it marks the other C0 codes and 0x7F undefined and maps 0x18-0x1F to spacing accents.
@@ -63,6 +65,8 @@ export const documentInfoDictionary = (info: DocumentInfo): PdfDictionaryEntries
   }
   if (info.creationDate !== undefined) entries.set(pdfName('CreationDate').bytes, pdfDateObject(info.creationDate));
   if (info.modificationDate !== undefined) entries.set(pdfName('ModDate').bytes, pdfDateObject(info.modificationDate));
+  // Table 317, Trapped: "This shall be the name True, not the boolean value true".
+  if (info.trapped !== undefined) entries.set(pdfName('Trapped').bytes, pdfName(info.trapped));
   return entries;
 };
 
