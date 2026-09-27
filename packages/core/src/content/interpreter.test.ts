@@ -485,6 +485,14 @@ describe('forms', () => {
     expect(() => interpretPage(internalsWith(bytes, 4), 0)).toThrow(ResourceLimitError);
     expect(interpretPage(internalsWith(bytes, 8), 0).warnings).toStrictEqual([]);
   });
+
+  it('limits recursive content execution when maxNesting is raised', () => {
+    const chain = Array.from({ length: 100 }, (_, index) =>
+      form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, '/Next Do'),
+    );
+    const bytes = textPdfBytes({ pages: [{ content: '/Next Do', resources: '/XObject<</Next 110 0 R>>' }], objects: chain });
+    expect(() => interpretPage(internalsWith(bytes, 200), 0)).toThrow(ResourceLimitError);
+  });
 });
 
 describe('patterns', () => {

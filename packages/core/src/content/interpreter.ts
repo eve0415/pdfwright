@@ -61,6 +61,9 @@ export const MAX_OPERATIONS = 10_000_000;
 /** The default for `InterpretOptions.maxContentBytes`: 256 MiB. */
 export const MAX_CONTENT_BYTES = 268_435_456;
 
+// Content execution uses JavaScript call frames for nested forms, patterns, glyphs and masks.
+const MAX_CONTENT_DEPTH = 64;
+
 /**
  * A content stream being interpreted: the page's content, a form XObject, a tiling pattern's cell, a Type 3 glyph procedure, an annotation's appearance stream, or the transparency group of a soft mask.
  * Streams are identified by reference, which a well-formed file always has because ISO 32000-1:2008, 7.3.8.1 says "All streams shall be indirect objects".
@@ -737,8 +740,9 @@ class Interpreter {
       this.warn('content-cycle', `${where}: ${scope.label(0)} is already being drawn`, true);
       return;
     }
-    if (this.depth >= this.document.maxNesting) {
-      throw new ResourceLimitError(`content streams nest deeper than maxNesting (${String(this.document.maxNesting)})`);
+    const limit = Math.min(this.document.maxNesting, MAX_CONTENT_DEPTH);
+    if (this.depth >= limit) {
+      throw new ResourceLimitError(`content streams nest deeper than ${String(limit)}`);
     }
     const saved = {
       state: this.state,
