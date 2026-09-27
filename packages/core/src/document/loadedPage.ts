@@ -1,3 +1,4 @@
+import type { PdfDate } from '../date/pdfDate.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ContentContext } from './appendContent.ts';
@@ -6,6 +7,7 @@ import type { ResourceCategory, ResourceObjects } from './pageResources.ts';
 import type { PageEntry } from './pageTree.ts';
 import type { PdfRect } from './rect.ts';
 
+import { pdfDateObject } from '../date/pdfDate.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { formatLength } from '../length/length.ts';
@@ -54,6 +56,11 @@ export interface LoadedPage {
    */
   appendContent: (content: Uint8Array | ((content: ContentBuilder) => void), options?: { isolate?: boolean }) => void;
   lastModified: () => PdfObject | undefined;
+  /**
+   * Sets the page's LastModified date, or removes it with undefined; no other edit changes it.
+   * Removing it is refused while the page has PieceInfo, which ISO 32000-1:2008, Table 30 says requires it.
+   */
+  setLastModified: (date: PdfDate | undefined) => void;
   pieceInfo: () => PdfObject | undefined;
 }
 
@@ -213,6 +220,16 @@ export const createLoadedPage = (context: ContentContext, entry: PageEntry, inde
     addResource: (category, value, options) =>
       addPageResource(context, entry, options?.prefix === undefined ? { category, value } : { category, value, prefix: options.prefix }),
     lastModified: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(LAST_MODIFIED))),
+    setLastModified: date => {
+      const dictionary = pageDictionary(resolver, entry.reference);
+      // Table 30, LastModified: "(Required if PieceInfo is present; optional otherwise; PDF 1.3)".
+      if (date === undefined && dictionary.has(PIECE_INFO)) {
+        throw new ValidationError(`page ${label(entry.reference)} has PieceInfo, which requires LastModified`);
+      }
+      if (date === undefined) dictionary.delete(LAST_MODIFIED);
+      else dictionary.set(LAST_MODIFIED, pdfDateObject(date));
+      resolver.set(entry.reference, { kind: 'dictionary', entries: dictionary });
+    },
     pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),
   };
 };

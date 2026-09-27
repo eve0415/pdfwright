@@ -3,11 +3,12 @@ import type { LoadOptions, LoadedDocument } from './loadDocument.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { pdfDate } from '../date/pdfDate.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { mm, pt } from '../length/length.ts';
-import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { pdfName, pdfReference, pdfString } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
 import { loadDocument } from './loadDocument.ts';
@@ -148,5 +149,27 @@ describe('page box edits', () => {
       lone.page(0).setBox('MediaBox', undefined);
     }).toThrow(ValidationError);
     expect(lone.page(0).boxes().MediaBox.rect).toStrictEqual([0, 0, 10, 10]);
+  });
+});
+
+describe('page LastModified', () => {
+  it('sets and removes the date on request only', () => {
+    const document = load(tree);
+    expect(document.page(0).lastModified()).toBeUndefined();
+    document.page(0).setLastModified(pdfDate({ year: 2026, month: 9, day: 27, hour: 3, minute: 4, second: 5, offset: 'Z' }));
+    expect(document.page(0).lastModified()).toStrictEqual(pdfString(new TextEncoder().encode('D:20260927030405Z')));
+    document.page(0).setLastModified(undefined);
+    expect(document.page(0).lastModified()).toBeUndefined();
+  });
+
+  it('refuses to remove the date from a page with PieceInfo', () => {
+    const document = load([
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 1 1]/Resources<<>>>>' },
+      { number: 3, body: "<</Type/Page/Parent 2 0 R/PieceInfo<</Illustrator 9 0 R>>/LastModified(D:20070624192720-05'00')>>" },
+    ]);
+    expect(() => {
+      document.page(0).setLastModified(undefined);
+    }).toThrow(ValidationError);
+    expect(document.page(0).pieceInfo()?.kind).toBe('dictionary');
   });
 });
