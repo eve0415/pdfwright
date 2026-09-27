@@ -7,6 +7,7 @@ import { MAPPED_ROWS, XMP_MM_NAMESPACE, XMP_NAMESPACE } from '../mapping.ts';
 
 import { readXmp } from './readXmp.ts';
 import { managedDescription } from './writeXmp.ts';
+import { DEFAULT_XML_LIMITS } from './xmlTokenizer.ts';
 
 export interface SplicedPacket {
   readonly bytes: Uint8Array;
@@ -72,8 +73,8 @@ const withSpaceBefore = (text: string, start: number): number => {
 };
 
 // A splice defect must not ship a packet that disagrees with Info, so the result is read back and each managed property compared with its value.
-const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | undefined>): boolean => {
-  const read = readXmp(bytes);
+const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | undefined>, maxTokens: number): boolean => {
+  const read = readXmp(bytes, maxTokens);
   if (!read.ok) return false;
   // Each occurrence is appended in place, so that a packet repeating one name many times is still checked in linear time.
   const found = new Map<string, XmpValue[]>();
@@ -99,7 +100,13 @@ const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | u
  * The new element takes the packet's subject as rdf:about (XMP Part 1 7.4), declares rdf itself, and resets xml:lang when an enclosing element sets one.
  * Throws ValidationError xmp-unreadable when the result does not read back with exactly the managed values.
  */
-export const splicePacket = (packet: ReadPacket, values: ManagedValues, kept: ReadonlySet<MappedKey> = new Set()): SplicedPacket => {
+export const splicePacket = (
+  packet: ReadPacket,
+  values: ManagedValues,
+  options: { readonly kept?: ReadonlySet<MappedKey>; readonly maxTokens?: number } = {},
+): SplicedPacket => {
+  const kept = options.kept ?? new Set<MappedKey>();
+  const maxTokens = options.maxTokens ?? DEFAULT_XML_LIMITS.maxTokens;
   const expected = expectedValues(packet, values, kept);
   const keptNames = new Set(MAPPED_ROWS.filter(row => kept.has(row.key)).map(row => key(row.namespace, row.name)));
   const removed = packet.properties
@@ -136,7 +143,9 @@ export const splicePacket = (packet: ReadPacket, values: ManagedValues, kept: Re
     result = result.replace(ENCODING_DECLARATION, '$1$2UTF-8$2');
   }
   const bytes = new TextEncoder().encode(result);
-  if (!readsBack(bytes, expected)) throw new ValidationError('the edited packet does not read back with the values written into it', 'xmp-unreadable');
+  if (!readsBack(bytes, expected, maxTokens)) {
+    throw new ValidationError('the edited packet does not read back with the values written into it', 'xmp-unreadable');
+  }
   const removedLegacy = removed.flatMap(property => LEGACY.get(key(property.namespace, property.localName)) ?? []);
   return { bytes, removedLegacy, transcoded };
 };

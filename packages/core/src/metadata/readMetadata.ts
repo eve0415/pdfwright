@@ -21,6 +21,18 @@ import { readInfoValues } from './documentInfo.ts';
 import { mapMetadata } from './mapping.ts';
 import { scanPackets } from './packetScan.ts';
 import { readXmp } from './xmp/readXmp.ts';
+import { DEFAULT_XML_LIMITS } from './xmp/xmlTokenizer.ts';
+
+export interface ReadMetadataOptions {
+  /** Most XML tokens in one XMP packet; default 160,000. A packet above the cap is reported as unreadable and its bytes are left intact. */
+  readonly maxXmpTokens?: number;
+}
+
+export const xmpTokenLimit = (options: ReadMetadataOptions): number => {
+  const limit = options.maxXmpTokens ?? DEFAULT_XML_LIMITS.maxTokens;
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new InvalidArgumentError('maxXmpTokens must be a positive safe integer');
+  return limit;
+};
 
 /** A metadata stream reached through the Metadata entry of an object other than the catalog (ISO 32000-1:2008, Table 316). */
 export interface ComponentPacket {
@@ -78,10 +90,12 @@ export type DocumentPacket =
 /** Reads the parts of the document's metadata, collecting findings as it goes. */
 export class MetadataReader {
   private readonly document: DocumentInternals;
+  private readonly maxXmpTokens: number;
   readonly findings: MetadataFinding[] = [];
 
-  constructor(document: DocumentInternals) {
+  constructor(document: DocumentInternals, maxXmpTokens: number = DEFAULT_XML_LIMITS.maxTokens) {
     this.document = document;
+    this.maxXmpTokens = maxXmpTokens;
   }
 
   report(code: MetadataFinding['code'], detail: string): void {
@@ -119,7 +133,10 @@ export class MetadataReader {
     // ISO 32000-1:2008, 14.3.2, NOTE 2: the metadata "is visible as plain text to tools that are not PDF-aware only if the metadata stream is both unfiltered and unencrypted".
     if (value.dictionary.has(FILTER)) this.report('metadata-filtered', `the metadata stream ${String(reference.objectNumber)} is filtered`);
     try {
-      return readXmp(decodeStream(value, { maxDecodedBytes: this.document.maxDecodedBytes, warn: ignore, deref: item => this.document.objects.deref(item) }));
+      return readXmp(
+        decodeStream(value, { maxDecodedBytes: this.document.maxDecodedBytes, warn: ignore, deref: item => this.document.objects.deref(item) }),
+        this.maxXmpTokens,
+      );
     } catch (error: unknown) {
       if (error instanceof ParseError || error instanceof UnsupportedFeatureError || error instanceof ResourceLimitError) {
         return { ok: false, reason: 'undecodable' };
@@ -213,8 +230,8 @@ export interface MetadataState {
 }
 
 /** Info, the document packet and their mapping, read from the document as edited; the reader has their findings. */
-export const readMetadataState = (internals: DocumentInternals): MetadataState => {
-  const reader = new MetadataReader(internals);
+export const readMetadataState = (internals: DocumentInternals, options: ReadMetadataOptions = {}): MetadataState => {
+  const reader = new MetadataReader(internals, xmpTokenLimit(options));
   const info = reader.info();
   const root = internals.objects.trailer(internals.structure.trailer).get(ROOT);
   const catalogValue = internals.objects.deref(root);
@@ -230,10 +247,10 @@ export const readMetadataState = (internals: DocumentInternals): MetadataState =
  * It never throws for damaged metadata; what cannot be read is reported as a finding.
  * The reachability walk parses every object reachable from the trailer once, and the orphan check every object in use.
  */
-export const readMetadata = (document: LoadedDocument): DocumentMetadata => {
+export const readMetadata = (document: LoadedDocument, options: ReadMetadataOptions = {}): DocumentMetadata => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new InvalidArgumentError('readMetadata needs a document from loadDocument');
-  const { reader, info, catalog, xmp, mapping } = readMetadataState(internals);
+  const { reader, info, catalog, xmp, mapping } = readMetadataState(internals, options);
   const { objects: reachable } = reachableObjects(internals);
   const components = reader.components(reachable, catalog?.reference.objectNumber);
   const orphans = reader.orphans(reachable);

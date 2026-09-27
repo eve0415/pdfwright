@@ -1,6 +1,6 @@
 import type { XmlAttribute, XmlEncoding, XmlRefusal, XmlSpan, XmlToken } from './xmlTokenizer.ts';
 
-import { decodeXml, tokenizeXml } from './xmlTokenizer.ts';
+import { DEFAULT_XML_LIMITS, decodeXml, tokenizeXml } from './xmlTokenizer.ts';
 
 export const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace';
@@ -345,10 +345,10 @@ const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken
  * Reads an XMP packet (XMP Part 1 7): the xpacket wrapper if present, the one rdf:RDF element, inside x:xmpmeta or not, and the top-level properties of its rdf:Description elements with their spans.
  * Values that are not simple text or arrays of simple items are reported as opaque and never interpreted.
  */
-export const readXmp = (bytes: Uint8Array): ReadXmp => {
+export const readXmp = (bytes: Uint8Array, maxTokens: number = DEFAULT_XML_LIMITS.maxTokens): ReadXmp => {
   const decoded = decodeXml(bytes);
   if (!decoded.ok) return { ok: false, reason: decoded.reason };
-  const tokens = tokenizeXml(decoded.text);
+  const tokens = tokenizeXml(decoded.text, { ...DEFAULT_XML_LIMITS, maxTokens });
   if (!tokens.ok) return { ok: false, reason: tokens.reason };
   try {
     return { ok: true, packet: readTree(decoded.text, decoded.encoding, tokens.tokens) };

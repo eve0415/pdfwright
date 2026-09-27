@@ -35,11 +35,11 @@ export interface XmlLimits {
   readonly maxDepth: number;
   /** Most attributes on one element; default 256. */
   readonly maxAttributes: number;
-  /** Most tokens in one packet; default 8,192. */
+  /** Most tokens in one packet; default 160,000. */
   readonly maxTokens: number;
 }
 
-const DEFAULT_LIMITS: XmlLimits = { maxDepth: 64, maxAttributes: 256, maxTokens: 8192 };
+export const DEFAULT_XML_LIMITS: XmlLimits = { maxDepth: 64, maxAttributes: 256, maxTokens: 160_000 };
 
 // XML 1.0 (Fifth Edition), 2.2, production [2] Char: tab, line feed, carriage return, and the scalar values from U+0020 other than surrogates, U+FFFE and U+FFFF.
 const INVALID_CHARACTER = /[^\t\n\r\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/u;
@@ -265,7 +265,7 @@ class Tokenizer {
  * Element nesting and attributes per element are limited; the scan is a loop over the text, never recursion.
  * The text must hold one root element, with only white space, comments and processing instructions around it; after the root element, an xpacket trailer processing instruction ends the text read.
  */
-export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_LIMITS): XmlTokens => {
+export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlTokens => {
   try {
     return { ok: true, tokens: new Tokenizer(text, limits).run() };
   } catch (error: unknown) {

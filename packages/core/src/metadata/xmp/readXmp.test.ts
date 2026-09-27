@@ -161,7 +161,7 @@ describe('reading XMP packets', () => {
 
   it('refuses a packet with too many properties before building its tree', () => {
     const text = packet(`<rdf:Description xmlns:p="urn:p">${'<p:x/>'.repeat(8193)}</rdf:Description>`);
-    expect(refusal(text)).toBe('too-many-tokens');
+    expect(readXmp(new TextEncoder().encode(text), 8192)).toStrictEqual({ ok: false, reason: 'too-many-tokens' });
   });
 
   it('reports one finding for repeated duplicates of the same property', () => {

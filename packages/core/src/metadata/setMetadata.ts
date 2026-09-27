@@ -4,7 +4,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { MappedKey } from './mapping.ts';
 import type { MetadataFinding } from './metadataFinding.ts';
-import type { ComponentPacket, DocumentPacket, MetadataState } from './readMetadata.ts';
+import type { ComponentPacket, DocumentPacket, MetadataState, ReadMetadataOptions } from './readMetadata.ts';
 import type { MetadataInput, ReconciledValue, ResolvedInput } from './resolveMetadata.ts';
 import type { SignatureProtection } from './signatures.ts';
 import type { ReadPacket } from './xmp/readXmp.ts';
@@ -23,14 +23,14 @@ import { changedObjectBytes } from '../save/mergeSerialize.ts';
 import { changesDigest, deriveInstanceId, resolveDocumentId } from './identifiers.ts';
 import { XMP_MM_NAMESPACE } from './mapping.ts';
 import { scanPackets } from './packetScan.ts';
-import { MetadataReader, readMetadataState } from './readMetadata.ts';
+import { MetadataReader, readMetadataState, xmpTokenLimit } from './readMetadata.ts';
 import { infoDictionary, managedValues, resolveValues } from './resolveMetadata.ts';
 import { signatureProtection } from './signatures.ts';
 import { splicePacket } from './xmp/splicePacket.ts';
 import { newPacket } from './xmp/writeXmp.ts';
 import { xmpDateString } from './xmp/xmpDate.ts';
 
-export interface SetMetadataOptions {
+export interface SetMetadataOptions extends ReadMetadataOptions {
   /** 'keep' (the default) keeps the packet's xmpMM:DocumentID, else derives it from the first file identifier; a value is written as given. */
   documentId?: 'keep' | { readonly value: string };
   /** 'remove' (the default) requires the next save to rewrite the file, so that it holds one document packet; 'keep' allows an incremental update that leaves earlier packets in earlier revisions. */
@@ -115,7 +115,7 @@ const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptio
     throw new ValidationError(`the document packet cannot be read (${xmp.unreadable}); pass unreadableXmp 'replace' to discard it`, 'xmp-unreadable');
   }
   const { packet } = xmp;
-  const splice: PacketWriter = values => splicePacket(packet, values, kept);
+  const splice: PacketWriter = values => splicePacket(packet, values, { kept, maxTokens: xmpTokenLimit(options) });
   try {
     splice(sample);
     return splice;
@@ -251,7 +251,7 @@ interface Prepared {
 // Everything is read, resolved and checked, and the packet and Info built, before anything changes.
 const prepare = (document: DocumentInternals, input: MetadataInput, options: SetMetadataOptions): Prepared => {
   refuseSigned(document, options.revisions === 'keep');
-  const state = readMetadataState(document);
+  const state = readMetadataState(document, options);
   const resolved = resolveValues(state, input);
   const packet = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet : undefined;
   const { objects } = document;

@@ -91,7 +91,7 @@ export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo, InfoValue, TextString } from './metadata/documentInfo.ts';
 export { readMetadata } from './metadata/readMetadata.ts';
-export type { ComponentPacket, DocumentMetadata } from './metadata/readMetadata.ts';
+export type { ComponentPacket, DocumentMetadata, ReadMetadataOptions } from './metadata/readMetadata.ts';
 export { setMetadata } from './metadata/setMetadata.ts';
 export type { MetadataChange, SetMetadataOptions } from './metadata/setMetadata.ts';
 export type { MetadataInput, ReconciledValue } from './metadata/resolveMetadata.ts';
