@@ -218,6 +218,11 @@ describe('font inventory', () => {
     ]);
   });
 
+  it('exempts only Type 1 fonts with a standard 14 name from the descriptor requirement', () => {
+    const trueType = onPage('/Font<</F1<</Type/Font/Subtype/TrueType/BaseFont/Helvetica/FirstChar 65/LastChar 65/Widths[600]>>>>');
+    expect(codes(trueType)).toStrictEqual(['descriptor-missing']);
+  });
+
   it('reads a ToUnicode entry that is not a stream as unreadable', () => {
     const font = onPage('/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica/ToUnicode/Identity-H>>>>');
     expect([font.toUnicode, codes(font)]).toStrictEqual(['unreadable', ['to-unicode-unreadable']]);

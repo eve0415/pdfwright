@@ -249,8 +249,8 @@ const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described
     problems.push({ code: 'embedding-type-mismatch', detail: `${program.embedding.file} is not a program Table 126 allows for this font type` });
   }
   if (malformed) problems.push({ code: 'subset-tag-malformed', detail: 'the name has a plus sign after six characters that are not all uppercase letters' });
-  // Table 111, FontDescriptor: "Required except for the standard 14 fonts"; Table 117 requires it of every CIDFont; Table 112 only in Tagged PDF.
-  const standard14 = model.baseFont !== undefined && STANDARD_14.has(latin1(model.baseFont)) && model.subtype !== 'Type0';
+  // Table 111, FontDescriptor: "Required except for the standard 14 fonts", which 9.6.2.2 names as Type 1 fonts; Table 117 requires it of every CIDFont; Table 112 only in Tagged PDF.
+  const standard14 = model.baseFont !== undefined && STANDARD_14.has(latin1(model.baseFont)) && model.subtype === 'Type1';
   const required = model.subtype === 'Type0' ? model.descendant !== undefined : model.subtype !== 'Type3' && !standard14;
   if (descriptor === undefined && required) problems.push({ code: 'descriptor-missing', detail: 'the font has no font descriptor' });
   // Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
