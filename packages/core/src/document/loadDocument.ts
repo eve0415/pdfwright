@@ -16,10 +16,10 @@ import type { Separation, SeparationOptions } from './separation.ts';
 import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
-import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
+import { fullRewrite } from '../save/fullRewrite.ts';
 import { incrementalSave } from '../save/incrementalSave.ts';
 import { locateHeader } from '../xref/locate.ts';
 
@@ -202,8 +202,7 @@ class LoadedPdf implements LoadedDocument {
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
-    if (mode === 'full') throw new UnsupportedFeatureError('full rewrites are not supported yet');
-    return incrementalSave({
+    const input = {
       store: this.objects.store,
       changes,
       size: this.objects.size,
@@ -213,7 +212,8 @@ class LoadedPdf implements LoadedDocument {
       maxNesting: this.maxNesting,
       fileIdentifier: options.fileIdentifier ?? 'derive',
       warnings,
-    });
+    };
+    return mode === 'full' ? fullRewrite(input) : incrementalSave(input);
   }
 
   catalog(): PdfDictionaryEntries {
