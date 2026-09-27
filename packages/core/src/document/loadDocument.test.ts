@@ -109,6 +109,15 @@ describe('loading documents', () => {
     expect(() => loadDocument(encrypted.bytes)).toThrow(EncryptedDocumentError);
     const broken = withStartxref(encrypted.text, 5);
     expect(() => load(broken)).toThrow(EncryptedDocumentError);
+    const packed = buildPdf([
+      {
+        xref: 'stream',
+        objects: [catalog],
+        objectStreams: [{ number: 4, members: [pages], dictionary: '/Filter/FlateDecode' }],
+        trailer: '/Root 1 0 R/Encrypt<</Filter/Standard>>',
+      },
+    ]);
+    expect(() => load(withStartxref(packed.text, 5))).toThrow(EncryptedDocumentError);
   });
 
   it('detects linearized files', () => {

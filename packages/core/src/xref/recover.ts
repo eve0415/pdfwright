@@ -13,6 +13,7 @@ import { parseIndirectObject } from '../parse/indirectObject.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
 
+import { refuseEncryption } from './encryption.ts';
 import { ObjectIndex } from './objectIndex.ts';
 import { decodeObjectStream } from './objectStream.ts';
 
@@ -236,6 +237,8 @@ const reportExtendsCycles = (streams: readonly DecodedObjectStream[], context: O
 export const reconstructIndex = (input: ByteSource, context: ObjectStreamContext): Reconstruction => {
   const scanner = new Scanner(input, context);
   scanner.scan();
+  // ISO 32000-1:2008, 7.6.1: an Encrypt entry makes the document encrypted, and its object streams cannot be decoded without decrypting them, so encryption is checked first.
+  refuseEncryption(scanner.trailers);
   const streams = scanner.members();
   reportExtendsCycles(streams, context);
   const ranked: XrefEntry[] = [];
