@@ -1,11 +1,13 @@
 import type { TestObject } from '../../testing/pdfBuilder.ts';
+import type { SyntheticVariations } from '../../testing/syntheticTrueType.ts';
 import type { PageText } from './extractText.ts';
 import type { MatchTextOptions, TextMatch } from './matchText.ts';
 
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
-import { streamBody } from '../../testing/pdfBuilder.ts';
+import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
 import { extractText } from './extractText.ts';
@@ -30,7 +32,7 @@ const code = (value: number): string => hex([Math.floor(value / 256), value % 25
  * An Identity-H font, T, whose ToUnicode maps code n + 1 to texts[n] (nothing for null), every glyph 1000 thousandths wide with descent −120 and ascent 880.
  * Code 0 selects CID 0, the .notdef glyph.
  */
-const cidFont = (texts: readonly (string | null)[]): readonly TestObject[] => {
+const cidFont = (texts: readonly (string | null)[], program?: Uint8Array): readonly TestObject[] => {
   const entries = texts.flatMap((text, index) => (text === null ? [] : [`<${code(index + 1)}> <${utf16(text)}>`]));
   return [
     { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
@@ -47,14 +49,17 @@ const cidFont = (texts: readonly (string | null)[]): readonly TestObject[] => {
     },
     {
       number: 111,
-      body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontBBox[0 -120 1000 880]/ItalicAngle 0/Ascent 880/Descent -120/CapHeight 700/StemV 80>>',
+      body: `<</Type/FontDescriptor/FontName/Test/Flags 4/FontBBox[0 -120 1000 880]/ItalicAngle 0/Ascent 880/Descent -120/CapHeight 700/StemV 80${program === undefined ? '' : '/FontFile2 112 0 R'}>>`,
     },
+    ...(program === undefined ? [] : [{ number: 112, body: streamBody('', latin1Text(program)) }]),
   ];
 };
 
 interface Proof {
   /** The text each code stands for: code n + 1 maps to texts[n]. */
   readonly texts: readonly (string | null)[];
+  /** A TrueType program embedded as the font's FontFile2, whose glyph n the code n selects. */
+  readonly program?: Uint8Array;
   /** The content, where `show(codes)` writes a Tj of the codes. */
   readonly content: string;
   readonly resources?: string;
@@ -67,8 +72,11 @@ const show = (...codes: readonly number[]): string => `<${codes.map(value => cod
 /** Shows codes 1…n of the font in one line at 10 points from (100, 700). */
 const line = (count: number): string => `BT /T 10 Tf 100 700 Td ${show(...Array.from({ length: count }, (_, index) => index + 1))} ET`;
 
-const page = ({ texts, content, resources = '', objects = [], entries = '' }: Proof): PageText => {
-  const bytes = textPdfBytes({ pages: [{ content, resources: `/Font<</T 105 0 R>>${resources}`, entries }], objects: [...cidFont(texts), ...objects] });
+const page = ({ texts, program, content, resources = '', objects = [], entries = '' }: Proof): PageText => {
+  const bytes = textPdfBytes({
+    pages: [{ content, resources: `/Font<</T 105 0 R>>${resources}`, entries }],
+    objects: [...cidFont(texts, program), ...objects],
+  });
   return extractText(loadDocument(bytes), 0);
 };
 
@@ -331,6 +339,66 @@ describe('text matching', () => {
 
     it('reads the shared hyphenation point without spans when they are ignored', () => {
       expect(statusOf({ texts: ['‧'], content: spanned(['・', 1]) }, '・', { actualText: 'ignore' })).toBe('match');
+    });
+  });
+
+  describe('embedded cmaps', () => {
+    // Glyph 1 is Ａ as the cmap maps U+FF21, glyph 2 a half-width alternate the cmap does not list, glyph 3 侭, glyph 4 葛, glyph 5 its variant for U+E0100, glyph 6 a vertical comma.
+    const box = { advance: 1000, box: [100, 0, 900, 700] } as const;
+    const program = (variations: readonly SyntheticVariations[] = []): Uint8Array =>
+      syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, box, box, box, box, box, box],
+        characters: [
+          [0xff21, 1],
+          [0x4fad, 3],
+          [0x845b, 4],
+        ],
+        variations,
+      });
+    const plain = program();
+
+    it('confirms glyphs the embedded cmap maps their text to', () => {
+      const result = match({ texts: ['Ａ', null, '侭'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(1, 3)} ET` }, 'Ａ侭');
+      expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-checked']);
+    });
+
+    it('leaves a glyph the cmap maps its text away from unverified, as Chromium prints hwid', () => {
+      // font-feature-settings "hwid" draws half-width Ａ glyphs whose ToUnicode still says U+FF21, with no span; the subset's cmap maps U+FF21 to the full-width glyph.
+      const result = match({ texts: ['Ａ', 'Ａ'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(2)} ET` }, 'Ａ');
+      expect([...summary(result), result.evidence]).toStrictEqual([
+        'unverified',
+        'Ａ',
+        [{ kind: 'glyph-disagrees', text: 'Ａ', expectedGid: 1, drawnGid: 2, glyphs: [0] }],
+        'glyph-text-only',
+      ]);
+    });
+
+    it('says nothing about a glyph whose text the cmap does not list', () => {
+      // Chromium's subsets keep only reverse-mapped characters in cmap, so a vertical alternate's text is absent from it.
+      const result = match({ texts: ['Ａ', null, null, null, null, '︑'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(6)} ET` }, '、');
+      expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
+    });
+
+    it('confirms a variation sequence through the format 14 subtable', () => {
+      const texts = [null, null, null, '葛', '葛󠄀'];
+      const withVariant = program([{ selector: 0xe0100, defaults: [], glyphs: [[0x845b, 5]] }]);
+      expect(statusOf({ texts, program: withVariant, content: `BT /T 10 Tf 100 700 Td ${show(5)} ET` }, '葛󠄀')).toBe('match');
+      const defaultVariant = program([{ selector: 0xe0100, defaults: [0x845b], glyphs: [] }]);
+      expect(statusOf({ texts, program: defaultVariant, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('match');
+      expect(statusOf({ texts, program: plain, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('unverified');
+    });
+
+    it('reports Type 3 glyphs as checked by their text only', () => {
+      const type3: readonly TestObject[] = [
+        {
+          number: 120,
+          body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
+        },
+        { number: 121, body: streamBody('', '1000 0 0 -120 1000 880 d1 0 0 1000 800 re f') },
+      ];
+      const result = match({ texts: [], content: 'BT /E 10 Tf 100 700 Td (a) Tj ET', resources: '/Font<</E 120 0 R>>', objects: type3 }, 'a');
+      expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-text-only']);
     });
   });
 });

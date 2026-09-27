@@ -1,10 +1,12 @@
 import type { AlignmentStep } from './alignment.ts';
 import type { GlyphTextReason, PageGlyph, PageText } from './extractText.ts';
 import type { TextFold } from './folds.ts';
+import type { EmbeddedCmap } from './glyphEvidence.ts';
 import type { GlyphLayout } from './orderGlyphs.ts';
 
 import { align } from './alignment.ts';
 import { TEXT_FOLDS, foldText } from './folds.ts';
+import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 
 export interface MatchTextOptions {
@@ -51,6 +53,8 @@ export type TextDifference =
     }
   /** An intended variation selector that only an ActualText span, not the glyph's own text, carries. */
   | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
+  /** A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn. */
+  | { readonly kind: 'glyph-disagrees'; readonly text: string; readonly expectedGid: number; readonly drawnGid: number; readonly glyphs: readonly number[] }
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
   | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number };
 
@@ -77,6 +81,8 @@ export interface TextMatch {
   readonly fonts: readonly string[];
   /** The compared glyphs in the order compared. */
   readonly glyphs: readonly number[];
+  /** `glyph-checked` when the embedded cmap of every compared glyph's font maps the glyph's text to the glyph drawn; `glyph-text-only` when some glyph was checked by its text alone, as a Type 3 glyph or a simple font's always is. */
+  readonly evidence: 'glyph-checked' | 'glyph-text-only';
 }
 
 // Variation selectors: U+FE00–U+FE0F and U+E0100–U+E01EF.
@@ -157,12 +163,15 @@ interface Settings {
   readonly folds: readonly TextFold[];
   readonly equivalents: ReadonlyMap<string, string>;
   readonly selectors: 'require-glyph-evidence' | 'ignore';
+  readonly cmaps: ReadonlyMap<string, EmbeddedCmap>;
 }
 
 class FoundText {
   readonly clusters: FoundCluster[] = [];
   /** Differences that are not about alignment: spans that disagree with their glyphs or have none compared. */
   readonly notes: TextDifference[] = [];
+  /** The glyphs whose font's embedded cmap maps their text to the glyph drawn. */
+  readonly confirmed = new Set<number>();
   private readonly settings: Settings;
   private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: number[] }>();
 
@@ -187,14 +196,38 @@ class FoundText {
     return !(this.settings.selectors === 'ignore' && isSelector(codePoint));
   }
 
-  // The page's reading of one glyph's text: folds, then the caller's equivalents.
-  private read(text: string, glyphs: readonly number[]): string {
+  // The page's reading of one glyph's text: folds, then the caller's equivalents; the folded text, before the equivalents, is checked against the font's embedded cmap.
+  private read(glyph: PageGlyph, text: string): string {
+    const glyphs = [glyph.index];
     const folded = foldText(text, this.settings.folds);
     for (const use of folded.uses) this.recordFold(use.fold, use, glyphs);
+    this.check(glyph, folded.text);
     const equivalent = this.settings.equivalents.get(folded.text);
     if (equivalent === undefined) return folded.text;
     this.recordFold('caller', { from: folded.text, to: equivalent }, glyphs);
     return equivalent;
+  }
+
+  private check(glyph: PageGlyph, text: string): void {
+    const cmap = this.settings.cmaps.get(glyph.font);
+    if (cmap === undefined || glyph.gid === undefined) return;
+    const evidence = cmapEvidence(cmap, glyph.gid, text);
+    if (evidence.kind === 'confirmed') {
+      this.confirmed.add(glyph.index);
+      return;
+    }
+    if (evidence.kind === 'disagrees') {
+      this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: evidence.expected, drawnGid: glyph.gid, glyphs: [glyph.index] });
+    }
+  }
+
+  // Whether a selector a span gives a one-glyph unit is confirmed by the format 14 subtable of the glyph's font.
+  private variantByCmap(glyphs: readonly PageGlyph[], cluster: string): boolean {
+    const [glyph, ...rest] = glyphs;
+    const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
+    const [base, selector] = Array.from(cluster, character => character.codePointAt(0) ?? 0);
+    if (glyph?.gid === undefined || cmap === undefined || rest.length > 0 || base === undefined || selector === undefined) return false;
+    return variantConfirmed(cmap, glyph.gid, [base, selector]);
   }
 
   private push(text: string, glyphs: readonly number[], variantFromActualText: (cluster: string) => boolean): void {
@@ -212,7 +245,7 @@ class FoundText {
       this.clusters.push({ text: glyph.text ?? REPLACEMENT, glyphs, variantFromActualText: false, failure });
       return;
     }
-    this.push(this.read(glyph.text ?? '', glyphs), glyphs, () => false);
+    this.push(this.read(glyph, glyph.text ?? ''), glyphs, () => false);
   }
 
   /**
@@ -227,14 +260,18 @@ class FoundText {
       this.clusters.push({ text: failure.kind === 'missing-glyph' ? text : REPLACEMENT, glyphs: indexes, variantFromActualText: false, failure });
       return;
     }
-    const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph.text, [glyph.index]))).join('');
+    const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text))).join('');
     // Variation selectors the span has and the glyphs lack are set aside here and reported by the alignment.
     const comparable = (value: string): string =>
       clusters(value, character => this.keep(character) && !isSelector(character.codePointAt(0) ?? 0))
         .map(cluster => cluster.text)
         .join('');
     if (comparable(text) === comparable(glyphText)) {
-      this.push(text, indexes, cluster => (cluster.match(SELECTORS) ?? []).some(selector => !glyphText.includes(selector)));
+      this.push(
+        text,
+        indexes,
+        cluster => (cluster.match(SELECTORS) ?? []).some(selector => !glyphText.includes(selector)) && !this.variantByCmap(glyphs, cluster),
+      );
       return;
     }
     this.notes.push({ kind: 'actual-text-disagrees', actualText: text, glyphText, span: index, glyphs: indexes });
@@ -351,6 +388,7 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     folds: options.folds ?? TEXT_FOLDS,
     equivalents: new Map(options.equivalents),
     selectors: options.variationSelectors ?? 'require-glyph-evidence',
+    cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
   };
   const selected = orderGlyphs(page.glyphs.filter(options.select ?? defaultSelection(page)), options.order ?? 'content');
   const found = new FoundText(settings);
@@ -382,5 +420,6 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     folds: found.foldsApplied(),
     fonts: [...new Set(selected.map(glyph => glyph.font))],
     glyphs: selected.map(glyph => glyph.index),
+    evidence: selected.length > 0 && selected.every(glyph => found.confirmed.has(glyph.index)) ? 'glyph-checked' : 'glyph-text-only',
   };
 };

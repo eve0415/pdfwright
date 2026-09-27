@@ -6,6 +6,7 @@ import type { LoadedDocument } from '../../document/loadDocument.ts';
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { FontGlyph, FontModel } from '../../font/fontModel.ts';
 import type { PdfReference } from '../../object/pdfObject.ts';
+import type { EmbeddedCmap } from './glyphEvidence.ts';
 import type { ActualTextSpan } from './textUnits.ts';
 
 import { FILLING_MODES, STROKING_MODES, interpretPage } from '../../content/interpreter.ts';
@@ -108,10 +109,23 @@ export interface PageGlyph {
   readonly markedContent: readonly GlyphMarkedContent[];
 }
 
+/** A font the page shows glyphs with. */
+export interface TextFont {
+  /** The font's key, as `listFonts` reports it. */
+  readonly key: string;
+  /**
+   * The Unicode cmap of the font's embedded TrueType program (FontFile2, ISO 32000-1:2008, Table 122), for a Type 0 font with a CIDFontType2 descendant, whose glyph indexes are known from CIDToGIDMap (Table 117).
+   * Undefined for other fonts, and when the program has no readable Unicode cmap.
+   */
+  readonly cmap: EmbeddedCmap | undefined;
+}
+
 export interface PageText {
   /** The 0-based page index. */
   readonly page: number;
   readonly glyphs: readonly PageGlyph[];
+  /** The fonts glyphs are shown with, in the order of first use. */
+  readonly fonts: readonly TextFont[];
   /** The ActualText spans glyphs are shown in, in the order their first glyphs are shown. */
   readonly actualText: readonly ActualTextSpan[];
   /** The page's CropBox, [llx lly urx ury]; undefined when the page's boxes cannot be read. */
@@ -199,8 +213,21 @@ const coversQuad = ([left, bottom, right, top]: CoverEvent['rectangle'], quad: Q
   return true;
 };
 
+// The embedded cmap of a CIDFontType2 font; a program that cannot be read gives none.
+const embeddedCmapOf = (font: FontModel): EmbeddedCmap | undefined => {
+  if (font.descendant?.subtype !== 'CIDFontType2') return undefined;
+  try {
+    const reading = font.embeddedCmap();
+    return reading?.kind === 'cmap' ? reading.cmap : undefined;
+  } catch (error: unknown) {
+    if (!unreadable(error)) throw error;
+    return undefined;
+  }
+};
+
 class TextCollector {
   readonly glyphs: PageGlyph[] = [];
+  private readonly fontModels = new Map<string, FontModel>();
   // The interpreter's event sequence of each glyph's text-show event, so that only fills after it can cover it.
   readonly sequences: number[] = [];
   readonly spans: ActualTextSpans;
@@ -213,6 +240,7 @@ class TextCollector {
 
   add(event: TextShowEvent): void {
     const { font, state } = event;
+    if (!this.fontModels.has(font.key)) this.fontModels.set(font.key, font);
     const source = sourceOf(event.context.sources);
     const markedContent = markedContentOf(this.document, event.markedContent);
     const { unsplit } = event;
@@ -259,6 +287,10 @@ class TextCollector {
     };
     if (unsplit !== undefined) push(undefined, event, unsplitText(unsplit));
     for (const shown of event.glyphs) push(shown.glyph, shown, glyphText(font, shown.glyph));
+  }
+
+  fonts(): TextFont[] {
+    return [...this.fontModels.values()].map(font => ({ key: font.key, cmap: embeddedCmapOf(font) }));
   }
 
   /** The glyphs, each marked covered when an opaque rectangle fill after it covers its box. */
@@ -309,6 +341,7 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   return {
     page: pageIndex,
     glyphs: collector.covered(covers),
+    fonts: collector.fonts(),
     actualText: collector.spans.spans,
     cropBox,
     complete: result.complete && cropBox !== undefined,
