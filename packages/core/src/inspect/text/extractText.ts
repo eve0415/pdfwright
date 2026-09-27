@@ -19,6 +19,7 @@ import { numberOf } from '../../font/fontValues.ts';
 import { FontCache } from '../../font/loadFont.ts';
 import { pdfName } from '../../object/pdfObject.ts';
 
+import { CoverIndex, quadBounds } from './coverIndex.ts';
 import { glyphGeometry } from './glyphGeometry.ts';
 import { ActualTextSpans } from './textUnits.ts';
 
@@ -206,14 +207,8 @@ const invisibility = (
   return empty ? 'empty-glyph' : undefined;
 };
 
-// A point on a rectangle's edge counts as covered.
-const COVER_TOLERANCE = 1e-6;
-
 // The advance box is sampled on a grid of this many points per side to test what covers it.
 const COVER_SAMPLES = 5;
-
-const insideRectangle = ([left, bottom, right, top]: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean =>
-  x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE;
 
 // Points spread evenly over the quad, corners and edges included.
 const samples = (quad: Quad): (readonly [number, number])[] => {
@@ -234,12 +229,9 @@ const samples = (quad: Quad): (readonly [number, number])[] => {
  * Whether later opaque rectangles cover the glyph's box where the clip lets it show: every sampled point of the box inside the glyph's clip lies in one of them, inside that rectangle's own clip.
  * Rectangles are tested together, so adjacent fills that hide a glyph between them count, and the part of the box a clip hides needs no cover.
  */
-const coveredBy = (covers: readonly CoverEvent[], { quad, clip }: { quad: Quad; clip: Clip }): boolean => {
-  if (covers.length === 0) return false;
+const coveredBy = (covers: CoverIndex, { quad, clip }: { quad: Quad; clip: Clip }): boolean => {
   const shown = samples(quad).filter(([x, y]) => clip.classifyPoint(x, y) !== 'outside');
-  const hidden = (point: readonly [number, number]): boolean =>
-    covers.some(cover => insideRectangle(cover.rectangle, point) && cover.clip.classifyPoint(point[0], point[1]) === 'inside');
-  return shown.length > 0 && shown.every(point => hidden(point));
+  return shown.length > 0 && shown.every(([x, y]) => covers.hides(x, y));
 };
 
 // The embedded cmap of a CIDFontType2 font, and whether it embeds a TrueType program without a usable one; a program that cannot be read has none.
@@ -331,16 +323,21 @@ class TextCollector {
     });
   }
 
-  /** The glyphs, each marked covered when an opaque rectangle fill after it covers its box. */
+  /** The glyphs, each marked covered when opaque rectangle fills after it cover its box; covers come in content order. */
   covered(covers: readonly CoverEvent[]): PageGlyph[] {
-    if (covers.length === 0) return this.glyphs;
-    return this.glyphs.map((glyph, index) => {
-      const sequence = this.sequences[index] ?? Infinity;
-      const clip = this.clips[index] ?? Clip.NONE;
-      const later = covers.filter(cover => cover.sequence > sequence);
-      const covered = coveredBy(later, { quad: glyph.quad, clip });
-      return covered ? { ...glyph, covered } : glyph;
-    });
+    const bounds = quadBounds(this.glyphs.map(glyph => glyph.quad));
+    if (covers.length === 0 || bounds === undefined) return this.glyphs;
+    const index = new CoverIndex(bounds, this.glyphs.length);
+    const result = [...this.glyphs];
+    let next = covers.length - 1;
+    // From the last glyph back, adding each fill before the glyphs shown ahead of it, so that each glyph is tested against the fills after it only.
+    for (let at = result.length - 1; at >= 0; at--) {
+      const glyph = result[at];
+      const sequence = this.sequences[at] ?? Infinity;
+      for (let cover = covers[next]; cover !== undefined && cover.sequence > sequence; cover = covers[--next]) index.add(cover);
+      if (glyph !== undefined && coveredBy(index, { quad: glyph.quad, clip: this.clips[at] ?? Clip.NONE })) result[at] = { ...glyph, covered: true };
+    }
+    return result;
   }
 }
 
