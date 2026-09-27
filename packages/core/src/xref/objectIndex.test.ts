@@ -93,9 +93,23 @@ describe('object index', () => {
     expect(mismatchOf(pdf.text, [entry(2, 'file', [offset, 1])])).toStrictEqual({ objectNumber: 2, offset });
     expect(mismatchOf(pdf.text, [entry(1, 'file', [offset, 0])])).toStrictEqual({ objectNumber: 1, offset });
     expect(mismatchOf(pdf.text, [entry(1, 'file', [1_000_000, 0])])).toStrictEqual({ objectNumber: 1, offset: 1_000_000 });
-    expect([mismatchOf(pdf.text, [entry(99, 'file', [7, 0])]), mismatchOf(pdf.text, [entry(99, 'file', [offset, 0])])]).toStrictEqual([
+  });
+
+  it('drops an entry for a cross-reference stream number that points at another object', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<<>>' },
+          { number: 2, body: '5' },
+        ],
+      },
+    ]);
+    const stream = ObjectIndex.fromEntries([entry(99, 'file', [offsetOf(pdf.offsets, 2), 0])]);
+    expect([mismatchOf(pdf.text, [entry(99, 'file', [7, 0])]), validate(pdf.text, stream).mismatch, stream.get(99).type]).toStrictEqual([
       undefined,
-      { objectNumber: 99, offset },
+      undefined,
+      FREE,
     ]);
   });
 });

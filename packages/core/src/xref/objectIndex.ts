@@ -172,14 +172,19 @@ export const validateHeaders = (source: ByteSource, index: ObjectIndex, validati
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
     if (entry.type !== IN_FILE || validation.skip.get(objectNumber) === entry.location) continue;
+    const header =
+      entry.location > 0 && entry.location < source.length && headerMatches(source, entry.location, { objectNumber, generation: entry.generation });
+    // An entry for a cross-reference stream's own number that points elsewhere described only that stream, which nothing locates through the index, so it is dropped.
+    if (!header && validation.skip.has(objectNumber)) {
+      index.free(objectNumber);
+      continue;
+    }
     if (entry.location === 0) {
       index.free(objectNumber);
       offsetZero(objectNumber);
       continue;
     }
-    if (entry.location >= source.length || !headerMatches(source, entry.location, { objectNumber, generation: entry.generation })) {
-      return { objectNumber, offset: entry.location };
-    }
+    if (!header) return { objectNumber, offset: entry.location };
   }
   return undefined;
 };
