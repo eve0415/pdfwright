@@ -1,8 +1,10 @@
 import type { CMapCode } from './mappingTable.ts';
 import type { CidMapping, CidSystemInfo, CodespaceRange, ParsedCMap, UnicodeMapping } from './parseCMap.ts';
 
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
+
 import { MappingTable } from './mappingTable.ts';
-import { utf16Text } from './parseCMap.ts';
+import { MAX_CMAP_ENTRIES, utf16Text } from './parseCMap.ts';
 
 /** The code a CMap reads at a position, and whether it matched a codespace range (ISO 32000-1:2008, 9.7.6.2) or was consumed by the partial-match rules for invalid codes (9.7.6.3). */
 export interface CodeRead {
@@ -42,7 +44,9 @@ export class CMap {
   readonly name: string | undefined;
   readonly writingMode: 0 | 1;
   readonly cidSystemInfo: CidSystemInfo | undefined;
-  readonly codespaces: readonly CodespaceRange[];
+  private readonly codespaceChain: readonly (readonly CodespaceRange[])[];
+  private readonly codespaceCount: number;
+  private readonly entryCount: number;
   /** The name a usecmap gave for a CMap that could not be had; codes this CMap does not map are then of unknown meaning. */
   readonly unavailableParent: string | undefined;
   private readonly parent: CMap | undefined;
@@ -56,26 +60,36 @@ export class CMap {
     this.name = parsed.name;
     this.writingMode = parsed.writingMode ?? parent?.writingMode ?? 0;
     this.cidSystemInfo = parsed.cidSystemInfo ?? parent?.cidSystemInfo;
-    this.codespaces = [...parsed.codespaces, ...(parent?.codespaces ?? [])];
+    this.codespaceChain = [parsed.codespaces, ...(parent?.codespaceChain ?? [])];
+    this.codespaceCount = parsed.codespaces.length + (parent?.codespaceCount ?? 0);
+    this.entryCount =
+      parsed.codespaces.length +
+      parsed.cids.length +
+      parsed.notdefs.length +
+      parsed.unicode.reduce((count, mapping) => count + ('strings' in mapping ? mapping.strings.length : 1), 0) +
+      (parent?.entryCount ?? 0);
+    if (this.entryCount > MAX_CMAP_ENTRIES) throw new ResourceLimitError(`a usecmap chain defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
     this.unavailableParent = used === undefined || used instanceof CMap ? parent?.unavailableParent : used.unavailable;
     this.parent = parent;
     this.cids = new MappingTable(parsed.cids);
     this.notdefs = new MappingTable(parsed.notdefs);
     this.unicodes = new MappingTable(parsed.unicode);
-    this.shortest = Math.min(...this.codespaces.map(range => range.low.length), 4);
+    this.shortest = Math.min(...parsed.codespaces.map(range => range.low.length), parent?.shortest ?? 4);
   }
 
   // 9.7.6.3: "a) If the first byte extracted from the string to be shown does not match the first byte of any codespace range, the range having the shortest codes shall be chosen."
   // "b) Otherwise …, for each additional byte extracted, the code accumulated so far shall be matched against the beginnings of all longer codespace ranges until the longest such partial match has been found. If multiple codespace ranges have partial matches of the same length, the one having the shortest codes shall be chosen."
   private invalidLength(bytes: Uint8Array, offset: number): number {
     let best = 0;
-    let length = this.codespaces.length === 0 ? 1 : this.shortest;
-    for (const range of this.codespaces) {
-      const matched = matchesPrefix(range, bytes, offset);
-      const { length: rangeLength } = range.low;
-      if (matched > best || (matched === best && matched > 0 && rangeLength < length)) {
-        best = matched;
-        length = rangeLength;
+    let length = this.codespaceCount === 0 ? 1 : this.shortest;
+    for (const ranges of this.codespaceChain) {
+      for (const range of ranges) {
+        const matched = matchesPrefix(range, bytes, offset);
+        const { length: rangeLength } = range.low;
+        if (matched > best || (matched === best && matched > 0 && rangeLength < length)) {
+          best = matched;
+          length = rangeLength;
+        }
       }
     }
     return length;
@@ -88,9 +102,11 @@ export class CMap {
   read(bytes: Uint8Array, offset: number): CodeRead {
     const remaining = bytes.length - offset;
     for (let length = 1; length <= 4 && length <= remaining; length++) {
-      for (const range of this.codespaces) {
-        const valid = range.low.length === length && matchesPrefix(range, bytes, offset) === length;
-        if (valid) return { code: { value: readValue(bytes, offset, length), length }, valid };
+      for (const ranges of this.codespaceChain) {
+        for (const range of ranges) {
+          const valid = range.low.length === length && matchesPrefix(range, bytes, offset) === length;
+          if (valid) return { code: { value: readValue(bytes, offset, length), length }, valid };
+        }
       }
     }
     const length = Math.max(1, Math.min(this.invalidLength(bytes, offset), remaining));

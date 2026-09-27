@@ -163,6 +163,14 @@ describe('embedded and ToUnicode CMaps', () => {
     expect(() => parse(cmap)).toThrow(ResourceLimitError);
   });
 
+  it('limits definitions accumulated through usecmap parents', () => {
+    const cmap = '5000 begincodespacerange '.concat('<00> <FF> '.repeat(5000), 'endcodespacerange ').repeat(4);
+    let parent = new CMap(parse(cmap));
+    expect(() => {
+      for (let index = 0; index < 3; index++) parent = new CMap(parse(cmap), parent);
+    }).toThrow(ResourceLimitError);
+  });
+
   it('counts bfrange destinations across arrays', () => {
     const cmap = `5 beginbfrange ${Array.from({ length: 5 }, (_, index) => `<${index.toString(16).padStart(4, '0')}> <${(index + 15_999).toString(16).padStart(4, '0')}> [${'<0041> '.repeat(16_000)}]`).join(' ')} endbfrange`;
     expect(() => parse(cmap)).toThrow(ResourceLimitError);

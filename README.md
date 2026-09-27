@@ -90,6 +90,7 @@ Graphics state saves (`q`) and marked-content sequences (`BMC` or `BDC`) each ha
 The content reader holds at most 16,384 pending operands before an operator, including operands left at the end of a stream; exceeding this fixed cap throws `ResourceLimitError`.
 One content operand may itself contain at most 16,384 direct values, so a single array or dictionary cannot bypass the pending operand cap; exceeding it throws `ResourceLimitError` while parsing.
 A CMap is limited to 65,536 definitions and array destinations in total; a `bfrange` destination array counts each item, and exceeding the fixed cap throws `ResourceLimitError` before the strings are decoded.
+A resolved `usecmap` chain has the same fixed 65,536-definition cap across all its members; inherited codespace ranges are shared between CMaps instead of copied into each child.
 `extractText` also throws `ResourceLimitError` past 1,000,000 glyphs a page, which its `maxGlyphs` option changes.
 `matchText` limits sequence alignment to 2,000,000 comparisons and search steps per call; a larger mismatch throws `ResourceLimitError`.
 Text cover queries place wide fills in 64 coarse row or column bands and stop after 4,000,000 rectangle comparisons per page; exceeding this fixed work cap throws `ResourceLimitError`.
