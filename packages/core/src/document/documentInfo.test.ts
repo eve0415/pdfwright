@@ -38,6 +38,17 @@ describe('document information', () => {
     }
   });
 
+  it('uses PDFDocEncoding only for code points it maps to themselves', () => {
+    const pdf = ascii(
+      createDocument({ info: { title: 'a\u0018b', author: '\u007F', subject: 'tab\there\r\n', keywords: '\u0001' } })
+        .save()
+        .toBytes(),
+    );
+    for (const fragment of ['/Title<FEFF006100180062>', '/Author<FEFF007F>', String.raw`/Subject(tab\there\r\n)`, '/Keywords<FEFF0001>']) {
+      expect(pdf).toContain(fragment);
+    }
+  });
+
   it('writes no implicit metadata or clock values', () => {
     const pdf = ascii(createDocument().save().toBytes());
     expect(pdf).not.toContain('/Info');

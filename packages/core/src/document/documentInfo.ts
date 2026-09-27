@@ -17,6 +17,9 @@ export interface DocumentInfo {
   modificationDate?: PdfDate;
 }
 
+// ISO 32000-1:2008, Annex D, Table D.2 maps these codes to the same Unicode code points; it marks the other C0 codes and 0x7F undefined and maps 0x18-0x1F to spacing accents.
+const selfMapped = (code: number): boolean => (code >= 0x20 && code <= 0x7e) || code === 0x09 || code === 0x0a || code === 0x0d;
+
 // ISO 32000-1:2008, 7.9.2.2 encodes text strings as PDFDocEncoding or UTF-16BE with a FE FF byte-order marker.
 export const pdfTextString = (value: string): PdfDirectObject => {
   const units: number[] = [];
@@ -24,7 +27,7 @@ export const pdfTextString = (value: string): PdfDirectObject => {
   for (let index = 0; index < value.length; index++) {
     const code = value.codePointAt(index);
     if (code === undefined) throw new ValidationError('invalid text character');
-    if (code > 0x7f) ascii = false;
+    if (!selfMapped(code)) ascii = false;
     if (code >= 0xd800 && code <= 0xdfff) throw new ValidationError('text contains an unpaired UTF-16 surrogate');
     if (code > 0xffff) {
       const scalar = code - 0x10000;
