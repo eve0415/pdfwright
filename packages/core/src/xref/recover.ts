@@ -40,12 +40,13 @@ const TRAILER = [0x74, 0x72, 0x61, 0x69, 0x6c, 0x65, 0x72];
 const TYPE = pdfName('Type').bytes;
 const PAGES = pdfName('Pages').bytes;
 
-const quiet: LexContext = {
+// A context per use, so that interned names do not outlive it.
+const quiet = (): LexContext => ({
   warn: (): void => {
     // The scan only locates objects; they are parsed again, with warnings, when used.
   },
   names: new Map(),
-};
+});
 
 const typeName = (value: PdfObject): string => {
   let entries: PdfDictionaryEntries | undefined = undefined;
@@ -134,7 +135,7 @@ class Scanner {
 
   private parseObjectAt(offset: number): ParsedIndirectObject | undefined {
     try {
-      return this.source.parseAt(offset, quiet, (window, local, context) =>
+      return this.source.parseAt(offset, quiet(), (window, local, context) =>
         parseIndirectObject(window, local, { ...context, maxNesting: this.context.maxNesting, lastEndstream: this.lastEndstream }),
       );
     } catch (error: unknown) {
@@ -145,7 +146,7 @@ class Scanner {
   }
 
   private trailerAt(keyword: number): number {
-    const lexer = new Lexer({ bytes: this.bytes, base: 0, final: true }, keyword + TRAILER.length, quiet);
+    const lexer = new Lexer({ bytes: this.bytes, base: 0, final: true }, keyword + TRAILER.length, quiet());
     try {
       const value = parseObject(lexer, this.context.maxNesting);
       if (value.kind === 'dictionary') this.trailers.push(value.entries);

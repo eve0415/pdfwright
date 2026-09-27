@@ -28,12 +28,13 @@ const HEADER_SEARCH = 1024;
 const TRAILER_SEARCH = 4096;
 const CORRECTION = 64;
 
-const quiet: LexContext = {
+// A context per use, so that interned names do not outlive it.
+const quiet = (): LexContext => ({
   warn: (): void => {
     // Probing for structure reports nothing; the parse that follows reports what it finds.
   },
   names: new Map(),
-};
+});
 
 const matchesAt = (bytes: Uint8Array, position: number, pattern: readonly number[]): boolean =>
   position >= 0 && pattern.every((byte, index) => bytes[position + index] === byte);
@@ -73,7 +74,7 @@ export const locateHeader = (source: ByteSource): HeaderLocation | undefined => 
 };
 
 const readStartxref = (source: ByteSource, keyword: number): StartxrefLocation | undefined =>
-  source.parseAt(keyword, quiet, (window, local, context) => {
+  source.parseAt(keyword, quiet(), (window, local, context) => {
     const lexer = new Lexer(window, local, context);
     lexer.next();
     const offset = lexer.next();
@@ -99,7 +100,7 @@ const startsSection = (window: LexWindow, local: number): boolean => {
   const { bytes } = window;
   if (local > 0 && isRegular(bytes[local - 1] ?? 0)) return false;
   if (matchesAt(bytes, local, XREF)) return local + 4 >= bytes.length || !isRegular(bytes[local + 4] ?? 0);
-  const lexer = new Lexer(window, local, quiet);
+  const lexer = new Lexer(window, local, quiet());
   const number = lexer.next();
   const generation = lexer.next();
   const keyword = lexer.next();

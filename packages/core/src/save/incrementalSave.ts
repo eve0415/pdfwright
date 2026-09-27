@@ -3,6 +3,7 @@ import type { ObjectStore } from '../document/objectStore.ts';
 import type { DocumentStructure, SaveBase } from '../document/readStructure.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { LexContext } from '../parse/lexer.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { OriginalValue } from './originalValue.ts';
 import type { SaveWarning } from './saveWarning.ts';
@@ -43,12 +44,12 @@ interface Entry {
   readonly generation: number;
 }
 
-const quiet = {
+const quiet = (): LexContext => ({
   warn: (): void => {
     // The trailer was parsed, with warnings, when the document was loaded.
   },
   names: new Map<string, Uint8Array>(),
-};
+});
 
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
 
@@ -87,7 +88,7 @@ const freeEntries = (store: ObjectStore, freed: readonly { objectNumber: number;
 const baseTrailerNode = (input: SaveInput): OriginalValue | undefined => {
   if (input.base === undefined) return undefined;
   const { bytes } = input.store.source.copy(input.base.trailerStart, input.base.trailerEnd);
-  return { node: parseAnnotated(new Lexer({ bytes, base: 0, final: true }, 0, quiet), input.maxNesting), bytes };
+  return { node: parseAnnotated(new Lexer({ bytes, base: 0, final: true }, 0, quiet()), input.maxNesting), bytes };
 };
 
 const identifiers = (trailer: PdfDictionaryEntries): readonly [Uint8Array, Uint8Array] | undefined => {

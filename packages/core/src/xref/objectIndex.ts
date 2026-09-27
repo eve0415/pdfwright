@@ -133,15 +133,16 @@ export interface HeaderMismatch {
   readonly offset: number;
 }
 
-const quiet: LexContext = {
+// A context per use, so that interned names do not outlive it.
+const quiet = (): LexContext => ({
   warn: (): void => {
     // Only the header's presence is checked here; parsing the object later reports what it finds.
   },
   names: new Map(),
-};
+});
 
 const headerMatches = (source: ByteSource, offset: number, expected: { objectNumber: number; generation: number }): boolean =>
-  source.parseAt(offset, quiet, (window, local, context) => {
+  source.parseAt(offset, quiet(), (window, local, context) => {
     const lexer = new Lexer(window, local, context);
     const number = lexer.next();
     const generation = lexer.next();

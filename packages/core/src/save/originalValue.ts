@@ -12,15 +12,16 @@ export interface OriginalValue {
   readonly bytes: Uint8Array;
 }
 
-const quiet: LexContext = {
+// A context per parse, so that interned names do not outlive it.
+const quiet = (): LexContext => ({
   warn: (): void => {
     // The object was parsed, with warnings, when it was loaded.
   },
   names: new Map(),
-};
+});
 
 const annotate = (bytes: Uint8Array, maxNesting: number): OriginalValue => ({
-  node: parseAnnotated(new Lexer({ bytes, base: 0, final: true }, 0, quiet), maxNesting),
+  node: parseAnnotated(new Lexer({ bytes, base: 0, final: true }, 0, quiet()), maxNesting),
   bytes,
 });
 
