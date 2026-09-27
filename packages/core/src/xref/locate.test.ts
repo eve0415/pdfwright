@@ -34,11 +34,16 @@ describe('header and startxref location', () => {
   });
 
   it('accepts a section start exactly or a few bytes off', () => {
-    const text = `${' '.repeat(100)}xref\n0 1\n${' '.repeat(50)}7 0 obj\n<</Type/XRef>>`;
+    const text = `${' '.repeat(100)}xref\n0 1\n${' '.repeat(50)}7 0 obj\n<</Type/XRef>>\n8 0 obj\n<</Type/Page>>`;
     expect(sectionStartNear(source(text), 100)).toStrictEqual({ offset: 100, corrected: false });
     expect(sectionStartNear(source(text), 98)).toStrictEqual({ offset: 100, corrected: false });
     expect(sectionStartNear(source(text), 107)).toStrictEqual({ offset: 100, corrected: true });
     expect(sectionStartNear(source(text), 162)).toStrictEqual({ offset: 159, corrected: true });
     expect(sectionStartNear(source('%PDF-1.4 nothing to find'), 5)).toBeUndefined();
+  });
+
+  it('corrects only to cross-reference streams, not to other objects', () => {
+    const text = `${' '.repeat(100)}xref\n0 1\n${' '.repeat(50)}7 0 obj\n<</Type/XRef>>\n8 0 obj\n<</Type/Page>>`;
+    expect(sectionStartNear(source(text), 187)).toStrictEqual({ offset: 159, corrected: true });
   });
 });

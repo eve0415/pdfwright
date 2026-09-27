@@ -1,8 +1,12 @@
 import type { ByteSource } from '../parse/byteSource.ts';
 import type { LexContext, LexWindow } from '../parse/lexer.ts';
 
+import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { pdfName } from '../object/pdfObject.ts';
 import { isRegular, isWhitespace } from '../parse/characterClass.ts';
 import { Lexer } from '../parse/lexer.ts';
+import { parseObject } from '../parse/parseObject.ts';
 
 export interface HeaderLocation {
   readonly offset: number;
@@ -24,6 +28,7 @@ export interface SectionStart {
 const HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d];
 const STARTXREF = [0x73, 0x74, 0x61, 0x72, 0x74, 0x78, 0x72, 0x65, 0x66];
 const XREF = [0x78, 0x72, 0x65, 0x66];
+const XREF_NAME = [0x58, 0x52, 0x65, 0x66];
 const HEADER_SEARCH = 1024;
 const TRAILER_SEARCH = 4096;
 const CORRECTION = 64;
@@ -95,21 +100,43 @@ export const locateStartxref = (source: ByteSource): StartxrefLocation | undefin
   return readStartxref(source, base + position);
 };
 
+const TYPE = pdfName('Type').bytes;
+
+// ISO 32000-1:2008, 7.5.8.2, Table 17, Type: "shall be XRef for a cross-reference stream".
+const isXrefStreamDictionary = (lexer: Lexer): boolean => {
+  const value = parseObject(lexer, 64);
+  const type = value.kind === 'dictionary' ? value.entries.get(TYPE) : undefined;
+  return type?.kind === 'name' && type.bytes.length === XREF_NAME.length && matchesAt(type.bytes, 0, XREF_NAME);
+};
+
+const startsStreamSection = (window: LexWindow, local: number): boolean => {
+  const lexer = new Lexer(window, local, quiet());
+  try {
+    const number = lexer.next();
+    const generation = lexer.next();
+    const keyword = lexer.next();
+    if (number.start !== local || number.kind !== 'integer' || generation.kind !== 'integer' || keyword.kind !== 'keyword' || keyword.keyword !== 'obj') {
+      return false;
+    }
+    return isXrefStreamDictionary(lexer);
+  } catch (error: unknown) {
+    // Only the start of a section is sought; bytes that do not parse, or run past the probed window, are not one.
+    if (error instanceof ParseError || error instanceof ResourceLimitError) return false;
+    throw error;
+  }
+};
+
 // A section starts with the keyword xref or with the header "n g obj" of a cross-reference stream.
 const startsSection = (window: LexWindow, local: number): boolean => {
   const { bytes } = window;
   if (local > 0 && isRegular(bytes[local - 1] ?? 0)) return false;
   if (matchesAt(bytes, local, XREF)) return local + 4 >= bytes.length || !isRegular(bytes[local + 4] ?? 0);
-  const lexer = new Lexer(window, local, quiet());
-  const number = lexer.next();
-  const generation = lexer.next();
-  const keyword = lexer.next();
-  return number.start === local && number.kind === 'integer' && generation.kind === 'integer' && keyword.kind === 'keyword' && keyword.keyword === 'obj';
+  return startsStreamSection(window, local);
 };
 
 /** Finds the cross-reference section at `offset`, after white space, or else the nearest one within 64 bytes. */
 export const sectionStartNear = (source: ByteSource, offset: number): SectionStart | undefined => {
-  const copied = source.copy(offset - CORRECTION, offset + 2 * CORRECTION + 64);
+  const copied = source.copy(offset - CORRECTION, offset + 2 * CORRECTION + 4096);
   // The copy is probed as if it were the whole file, so a header cut off at its end simply does not match.
   const window: LexWindow = { bytes: copied.bytes, base: copied.base, final: true };
   const local = offset - window.base;
