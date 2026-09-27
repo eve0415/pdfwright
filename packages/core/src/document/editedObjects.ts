@@ -158,6 +158,25 @@ export class EditedObjects implements ObjectResolver {
     return withTrailerChanges(base, this.trailerChanges);
   }
 
+  /** A copy of these edits that shares the source: edits made to it change nothing here until they are adopted. */
+  fork(): EditedObjects {
+    const fork = new EditedObjects(this.store);
+    fork.adopt(this);
+    return fork;
+  }
+
+  /** Takes every edit of `other`, a fork of these edits, in place of these; nothing in it can fail, so a caller can make every edit that may fail on a fork first. */
+  adopt(other: EditedObjects): void {
+    this.changes.clear();
+    for (const [objectNumber, change] of other.changes) this.changes.set(objectNumber, change);
+    this.next = other.next;
+    this.objectStreams = other.objectStreams;
+    this.trailerEdits.clear();
+    for (const [name, change] of other.trailerEdits) this.trailerEdits.set(name, change);
+    this.rewriteReason = other.rewriteReason;
+    this.hook = other.hook;
+  }
+
   add(value: PdfObject): PdfReference {
     const objectNumber = this.next++;
     this.changes.set(objectNumber, { generation: 0, value: cloneObject(value) });

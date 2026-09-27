@@ -6,6 +6,7 @@ import type { MetadataInput } from './setMetadata.ts';
 import { describe, expect, it } from 'vitest';
 
 import { pdfDate } from '../date/pdfDate.ts';
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -83,6 +84,12 @@ const editedBytes = (): string => {
   const document = load('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('<xmp:Rating>1</xmp:Rating>')) }]);
   setMetadata(document, INPUT);
   return latin1Text(document.save().toBytes());
+};
+
+// The object numbers changed, the trailer changes, the full-rewrite reason and whether a save hook is set.
+const editState = (document: LoadedDocument): readonly unknown[] => {
+  const objects = internalsOf(document)?.objects;
+  return [[...(objects?.changes.keys() ?? [])], objects?.trailerChanges, objects?.fullRewriteReason, objects?.saveHook !== undefined];
 };
 
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -234,6 +241,13 @@ describe('setting document metadata', () => {
     const replaced = unreadable();
     setMetadata(replaced, INPUT, { unreadableXmp: 'replace' });
     expect([refused.save().mode, codes(saved(replaced))]).toStrictEqual(['incremental', []]);
+  });
+
+  it('changes nothing when a step after the first edit it plans fails', () => {
+    const document = load('', [], `${ID}/Info 4 0 R`);
+    document.set(pdfReference(1, 0), pdfInteger(1));
+    expect(() => setMetadata(document, INPUT)).toThrow(InvalidArgumentError);
+    expect(editState(document)).toStrictEqual([[1], [], undefined, false]);
   });
 
   it('refuses documents with signatures unless revisions are kept, and then allows an incremental save', () => {

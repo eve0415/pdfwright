@@ -346,12 +346,6 @@ const supersededCount = (document: DocumentInternals, state: MetadataState, grap
   return scanned.superseded + (target === undefined ? 0 : scanned.document) + scanned.orphans;
 };
 
-/**
- * Sets the document information dictionary and the document's XMP packet from one input, so that they agree (XMP Part 3 Table 20), and deletes orphaned metadata streams.
- * The packet replaces the catalog's metadata stream in place, splicing the managed properties into it and keeping every other byte; xmpMM:DocumentID is kept, and xmpMM:InstanceID is derived when the document is saved from the DocumentID, the metadata date, the previous InstanceID and everything else the save writes.
- * By default the next save must rewrite the file, so that it holds exactly one document packet; documents whose signatures a rewrite could invalidate are then refused (ValidationError signed-document).
- * Everything is validated before anything changes. The reachability walk parses every object reachable from the trailer, and a rewrite unpacks any object stream holding a changed object, such as a compressed catalog.
- */
 const refuseSigned = (document: DocumentInternals, keep: boolean): void => {
   const protection = signatureProtection(document);
   if (keep || protection === undefined) return;
@@ -432,11 +426,12 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   const keep = options.revisions === 'keep';
   const { state, resolved, documentId, previous, write, plan, graph } = prepare(internals, input, options);
   const supersededPackets = keep ? supersededCount(internals, state, graph) : undefined;
-  const { objects } = internals;
-  const placement = placeObjects(internals, state, plan);
-  const deletedOrphans = deleteOrphans(internals);
+  // Every edit is made on a fork of the document's edits, and adopted only once all of them, and the packet, have been made without an error.
+  const objects = internals.objects.fork();
+  const staged: DocumentInternals = { ...internals, objects };
+  const placement = placeObjects(staged, state, plan);
+  const deletedOrphans = deleteOrphans(staged);
   if (!keep) objects.requireFullRewrite('metadata-history');
-  previousInstanceIds.set(objects, previous);
   const excluded = new Set([placement.packet.objectNumber, placement.info.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
   const produce = (changes: ReadonlyMap<number, ObjectChange>, fractionDigits: number): ProducedPacket => {
@@ -452,6 +447,8 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   objects.setSaveHook((changes, context) => {
     changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes, context.fractionDigits).value });
   });
+  internals.objects.adopt(objects);
+  previousInstanceIds.set(internals.objects, previous);
   return {
     reconciled: resolved.reconciled,
     removedLegacy: current.removedLegacy,
