@@ -146,11 +146,17 @@ const OPERATION: Readonly<Record<Exclude<PaintEvent['kind'], 'fill-stroke' | 'cl
   shading: 'shading',
 };
 
-// The operation that painted with the direct space at an index: fill-stroke paints its first space by filling and its second by stroking; text fills before it strokes.
+// Whether the direct space at an index is painted by stroking: fill-stroke paints its first space by filling and its second by stroking; text fills before it strokes.
+const strokesAt = (event: PaintEvent, index: number): boolean => {
+  if (event.kind === 'fill-stroke') return index === 1;
+  if (event.kind === 'text') return index > 0 || !FILLING_MODES.has(event.state.renderMode);
+  return event.kind === 'stroke';
+};
+
+// The operation that painted with the direct space at an index.
 const operationAt = (event: PaintEvent, index: number): PaintedBy => {
   if (event.kind === 'fill-stroke') return index === 0 ? 'fill' : 'stroke';
   if (event.kind === 'clip') return 'fill';
-  if (event.kind === 'text' && (index > 0 || !FILLING_MODES.has(event.state.renderMode))) return 'stroke';
   return OPERATION[event.kind];
 };
 
@@ -265,7 +271,7 @@ class PageScan {
       if (isPatternSpace(space)) continue;
       const owner = event.spaceOf[index] ?? index;
       const operation = operationAt(event, owner);
-      if (glyph && (operation === 'stroke' ? strokeAlpha : fillAlpha) * group.alpha === 0) {
+      if (glyph && (strokesAt(event, owner) ? strokeAlpha : fillAlpha) * group.alpha === 0) {
         this.placed(place, space.space, use => {
           use.selected.add('invisible-text');
         });

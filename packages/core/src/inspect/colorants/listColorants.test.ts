@@ -58,10 +58,12 @@ describe('painted colorants', () => {
       colorants('/CS1 CS 1 SCN 0 0 m 10 10 l S'),
       colorants('/CS1 cs /CS2 CS 0 0 10 10 re B'),
       colorants('BT /F1 12 Tf /CS1 cs 1 scn (a) Tj ET'),
+      colorants('BT /F1 12 Tf 1 Tr /CS1 CS 1 SCN (a) Tj ET'),
     ]).toStrictEqual([
       ['Gold spot p=fill s= d=', 'Silver spot p= s= d=resources'],
       ['Gold spot p=stroke s= d=', 'Silver spot p= s= d=resources'],
       ['Gold spot p=fill s= d=', 'Silver spot p=stroke s= d='],
+      ['Gold spot p=text s= d=', 'Silver spot p= s= d=resources'],
       ['Gold spot p=text s= d=', 'Silver spot p= s= d=resources'],
     ]);
   });
