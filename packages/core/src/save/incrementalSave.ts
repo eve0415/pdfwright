@@ -204,7 +204,8 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
   const warn = (warning: SaveWarning): void => {
     warnings.push(warning);
   };
-  if (input.changes.size === 0) return savedPdf(store.source.segments, { mode: 'incremental', warnings });
+  // Without changes the source is the update; a caller who supplies a file identifier gets an update section that carries it.
+  if (input.changes.size === 0 && input.fileIdentifier === 'derive') return savedPdf(store.source.segments, { mode: 'incremental', warnings });
   // Annex F, Table F.1, L: "A mismatch indicates that the file is not linearized and shall be treated as ordinary PDF, ignoring linearization information."
   if (structure.linearized) {
     warn({ code: 'linearization-invalidated', detail: 'the update makes the file an ordinary PDF; its linearization data no longer applies' });

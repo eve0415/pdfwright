@@ -16,6 +16,8 @@ const pad = (value: number, width: number): string => String(value).padStart(wid
 // ISO 32000-1:2008, 7.5.4: "nnnnnnnnnn ggggg n eol", each entry exactly 20 bytes; the end-of-line here is SP LF.
 export const writeTable = (writer: ByteWriter, entries: readonly Entry[]): void => {
   writer.writeAscii('xref\n');
+  // "Following this line shall be one or more cross-reference subsections"; an update that changes no object has one without entries.
+  if (entries.length === 0) writer.writeAscii('0 0\n');
   for (let index = 0; index < entries.length;) {
     let end = index;
     while (end + 1 < entries.length && entries[end + 1]?.objectNumber === (entries[end]?.objectNumber ?? 0) + 1) end++;

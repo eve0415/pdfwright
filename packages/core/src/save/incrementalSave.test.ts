@@ -46,6 +46,15 @@ describe('incremental save', () => {
     expect([saved.mode, saved.chunks.length, saved.chunks[0] === source]).toStrictEqual(['incremental', 1, true]);
   });
 
+  it('writes an update carrying a supplied file identifier even without changes', () => {
+    const source = base();
+    const pair: [Uint8Array, Uint8Array] = [new Uint8Array(16).fill(0xaa), new Uint8Array(16).fill(0xbb)];
+    const saved = loadDocument(source).save({ mode: 'incremental', fileIdentifier: pair });
+    const appended = latin1Text(saved.toBytes().subarray(source.length));
+    expect(appended).toMatch(/^xref\n0 0\ntrailer\n<<.*\/ID\[<A{32}><B{32}>\]>>/u);
+    expect(loadDocument(saved.chunks).structure.sections).toHaveLength(2);
+  });
+
   it('appends changed objects, a classic section and a trailer that copies the previous one', () => {
     const source = base();
     const document = loadDocument(source);
