@@ -460,11 +460,25 @@ class Interpreter {
   private resource({ scope, where }: Step, category: Uint8Array, name: Uint8Array): PdfDirectObject | undefined {
     const entries = dictionaryOf(this.deref(scope.resources?.get(category)));
     const value = entries?.get(name);
-    if (value === undefined || this.deref(value)?.kind === 'null') {
+    const resolved = this.deref(value);
+    // A value that cannot be parsed has been reported by deref; one that is absent or null is not defined.
+    if (value !== undefined && resolved === undefined) return undefined;
+    if (resolved === undefined || resolved.kind === 'null') {
       this.warn('resource-missing', `${where}: the ${latin1(category)} resource ${latin1(name)} is not defined`, true);
       return undefined;
     }
     return value;
+  }
+
+  // Font loading reads objects as it needs them, and a font object that cannot be parsed makes the font unusable rather than the content unreadable.
+  private font<T>(font: string, read: () => T): T | undefined {
+    try {
+      return read();
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) throw error;
+      this.warn('font-unreadable', `font ${font}: ${error.message}`, true);
+      return undefined;
+    }
   }
 
   run(streams: readonly Uint8Array[], scope: Scope): void {
@@ -742,7 +756,9 @@ class Interpreter {
 
   private namedFont(step: Step, name: Uint8Array): FontModel | undefined {
     const value = this.resource(step, FONT, name);
-    return value === undefined ? undefined : this.fonts.font(value, fontKey(value, step.scope.owner, name));
+    if (value === undefined) return undefined;
+    const key = fontKey(value, step.scope.owner, name);
+    return this.font(key, () => this.fonts.font(value, key));
   }
 
   // 8.4.5, Table 58: a graphics state parameter dictionary's Font entry is "An array of the form [ font size ]".
@@ -759,7 +775,10 @@ class Interpreter {
       const [fontValue, size] = font.items;
       const fontSize = numberOf(this.deref(size));
       if (fontValue === undefined || fontSize === undefined) this.warn('bad-operands', `${where}: the Font entry is not [font size]`, true);
-      else this.state = { ...this.state, font: this.fonts.font(fontValue, fontKey(fontValue, `${scope.owner}:ExtGState`, name)), fontSize };
+      else {
+        const key = fontKey(fontValue, `${scope.owner}:ExtGState`, name);
+        this.state = { ...this.state, font: this.font(key, () => this.fonts.font(fontValue, key)), fontSize };
+      }
     }
   }
 
@@ -859,7 +878,7 @@ class Interpreter {
       return;
     }
     this.reportFont(font);
-    const split = font.glyphs(string);
+    const split: FontString = this.font(font.key, () => font.glyphs(string)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
     const glyphs: ShownGlyph[] = [];
     if (split.kind === 'glyphs') {
       for (const glyph of split.glyphs) {

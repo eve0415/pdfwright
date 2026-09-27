@@ -577,6 +577,13 @@ describe('damaged content', () => {
     ]);
   });
 
+  it('reports a font object that cannot be parsed and goes on', () => {
+    const { texts, result } = run({ content: 'BT /Bad 10 Tf (A) Tj /F1 10 Tf (A) Tj ET', resources: '/Font<</F1 101 0 R/Bad 150 0 R>>' }, [
+      { number: 150, body: '<</Type/Font/Subtype/Type1/BaseFont(unterminated' },
+    ]);
+    expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([1, false, ['content-unreadable', 'resource-missing']]);
+  });
+
   it('reports content that cannot be decoded', () => {
     const damaged = textPdf({
       pages: [{ resources: FONT_RESOURCES, entries: '/Contents 120 0 R' }],
