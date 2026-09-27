@@ -205,6 +205,12 @@ describe('text matching', () => {
     expect(statusOf({ texts: [''], content: line(1) }, '')).toBe('mismatch');
   });
 
+  it('never matches a page whose content could not all be read', () => {
+    // Renderers go on past content pdfwright stops at, such as a white rectangle after a damaged string, so the rest of the page is unknown.
+    const result = match({ texts: ['山', '田'], content: `${line(2)} /Missing Do` }, '山田');
+    expect([...summary(result), result.glyphs]).toStrictEqual(['unverified', '山田', [{ kind: 'page-incomplete' }], [0, 1]]);
+  });
+
   it('reads ruby after its base text in content order, which a caller selects away by size', () => {
     // Chromium draws ruby after all base text of the line.
     const proof = { texts: ['山', '田', 'や', 'ま', 'だ'], content: `${line(2)} BT /T 5 Tf 100 712 Td ${show(3, 4, 5)} ET` };

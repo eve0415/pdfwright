@@ -68,7 +68,9 @@ export type TextDifference =
    */
   | { readonly kind: 'glyph-unchecked'; readonly font: string; readonly glyphs: readonly number[] }
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
-  | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number };
+  | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number }
+  /** Some of the page's content could not be read (`PageText.complete` is false), so what it would have drawn over or beside the text is unknown. */
+  | { readonly kind: 'page-incomplete' };
 
 /** A fold used on the page's text, with the glyphs it was used for. */
 export interface FoldApplied {
@@ -87,7 +89,7 @@ export interface DuplicateRuns {
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.
-   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, which a person must check.
+   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, or on a page whose content could not all be read, which a person must check.
    */
   readonly status: 'match' | 'mismatch' | 'unverified';
   readonly intended: string;
@@ -477,7 +479,7 @@ const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): vo
   }
 };
 
-// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText or text a glyph's font program contradicts.
+// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText, on text a glyph's font program contradicts, or on a page not wholly read.
 const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
   if (differences.some(difference => MISMATCHES.has(difference.kind))) return 'mismatch';
   return differences.length > 0 ? 'unverified' : 'match';
@@ -510,7 +512,8 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     return have !== undefined && have.failure === undefined && have.text === wanted[a]?.text;
   });
   const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
-  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked];
+  const incomplete: TextDifference[] = page.complete ? [] : [{ kind: 'page-incomplete' }];
+  const differences = [...differencesOf(steps, wanted, found.clusters), ...found.notes, ...unchecked, ...incomplete];
   return {
     status: statusOf(differences),
     intended,
