@@ -27,3 +27,20 @@ describe('pdf errors', () => {
     expect(errors[1][0].offset).toBe(17);
   });
 });
+
+describe('error reasons', () => {
+  it('carries a typed reason on validation and invalid argument errors, and none when not given', () => {
+    const errors = [
+      new ValidationError('no identifier', 'document-id-required'),
+      new ValidationError('invalid'),
+      new InvalidArgumentError('keeps history', 'metadata-history'),
+      new InvalidArgumentError('bad argument'),
+    ];
+    expect(errors.map(error => [error.code, error.reason])).toStrictEqual([
+      ['validation', 'document-id-required'],
+      ['validation', undefined],
+      ['invalid-argument', 'metadata-history'],
+      ['invalid-argument', undefined],
+    ]);
+  });
+});
