@@ -26,7 +26,7 @@ export interface Type3Summary {
 /** A Type 3 font's glyph classification, and whether its procedures name resources at all. */
 export interface Type3Reading extends Type3Summary {
   readonly namesResources: boolean;
-  /** Whether the font has no Resources, absent or null (7.3.7), so that its names are looked up in the page's. */
+  /** Whether the font has no resource dictionary, so that its names are looked up in the page's. */
   readonly inheritsPageResources: boolean;
 }
 
@@ -99,7 +99,8 @@ export const readType3Glyphs = (document: DocumentInternals, type3: Type3Parts, 
     // A Resources entry that cannot be read is no resource dictionary; content interpretation then takes the page's, and so does this reading.
     if (!unreadable(error)) throw error;
   }
-  const inheritsPageResources = own === undefined || own.kind === 'null';
+  // 7.3.7: a null value is an absent entry; a value that is not a dictionary gives no resources either, and content interpretation takes the page's.
+  const inheritsPageResources = dictionaryOf(own) === undefined;
   const resources = inheritsPageResources ? pageResources : dictionaryOf(own);
   const kinds = new Set<Procedure['kind']>();
   let procedures = 0;

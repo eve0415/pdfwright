@@ -64,6 +64,11 @@ describe('glyph procedures of Type 3 fonts', () => {
     ]);
   });
 
+  it('takes the page resources for a font whose Resources is not a dictionary, as content interpretation does', () => {
+    const font = type3([IMAGE_DO], '/Resources[]', '/XObject<</Im0 120 0 R>>');
+    expect([font.type3?.glyphs, font.problems.map(problem => problem.code)]).toStrictEqual(['image', ['type3-resources-inherited']]);
+  });
+
   it('reports no glyph classification for fonts that are not Type 3', () => {
     const [font] = listFonts(loadDocument(textPdfBytes({ pages: [{ resources: '/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>' }] }))).fonts;
     expect(font?.type3).toBeUndefined();
