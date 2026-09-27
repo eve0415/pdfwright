@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { formatLength, mm, pt } from '../length/length.ts';
 
 import { createDocument } from './pdfDocument.ts';
+import { rect } from './rect.ts';
 
 interface PageReport {
   pages: unknown[];
@@ -20,6 +21,11 @@ interface OracleReport extends PageReport {
   pageCount: number;
   checkOutput: string;
   checkError: string;
+}
+
+interface PageBoxEntries {
+  page: unknown;
+  entries: [string, unknown][];
 }
 
 const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
@@ -40,16 +46,16 @@ const qpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }>
   }
 };
 
-const boxForPage = (entries: readonly [string, unknown][], page: unknown): string[] => {
+const boxForPage = (entries: readonly [string, unknown][], page: unknown, boxName = '/MediaBox'): string[] => {
   if (typeof page !== 'object' || page === null || !('object' in page) || typeof page.object !== 'string') throw new Error('qpdf omitted a page reference');
   const key = `obj:${page.object}`;
   const indirect = entries.find(([entry]) => entry === key)?.[1];
   if (typeof indirect !== 'object' || indirect === null || !('value' in indirect)) throw new Error('qpdf omitted a page value');
   const value: unknown = indirect.value;
-  if (typeof value !== 'object' || value === null || !('/MediaBox' in value) || !Array.isArray(value['/MediaBox'])) {
-    throw new Error('qpdf omitted a page MediaBox');
-  }
-  const mediaBox: unknown[] = value['/MediaBox'];
+  if (typeof value !== 'object' || value === null) throw new Error(`qpdf omitted a page ${boxName}`);
+  const box: unknown = Object.entries(value).find(([entryName]) => entryName === boxName)?.[1];
+  if (!Array.isArray(box)) throw new Error(`qpdf omitted a page ${boxName}`);
+  const mediaBox: unknown[] = box;
   return mediaBox.map(number => {
     if (typeof number !== 'number') throw new Error('qpdf returned a nonnumeric MediaBox');
     return String(number);
@@ -79,7 +85,43 @@ const checkDocument = async (directory: string, pageCount: number): Promise<Orac
   return { pageCount, checkOutput: checked.stdout, checkError: checked.stderr, ...pageBoxes(result) };
 };
 
+const pageBoxEntries = (json: unknown): PageBoxEntries => {
+  if (typeof json !== 'object' || json === null || !('pages' in json) || !Array.isArray(json.pages) || !('qpdf' in json) || !Array.isArray(json.qpdf)) {
+    throw new Error('qpdf returned unexpected JSON');
+  }
+  const page: unknown = json.pages[0];
+  const section: unknown = json.qpdf[1];
+  if (typeof section !== 'object' || section === null) throw new Error('qpdf omitted indirect objects');
+  return { page, entries: Object.entries(section) };
+};
+
 describe('qpdf document oracle', () => {
+  it('reports every supplied box at its formatted coordinates', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-boxes-'));
+    try {
+      const document = createDocument();
+      const boxes = {
+        mediaBox: rect(mm(0), mm(0), mm(100), mm(100)),
+        cropBox: rect(mm(1), mm(1), mm(99), mm(99)),
+        bleedBox: rect(mm(2), mm(2), mm(98), mm(98)),
+        trimBox: rect(mm(3), mm(3), mm(97), mm(97)),
+        artBox: rect(mm(4), mm(4), mm(96), mm(96)),
+      };
+      document.addPage(boxes);
+      const file = path.join(directory, 'boxes.pdf');
+      await writeFile(file, document.save().toBytes());
+      const report = await qpdf(['--json', file]);
+      const json: unknown = JSON.parse(report.stdout);
+      const { page, entries } = pageBoxEntries(json);
+      for (const [key, box] of Object.entries(boxes)) {
+        const name = `/${key[0]?.toUpperCase()}${key.slice(1)}`;
+        expect(boxForPage(entries, page, name)).toStrictEqual(box.map(length => formatLength(length, 5)));
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('checks one-page and three-page A4 documents without warnings', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-oracle-'));
     try {
