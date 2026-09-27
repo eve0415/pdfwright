@@ -348,6 +348,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       if (page.trimBox !== undefined) normalized.trimBox = normalize(page.trimBox);
       if (page.artBox !== undefined) normalized.artBox = normalize(page.artBox);
       if (page.group !== undefined) normalized.group = { ...page.group };
+      // ISO 32000-1:2008, 7.7.3.3, Table 30 defaults CropBox to MediaBox and the other production boxes to CropBox.
       const cropBox = normalized.cropBox ?? normalized.mediaBox;
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
         validateBox(box, normalized.mediaBox, fractionDigits);

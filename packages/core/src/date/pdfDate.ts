@@ -26,17 +26,19 @@ const daysInMonth = (year: number, month: number): number => {
 };
 
 export const pdfDate = (components: PdfDateComponents): PdfDate => {
+  // ISO 32000-1:2008, 7.9.4 gives the ranges for month, day, clock fields, and UTC offset fields.
   const { year, month, day, hour, minute, second, offset } = components;
   if (
     !inRange(year, 0, 9999) ||
     !inRange(month, 1, 12) ||
-    !inRange(day, 1, daysInMonth(year, month)) ||
+    !inRange(day, 1, 31) ||
     !inRange(hour, 0, 23) ||
     !inRange(minute, 0, 59) ||
     !inRange(second, 0, 59)
   ) {
-    throw new ValidationError('PDF date has an out-of-range calendar field');
+    throw new ValidationError('PDF date has an out-of-range field');
   }
+  if (day > daysInMonth(year, month)) throw new ValidationError('Writer policy: PDF date must name an actual calendar day');
   if (offset !== 'Z' && (!['+', '-'].includes(offset.sign) || !inRange(offset.hours, 0, 23) || !inRange(offset.minutes, 0, 59))) {
     throw new ValidationError('PDF date has an out-of-range UTC offset');
   }

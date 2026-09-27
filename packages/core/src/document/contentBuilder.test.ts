@@ -11,6 +11,16 @@ import { rect } from './rect.ts';
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
 describe('content builder', () => {
+  it('rejects all-zero dash arrays and allows an empty solid pattern', () => {
+    const builder = createContentBuilder(5);
+    expect(() => {
+      builder.dash([0, 0], 0);
+    }).toThrow(ValidationError);
+    expect(() => {
+      builder.dash([], 0);
+    }).not.toThrow();
+  });
+
   it('formats path, graphics, and clipping operators exactly', () => {
     const builder = createContentBuilder(5);
     builder.save();

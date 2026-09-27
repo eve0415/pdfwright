@@ -66,6 +66,7 @@ export interface ContentBuilder {
   stroke: (options?: PaintOptions) => void;
   fillAndStroke: (rule: 'nonzero' | 'evenodd', options?: PaintOptions) => void;
   clip: (rule: 'nonzero' | 'evenodd') => void;
+  /** ISO 32000-1:2008, 8.4.3.2: "Since the results of rendering such zero-width lines are device-dependent, they should not be used." */
   lineWidth: (width: ContentNumber) => void;
   lineJoin: (join: 'miter' | 'round' | 'bevel') => void;
   lineCap: (cap: 'butt' | 'round' | 'square') => void;
@@ -81,6 +82,7 @@ export interface ContentBuilder {
 }
 
 const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
+  // ISO 32000-1:2008, 8.4.5, Table 58 makes OP set both overprint flags unless op is also supplied; this writer writes both explicitly.
   if (options.fillAlpha !== undefined && (!Number.isFinite(options.fillAlpha) || options.fillAlpha < 0 || options.fillAlpha > 1)) {
     throw new ValidationError('fill alpha must be in [0, 1]');
   }
@@ -172,6 +174,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     }
   };
   const pathBuilder: PathBuilder = {
+    // ISO 32000-1:2008, 8.5.2, Table 59 defines m, l, c, re, and h as path construction operators.
     moveTo: (...coordinates): PathBuilder => {
       emit('m', coordinates);
       return pathBuilder;
@@ -208,12 +211,14 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       if (previous !== undefined) state = previous;
       emit('Q');
     },
+    // ISO 32000-1:2008, 8.4.4, Table 57 writes cm with six separate numeric operands.
     transform: (...matrix): void => {
       emit('cm', matrix);
     },
     path: (draw): void => {
       draw(pathBuilder);
     },
+    // ISO 32000-1:2008, 8.5.3.1, Table 60 defines f, f*, S, B, and B* as path-painting operators.
     fill: (rule, options): void => {
       checkWhiteOverprint(false, options);
       emit(rule === 'evenodd' ? 'f*' : 'f');
@@ -237,6 +242,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       nonnegative(width, 'line width');
       emit('w', [width]);
     },
+    // ISO 32000-1:2008, 8.4.4, Table 57 defines j, J, M, and d as graphics state operators.
     lineJoin: (join): void => {
       emit('j', [{ miter: 0, round: 1, bevel: 2 }[join]]);
     },
@@ -248,7 +254,11 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       emit('M', [limit]);
     },
     dash: (array, phase): void => {
+      // ISO 32000-1:2008, 8.4.3.6 permits an empty array for a solid line, but a nonempty dash array shall not be all zero.
       for (const value of array) nonnegative(value, 'dash length');
+      if (array.length > 0 && !array.some(value => Number(number(value)) > 0)) {
+        throw new ValidationError('dash array must contain a positive length after rounding');
+      }
       nonnegative(phase, 'dash phase');
       commands.push(`[${array.map(value => number(value)).join(' ')}] ${number(phase)} d\n`);
     },

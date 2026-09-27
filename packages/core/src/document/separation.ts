@@ -25,6 +25,7 @@ export const createSeparation = (options: SeparationOptions, asciiOnly: boolean)
   pdfNameFromBytes(name);
   if (asciiOnly && [...name].some(byte => byte < 0x21 || byte > 0x7e)) throw new ValidationError('colorant policy requires printable ASCII name bytes');
   const text = new TextDecoder().decode(name);
+  // ISO 32000-1:2008, 8.6.6.4 reserves All and None as special colorant names with defined output semantics.
   if ((text === 'All' || text === 'None') && options.allow !== text) throw new ValidationError(`${text} requires an explicit allow option`);
   if (options.allow !== undefined && text !== options.allow) throw new ValidationError('allow must match the special colorant name');
   return { kind: 'Separation', name, alternate: options.alternate };

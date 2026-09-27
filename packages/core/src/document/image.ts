@@ -29,6 +29,7 @@ export interface PdfImage extends ImageOptions {
 const validDimension = (value: number): boolean => Number.isSafeInteger(value) && value > 0;
 
 export const createImage = (id: number, owner: symbol, options: ImageOptions): PdfImage => {
+  // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image dimensions, colour space, and bits per component.
   const { width, height, colorSpace, samples, softMask } = options;
   if (!validDimension(width) || !validDimension(height)) throw new ValidationError('image dimensions must be positive integers');
   const channels = { DeviceRGB: 3, DeviceCMYK: 4, DeviceGray: 1 }[typeof colorSpace === 'string' ? colorSpace : 'DeviceGray'];
