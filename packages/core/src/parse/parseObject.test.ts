@@ -62,6 +62,11 @@ describe('direct object parser', () => {
     expect([single.value, single.end]).toStrictEqual([{ kind: 'integer', value: 1 }, 1]);
   });
 
+  it('reports a warning once when a reference lookahead reads the token', () => {
+    const { value, warnings } = parse('[1 2 /A#zz]');
+    expect([value.kind, warnings.map(warning => warning.code)]).toStrictEqual(['array', ['malformed-name-escape']]);
+  });
+
   it('uses the last of duplicate keys and warns', () => {
     const { value, warnings } = parse('<</MediaBox[0 0 100 100]/MediaBox[0 0 300 300]>>');
     expect(entryText(value, 'MediaBox')).toBe('[0 0 300 300]');

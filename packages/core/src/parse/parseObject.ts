@@ -36,14 +36,11 @@ const fail = (lexer: Lexer, message: string, token: Token): never => {
 const referenceAfter = (lexer: Lexer, first: Extract<Token, { kind: 'integer' }>): PdfDirectObject => {
   const second = lexer.peek();
   if (second.kind !== 'integer') return { kind: 'integer', value: first.value };
+  const keyword = lexer.peekSecond();
+  if (keyword.kind !== 'keyword' || keyword.keyword !== 'R') return { kind: 'integer', value: first.value };
   lexer.next();
-  const keyword = lexer.peek();
-  if (keyword.kind === 'keyword' && keyword.keyword === 'R') {
-    lexer.next();
-    return { kind: 'reference', objectNumber: first.value, generation: second.value };
-  }
-  lexer.seek(first.end);
-  return { kind: 'integer', value: first.value };
+  lexer.next();
+  return { kind: 'reference', objectNumber: first.value, generation: second.value };
 };
 
 const invalid = (lexer: Lexer, token: Token, reason: Extract<PdfDirectObject, { kind: 'invalid' }>['reason']): PdfDirectObject => {

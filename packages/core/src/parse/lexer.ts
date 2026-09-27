@@ -114,6 +114,7 @@ export class Lexer {
   readonly context: LexContext;
   position: number;
   private peeked: Token | undefined = undefined;
+  private second: Token | undefined = undefined;
 
   constructor(window: LexWindow, start: number, context: LexContext) {
     this.bytes = window.bytes;
@@ -139,6 +140,7 @@ export class Lexer {
   seek(position: number): void {
     this.position = position;
     this.peeked = undefined;
+    this.second = undefined;
   }
 
   /** The next token, without consuming it; `position` stays where it is. */
@@ -151,9 +153,22 @@ export class Lexer {
     return this.peeked;
   }
 
+  /** The token after the next one, without consuming either; each token is read once, so its warnings are reported once. */
+  peekSecond(): Token {
+    const first = this.peek();
+    if (this.second === undefined) {
+      const { position } = this;
+      this.position = first.end;
+      this.second = this.read();
+      this.position = position;
+    }
+    return this.second;
+  }
+
   next(): Token {
     const token = this.peek();
-    this.peeked = undefined;
+    this.peeked = this.second;
+    this.second = undefined;
     this.position = token.end;
     return token;
   }
