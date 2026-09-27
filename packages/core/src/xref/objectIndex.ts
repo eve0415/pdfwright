@@ -157,14 +157,21 @@ const headerMatches = (source: ByteSource, offset: number, expected: { objectNum
     );
   });
 
+export interface HeaderValidation {
+  /** Object numbers whose entries are not checked: the cross-reference streams themselves, which nothing locates through the index. */
+  readonly skip: ReadonlySet<number>;
+  readonly offsetZero: (objectNumber: number) => void;
+}
+
 /**
  * Checks that every in-file entry points at its object's "n g obj" header, allowing white space before it.
  * In-use entries with offset 0 are freed and reported through `offsetZero`; the first other mismatch is returned.
  */
-export const validateHeaders = (source: ByteSource, index: ObjectIndex, offsetZero: (objectNumber: number) => void): HeaderMismatch | undefined => {
+export const validateHeaders = (source: ByteSource, index: ObjectIndex, validation: HeaderValidation): HeaderMismatch | undefined => {
+  const { offsetZero } = validation;
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
-    if (entry.type !== IN_FILE) continue;
+    if (entry.type !== IN_FILE || validation.skip.has(objectNumber)) continue;
     if (entry.location === 0) {
       index.free(objectNumber);
       offsetZero(objectNumber);

@@ -145,8 +145,10 @@ class FullRewriter {
   private collect(): void {
     const { store, changes } = this.input;
     const touched = this.touchedStreams();
+    const xrefStreams = this.input.base?.xrefStreams ?? new Set<number>();
     for (const number of store.index.inUse()) {
-      if (changes.has(number) || this.dropped.has(number)) continue;
+      // Cross-reference streams describe the source's layout and are never written.
+      if (changes.has(number) || this.dropped.has(number) || xrefStreams.has(number)) continue;
       const entry = store.index.get(number);
       if (entry.type === COMPRESSED && !touched.has(entry.location)) {
         this.entries.set(number, { objectNumber: number, type: 2, field: entry.location, generation: entry.generation });

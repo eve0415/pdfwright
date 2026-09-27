@@ -50,6 +50,8 @@ export interface SaveBase {
   readonly trailerEnd: number;
   /** Offset the section chain's offsets are relative to: the header position when they were read relative to it, else 0. */
   readonly shift: number;
+  /** Object numbers of the cross-reference streams the chain was read from; a rewrite never writes them. */
+  readonly xrefStreams: ReadonlySet<number>;
 }
 
 export interface ReadStructure {
@@ -145,8 +147,16 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
       throw new ParseError(`object ${String(number)} names object stream ${String(entry.location)}, which is not in the file`, 0);
     }
   }
-  const mismatch = validateHeaders(session.source, index, objectNumber => {
-    warn({ code: 'xref-entry-offset-zero', detail: `the in-use entry of object ${String(objectNumber)} has offset 0 and is read as free`, objectNumber });
+  const xrefStreams = new Set(
+    sections.flatMap(section =>
+      section.kind === 'stream' && 'objectNumber' in section && typeof section.objectNumber === 'number' ? [section.objectNumber] : [],
+    ),
+  );
+  const mismatch = validateHeaders(session.source, index, {
+    skip: xrefStreams,
+    offsetZero: objectNumber => {
+      warn({ code: 'xref-entry-offset-zero', detail: `the in-use entry of object ${String(objectNumber)} has offset 0 and is read as free`, objectNumber });
+    },
   });
   if (mismatch !== undefined) throw new ParseError(`object ${String(mismatch.objectNumber)} is not at its cross-reference offset`, mismatch.offset);
   const [newest] = chain.sections;
@@ -169,7 +179,7 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
     linearized: linearized(store),
     trailer,
   };
-  const base = newest === undefined ? undefined : { trailerStart: newest.section.trailerStart, trailerEnd: newest.section.trailerEnd, shift };
+  const base = newest === undefined ? undefined : { trailerStart: newest.section.trailerStart, trailerEnd: newest.section.trailerEnd, shift, xrefStreams };
   return base === undefined ? { store, structure } : { store, structure, base };
 };
 
