@@ -7,7 +7,7 @@ import type { GroupAttributes, GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, ImageRecord, PdfImage } from './image.ts';
 import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
-import type { Separation, SeparationOptions } from './separation.ts';
+import type { Separation, SeparationOptions, SeparationRecord } from './separation.ts';
 
 import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -24,7 +24,7 @@ import { groupAttributes, groupObject } from './group.ts';
 import { createImageRecord, imageObject, softMaskObject } from './image.ts';
 import { pieceInfoRecord } from './pieceInfo.ts';
 import { rect } from './rect.ts';
-import { colorantKey, createSeparation, separationObject } from './separation.ts';
+import { colorantKey, createSeparationRecord, separationObject } from './separation.ts';
 
 export interface DocumentOptions {
   fractionDigits?: number;
@@ -59,7 +59,7 @@ export interface PdfPage {
 
 interface ResourceRecord {
   graphicsStates: Map<string, { name: string; options: GraphicsStateOptions }>;
-  separations: Map<string, { name: string; separation: Separation }>;
+  separations: Map<string, { name: string; separation: SeparationRecord }>;
   images: Map<ImageRecord, string>;
   groups: Map<GroupRecord, string>;
 }
@@ -79,6 +79,7 @@ interface GroupRecord extends ResourceRecord {
 
 // Handles are opaque: each document maps the handles it issued to their records, so a handle from another document or built by hand has no record.
 interface DocumentRecords {
+  separations: WeakMap<Separation, SeparationRecord>;
   images: WeakMap<PdfImage, ImageRecord>;
   groups: WeakMap<PdfGroup, GroupRecord>;
 }
@@ -148,6 +149,12 @@ const isolateContent = (data: Uint8Array): Uint8Array => {
   return isolated;
 };
 
+const separationRecord = (records: DocumentRecords, separation: Separation): SeparationRecord => {
+  const record = records.separations.get(separation);
+  if (record === undefined) throw new ValidationError('separation was not created by this document');
+  return record;
+};
+
 const imageRecord = (records: DocumentRecords, image: PdfImage): ImageRecord => {
   const record = records.images.get(image);
   if (record === undefined) throw new ValidationError('image was not created by this document');
@@ -181,11 +188,12 @@ const createContentHooks = (
     return name;
   },
   registerSeparation: separation => {
-    const key = colorantKey(separation.name);
+    const record = separationRecord(records, separation);
+    const key = colorantKey(record.name);
     const existing = resources.separations.get(key);
     if (existing !== undefined) return existing.name;
     const name = `CS${resources.separations.size + 1}`;
-    resources.separations.set(key, { name, separation });
+    resources.separations.set(key, { name, separation: record });
     return name;
   },
   registerImage: image => {
@@ -305,7 +313,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const documentSeparations = new Map<string, Separation>();
   const images: ImageRecord[] = [];
   const groups: GroupRecord[] = [];
-  const records: DocumentRecords = { images: new WeakMap(), groups: new WeakMap() };
+  const records: DocumentRecords = { separations: new WeakMap(), images: new WeakMap(), groups: new WeakMap() };
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
 
   return {
@@ -337,24 +345,26 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       return handle;
     },
     image: (imageOptions): PdfImage => {
-      const record = createImageRecord(imageOptions);
+      const record = createImageRecord(imageOptions, separation => separationRecord(records, separation));
       const handle: PdfImage = Object.freeze({ kind: 'PdfImage' });
       records.images.set(handle, record);
       images.push(record);
       return handle;
     },
     separation: (separationOptions): Separation => {
-      const separation = createSeparation(separationOptions, options.colorantPolicy?.asciiOnly === true);
-      const key = colorantKey(separation.name);
+      const record = createSeparationRecord(separationOptions, options.colorantPolicy?.asciiOnly === true);
+      const key = colorantKey(record.name);
       const existing = documentSeparations.get(key);
       if (existing !== undefined) {
-        if (JSON.stringify(existing.alternate) !== JSON.stringify(separation.alternate)) {
+        if (JSON.stringify(separationRecord(records, existing).alternate) !== JSON.stringify(record.alternate)) {
           throw new ValidationError('the same colorant name cannot use conflicting alternate colours');
         }
         return existing;
       }
-      documentSeparations.set(key, separation);
-      return separation;
+      const handle: Separation = Object.freeze({ kind: 'Separation' });
+      records.separations.set(handle, record);
+      documentSeparations.set(key, handle);
+      return handle;
     },
     addPage: (page: PageOptions): PdfPage => {
       const normalized: PageOptions = { mediaBox: normalize(page.mediaBox) };

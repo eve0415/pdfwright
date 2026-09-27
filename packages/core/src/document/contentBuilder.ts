@@ -8,8 +8,6 @@ import { ValidationError } from '../error/validationError.ts';
 import { formatLength } from '../length/length.ts';
 import { formatNumber } from '../number/formatNumber.ts';
 
-import { colorantKey } from './separation.ts';
-
 export type ContentNumber = number | Length;
 
 export interface GraphicsStateOptions {
@@ -142,7 +140,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   };
   const stack: CurrentGraphicsState[] = [];
   const localStates = new Map<string, string>();
-  const localSeparations = new Map<string, string>();
+  const localSeparations = new Map<Separation, string>();
   const localImages = new Map<PdfImage, string>();
   const localGroups = new Map<PdfGroup, string>();
   const inheritedWhite = { fill: false, stroke: false };
@@ -154,11 +152,10 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     if (Number(number(value)) < 0) throw new ValidationError(`${name} must be non-negative`);
   };
   const separationName = (separation: Separation): string => {
-    const key = colorantKey(separation.name);
-    let name = localSeparations.get(key);
+    let name = localSeparations.get(separation);
     if (name === undefined) {
       name = hooks.registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
-      localSeparations.set(key, name);
+      localSeparations.set(separation, name);
     }
     return name;
   };

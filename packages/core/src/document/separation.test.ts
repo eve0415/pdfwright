@@ -32,8 +32,34 @@ describe('separation colour spaces', () => {
     expect(() => document.separation({ name: 'All', alternate: rgb(1, 0, 0) })).toThrow(ValidationError);
     expect(() => document.separation({ name: 'é', alternate: rgb(1, 0, 0) })).toThrow(ValidationError);
     expect(() => document.separation({ name: new Uint8Array([0x82]), alternate: gray(0) })).toThrow(ValidationError);
-    expect(document.separation({ name: 'None', alternate: gray(1), allow: 'None' }).name).toStrictEqual(new TextEncoder().encode('None'));
+    const none = document.separation({ name: 'None', alternate: gray(1), allow: 'None' });
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
+    page.draw(content => {
+      content.fillColor(none, 1);
+    });
+    expect(ascii(document.save().toBytes())).toContain('/Separation /None /DeviceGray');
     document.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 0.2) });
     expect(() => document.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 0.3) })).toThrow(ValidationError);
+  });
+
+  it('accepts only separations the same document created, as opaque frozen handles', () => {
+    const document = createDocument();
+    const other = createDocument();
+    const foreign = other.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 0.5) });
+    const alternate = cmyk(0, 0, 0, 0.5);
+    const forged = { kind: 'Separation', name: new TextEncoder().encode('Spot'), alternate } as const;
+    const own = document.separation({ name: 'Spot', alternate });
+    expect([Object.isFrozen(own), Object.keys(own)]).toStrictEqual([true, ['kind']]);
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
+    page.draw(content => {
+      for (const separation of [foreign, forged]) {
+        expect(() => {
+          content.fillColor(separation, 1);
+        }).toThrow(ValidationError);
+      }
+    });
+    for (const separation of [foreign, forged]) {
+      expect(() => document.image({ width: 1, height: 1, colorSpace: separation, bitsPerComponent: 8, samples: new Uint8Array(1) })).toThrow(ValidationError);
+    }
   });
 });

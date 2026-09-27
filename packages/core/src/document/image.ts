@@ -1,5 +1,5 @@
 import type { PdfObject } from '../object/pdfObject.ts';
-import type { Separation } from './separation.ts';
+import type { Separation, SeparationRecord } from './separation.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
@@ -34,14 +34,14 @@ export interface SoftMaskRecord {
 export interface ImageRecord {
   readonly width: number;
   readonly height: number;
-  readonly colorSpace: ImageColorSpace;
+  readonly colorSpace: 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | SeparationRecord;
   readonly samples: Uint8Array;
   readonly softMask: SoftMaskRecord | undefined;
 }
 
 const validDimension = (value: number): boolean => Number.isSafeInteger(value) && value > 0;
 
-export const createImageRecord = (options: ImageOptions): ImageRecord => {
+export const createImageRecord = (options: ImageOptions, resolveSeparation: (separation: Separation) => SeparationRecord): ImageRecord => {
   // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image dimensions, colour space, and bits per component.
   const { width, height, colorSpace, samples, softMask } = options;
   if (!validDimension(width) || !validDimension(height)) throw new ValidationError('image dimensions must be positive integers');
@@ -56,7 +56,7 @@ export const createImageRecord = (options: ImageOptions): ImageRecord => {
   return {
     width,
     height,
-    colorSpace,
+    colorSpace: typeof colorSpace === 'string' ? colorSpace : resolveSeparation(colorSpace),
     samples: Uint8Array.from(samples),
     softMask: softMask === undefined ? undefined : { width: softMask.width, height: softMask.height, samples: Uint8Array.from(softMask.samples) },
   };
