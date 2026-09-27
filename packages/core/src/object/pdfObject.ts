@@ -17,6 +17,8 @@ export type PdfObject =
   | { kind: 'stream'; dictionary: PdfDictionaryEntries; data: Uint8Array }
   | { kind: 'reference'; objectNumber: number; generation: number };
 
+export type PdfReference = Extract<PdfObject, { kind: 'reference' }>;
+
 export const pdfNameFromBytes = (bytes: Uint8Array): Extract<PdfObject, { kind: 'name' }> => {
   // ISO 32000-1:2008, 7.3.5 permits an empty name and forbids null bytes; Annex C, Table C.1 limits names to 127 bytes.
   if (bytes.length > 127 || bytes.includes(0)) throw new InvalidArgumentError('invalid name bytes');

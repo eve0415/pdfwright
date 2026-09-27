@@ -1,6 +1,8 @@
 import type { PdfObject } from '../object/pdfObject.ts';
+import type { PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
 
+import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { formatLength } from '../length/length.ts';
@@ -26,9 +28,12 @@ export interface PdfGroup {
   readonly colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' | undefined;
   inheritedWhiteFill: boolean;
   inheritedWhiteStroke: boolean;
+  pieceInfo: (input: PieceInfoInput) => void;
 }
 
-export const createGroup = (...[id, owner, options, fractionDigits]: [number, symbol, GroupOptions, number]): PdfGroup => {
+export const createGroup = (
+  ...[id, owner, options, fractionDigits, setPieceInfo]: [number, symbol, GroupOptions, number, (input: PieceInfoInput) => void]
+): PdfGroup => {
   if (options.colorSpace !== undefined && options.isolated !== true) throw new ValidationError('a transparency group colour space requires isolated: true');
   const bbox = rect(...options.bbox);
   const [left, bottom, right, top] = bbox.map(value => Number(formatLength(value, fractionDigits)));
@@ -45,12 +50,15 @@ export const createGroup = (...[id, owner, options, fractionDigits]: [number, sy
     colorSpace: options.colorSpace,
     inheritedWhiteFill: false,
     inheritedWhiteStroke: false,
+    pieceInfo: setPieceInfo,
   };
   return group;
 };
 
 // ISO 32000-1:2008, 8.10.2, Table 95 defines form XObjects; 11.6.6, Table 147 defines transparency group attributes.
-export const groupObject = (...[group, content, resources, fractionDigits]: [PdfGroup, Uint8Array, PdfObject, number]): PdfObject => {
+export const groupObject = (
+  ...[group, content, resources, fractionDigits, pieceInfo]: [PdfGroup, Uint8Array, PdfObject, number, PieceInfoRecord | undefined]
+): PdfObject => {
   const attributes = new PdfDictionaryEntries([
     [pdfName('S').bytes, pdfName('Transparency')],
     [pdfName('I').bytes, { kind: 'boolean', value: group.isolated }],
@@ -65,5 +73,9 @@ export const groupObject = (...[group, content, resources, fractionDigits]: [Pdf
     [pdfName('Group').bytes, pdfDictionary(attributes)],
     [pdfName('Filter').bytes, pdfName('FlateDecode')],
   ]);
+  if (pieceInfo !== undefined) {
+    dictionary.set(pdfName('LastModified').bytes, pdfDateObject(pieceInfo.lastModified));
+    dictionary.set(pdfName('PieceInfo').bytes, pieceInfo.value);
+  }
   return { kind: 'stream', dictionary, data: deflateZlib(content) };
 };

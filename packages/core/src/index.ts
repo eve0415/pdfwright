@@ -26,7 +26,7 @@ export {
   pdfReference,
   pdfString,
 } from './object/pdfObject.ts';
-export type { PdfObject } from './object/pdfObject.ts';
+export type { PdfObject, PdfReference } from './object/pdfObject.ts';
 export { serializeObject } from './serialize/serializeObject.ts';
 export { createDocument } from './document/pdfDocument.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
@@ -37,6 +37,7 @@ export type { GraphicsStateOptions, PaintOptions } from './document/contentBuild
 export type { Separation, SeparationOptions } from './document/separation.ts';
 export type { ImageColorSpace, ImageOptions, PdfImage } from './document/image.ts';
 export type { GroupOptions, PdfGroup } from './document/group.ts';
+export type { DocumentPieceInfoInput, PieceData, PieceDataEntries, PieceInfoInput } from './document/pieceInfo.ts';
 export type { SavedPdf } from './write/savedPdf.ts';
 export { rect } from './document/rect.ts';
 export type { PdfRect } from './document/rect.ts';

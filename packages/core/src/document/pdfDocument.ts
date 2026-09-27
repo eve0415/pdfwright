@@ -1,13 +1,16 @@
+import type { PdfDate } from '../date/pdfDate.ts';
 import type { Length } from '../length/length.ts';
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder, ContentHooks, GraphicsStateOptions } from './contentBuilder.ts';
 import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, PdfImage } from './image.ts';
+import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
 import type { PdfRect } from './rect.ts';
 import type { Separation, SeparationOptions } from './separation.ts';
 
+import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { formatLength } from '../length/length.ts';
@@ -19,6 +22,7 @@ import { writeDocument } from '../write/writeDocument.ts';
 import { createContentBuilder } from './contentBuilder.ts';
 import { createGroup, groupObject } from './group.ts';
 import { createImage, imageObject, softMaskObject } from './image.ts';
+import { pieceInfoRecord, validateIndirectValue } from './pieceInfo.ts';
 import { rect } from './rect.ts';
 import { colorantKey, createSeparation, separationObject } from './separation.ts';
 
@@ -26,6 +30,7 @@ export interface DocumentOptions {
   fractionDigits?: number;
   fileIdentifier?: [Uint8Array, Uint8Array];
   colorantPolicy?: { asciiOnly?: boolean };
+  info?: { modificationDate?: PdfDate };
 }
 
 export interface PageOptions {
@@ -42,11 +47,14 @@ export interface PdfDocument {
   separation: (options: SeparationOptions) => Separation;
   image: (options: ImageOptions) => PdfImage;
   group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
+  object: (value: PdfObject) => PdfReference;
+  pieceInfo: (input: DocumentPieceInfoInput) => void;
   save: () => SavedPdf;
 }
 
 export interface PdfPage {
   draw: (render: (content: ContentBuilder) => void) => void;
+  pieceInfo: (input: PieceInfoInput) => void;
 }
 
 interface ResourceRecord {
@@ -59,11 +67,17 @@ interface ResourceRecord {
 interface PageRecord extends ResourceRecord {
   options: PageOptions;
   contents: Uint8Array[];
+  pieceInfo?: PieceInfoRecord;
 }
 
 interface GroupRecord extends ResourceRecord {
   handle: PdfGroup;
   content: Uint8Array;
+  pieceInfo?: PieceInfoRecord;
+}
+
+interface GroupRecordHolder {
+  record?: GroupRecord;
 }
 
 interface ImageObjectNumbers {
@@ -168,8 +182,8 @@ const createContentHooks = (resources: ResourceRecord, owner: symbol, colorSpace
   },
 });
 
-const allocateImageNumbers = (images: readonly PdfImage[], pages: readonly PageRecord[]): Map<number, ImageObjectNumbers> => {
-  let nextNumber = pages.length + 3 + pages.reduce((sum, page) => sum + page.contents.length, 0);
+const allocateImageNumbers = (images: readonly PdfImage[], firstNumber: number): Map<number, ImageObjectNumbers> => {
+  let nextNumber = firstNumber;
   const numbersByImage = new Map<number, ImageObjectNumbers>();
   for (const image of images) {
     const numbers: ImageObjectNumbers = { parent: nextNumber };
@@ -183,9 +197,8 @@ const allocateImageNumbers = (images: readonly PdfImage[], pages: readonly PageR
   return numbersByImage;
 };
 
-const allocateGroupNumbers = (images: readonly PdfImage[], pages: readonly PageRecord[], groups: readonly GroupRecord[]): Map<number, number> => {
-  let nextNumber = pages.length + 3 + pages.reduce((sum, page) => sum + page.contents.length, 0);
-  nextNumber += images.reduce((sum, image) => sum + (image.softMask === undefined ? 1 : 2), 0);
+const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<number, number> => {
+  let nextNumber = firstNumber;
   const numbers = new Map<number, number>();
   for (const group of groups) numbers.set(group.handle.id, nextNumber++);
   return numbers;
@@ -229,6 +242,11 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfObject =>
     [pdfName('Parent').bytes, pdfReference(2, 0)],
     [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pointObject(length, context.fractionDigits)))],
   ]);
+  if (record.pieceInfo !== undefined) {
+    // ISO 32000-1:2008, 7.7.3.3, Table 30 requires page LastModified when PieceInfo is present.
+    entries.set(pdfName('LastModified').bytes, pdfDateObject(record.pieceInfo.lastModified));
+    entries.set(pdfName('PieceInfo').bytes, record.pieceInfo.value);
+  }
   if (page.group !== undefined) {
     // ISO 32000-1:2008, 11.4.7 recommends an explicit blending colour space for a page transparency group.
     const group = new PdfDictionaryEntries([
@@ -257,6 +275,8 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfObject =>
 
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const pages: PageRecord[] = [];
+  const callerObjects: PdfObject[] = [];
+  let documentPieceInfo: PieceInfoRecord | undefined = undefined;
   const documentSeparations = new Map<string, Separation>();
   const images: PdfImage[] = [];
   const groups: GroupRecord[] = [];
@@ -264,8 +284,23 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
 
   return {
+    object: (value): PdfReference => {
+      validateIndirectValue(value);
+      const reference = pdfReference(callerObjects.length + 3, 0);
+      callerObjects.push(value);
+      return reference;
+    },
+    pieceInfo: (input): void => {
+      const modificationDate = options.info?.modificationDate;
+      if (modificationDate === undefined) throw new ValidationError('document PieceInfo requires info.modificationDate');
+      documentPieceInfo = pieceInfoRecord(modificationDate, input.data);
+    },
     group: (groupOptions, render): PdfGroup => {
-      const handle = createGroup(groups.length + 1, owner, groupOptions, fractionDigits);
+      const groupState: GroupRecordHolder = {};
+      const handle = createGroup(groups.length + 1, owner, groupOptions, fractionDigits, input => {
+        if (groupState.record === undefined) throw new ValidationError('group is not ready for page-piece data');
+        groupState.record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
+      });
       const resources = createResourceRecord();
       const content = createContentBuilder(fractionDigits, createContentHooks(resources, owner, handle.colorSpace));
       render(content);
@@ -273,7 +308,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       const inherited = content.inheritedWhitePaint();
       handle.inheritedWhiteFill = inherited.fill;
       handle.inheritedWhiteStroke = inherited.stroke;
-      groups.push({ handle, content: data, ...resources });
+      const record: GroupRecord = { handle, content: data, ...resources };
+      groupState.record = record;
+      groups.push(record);
       return handle;
     },
     image: (imageOptions): PdfImage => {
@@ -313,6 +350,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           render(content);
           record.contents.push(content.finish());
         },
+        pieceInfo: (input): void => {
+          record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
+        },
       };
     },
     save: (): SavedPdf => {
@@ -320,7 +360,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         [pdfName('Type').bytes, pdfName('Catalog')],
         [pdfName('Pages').bytes, pdfReference(2, 0)],
       ]);
-      const kids = pages.map((_, index) => pdfReference(index + 3, 0));
+      if (documentPieceInfo !== undefined) catalog.set(pdfName('PieceInfo').bytes, documentPieceInfo.value);
+      const pageStart = callerObjects.length + 3;
+      const kids = pages.map((_, index) => pdfReference(index + pageStart, 0));
       const pageTree = new PdfDictionaryEntries([
         [pdfName('Type').bytes, pdfName('Pages')],
         [pdfName('Kids').bytes, pdfArray(kids)],
@@ -331,15 +373,22 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         { objectNumber: 1, generation: 0, value: pdfDictionary(catalog) },
         { objectNumber: 2, generation: 0, value: pdfDictionary(pageTree) },
       ];
-      const imageNumbers = allocateImageNumbers(images, pages);
-      const groupNumbers = allocateGroupNumbers(images, pages, groups);
+      for (let index = 0; index < callerObjects.length; index++) {
+        const value = callerObjects[index];
+        if (value !== undefined) objects.push({ objectNumber: index + 3, generation: 0, value });
+      }
+      const contentStart = pageStart + pages.length;
+      const imageStart = contentStart + pages.reduce((sum, page) => sum + page.contents.length, 0);
+      const imageNumbers = allocateImageNumbers(images, imageStart);
+      const groupStart = imageStart + images.reduce((sum, image) => sum + (image.softMask === undefined ? 1 : 2), 0);
+      const groupNumbers = allocateGroupNumbers(groups, groupStart);
       const resourceNumbers: ResourceNumbers = { imageNumbers, groupNumbers };
-      let nextContentNumber = pages.length + 3;
+      let nextContentNumber = contentStart;
       for (let index = 0; index < pages.length; index++) {
         const record = pages[index];
         if (record === undefined) continue;
         const value = pageObject(record, { fractionDigits, contentStart: nextContentNumber, resourceNumbers });
-        objects.push({ objectNumber: index + 3, generation: 0, value });
+        objects.push({ objectNumber: index + pageStart, generation: 0, value });
         nextContentNumber += record.contents.length;
       }
       for (const record of pages) {
@@ -362,9 +411,15 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         const number = groupNumbers.get(record.handle.id);
         if (number === undefined) throw new ValidationError('group reference is missing');
         const resources = pageResources(record, resourceNumbers) ?? pdfDictionary();
-        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, fractionDigits) });
+        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, fractionDigits, record.pieceInfo) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
+      if (options.info?.modificationDate !== undefined) {
+        const info = new PdfDictionaryEntries([[pdfName('ModDate').bytes, pdfDateObject(options.info.modificationDate)]]);
+        const number = objects.length + 1;
+        objects.push({ objectNumber: number, generation: 0, value: pdfDictionary(info) });
+        trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
+      }
       return writeDocument(objects, trailer, { fractionDigits, version: '1.7', fileIdentifier: options.fileIdentifier });
     },
   };
