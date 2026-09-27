@@ -1,0 +1,68 @@
+import type { PdfObject } from '../object/pdfObject.ts';
+
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { pdfArray, pdfInteger, pdfName, pdfString } from '../object/pdfObject.ts';
+import { ByteWriter } from '../serialize/byteWriter.ts';
+import { serializeObject, writePdfObject } from '../serialize/serializeObject.ts';
+
+import { fileIdentifier } from './fileIdentifier.ts';
+
+export interface IndirectObject {
+  readonly objectNumber: number;
+  readonly generation: number;
+  readonly value: PdfObject;
+}
+
+export interface WriteOptions {
+  readonly fractionDigits: number;
+  readonly version: '1.7';
+  readonly fileIdentifier?: [Uint8Array, Uint8Array] | undefined;
+}
+
+const xrefEntry = (offset: number, generation: number, use: 'n' | 'f'): string =>
+  `${String(offset).padStart(10, '0')} ${String(generation).padStart(5, '0')} ${use} \n`;
+
+export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDictionaryEntries, options: WriteOptions): Uint8Array => {
+  const ordered = objects.toSorted((left, right) => left.objectNumber - right.objectNumber);
+  for (let index = 0; index < ordered.length; index++) {
+    const object = ordered[index];
+    if (object?.objectNumber !== index + 1 || !Number.isInteger(object.generation) || object.generation < 0 || object.generation > 65535) {
+      throw new InvalidArgumentError('indirect objects must have contiguous positive numbers and valid generations');
+    }
+  }
+
+  const writer = new ByteWriter();
+  // ISO 32000-1:2008, 7.5.2 requires a PDF header and a comment with four bytes whose values are at least 128 when the file contains binary data.
+  writer.writeAscii('%PDF-1.7\n%');
+  writer.writeBytes(new Uint8Array([0xe2, 0xe3, 0xcf, 0xd3]));
+  writer.writeByte(0x0a);
+  const offsets: number[] = [];
+  for (const object of ordered) {
+    offsets.push(writer.length);
+    writer.writeAscii(`${object.objectNumber} ${object.generation} obj\n`);
+    writePdfObject(writer, object.value, options);
+    writer.writeAscii('\nendobj\n');
+  }
+  const body = writer.toUint8Array();
+  const xrefOffset = writer.length;
+  // ISO 32000-1:2008, 7.5.4 requires one subsection beginning at object 0 for an initial xref section and exactly 20 bytes per entry.
+  writer.writeAscii(`xref\n0 ${ordered.length + 1}\n`);
+  writer.writeAscii(xrefEntry(0, 65535, 'f'));
+  for (let index = 0; index < ordered.length; index++) {
+    const offset = offsets[index] ?? 0;
+    const generation = ordered[index]?.generation ?? 0;
+    writer.writeAscii(xrefEntry(offset, generation, 'n'));
+  }
+
+  const entries = new PdfDictionaryEntries(trailer.entries());
+  entries.set(pdfName('Size').bytes, pdfInteger(ordered.length + 1));
+  entries.delete(pdfName('ID').bytes);
+  const trailerWithoutId = serializeObject({ kind: 'dictionary', entries }, options);
+  const identifiers = fileIdentifier(body, trailerWithoutId, options.fileIdentifier);
+  entries.set(pdfName('ID').bytes, pdfArray([pdfString(identifiers[0], 'hex'), pdfString(identifiers[1], 'hex')]));
+  writer.writeAscii('trailer\n');
+  writePdfObject(writer, { kind: 'dictionary', entries }, options);
+  writer.writeAscii(`\nstartxref\n${xrefOffset}\n%%EOF\n`);
+  return writer.toUint8Array();
+};
