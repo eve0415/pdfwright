@@ -186,6 +186,24 @@ When a Playwright update changes how Chromium embeds fonts, that test fails.
 Their sources and licence notices are in [`packages/core/THIRD-PARTY-NOTICES.md`](packages/core/THIRD-PARTY-NOTICES.md), which the package ships.
 Adobe's predefined CJK CMaps are not bundled; a `CMapProvider` supplies them.
 
+## Setting metadata
+
+`readMetadata(document)` reports the document information dictionary, the catalog's XMP packet, one row per key XMP Part 3 Table 20 maps (Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Trapped) with both values and whether they agree, the side ISO 32000-1 14.3.2 makes authoritative (`xmp`, `info` or `indeterminate`), the metadata streams other objects carry, the orphaned metadata streams nothing reachable references, and the `<?xpacket begin=` headers a byte scan of the file finds, including those left in earlier revisions.
+It never throws for damaged metadata; what cannot be read is a finding.
+
+`setMetadata(document, input)` writes Info and the document's XMP packet from one input, so that they agree.
+
+- A key left out keeps the document's value, taken from the authoritative side where the two disagree and from Info where neither is; `null` or an empty string removes it. `modificationDate` is required and sets ModDate, `xmp:ModifyDate` and `xmp:MetadataDate`, which are never read from a clock. Trapped `Unknown` has no XMP form, since `pdf:Trapped` is Boolean.
+- The packet replaces the catalog's metadata stream in place: the managed properties are spliced in and every other byte of the packet is kept. Dates are written to each side at its own precision. For a key the input leaves out, a property that occurs once and agrees with the resolved value is left as it is, and so are a property in a form the mapping does not read, such as a qualified value, and a date or Trapped value in the packet that cannot be parsed; an Info value of the wrong type or a date that does not parse is kept unless the packet or the input gives the key a value.
+- Legacy duplicates such as `pdf:Author` are removed (`removedLegacy`), and orphaned metadata streams are deleted (`deletedOrphans`).
+- `xmpMM:DocumentID` is kept, or derived from the first file identifier when the packet has none; the `documentId` option can give one, and a document with neither throws `ValidationError` `document-id-required`. `xmpMM:InstanceID` is derived when the document is saved, from the DocumentID, the metadata date, the previous InstanceID and everything else the save writes.
+- With the default `revisions: 'remove'`, the next save must rewrite the file, so that it holds exactly one document packet, and `save({ mode: 'incremental' })` throws `InvalidArgumentError` `metadata-history`. A rewrite moves the bytes signatures cover, so a document whose AcroForm `SigFlags` sets SignaturesExist (bit 1) or AppendOnly (bit 2) or cannot be read, or whose catalog has a `Perms` dictionary, is then refused with `ValidationError` `signed-document`. `revisions: 'keep'` allows an incremental update instead, and `supersededPackets` counts the packets it leaves in earlier revisions.
+- A packet that cannot be read throws `ValidationError` `xmp-unreadable` unless `unreadableXmp: 'replace'`, and a value XML cannot carry throws `xmp-unrepresentable`. Everything is validated before anything changes.
+
+The returned `MetadataChange` lists the values the edit discarded (`reconciled`), and its `findings` say what else a caller may need to know: a direct Info dictionary made indirect (`info-not-indirect`), a packet re-encoded as UTF-8 (`xmp-transcoded`), and values left as they were stored (`info-value-kept`, `xmp-value-kept`, `opaque-property-kept`).
+The edit parses every object reachable from the trailer once, and a rewrite unpacks any object stream that holds a changed object.
+`createDocument({ info, metadata: { xmp: true } })` writes a packet that agrees with Info in a new file; it requires `info.modificationDate` (`ValidationError` `metadata-date-required`) and derives the DocumentID from the first file identifier unless `metadata.documentId` gives one.
+
 ## Development
 
 See the contributor guide's [Setup](AGENTS.md#setup) and [The gate](AGENTS.md#the-gate) sections for development instructions.
