@@ -2,6 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { InheritedCache } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { FontGlyph, FontModel, FontString } from '../font/fontModel.ts';
+import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { FillRule } from './clip.ts';
@@ -12,13 +13,15 @@ import type { Matrix } from './matrix.ts';
 import { createInheritedCache, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
-import { dictionaryOf, latin1, numberOf } from '../font/fontValues.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { decodedData, dictionaryOf, latin1, numberOf, numbersOf } from '../font/fontValues.ts';
 import { FontCache, fontKey } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
+import { annotationFlags } from '../resourceGraph/annotationFlags.ts';
 
-import { Clip } from './clip.ts';
+import { Clip, rectanglePath } from './clip.ts';
 import { readContent } from './contentOperations.ts';
-import { IDENTITY, multiply } from './matrix.ts';
+import { IDENTITY, multiply, transformPoint } from './matrix.ts';
 import { checkOperands } from './operands.ts';
 import { pageContent } from './pageContent.ts';
 import { PathBuilder } from './path.ts';
@@ -39,16 +42,40 @@ const BLEND_MODE = pdfName('BM').bytes;
 const SOFT_MASK = pdfName('SMask').bytes;
 const MASK_SUBTYPE = pdfName('S').bytes;
 const MASK_GROUP = pdfName('G').bytes;
+const MATRIX = pdfName('Matrix').bytes;
+const BBOX = pdfName('BBox').bytes;
+const PATTERN_TYPE = pdfName('PatternType').bytes;
+const PAINT_TYPE = pdfName('PaintType').bytes;
+const ANNOTS = pdfName('Annots').bytes;
+const APPEARANCE = pdfName('AP').bytes;
+const NORMAL_APPEARANCE = pdfName('N').bytes;
+const APPEARANCE_STATE = pdfName('AS').bytes;
+const FLAGS = pdfName('F').bytes;
+const RECT = pdfName('Rect').bytes;
 
-/** A content stream being interpreted. */
-export interface ContentSource {
-  readonly kind: 'page';
-}
+/** The default for `InterpretOptions.maxOperations`. */
+export const MAX_OPERATIONS = 10_000_000;
+
+/**
+ * A content stream being interpreted: the page's content, a form XObject, a tiling pattern's cell, a Type 3 glyph procedure, an annotation's appearance stream, or the transparency group of a soft mask.
+ * Streams are identified by reference, which a well-formed file always has because ISO 32000-1:2008, 7.3.8.1 says "All streams shall be indirect objects".
+ */
+export type ContentSource =
+  | { readonly kind: 'page' }
+  | { readonly kind: 'form'; readonly reference: PdfReference | undefined }
+  | { readonly kind: 'tiling-pattern'; readonly reference: PdfReference | undefined; readonly coloured: boolean }
+  | { readonly kind: 'type3-glyph'; readonly font: string; readonly glyphName: string; readonly described: 'd0' | 'd1' | undefined }
+  | { readonly kind: 'annotation'; readonly index: number; readonly printable: boolean }
+  | { readonly kind: 'soft-mask'; readonly group: PdfReference | undefined };
+
+/** Whether colour operators take effect: 8.6.8 restricts them "In any glyph description that uses the d1 operator" and "In the content stream of an uncoloured tiling pattern", where they are ignored. */
+export type ColourUse = 'used' | 'd1-glyph' | 'uncoloured-pattern';
 
 /** Where a paint or text-show event happened. */
 export interface PaintContext {
-  /** The content streams being interpreted, outermost first. */
+  /** The content streams being interpreted, outermost first: the page or an annotation appearance, then any forms, patterns, glyph procedures and soft-mask groups inside it. */
   readonly sources: readonly ContentSource[];
+  readonly colour: ColourUse;
 }
 
 /** A pattern that scn or SCN selected in a Pattern colour space. */
@@ -125,11 +152,14 @@ export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'i
 
 /**
  * A painting operation. `colorSpaces` are the spaces it paints in: the fill space, the stroke space or both for paths and text, an image's own space or the fill space for an image mask, a shading's space.
+ * A Pattern space is followed by the space the pattern paints in when it has one: a shading pattern's shading space, or an uncoloured tiling pattern's base space with the components set by scn; a coloured tiling pattern's cell reports its own events.
  * A `clip` event is a path ended by n after W or W*, which paints nothing; its spaces are the fill and stroke spaces current when it was built.
  */
 export interface PaintEvent {
   readonly kind: PaintKind;
   readonly colorSpaces: readonly ColorSpaceUse[];
+  /** The graphics state the paint happened in. */
+  readonly state: GraphicsState;
   readonly context: PaintContext;
   /** The open marked-content sequences, outermost first. */
   readonly markedContent: readonly MarkedContent[];
@@ -137,7 +167,7 @@ export interface PaintEvent {
   readonly sequence: number;
 }
 
-/** A colour space selected as the current fill or stroke space: CS, cs, or one of the operators that also set a device space (8.6.8, Table 74). */
+/** A colour space selected as the current fill or stroke space: CS, cs, or one of the operators that also set a device space (8.6.8, Table 74). Where the context's `colour` is not `used` the selection is ignored and the state keeps its colour. */
 export interface ColorSelectEvent {
   readonly target: 'fill' | 'stroke';
   readonly use: ColorSpaceUse;
@@ -153,7 +183,7 @@ export interface ShownGlyph {
   readonly positionKnown: boolean;
 }
 
-/** One string shown by Tj, ', " or one string of a TJ array, with the glyphs it split into and the state they were shown in. */
+/** One string shown by Tj, ', " or one string of a TJ array, with the glyphs it split into and the state they were shown in. Text shown inside a Type 3 glyph procedure is painting of the glyph, reported by paint events only. */
 export interface TextShowEvent {
   readonly font: FontModel;
   readonly string: Uint8Array;
@@ -192,6 +222,10 @@ export interface InterpretOptions extends InterpretHandlers {
   readonly fonts?: FontCache;
   /** Inherited page attributes shared between pages. */
   readonly inheritance?: InheritedCache;
+  /** Which annotations' normal appearances are drawn after the page content: those that print (Table 165), none (the default), or all. */
+  readonly annotations?: 'printable' | 'none' | 'all';
+  /** The operations a page may execute, counting a form's operations each time it is drawn; past it ResourceLimitError is thrown. */
+  readonly maxOperations?: number;
 }
 
 export interface InterpretResult {
@@ -315,6 +349,11 @@ export const glyphDisplacement = (glyph: FontGlyph, writingMode: 0 | 1, state: G
 export const adjustmentDisplacement = (adjustment: number, writingMode: 0 | 1, state: GraphicsState): readonly [number, number] =>
   writingMode === 1 ? [0, (-adjustment / 1000) * state.fontSize] : [(-adjustment / 1000) * state.fontSize * state.horizontalScaling, 0];
 
+const isPatternSpace = ({ space }: ColorSpaceUse): boolean => {
+  const family = space?.kind === 'array' ? space.items[0] : space;
+  return family?.kind === 'name' && latin1(family.bytes) === 'Pattern';
+};
+
 /** The resources a content stream uses and how its events are attributed. */
 interface Scope {
   readonly resources: PdfDictionaryEntries | undefined;
@@ -323,6 +362,28 @@ interface Scope {
   readonly context: PaintContext;
   /** Names a stream of this content in warnings. */
   readonly label: (stream: number) => string;
+  /** The graphics state the stream began in, which a tiling pattern it paints with starts from (8.7.3.1). */
+  readonly initial: GraphicsState;
+  /** Whether text shown here is text of the page: not inside a Type 3 glyph procedure. */
+  readonly pageText: boolean;
+}
+
+/** A content stream to interpret inside the current one. */
+interface Nested {
+  readonly value: PdfDirectObject | undefined;
+  readonly data: Uint8Array;
+  readonly scope: Scope;
+  /** An annotation appearance starts with no marked-content sequence open; other streams continue those of the stream that draws them. */
+  readonly markedContent: 'inherit' | 'fresh';
+}
+
+/** How a form-like stream is drawn: under which source, in which starting state, with which enclosing sources. */
+interface FormDrawing {
+  readonly source: ContentSource;
+  readonly base: GraphicsState;
+  readonly parent: readonly ContentSource[];
+  readonly colour: ColourUse;
+  readonly markedContent: 'inherit' | 'fresh';
 }
 
 /** The operation being executed: the content it is in, and how warnings name it. */
@@ -337,7 +398,12 @@ class Interpreter {
   private readonly fonts: FontCache;
   private readonly warnings: InspectWarning[] = [];
   private readonly reportedFonts = new Set<string>();
-  private readonly stack: GraphicsState[] = [];
+  private readonly maxOperations: number;
+  // The streams being interpreted, by reference, so that a stream that draws itself is not entered again.
+  private readonly active = new Set<string>();
+  private depth = 0;
+  private page: Pick<Scope, 'resources' | 'owner'> = { resources: undefined, owner: '' };
+  private stack: GraphicsState[] = [];
   private state: GraphicsState = INITIAL_STATE;
   private textMatrix: Matrix = IDENTITY;
   private lineMatrix: Matrix = IDENTITY;
@@ -348,14 +414,21 @@ class Interpreter {
   // Kept apart from the graphics state: 14.6 requires marked-content pairs to nest properly with BT and ET, not with q and Q.
   private markedContent: readonly MarkedContent[] = [];
   private markedContentIds = 0;
+  // The marked-content sequences of the streams drawing the current one, which its EMC cannot close.
+  private markedFloor = 0;
   private complete = true;
   private operations = 0;
   private sequence = 0;
 
-  constructor(document: DocumentInternals, handlers: InterpretHandlers, fonts: FontCache) {
+  constructor(document: DocumentInternals, options: InterpretOptions, fonts: FontCache) {
     this.document = document;
-    this.handlers = handlers;
+    this.handlers = options;
     this.fonts = fonts;
+    this.maxOperations = options.maxOperations ?? MAX_OPERATIONS;
+  }
+
+  setPage(page: Pick<Scope, 'resources' | 'owner'>): void {
+    this.page = page;
   }
 
   finish(): void {
@@ -398,7 +471,9 @@ class Interpreter {
     try {
       const operations = readContent(streams, this.document.maxNesting);
       for (let step = operations.next(); step.done !== true; step = operations.next()) {
-        this.operations++;
+        if (++this.operations > this.maxOperations) {
+          throw new ResourceLimitError(`the page executes more than maxOperations (${String(this.maxOperations)}) content operations`);
+        }
         this.execute(step.value, scope);
       }
     } catch (error: unknown) {
@@ -432,7 +507,187 @@ class Interpreter {
   }
 
   private emitPaint(kind: PaintKind, colorSpaces: readonly ColorSpaceUse[], scope: Scope): void {
-    this.handlers.paint?.({ kind, colorSpaces, context: scope.context, markedContent: this.markedContent, sequence: this.sequence++ });
+    this.handlers.paint?.({ kind, colorSpaces, state: this.state, context: scope.context, markedContent: this.markedContent, sequence: this.sequence++ });
+  }
+
+  // A paint in colours that may be patterns: the event lists the spaces patterns paint in, and each tiling pattern's cell is drawn after it.
+  private paintWith(kind: PaintKind, uses: readonly ColorSpaceUse[], step: Step): void {
+    const spaces: ColorSpaceUse[] = [...uses];
+    const cells: (() => void)[] = [];
+    for (const use of uses) if (isPatternSpace(use)) this.pattern(step, { use, spaces, cells });
+    this.emitPaint(kind, spaces, step.scope);
+    for (const cell of cells) cell();
+  }
+
+  private pattern(step: Step, { use, spaces, cells }: { use: ColorSpaceUse; spaces: ColorSpaceUse[]; cells: (() => void)[] }): void {
+    const value = use.pattern?.value;
+    const dictionary = dictionaryOf(value);
+    const type = numberOf(this.deref(dictionary?.get(PATTERN_TYPE)));
+    // 8.7.4.1: a shading pattern (type 2) paints its shading, in the shading's ColorSpace.
+    if (type === 2) {
+      const shading = dictionaryOf(this.deref(dictionary?.get(SHADING)));
+      if (shading !== undefined) spaces.push(this.imageUse(shading.get(COLOR_SPACE)));
+      return;
+    }
+    if (type !== 1 || value?.kind !== 'stream') return;
+    // 8.7.3.3: an uncoloured pattern (PaintType 2) is painted in the Pattern space's underlying space, with the colour scn gave.
+    const uncoloured = numberOf(this.deref(value.dictionary.get(PAINT_TYPE))) === 2;
+    const underlying = use.space?.kind === 'array' ? use.space.items[1] : undefined;
+    const base: ColorSpaceUse | undefined = uncoloured ? { ...this.imageUse(underlying), components: use.components } : undefined;
+    if (base !== undefined) spaces.push(base);
+    cells.push(() => {
+      this.tilingCell(step, { value: use.pattern?.reference ?? value, stream: value, base });
+    });
+  }
+
+  // 8.7.3.1: the cell is painted after the reader "Installs the graphics state that was in effect at the beginning of the pattern’s parent content stream, with the current transformation matrix altered by the pattern matrix".
+  private tilingCell(step: Step, { value, stream, base }: { value: PdfObject; stream: PdfStream; base: ColorSpaceUse | undefined }): void {
+    const { initial } = step.scope;
+    const ctm = multiply(this.matrixOf(stream.dictionary.get(MATRIX)) ?? IDENTITY, initial.ctm);
+    const state: GraphicsState = base === undefined ? { ...initial, ctm } : { ...initial, ctm, fill: base, stroke: base };
+    const reference = value.kind === 'reference' ? value : undefined;
+    const source: ContentSource = { kind: 'tiling-pattern', reference, coloured: base === undefined };
+    const colour = base === undefined ? step.scope.context.colour : 'uncoloured-pattern';
+    const scope = this.childScope(step.scope, { stream, reference, source, colour, state });
+    const data = this.decoded(stream, step.where);
+    if (data !== undefined) this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
+  }
+
+  private numbers(value: PdfDirectObject | undefined): number[] | undefined {
+    try {
+      return numbersOf(this.document, value);
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) throw error;
+      this.warn('content-unreadable', `an object cannot be read: ${error.message}`, true);
+      return undefined;
+    }
+  }
+
+  private matrixOf(value: PdfDirectObject | undefined): Matrix | undefined {
+    const numbers = this.numbers(value);
+    const [a, b, c, d, e, f, ...rest] = numbers ?? [];
+    if (a === undefined || b === undefined || c === undefined || d === undefined || e === undefined || f === undefined || rest.length > 0) return undefined;
+    return [a, b, c, d, e, f];
+  }
+
+  private rectangleOf(value: PdfDirectObject | undefined): readonly [number, number, number, number] | undefined {
+    const [x1, y1, x2, y2, ...rest] = this.numbers(value) ?? [];
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined || rest.length > 0) return undefined;
+    // 7.9.5: a rectangle gives "a pair of diagonally opposite corners", which readers normalise.
+    return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+  }
+
+  private decoded(stream: PdfStream, where: string): Uint8Array | undefined {
+    const data = decodedData(this.document, stream);
+    if (typeof data !== 'string') return data;
+    this.warn('content-unreadable', `${where}: the stream cannot be read: ${data}`, true);
+    return undefined;
+  }
+
+  // 7.8.3: a stream's own Resources, or, for forms and Type 3 fonts written without one, "the resource dictionary of the page on which they are used".
+  private childScope(
+    parent: Scope,
+    {
+      stream,
+      reference,
+      source,
+      colour,
+      state,
+      resources = stream.dictionary.get(RESOURCES),
+    }: {
+      stream: PdfStream;
+      reference: PdfReference | undefined;
+      source: ContentSource;
+      colour: ColourUse;
+      state: GraphicsState;
+      resources?: PdfDirectObject | undefined;
+    },
+  ): Scope {
+    const resolved = this.deref(resources);
+    const own = resolved === undefined || resolved.kind === 'null' ? undefined : dictionaryOf(resolved);
+    const key = reference === undefined ? parent.owner : referenceKey(reference);
+    let owner = key;
+    if (own === undefined) ({ owner } = this.page);
+    else if (resources?.kind === 'reference') owner = referenceKey(resources);
+    return {
+      resources: own ?? this.page.resources,
+      owner,
+      context: { sources: [...parent.context.sources, source], colour },
+      label: () => `${source.kind} ${key}`,
+      initial: state,
+      pageText: parent.pageText && source.kind !== 'type3-glyph',
+    };
+  }
+
+  // Interprets a stream inside the current one, with its own graphics state stack, and restores everything the stream could change.
+  private nested(where: string, { value, data, scope, markedContent }: Nested): void {
+    const key = value?.kind === 'reference' ? referenceKey(value) : undefined;
+    if (key !== undefined && this.active.has(key)) {
+      this.warn('content-cycle', `${where}: ${scope.label(0)} is already being drawn`, true);
+      return;
+    }
+    if (this.depth >= this.document.maxNesting) {
+      throw new ResourceLimitError(`content streams nest deeper than maxNesting (${String(this.document.maxNesting)})`);
+    }
+    const saved = {
+      state: this.state,
+      stack: this.stack,
+      textMatrix: this.textMatrix,
+      lineMatrix: this.lineMatrix,
+      positionKnown: this.positionKnown,
+      path: this.path,
+      pendingClip: this.pendingClip,
+      compatibility: this.compatibility,
+      markedContent: this.markedContent,
+      markedFloor: this.markedFloor,
+    };
+    this.state = scope.initial;
+    this.stack = [];
+    this.path = undefined;
+    this.pendingClip = undefined;
+    this.compatibility = 0;
+    if (markedContent === 'fresh') this.markedContent = [];
+    this.markedFloor = this.markedContent.length;
+    if (key !== undefined) this.active.add(key);
+    this.depth++;
+    try {
+      this.run([data], scope);
+      if (this.markedContent.length > this.markedFloor) {
+        this.warn(
+          'marked-content-unbalanced',
+          `${scope.label(0)}: ${String(this.markedContent.length - this.markedFloor)} marked-content sequences are not closed by EMC`,
+          false,
+        );
+      }
+    } finally {
+      ({ state: this.state, stack: this.stack, textMatrix: this.textMatrix, lineMatrix: this.lineMatrix, positionKnown: this.positionKnown } = saved);
+      ({
+        path: this.path,
+        pendingClip: this.pendingClip,
+        compatibility: this.compatibility,
+        markedContent: this.markedContent,
+        markedFloor: this.markedFloor,
+      } = saved);
+      if (key !== undefined) this.active.delete(key);
+      this.depth--;
+    }
+  }
+
+  // 8.10.1: Do saves the graphics state, "Concatenates the matrix from the form dictionary’s Matrix entry with the current transformation matrix (CTM)", "Clips according to the form dictionary’s BBox entry", paints the content and restores the state.
+  drawForm(
+    where: string,
+    { value, stream, parentScope, drawing }: { value: PdfDirectObject | undefined; stream: PdfStream; parentScope: Scope; drawing: FormDrawing },
+  ): void {
+    const { base, source } = drawing;
+    const ctm = multiply(this.matrixOf(stream.dictionary.get(MATRIX)) ?? IDENTITY, base.ctm);
+    const box = this.rectangleOf(stream.dictionary.get(BBOX));
+    const clip = box === undefined ? base.clip : base.clip.intersect(rectanglePath(box, ctm), 'nonzero');
+    const state: GraphicsState = { ...base, ctm, clip };
+    const reference = value?.kind === 'reference' ? value : undefined;
+    const parent: Scope = { ...parentScope, context: { sources: drawing.parent, colour: drawing.colour } };
+    const scope = this.childScope(parent, { stream, reference, source, colour: drawing.colour, state });
+    const data = this.decoded(stream, where);
+    if (data !== undefined) this.nested(where, { value, data, scope, markedContent: drawing.markedContent });
   }
 
   private graphics(operator: string, values: readonly PdfDirectObject[]): boolean {
@@ -498,7 +753,7 @@ class Interpreter {
     if (value !== undefined && parameters === undefined) {
       this.warn('resource-missing', `${where}: the ExtGState resource ${latin1(name)} is not a dictionary`, true);
     }
-    if (parameters !== undefined) this.transparency(parameters);
+    if (parameters !== undefined) this.transparency(parameters, step);
     const font = this.deref(parameters?.get(FONT));
     if (font?.kind === 'array') {
       const [fontValue, size] = font.items;
@@ -509,7 +764,7 @@ class Interpreter {
   }
 
   // 8.4.5, Table 58: ca, CA, BM and SMask. 11.7.4.2: "The Compatible blend mode shall be treated as equivalent to Normal".
-  private transparency(parameters: PdfDictionaryEntries): void {
+  private transparency(parameters: PdfDictionaryEntries, step: Step): void {
     const fillAlpha = numberOf(this.deref(parameters.get(FILL_ALPHA)));
     const strokeAlpha = numberOf(this.deref(parameters.get(STROKE_ALPHA)));
     const blend = this.deref(parameters.get(BLEND_MODE));
@@ -538,6 +793,22 @@ class Interpreter {
       blendMode: recognised === 'Compatible' ? 'Normal' : (recognised ?? this.state.blendMode),
       softMask,
     };
+    if (maskDictionary !== undefined && softMask !== undefined) this.softMaskGroup(step, softMask, maskDictionary.get(MASK_GROUP));
+  }
+
+  // 11.6.5.2: the group is drawn with the CTM "at the moment the soft mask is established in the graphics state with the gs operator", as a context of its own.
+  private softMaskGroup(step: Step, mask: SoftMask, value: PdfDirectObject | undefined): void {
+    const stream = this.deref(value);
+    if (stream?.kind !== 'stream') return;
+    const { sources, colour } = step.scope.context;
+    const drawing: FormDrawing = {
+      source: { kind: 'soft-mask', group: mask.group },
+      base: { ...INITIAL_STATE, ctm: mask.ctm },
+      parent: sources,
+      colour,
+      markedContent: 'inherit',
+    };
+    this.drawForm(step.where, { value, stream, parentScope: step.scope, drawing });
   }
 
   private textShow(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
@@ -578,7 +849,8 @@ class Interpreter {
     for (const warning of font.warnings) this.warn(warning.code, `font ${font.key}: ${warning.detail}`, false);
   }
 
-  private show({ scope, where }: Step, value: PdfDirectObject | undefined, adjustment?: number): void {
+  private show(step: Step, value: PdfDirectObject | undefined, adjustment?: number): void {
+    const { scope, where } = step;
     const string = value?.kind === 'string' ? value.bytes : new Uint8Array();
     const { font } = this.state;
     if (font === undefined) {
@@ -599,18 +871,54 @@ class Interpreter {
     } else this.positionKnown = false;
     const { renderMode } = this.state;
     const spaces = [...(FILLING_MODES.has(renderMode) ? [this.state.fill] : []), ...(STROKING_MODES.has(renderMode) ? [this.state.stroke] : [])];
-    if (string.length > 0 && spaces.length > 0) this.emitPaint('text', spaces, scope);
-    this.handlers.text?.({
-      font,
-      string,
-      adjustment,
-      glyphs,
-      unsplit: split.kind === 'glyphs' ? undefined : split,
-      state: this.state,
-      context: scope.context,
-      markedContent: this.markedContent,
-      sequence: this.sequence++,
-    });
+    if (string.length > 0 && spaces.length > 0) this.paintWith('text', spaces, step);
+    if (scope.pageText) {
+      this.handlers.text?.({
+        font,
+        string,
+        adjustment,
+        glyphs,
+        unsplit: split.kind === 'glyphs' ? undefined : split,
+        state: this.state,
+        context: scope.context,
+        markedContent: this.markedContent,
+        sequence: this.sequence++,
+      });
+    }
+    // A glyph of a Type 3 font is drawn by its procedure, when the render mode paints.
+    if (font.type3 !== undefined && spaces.length > 0) for (const shown of glyphs) this.glyphProcedure(step, font, shown);
+  }
+
+  // 9.6.5: "the current transformation matrix (CTM) shall be the concatenation of the font matrix (FontMatrix in the current font dictionary) and the text space that was in effect at the time the text-showing operator was invoked".
+  private glyphProcedure(step: Step, font: FontModel, { glyph, textMatrix }: ShownGlyph): void {
+    const name = glyph.glyphName;
+    const value = name === undefined ? undefined : font.type3?.charProcs?.get(Uint8Array.from(name, character => character.codePointAt(0) ?? 0));
+    const stream = this.deref(value);
+    if (name === undefined || stream?.kind !== 'stream') return;
+    const data = this.decoded(stream, step.where);
+    if (data === undefined) return;
+    const { fontSize, horizontalScaling, rise, ctm } = this.state;
+    const textSpace = multiply([fontSize * horizontalScaling, 0, 0, fontSize, 0, rise], multiply(textMatrix, ctm));
+    const described = this.described(data);
+    const reference = value?.kind === 'reference' ? value : undefined;
+    const source: ContentSource = { kind: 'type3-glyph', font: font.key, glyphName: name, described };
+    const colour = described === 'd1' ? 'd1-glyph' : step.scope.context.colour;
+    const state: GraphicsState = { ...this.state, ctm: multiply(font.glyphMatrix, textSpace) };
+    // Table 112, Resources: without it the glyph procedures' names "shall be looked up in the resource dictionary of the page on which the font is used".
+    const scope = this.childScope(step.scope, { stream, reference, source, colour, state, resources: font.type3?.resources });
+    this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
+  }
+
+  // 9.6.5: a glyph procedure's first operator is d0 or d1.
+  private described(data: Uint8Array): 'd0' | 'd1' | undefined {
+    try {
+      const first = readContent(data, this.document.maxNesting).next();
+      const operator = first.done === true ? undefined : first.value.operator;
+      return operator === 'd0' || operator === 'd1' ? operator : undefined;
+    } catch (error: unknown) {
+      if (error instanceof ParseError) return undefined;
+      throw error;
+    }
   }
 
   // A colour space operand: a family name, or a ColorSpace resource (8.6.3).
@@ -622,7 +930,7 @@ class Interpreter {
   }
 
   private select(target: 'fill' | 'stroke', use: ColorSpaceUse, { scope }: Step): void {
-    this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    if (scope.context.colour === 'used') this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
     this.handlers.select?.({ target, use, context: scope.context, sequence: this.sequence++ });
   }
 
@@ -638,6 +946,7 @@ class Interpreter {
   // 8.6.8, Table 74: SC and sc take numbers; SCN and scn also take a final pattern name in a Pattern space.
   private setColor(target: 'fill' | 'stroke', values: readonly PdfDirectObject[], step: Step): void {
     const { where } = step;
+    if (step.scope.context.colour !== 'used') return;
     const last = values.at(-1);
     const named = last?.kind === 'name';
     const numbers = (named ? values.slice(0, -1) : values).map(value => numberOf(value));
@@ -674,8 +983,9 @@ class Interpreter {
       const properties = list?.kind === 'name' ? dictionaryOf(this.deref(this.resource(step, PROPERTIES, list.bytes))) : dictionaryOf(list);
       this.markedContent = [...this.markedContent, { id: this.markedContentIds++, tag: nameBytes(tag), properties }];
     } else if (operator === 'EMC') {
-      if (this.markedContent.length === 0) this.warn('marked-content-unbalanced', `${step.where}: no marked-content sequence is open`, false);
-      else this.markedContent = this.markedContent.slice(0, -1);
+      if (this.markedContent.length <= this.markedFloor) {
+        this.warn('marked-content-unbalanced', `${step.where}: no marked-content sequence is open in this stream`, false);
+      } else this.markedContent = this.markedContent.slice(0, -1);
     } else return operator === 'MP' || operator === 'DP';
     return true;
   }
@@ -705,9 +1015,51 @@ class Interpreter {
     this.path = undefined;
   }
 
+  // 12.5.5: the normal appearance of each chosen annotation, a single stream or the state of a subdictionary that AS names, drawn under the matrix AA.
+  drawAnnotations(page: PageEntry, pageScope: Scope, mode: 'printable' | 'all'): void {
+    const annotations = this.deref(dictionaryOf(this.deref(page.reference))?.get(ANNOTS));
+    for (const [index, item] of annotations?.kind === 'array' ? annotations.items.entries() : []) {
+      const annotation = dictionaryOf(this.deref(item));
+      const { printable } = annotationFlags(this.deref(annotation?.get(FLAGS)));
+      if (annotation === undefined || (mode === 'printable' && !printable)) continue;
+      const normal = dictionaryOf(this.deref(annotation.get(APPEARANCE)))?.get(NORMAL_APPEARANCE);
+      const resolved = this.deref(normal);
+      const state = this.deref(annotation.get(APPEARANCE_STATE));
+      let value = normal;
+      if (resolved?.kind === 'dictionary') value = state?.kind === 'name' ? resolved.entries.get(state.bytes) : undefined;
+      const stream = this.deref(value);
+      const rectangle = this.rectangleOf(annotation.get(RECT));
+      if (stream?.kind !== 'stream' || rectangle === undefined) continue;
+      const drawing: FormDrawing = {
+        source: { kind: 'annotation', index, printable },
+        base: { ...INITIAL_STATE, ctm: this.appearanceMatrix(stream, rectangle) },
+        parent: [],
+        colour: 'used',
+        markedContent: 'fresh',
+      };
+      this.drawForm(`the appearance of annotation ${String(index)}`, { value, stream, parentScope: pageScope, drawing });
+    }
+  }
+
+  // 12.5.5, Algorithm: the BBox transformed by Matrix, "the smallest upright rectangle that encompasses this quadrilateral", is mapped onto Rect by A; Do then applies Matrix, making AA = Matrix × A. An empty box along an axis is not scaled along it.
+  private appearanceMatrix(stream: PdfStream, [left, bottom, right, top]: readonly [number, number, number, number]): Matrix {
+    const matrix = this.matrixOf(stream.dictionary.get(MATRIX)) ?? IDENTITY;
+    const [x1, y1, x2, y2] = this.rectangleOf(stream.dictionary.get(BBOX)) ?? [0, 0, 0, 0];
+    const corners = [transformPoint(matrix, x1, y1), transformPoint(matrix, x2, y1), transformPoint(matrix, x2, y2), transformPoint(matrix, x1, y2)];
+    const xs = corners.map(([x]) => x);
+    const ys = corners.map(([, y]) => y);
+    const [boxLeft, boxBottom] = [Math.min(...xs), Math.min(...ys)];
+    const [width, height] = [Math.max(...xs) - boxLeft, Math.max(...ys) - boxBottom];
+    const scaleX = width === 0 ? 1 : (right - left) / width;
+    const scaleY = height === 0 ? 1 : (top - bottom) / height;
+    return [scaleX, 0, 0, scaleY, left - boxLeft * scaleX, bottom - boxBottom * scaleY];
+  }
+
+  // Only fills that mark the page count: not those in a pattern cell, a glyph procedure or a soft mask's group.
   private cover(scope: Scope): void {
     const { fillAlpha, blendMode, softMask, fill, clip } = this.state;
     if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !opaqueSpace(fill)) return;
+    if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) return;
     const rectangle = this.path?.axisAlignedRectangle();
     if (rectangle === undefined) return;
     const [left, bottom, right, top] = rectangle;
@@ -720,7 +1072,7 @@ class Interpreter {
     const { operator } = operation;
     const paint = PATH_PAINTS.get(operator);
     if (paint !== undefined) {
-      this.emitPaint(paint, paint === 'fill-stroke' ? [this.state.fill, this.state.stroke] : [paint === 'fill' ? this.state.fill : this.state.stroke], scope);
+      this.paintWith(paint, paint === 'fill-stroke' ? [this.state.fill, this.state.stroke] : [paint === 'fill' ? this.state.fill : this.state.stroke], step);
       if (paint !== 'stroke') this.cover(scope);
       this.endPath();
     } else if (operator === 'W' || operator === 'W*') this.pendingClip = operator === 'W' ? 'nonzero' : 'even-odd';
@@ -745,7 +1097,15 @@ class Interpreter {
       return;
     }
     const subtype = this.deref(object.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || latin1(subtype.bytes) !== 'Image') return;
+    const kind = subtype?.kind === 'name' ? latin1(subtype.bytes) : undefined;
+    if (kind === 'Form') {
+      const reference = value?.kind === 'reference' ? value : undefined;
+      const { sources, colour } = scope.context;
+      const drawing: FormDrawing = { source: { kind: 'form', reference }, base: this.state, parent: sources, colour, markedContent: 'inherit' };
+      this.drawForm(where, { value, stream: object, parentScope: scope, drawing });
+      return;
+    }
+    if (kind !== 'Image') return;
     // 8.9.5, Table 89, ImageMask: "unmasked areas shall be painted using the current nonstroking colour".
     const mask = this.deref(object.dictionary.get(IMAGE_MASK));
     if (mask?.kind === 'boolean' && mask.value) this.emitPaint('image-mask', [this.state.fill], scope);
@@ -820,14 +1180,20 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
   }
   const interpreter = new Interpreter(document, options, options.fonts ?? new FontCache(document, undefined));
   const { resources, owner } = pageResources(interpreter, page, { document, cache: options.inheritance ?? createInheritedCache() });
+  interpreter.setPage({ resources, owner });
   const content = pageContent(document, page);
   for (const problem of content.problems) interpreter.warn('content-unreadable', problem, true);
-  interpreter.run(content.streams, {
+  const scope: Scope = {
     resources,
     owner,
-    context: { sources: [{ kind: 'page' }] },
+    context: { sources: [{ kind: 'page' }], colour: 'used' },
     label: stream => `content stream ${String(content.indexes[stream] ?? stream)}`,
-  });
+    initial: INITIAL_STATE,
+    pageText: true,
+  };
+  interpreter.run(content.streams, scope);
   interpreter.finish();
+  const annotations = options.annotations ?? 'none';
+  if (annotations !== 'none') interpreter.drawAnnotations(page, scope, annotations);
   return interpreter.result();
 };

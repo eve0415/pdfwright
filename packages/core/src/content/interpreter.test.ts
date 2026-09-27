@@ -1,12 +1,16 @@
+import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { TestPage } from '../testing/textPdf.ts';
-import type { ColorSelectEvent, ColorSpaceUse, CoverEvent, InterpretResult, PaintEvent, TextShowEvent } from './interpreter.ts';
+import type { ColorSelectEvent, ColorSpaceUse, CoverEvent, InterpretOptions, InterpretResult, PaintEvent, TextShowEvent } from './interpreter.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { internalsOf } from '../document/documentInternals.ts';
+import { loadDocument } from '../document/loadDocument.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { latin1Text, streamBody } from '../testing/pdfBuilder.ts';
-import { textPdf } from '../testing/textPdf.ts';
+import { textPdf, textPdfBytes } from '../testing/textPdf.ts';
 
 import { interpretPage } from './interpreter.ts';
 
@@ -32,13 +36,14 @@ const VERTICAL_FONT: TestObject = { number: 103, body: '<</Type/Font/Subtype/Typ
 const FONTS = [SIMPLE_FONT, HORIZONTAL_FONT, VERTICAL_FONT, CID_FONT];
 const FONT_RESOURCES = '/Font<</F1 101 0 R/H 102 0 R/V 103 0 R/U 105 0 R>>';
 
-const run = (page: TestPage, objects: readonly TestObject[] = []): Run => {
+const run = (page: TestPage, objects: readonly TestObject[] = [], options: InterpretOptions = {}): Run => {
   const paints: PaintEvent[] = [];
   const texts: TextShowEvent[] = [];
   const selects: ColorSelectEvent[] = [];
   const covers: CoverEvent[] = [];
   const document = textPdf({ pages: [page], objects: [...FONTS, ...objects] });
   const result = interpretPage(document, 0, {
+    ...options,
     cover: event => {
       covers.push(event);
     },
@@ -341,6 +346,215 @@ describe('marked content', () => {
   it('reports a property list name the resources do not define', () => {
     const { texts, result } = textRun('/Span /Nope BDC BT /F1 10 Tf (A) Tj ET EMC');
     expect([texts[0]?.markedContent.length, result.warnings.map(warning => warning.code)]).toStrictEqual([1, ['resource-missing']]);
+  });
+});
+
+const form = (number: number, dictionary: string, content: string): TestObject => ({
+  number,
+  body: streamBody(`/Type/XObject/Subtype/Form${dictionary}`, content),
+});
+
+const internalsWith = (bytes: Uint8Array, maxNesting: number): DocumentInternals => {
+  const parts = internalsOf(loadDocument(bytes, { maxNesting }));
+  if (parts === undefined) throw new Error('the document has no internals');
+  return parts;
+};
+
+const sourceKinds = (events: readonly { readonly context: { readonly sources: readonly { readonly kind: string }[] } }[]): string[] =>
+  events.map(event => event.context.sources.map(source => source.kind).join('/'));
+
+describe('forms', () => {
+  it('draws a form under its Matrix, clipped to its BBox, with its own resources', () => {
+    const { texts } = run({ content: 'q 1 0 0 1 100 100 cm /Fm1 Do Q', resources: '/XObject<</Fm1 110 0 R>>' }, [
+      form(110, `/BBox[0 0 50 50]/Matrix[2 0 0 2 0 0]/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf 5 5 Td (A) Tj ET'),
+    ]);
+    // ISO 32000-1:2008, 8.10.1: Do concatenates the form's Matrix with the CTM and clips to the BBox, here 100…200 in page space.
+    const [text] = texts;
+    expect([text?.state.ctm, text?.state.clip.classifyPoint(150, 150), text?.state.clip.classifyPoint(250, 150), text?.context.sources]).toStrictEqual([
+      [2, 0, 0, 2, 100, 100],
+      'inside',
+      'outside',
+      [{ kind: 'page' }, { kind: 'form', reference: { kind: 'reference', objectNumber: 110, generation: 0 } }],
+    ]);
+  });
+
+  it('takes the page resources for a form without Resources and restores the state afterwards', () => {
+    const { texts, result } = run({ content: '/Fm1 Do BT /F1 10 Tf (A) Tj ET', resources: `${FONT_RESOURCES}/XObject<</Fm1 110 0 R>>` }, [
+      form(110, '/BBox[0 0 50 50]', '2 0 0 2 0 0 cm q BT /F1 10 Tf (A) Tj ET'),
+    ]);
+    expect([texts.map(text => text.state.ctm), result.warnings]).toStrictEqual([
+      [
+        [2, 0, 0, 2, 0, 0],
+        [1, 0, 0, 1, 0, 0],
+      ],
+      [],
+    ]);
+  });
+
+  it('keeps marked content open across a form and refuses to close it from inside', () => {
+    const { texts, result } = run({ content: '/P <</MCID 0>> BDC /Fm1 Do EMC', resources: `${FONT_RESOURCES}/XObject<</Fm1 110 0 R>>` }, [
+      form(110, '/BBox[0 0 50 50]', 'EMC BT /F1 10 Tf (A) Tj ET /Span BMC'),
+    ]);
+    expect([texts.map(text => text.markedContent.length), result.warnings.map(warning => warning.code)]).toStrictEqual([
+      [1],
+      ['marked-content-unbalanced', 'marked-content-unbalanced'],
+    ]);
+  });
+
+  it('does not enter a form already being drawn', () => {
+    const { result } = run({ content: '/Fm1 Do', resources: '/XObject<</Fm1 110 0 R>>' }, [
+      form(110, '/BBox[0 0 50 50]/Resources<</XObject<</Fm2 111 0 R>>>>', '/Fm2 Do'),
+      form(111, '/BBox[0 0 50 50]/Resources<</XObject<</Fm1 110 0 R>>>>', '/Fm1 Do'),
+    ]);
+    expect([result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([false, ['content-cycle']]);
+  });
+
+  it('counts the operations of a form each time it is drawn and stops at maxOperations', () => {
+    const page = { content: '/Fm1 Do /Fm1 Do', resources: '/XObject<</Fm1 110 0 R>>' };
+    const objects = [form(110, '/BBox[0 0 50 50]', '0 g 0 0 1 1 re f')];
+    expect(run(page, objects).result.operations).toBe(8);
+    expect(() => run(page, objects, { maxOperations: 7 })).toThrow(ResourceLimitError);
+  });
+
+  it('stops at forms nested deeper than maxNesting', () => {
+    const chain = Array.from({ length: 6 }, (_, index) =>
+      form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, '/Next Do'),
+    );
+    const bytes = textPdfBytes({
+      pages: [{ content: '/Next Do', resources: '/XObject<</Next 110 0 R>>' }],
+      objects: [...chain, form(116, '/BBox[0 0 1 1]', '')],
+    });
+    expect(() => interpretPage(internalsWith(bytes, 4), 0)).toThrow(ResourceLimitError);
+    expect(interpretPage(internalsWith(bytes, 8), 0).warnings).toStrictEqual([]);
+  });
+});
+
+describe('patterns', () => {
+  const PATTERNS = '/ColorSpace<</RGBPattern[/Pattern/DeviceRGB]>>/Pattern<</Coloured 110 0 R/Uncoloured 111 0 R/Shaded 112 0 R>>';
+  const OBJECTS: readonly TestObject[] = [
+    {
+      number: 110,
+      body: streamBody(
+        `/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Matrix[1 0 0 1 10 10]/Resources<<${FONT_RESOURCES}>>`,
+        '1 0 0 rg 0 0 5 5 re f BT /F1 1 Tf (A) Tj ET',
+      ),
+    },
+    { number: 111, body: streamBody('/PatternType 1/PaintType 2/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 1 rg 0 0 5 5 re f') },
+    { number: 112, body: '<</PatternType 2/Shading<</ShadingType 2/ColorSpace/DeviceCMYK/Coords[0 0 1 0]/Function 113 0 R>>>>' },
+    { number: 113, body: '<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[1 1 1 1]/N 1>>' },
+  ];
+
+  it('paints a coloured tiling pattern cell in pattern space, whatever the CTM at the paint', () => {
+    const { paints, texts } = run({ content: '2 0 0 2 0 0 cm /Pattern cs /Coloured scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
+    // 8.7.2: the pattern matrix maps to "the default coordinate system of the pattern’s parent content stream", the page's here.
+    expect([paintSpaces(paints), sourceKinds(paints), texts.map(text => text.state.ctm)]).toStrictEqual([
+      ['fill:Pattern', 'fill:DeviceRGB', 'text:DeviceRGB'],
+      ['page', 'page/tiling-pattern', 'page/tiling-pattern'],
+      [[1, 0, 0, 1, 10, 10]],
+    ]);
+  });
+
+  it('paints an uncoloured tiling pattern in the base space, ignoring the colour operators of its cell', () => {
+    const { paints, selects } = run({ content: '/RGBPattern cs 0 1 0 /Uncoloured scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
+    expect([paintSpaces(paints), paints.map(paint => paint.colorSpaces.at(-1)?.components), paints.map(paint => paint.context.colour)]).toStrictEqual([
+      ['fill:array,DeviceRGB', 'fill:DeviceRGB'],
+      [
+        [0, 1, 0],
+        [0, 1, 0],
+      ],
+      ['used', 'uncoloured-pattern'],
+    ]);
+    expect(selects.map(select => select.context.colour)).toStrictEqual(['used', 'uncoloured-pattern']);
+  });
+
+  it('paints a shading pattern in the shading colour space', () => {
+    const { paints } = run({ content: '/Pattern cs /Shaded scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
+    expect(paintSpaces(paints)).toStrictEqual(['fill:Pattern,DeviceCMYK']);
+  });
+});
+
+describe('glyph procedures of Type 3 fonts', () => {
+  const TYPE3: readonly TestObject[] = [
+    {
+      number: 110,
+      body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R/b 112 0 R>>/Encoding<</Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[1000 1000]>>',
+    },
+    { number: 111, body: streamBody('', '1000 0 d0 1 0 0 rg 0 0 500 500 re f') },
+    { number: 112, body: streamBody('', '1000 0 0 0 750 750 d1 /CS1 cs 0 0 750 750 re f BT /F1 10 Tf (A) Tj ET') },
+  ];
+
+  it('draws each glyph under the font matrix and the text space, with d1 glyphs in the text colour', () => {
+    const { paints, selects, texts } = run(
+      { content: 'BT /T3 10 Tf 1 1 0 rg (ab) Tj ET', resources: `/Font<</T3 110 0 R/F1 101 0 R>>/ColorSpace<</CS1/DeviceCMYK>>` },
+      TYPE3,
+    );
+    // 9.6.5: the glyph's CTM is "the concatenation of the font matrix … and the text space that was in effect at the time the text-showing operator was invoked".
+    expect(paints.map(paint => [paint.kind, paint.context.colour, paint.state.ctm, paint.colorSpaces[0]?.components])).toStrictEqual([
+      ['text', 'used', [1, 0, 0, 1, 0, 0], [1, 1, 0]],
+      ['fill', 'used', [0.01, 0, 0, 0.01, 0, 0], [1, 0, 0]],
+      ['fill', 'd1-glyph', [0.01, 0, 0, 0.01, 10, 0], [1, 1, 0]],
+      ['text', 'd1-glyph', [0.01, 0, 0, 0.01, 10, 0], [1, 1, 0]],
+    ]);
+    // A glyph procedure's own text is not text of the page, and its resources fall back to the page's (Table 112, Resources).
+    expect([texts.length, sourceKinds(selects), selects.map(select => select.context.colour)]).toStrictEqual([
+      1,
+      ['page', 'page/type3-glyph', 'page/type3-glyph'],
+      ['used', 'used', 'd1-glyph'],
+    ]);
+  });
+
+  it('draws no glyph procedures for text that paints nothing', () => {
+    const { paints } = run({ content: 'BT /T3 10 Tf 3 Tr (ab) Tj ET', resources: `/Font<</T3 110 0 R/F1 101 0 R>>/ColorSpace<</CS1/DeviceCMYK>>` }, TYPE3);
+    expect(paints).toStrictEqual([]);
+  });
+});
+
+const appearance = (number: number, dictionary: string): TestObject =>
+  form(number, `/BBox[0 0 10 5]${dictionary}/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 1 Tf (A) Tj ET');
+const annotation = (number: number, entries: string): TestObject => ({ number, body: `<</Type/Annot/Subtype/Square/Rect[100 100 200 150]${entries}>>` });
+
+describe('annotations and soft masks', () => {
+  const ANNOTATED: TestPage = { content: '', entries: '/Annots[120 0 R 121 0 R 122 0 R]' };
+  const OBJECTS: readonly TestObject[] = [
+    annotation(120, '/F 4/AP<</N 130 0 R>>'),
+    annotation(121, '/F 0/AP<</N 131 0 R>>'),
+    annotation(122, '/F 4/AS/On/AP<</N<</Off 130 0 R/On 132 0 R>>>>'),
+    appearance(130, ''),
+    appearance(131, '/Matrix[0 1 -1 0 0 0]'),
+    appearance(132, '/Matrix[1 0 0 1 0 0]'),
+  ];
+
+  it('draws the normal appearances of annotations under the matrix AA of 12.5.5', () => {
+    const printable = run(ANNOTATED, OBJECTS, { annotations: 'printable' });
+    const all = run(ANNOTATED, OBJECTS, { annotations: 'all' });
+    // The box 0…10 by 0…5 maps onto the Rect 100…200 by 100…150; rotated by the Matrix it is −5…0 by 0…10, so A = [20 0 0 5 200 100] and AA = Matrix × A.
+    expect([run(ANNOTATED, OBJECTS).texts.length, printable.texts.map(text => text.state.ctm)]).toStrictEqual([
+      0,
+      [
+        [10, 0, 0, 10, 100, 100],
+        [10, 0, 0, 10, 100, 100],
+      ],
+    ]);
+    expect(all.texts.map(text => [text.state.ctm, text.context.sources])).toStrictEqual([
+      [[10, 0, 0, 10, 100, 100], [{ kind: 'annotation', index: 0, printable: true }]],
+      [[0, 5, -20, 0, 200, 100], [{ kind: 'annotation', index: 1, printable: false }]],
+      [[10, 0, 0, 10, 100, 100], [{ kind: 'annotation', index: 2, printable: true }]],
+    ]);
+  });
+
+  it('draws a soft-mask group as its own context when a graphics state sets it', () => {
+    const { paints } = run({ content: '2 0 0 2 0 0 cm /Masked gs 0 0 1 1 re f', resources: '/ExtGState<</Masked<</SMask<</S/Alpha/G 110 0 R>>>>>>' }, [
+      form(110, '/BBox[0 0 10 10]/Group<</S/Transparency>>/Resources<<>>', '0.5 g 0 0 10 10 re f'),
+    ]);
+    // 11.6.5.2: the mask's coordinates are set by the CTM "at the moment the soft mask is established in the graphics state with the gs operator".
+    expect([sourceKinds(paints), paints.map(paint => paint.state.ctm), paints.map(paint => paint.state.softMask === undefined)]).toStrictEqual([
+      ['page/soft-mask', 'page'],
+      [
+        [2, 0, 0, 2, 0, 0],
+        [2, 0, 0, 2, 0, 0],
+      ],
+      [true, false],
+    ]);
   });
 });
 
