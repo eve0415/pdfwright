@@ -106,7 +106,7 @@ const rectangle = (resolver: ObjectResolver, value: PdfDirectObject, where: stri
   return [Math.min(x1 ?? 0, x2 ?? 0), Math.min(y1 ?? 0, y2 ?? 0), Math.max(x1 ?? 0, x2 ?? 0), Math.max(y1 ?? 0, y2 ?? 0)];
 };
 
-interface Found {
+export interface Found {
   readonly value: PdfDirectObject;
   readonly from?: PdfReference;
 }
@@ -116,7 +116,7 @@ const present = (resolver: ObjectResolver, value: PdfDirectObject | undefined): 
   value !== undefined && resolver.deref(value)?.kind !== 'null';
 
 // 7.7.3.4: "If such an attribute is omitted from a page object, its value shall be inherited from an ancestor node in the page tree."
-const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
+export const inherited = (resolver: ObjectResolver, entry: PageEntry, key: Uint8Array): Found | undefined => {
   const own = dictionaryOf(resolver, entry.reference).get(key);
   if (present(resolver, own)) return { value: own };
   for (const ancestor of ancestorsOf(entry)) {
