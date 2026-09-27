@@ -401,6 +401,11 @@ describe('text matching', () => {
       expect(statusOf({ texts: ['侭'], content: spanned(['儘', 1]) }, '儘', { actualText: 'ignore' })).toBe('mismatch');
     });
 
+    it('applies caller equivalents after checking a span against its glyphs', () => {
+      const result = match({ texts: ['⼾'], content: spanned(['⼾', 1]) }, '戸', { equivalents: [['⼾', '戸']] });
+      expect([...summary(result), result.folds]).toStrictEqual(['match', '戸', [], [{ fold: 'caller', from: '⼾', to: '戸', glyphs: [0] }]]);
+    });
+
     it('leaves a variation selector only the span carries unverified', () => {
       // IPAGothic paints plain 葛 under ActualText U+845B U+E0100; Noto's glyph text carries the selector itself.
       expect(summaryOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛󠄀城')).toStrictEqual([

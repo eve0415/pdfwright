@@ -240,15 +240,19 @@ class FoundText {
     return !(this.settings.selectors === 'ignore' && isSelector(codePoint));
   }
 
-  // The page's reading of one glyph's text: folds, then the caller's equivalents; the folded text, before the equivalents, is checked against the font's embedded cmap.
+  // The page's reading of one glyph's text with folds applied, which is checked against the font's embedded cmap; the caller's equivalents come after.
   private read(glyph: PageGlyph, text: string): string {
-    const glyphs = [glyph.index];
     const folded = foldText(text, this.settings.folds);
-    for (const use of folded.uses) this.recordFold(use.fold, use, glyphs);
+    for (const use of folded.uses) this.recordFold(use.fold, use, [glyph.index]);
     this.check(glyph, folded.text);
-    const equivalent = this.settings.equivalents.get(folded.text);
-    if (equivalent === undefined) return folded.text;
-    this.recordFold('caller', { from: folded.text, to: equivalent }, glyphs);
+    return folded.text;
+  }
+
+  // The caller's equivalent of a glyph's folded text, recorded as a fold, or the folded text itself.
+  private equivalent(glyph: PageGlyph, folded: string): string {
+    const equivalent = this.settings.equivalents.get(folded);
+    if (equivalent === undefined) return folded;
+    this.recordFold('caller', { from: folded, to: equivalent }, [glyph.index]);
     return equivalent;
   }
 
@@ -337,7 +341,7 @@ class FoundText {
       this.clusters.push({ text: shown, plain: shown, glyphs, variantFromActualText: false, failure });
       return;
     }
-    this.push(this.read(glyph, glyph.text ?? ''), glyphs, cluster => cluster);
+    this.push(this.equivalent(glyph, this.read(glyph, glyph.text ?? '')), glyphs, cluster => cluster);
   }
 
   /**
@@ -354,7 +358,8 @@ class FoundText {
       this.clusters.push({ text: shown, plain: shown, glyphs: indexes, variantFromActualText: false, failure });
       return;
     }
-    const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text))).join('');
+    const folded = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text)));
+    const glyphText = folded.join('');
     const glyphSelectors = new Set(glyphText.match(SELECTORS));
     // ISO 32000-1:2008, 14.9.4 makes the span a character substitution; it is used only when its text equals the glyphs' own, apart from variation selectors the span has and the glyphs lack anywhere, which are set aside here and reported by the alignment.
     const lacking = (character: string): boolean => isSelector(character.codePointAt(0) ?? 0) && !glyphSelectors.has(character);
@@ -363,13 +368,19 @@ class FoundText {
         .map(cluster => cluster.text)
         .join('');
     if (comparable(text, lacking) === comparable(glyphText, () => false) || this.spanByCmap(glyphs, { glyphText, text: comparable(text, () => false) })) {
+      // The caller's equivalents apply after the check; where one applies, the glyphs' text with it takes the span's place.
+      const equivalents = glyphs.map((glyph, at) => (glyph.text === null ? '' : this.equivalent(glyph, folded[at] ?? ''))).join('');
+      if (equivalents !== glyphText) {
+        this.push(equivalents, indexes, cluster => cluster);
+        return;
+      }
       this.push(text, indexes, cluster =>
         this.variantByCmap(glyphs, cluster) ? cluster : cluster.replaceAll(SELECTORS, selector => (lacking(selector) ? '' : selector)),
       );
       return;
     }
     this.notes.push({ kind: 'actual-text-disagrees', actualText: text, glyphText, span: index, glyphs: indexes });
-    this.push(glyphText, indexes, cluster => cluster);
+    this.push(glyphs.map((glyph, at) => (glyph.text === null ? '' : this.equivalent(glyph, folded[at] ?? ''))).join(''), indexes, cluster => cluster);
   }
 
   /** Notes a span with no compared glyph between compared glyphs, unless its text is only white space that is ignored. */
