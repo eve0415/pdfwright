@@ -1,3 +1,4 @@
+// RFC 1951, 3.1.1: "Data elements are packed into bytes in order of increasing bit number within the byte, i.e., starting with the least-significant bit of the byte."
 export class BitWriter {
   private bytes = new Uint8Array(256);
   private used = 0;
