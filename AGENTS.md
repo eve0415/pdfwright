@@ -46,7 +46,7 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 - **oxlint does not report `isolatedDeclarations` errors (TS9xxx).** The tsdown build reports them when it emits declarations, so a change to an exported signature is checked only once `pnpm run build` passes.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
-The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, LittleCMS, Argyll and free ICC profiles for external checks.
+The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS, Argyll and free ICC profiles for external checks.
 
 ## Runtime rules
 
