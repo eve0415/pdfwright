@@ -85,12 +85,13 @@ const hasInk = (plate: Awaited<ReturnType<typeof readPlate>>): boolean => {
 
 const hasInkOutsideDie = (plate: Awaited<ReturnType<typeof readPlate>>): boolean => {
   const dieLeft = Number(formatLength(mm(5), 5));
+  const dieBottom = Number(formatLength(mm(5), 5));
   const dieRight = Number(formatLength(mm(45), 5));
   const dieTop = Number(formatLength(mm(35), 5));
   const left = Math.floor(dieLeft) - 1;
   const right = Math.ceil(dieRight) + 1;
   const top = Math.floor(plate.height - dieTop) - 1;
-  const bottom = Math.ceil(plate.height - dieLeft) + 1;
+  const bottom = Math.ceil(plate.height - dieBottom) + 1;
   for (let y = 0; y < plate.height; y++) {
     for (let x = 0; x < plate.width; x++) {
       if ((x < left || x > right || y < top || y > bottom) && plate.inkAt(x, y) > 0) return true;
