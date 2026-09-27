@@ -36,6 +36,15 @@ const sharedResources = (font: string): Uint8Array =>
     { number: 8, body: font },
   ]);
 
+const chained = (target: string): Uint8Array =>
+  pdf([
+    catalog(''),
+    { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 10 10]>>' },
+    { number: 3, body: '<</Type/Page/Parent 2 0 R/Tabs 5 0 R>>' },
+    { number: 5, body: '6 0 R' },
+    { number: 6, body: target },
+  ]);
+
 describe('value graph comparison', () => {
   it('follows reference chains far deeper than a call stack allows', () => {
     const one = loadDocument(outline(10_000, 'last'));
@@ -64,5 +73,10 @@ describe('value graph comparison', () => {
       { kind: 'undecodable', where: ['page', 1, 'Resources', 'Font', 'F1'], document: 'a' },
       { kind: 'undecodable', where: ['page', 1, 'Resources', 'Font', 'F1'], document: 'b' },
     ]);
+  });
+
+  it('follows an object whose value is a reference to what that names', () => {
+    const { differences } = compareDocuments(loadDocument(chained('/R')), loadDocument(chained('/S')), { include: ['pageAttributes'] });
+    expect(differences).toMatchObject([{ kind: 'page-attribute', path: ['Tabs'], a: { text: '/R' }, b: { text: '/S' } }]);
   });
 });

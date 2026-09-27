@@ -278,7 +278,15 @@ export class ValueGraph {
   private resolve(side: 'a' | 'b', value: Value, path: Where): Value | typeof UNREADABLE {
     if (value?.kind !== 'reference') return value;
     try {
-      const resolved = this.context[side].objects.deref(value);
+      // An object whose value is itself a reference is followed to what that names; a chain that returns to itself names nothing.
+      let resolved: Value = value;
+      const followed = new Set<string>();
+      while (resolved?.kind === 'reference') {
+        const key = referenceKey(resolved);
+        if (followed.has(key)) return undefined;
+        followed.add(key);
+        resolved = this.context[side].objects.deref(resolved);
+      }
       return resolved?.kind === 'null' ? undefined : resolved;
     } catch (error: unknown) {
       if (!(error instanceof ParseError)) throw error;
