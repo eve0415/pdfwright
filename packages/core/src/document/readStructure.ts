@@ -21,6 +21,7 @@ import { ObjectStore } from './objectStore.ts';
 /**
  * How the file's structure was read. `intact`: as written, or with deviations no common reader reports.
  * `tolerated`: with deviations at least one common reader reports. `reconstructed`: the cross-reference data was rebuilt by scanning the file.
+ * It describes the cross-reference data and the objects read while loading, the catalog and the page tree; a deviation found in an object read later is added to the warnings without changing it.
  */
 export type StructureStatus = 'intact' | 'tolerated' | 'reconstructed';
 
