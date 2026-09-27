@@ -1,5 +1,6 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LoadWarning } from './loadWarning.ts';
+import type { SourceNode } from './parseObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -9,9 +10,13 @@ import { pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { Lexer } from './lexer.ts';
-import { parseObject } from './parseObject.ts';
+import { parseAnnotated, parseObject } from './parseObject.ts';
 
 const encode = (text: string): Uint8Array => Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
+
+const ignore = (): void => {
+  // Warnings are not under test here.
+};
 
 interface Parsed {
   value: PdfDirectObject;
@@ -108,5 +113,33 @@ describe('direct object parser', () => {
     expect(parse('[[[1]]]', 3).value.kind).toBe('array');
     expect(() => parse('[[[[1]]]]', 3)).toThrow(ResourceLimitError);
     expect(() => parse('<</A<</B<</C<</D 1>>>>>>>>', 3)).toThrow(ResourceLimitError);
+  });
+});
+
+const annotated = (source: string): SourceNode => {
+  const lexer = new Lexer({ bytes: encode(source), base: 0, final: true }, 0, { warn: ignore, names: new Map() });
+  return parseAnnotated(lexer, 256);
+};
+
+const spans = (node: SourceNode | undefined, source: string): string[] => [
+  source.slice(node?.start, node?.end),
+  ...(node?.items ?? []).map(item => source.slice(item.start, item.end)),
+  ...(node?.entries ?? []).map(child => `${source.slice(child.keyStart, child.keyEnd)}=${source.slice(child.node.start, child.node.end)}`),
+];
+
+describe('annotated parser', () => {
+  it('records the byte span of every value, entry and item', () => {
+    const source = ' <</A#20B 1 0 R /C [ 0.242187 792.0 ] /D<</E(x)>> >> ';
+    const node = annotated(source);
+    expect(spans(node, source)).toStrictEqual([source.trim(), '/A#20B=1 0 R', '/C=[ 0.242187 792.0 ]', '/D=<</E(x)>>']);
+    expect(spans(node.entries?.[1]?.node, source)).toStrictEqual(['[ 0.242187 792.0 ]', '0.242187', '792.0']);
+    expect(text(node.value)).toBe('<</A#20B 1 0 R/C[0.242187 792]/D<</E(x)>>>>');
+  });
+
+  it('keeps every occurrence of a duplicate key while the value uses the last', () => {
+    const source = '<</K 1/K 2>>';
+    const node = annotated(source);
+    expect(spans(node, source)).toStrictEqual([source, '/K=1', '/K=2']);
+    expect(text(node.value)).toBe('<</K 2>>');
   });
 });
