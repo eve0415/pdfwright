@@ -30,6 +30,8 @@ export type XmlTokens =
   | { readonly ok: true; readonly tokens: readonly XmlToken[] }
   | { readonly ok: false; readonly reason: XmlRefusal; readonly offset: number };
 
+export type XmlVisitResult = { readonly ok: true } | { readonly ok: false; readonly reason: XmlRefusal; readonly offset: number };
+
 export interface XmlLimits {
   /** Deepest element nesting; default 64. */
   readonly maxDepth: number;
@@ -94,16 +96,23 @@ const normalizeLineEnds = (text: string): string => text.replaceAll(/\r\n?/gu, '
 class Tokenizer {
   private readonly text: string;
   private readonly limits: XmlLimits;
-  private readonly tokens: XmlToken[] = [];
+  private readonly visit: (token: XmlToken) => void;
+  private tokenCount = 0;
   private readonly open: string[] = [];
   private position = 0;
   private rootClosed = false;
   private rootSeen = false;
   private trailerSeen = false;
 
-  constructor(text: string, limits: XmlLimits) {
+  constructor(text: string, limits: XmlLimits, visit: (token: XmlToken) => void) {
     this.text = text;
     this.limits = limits;
+    this.visit = visit;
+  }
+
+  private emit(token: XmlToken): void {
+    this.tokenCount++;
+    this.visit(token);
   }
 
   private match(pattern: RegExp): string | undefined {
@@ -167,7 +176,7 @@ class Tokenizer {
     }
     const selfClosing = this.text.startsWith('/>', this.position);
     this.position += selfClosing ? 2 : 1;
-    this.tokens.push({ kind: 'start', name, attributes, selfClosing, span: { start, end: this.position } });
+    this.emit({ kind: 'start', name, attributes, selfClosing, span: { start, end: this.position } });
     this.rootSeen = true;
     if (selfClosing) {
       if (this.open.length === 0) this.rootClosed = true;
@@ -186,7 +195,7 @@ class Tokenizer {
     // XML 1.0, 3, well-formedness constraint Element Type Match.
     if (this.open.pop() !== name) throw new RefusalError('not-well-formed', start);
     if (this.open.length === 0) this.rootClosed = true;
-    this.tokens.push({ kind: 'end', name, span: { start, end: this.position } });
+    this.emit({ kind: 'end', name, span: { start, end: this.position } });
   }
 
   private markup(): void {
@@ -199,14 +208,14 @@ class Tokenizer {
       const content = text.slice(this.position, end);
       if (content.includes('--') || content.endsWith('-')) throw new RefusalError('not-well-formed', start);
       this.position = end + 3;
-      this.tokens.push({ kind: 'comment', span: { start, end: this.position } });
+      this.emit({ kind: 'comment', span: { start, end: this.position } });
     } else if (text.startsWith('<![CDATA[', start)) {
       if (this.open.length === 0) throw new RefusalError('not-well-formed', start);
       this.position += 9;
       const end = this.until(']]>');
       const data = normalizeLineEnds(text.slice(this.position, end));
       this.position = end + 3;
-      this.tokens.push({ kind: 'cdata', text: data, span: { start, end: this.position } });
+      this.emit({ kind: 'cdata', text: data, span: { start, end: this.position } });
     } else if (text.startsWith('<!DOCTYPE', start)) {
       // A document type declaration can declare entities, including external ones; none is read.
       throw new RefusalError('doctype', start);
@@ -216,7 +225,7 @@ class Tokenizer {
       const end = this.until('?>');
       const content = text.slice(this.position, end).replace(/^[ \t\r\n]+/u, '');
       this.position = end + 2;
-      this.tokens.push({ kind: 'pi', target, content, span: { start, end: this.position } });
+      this.emit({ kind: 'pi', target, content, span: { start, end: this.position } });
       // XMP Part 1 7.3.2: a wrapped packet is "a header PI, the serialized XMP data model (the XMP packet) with optional white-space padding, and a trailer PI", so the trailer after the root element ends the packet.
       this.trailerSeen = this.rootClosed && target === 'xpacket' && content.startsWith('end=');
     } else if (text.startsWith('</', start)) this.endTag();
@@ -236,11 +245,11 @@ class Tokenizer {
       return;
     }
     if (raw.includes(']]>')) throw new RefusalError('not-well-formed', start + raw.indexOf(']]>'));
-    this.tokens.push({ kind: 'text', text: expandReferences(normalizeLineEnds(raw), start), span: { start, end: this.position } });
+    this.emit({ kind: 'text', text: expandReferences(normalizeLineEnds(raw), start), span: { start, end: this.position } });
   }
 
   // What follows the packet trailer, such as padding with NUL bytes, is not read; an invalid character before it is refused.
-  run(): readonly XmlToken[] {
+  run(): void {
     const invalid = INVALID_CHARACTER.exec(this.text)?.index ?? this.text.length;
     while (!this.trailerSeen && this.position < invalid) {
       try {
@@ -252,11 +261,10 @@ class Tokenizer {
         throw intoInvalid ? new RefusalError('invalid-character', invalid) : error;
       }
       if (this.position > invalid) throw new RefusalError('invalid-character', invalid);
-      if (this.tokens.length > this.limits.maxTokens) throw new RefusalError('too-many-tokens', this.position);
+      if (this.tokenCount > this.limits.maxTokens) throw new RefusalError('too-many-tokens', this.position);
     }
     if (!this.trailerSeen && invalid < this.text.length) throw new RefusalError('invalid-character', invalid);
     if (this.open.length > 0 || !this.rootSeen) throw new RefusalError('not-well-formed', this.text.length);
-    return this.tokens;
   }
 }
 
@@ -265,13 +273,26 @@ class Tokenizer {
  * Element nesting and attributes per element are limited; the scan is a loop over the text, never recursion.
  * The text must hold one root element, with only white space, comments and processing instructions around it; after the root element, an xpacket trailer processing instruction ends the text read.
  */
-export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlTokens => {
+export const visitXml = (text: string, visit: (token: XmlToken) => void, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlVisitResult => {
   try {
-    return { ok: true, tokens: new Tokenizer(text, limits).run() };
+    new Tokenizer(text, limits, visit).run();
+    return { ok: true };
   } catch (error: unknown) {
     if (error instanceof RefusalError) return { ok: false, reason: error.reason, offset: error.offset };
     throw error;
   }
+};
+
+export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlTokens => {
+  const tokens: XmlToken[] = [];
+  const result = visitXml(
+    text,
+    token => {
+      tokens.push(token);
+    },
+    limits,
+  );
+  return result.ok ? { ok: true, tokens } : result;
 };
 
 export type XmlEncoding = 'utf8' | 'utf-16be' | 'utf-16le' | 'utf-32be' | 'utf-32le';

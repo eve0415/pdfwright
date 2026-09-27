@@ -1,6 +1,6 @@
 import type { XmlAttribute, XmlEncoding, XmlRefusal, XmlSpan, XmlToken } from './xmlTokenizer.ts';
 
-import { DEFAULT_XML_LIMITS, decodeXml, tokenizeXml } from './xmlTokenizer.ts';
+import { DEFAULT_XML_LIMITS, decodeXml, visitXml } from './xmlTokenizer.ts';
 
 export const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace';
@@ -186,11 +186,18 @@ const collectArrayItem = (parent: XmlElement | undefined, item: XmlElement): voi
   parent.arrayItems.push({ text: item.text.join(''), language: language(item.language) });
 };
 
-// Builds the element tree with a stack; the tokenizer has already bounded the depth.
-const buildTree = (tokens: readonly XmlToken[]): readonly XmlElement[] => {
+interface BuiltTree {
+  readonly rdfs: readonly XmlElement[];
+  readonly instructions: readonly string[];
+  readonly accept: (token: XmlToken) => void;
+}
+
+// Builds the element tree as tokens arrive; the tokenizer has already bounded the depth.
+const createTreeBuilder = (): BuiltTree => {
   const rdfs: XmlElement[] = [];
+  const instructions: string[] = [];
   const stack: OpenElement[] = [];
-  for (const token of tokens) {
+  const accept = (token: XmlToken): void => {
     const parent = stack.at(-1);
     if (token.kind === 'start') {
       const open = openElement(token, parent);
@@ -203,8 +210,9 @@ const buildTree = (tokens: readonly XmlToken[]): readonly XmlElement[] => {
       stack.pop();
       collectArrayItem(stack.at(-1)?.element, parent.element);
     } else if ((token.kind === 'text' || token.kind === 'cdata') && parent !== undefined) parent.element.text.push(token.text);
-  }
-  return rdfs;
+    else if (token.kind === 'pi' && token.target === 'xpacket') instructions.push(token.content);
+  };
+  return { rdfs, instructions, accept };
 };
 
 const isRdf = (element: XmlElement, localName: string): boolean => element.namespace === RDF_NAMESPACE && element.localName === localName;
@@ -294,8 +302,7 @@ const byteOffsets = (text: string, encoding: XmlEncoding, offsets: readonly numb
   return result;
 };
 
-const wrapper = (tokens: readonly XmlToken[]): XmpPacket['wrapper'] => {
-  const instructions = tokens.flatMap(token => (token.kind === 'pi' && token.target === 'xpacket' ? [token.content] : []));
+const wrapper = (instructions: readonly string[]): XmpPacket['wrapper'] => {
   const end = instructions.map(content => /^end=(["'])([rw])\1/u.exec(content)?.[2]).find(value => value !== undefined);
   return { begin: instructions.some(content => content.startsWith('begin=')), end: end === 'r' || end === 'w' ? end : undefined };
 };
@@ -320,8 +327,8 @@ const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: reado
   return findings;
 };
 
-const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken[]): ReadPacket => {
-  const rdfs = buildTree(tokens);
+const readTree = (text: string, encoding: XmlEncoding, tree: BuiltTree): ReadPacket => {
+  const { rdfs } = tree;
   // XMP Part 1 7.4: "A single XMP packet shall be serialized using a single rdf:RDF XML element"; 7.3.3: x:xmpmeta or other elements may surround it.
   const [rdf] = rdfs;
   if (rdf === undefined) throw new UnreadableError('no-rdf');
@@ -341,7 +348,7 @@ const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken
   }
   return {
     encoding,
-    wrapper: wrapper(tokens),
+    wrapper: wrapper(tree.instructions),
     subject: subjects.values.find(value => value !== '') ?? '',
     properties,
     findings: findingsOf(encoding, subjects, properties),
@@ -359,10 +366,17 @@ const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken
 export const readXmp = (bytes: Uint8Array, maxTokens: number = DEFAULT_XML_LIMITS.maxTokens): ReadXmp => {
   const decoded = decodeXml(bytes);
   if (!decoded.ok) return { ok: false, reason: decoded.reason };
-  const tokens = tokenizeXml(decoded.text, { ...DEFAULT_XML_LIMITS, maxTokens });
-  if (!tokens.ok) return { ok: false, reason: tokens.reason };
   try {
-    return { ok: true, packet: readTree(decoded.text, decoded.encoding, tokens.tokens) };
+    const tree = createTreeBuilder();
+    const scanned = visitXml(
+      decoded.text,
+      token => {
+        tree.accept(token);
+      },
+      { ...DEFAULT_XML_LIMITS, maxTokens },
+    );
+    if (!scanned.ok) return { ok: false, reason: scanned.reason };
+    return { ok: true, packet: readTree(decoded.text, decoded.encoding, tree) };
   } catch (error: unknown) {
     if (error instanceof UnreadableError) return { ok: false, reason: error.reason };
     throw error;

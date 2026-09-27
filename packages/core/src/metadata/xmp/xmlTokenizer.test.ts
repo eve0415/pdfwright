@@ -2,7 +2,7 @@ import type { XmlAttribute, XmlToken } from './xmlTokenizer.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { decodeXml, tokenizeXml } from './xmlTokenizer.ts';
+import { decodeXml, tokenizeXml, visitXml } from './xmlTokenizer.ts';
 
 const tokensOf = (text: string): readonly XmlToken[] => {
   const result = tokenizeXml(text);
@@ -49,6 +49,31 @@ const decodedText = (bytes: Uint8Array): string => {
 };
 
 describe('the XML tokenizer', () => {
+  it('visits tokens in order with the same limit and refusal semantics', () => {
+    const visitedKinds: string[] = [];
+    const result = visitXml(
+      '<a><b/>text</a>',
+      token => {
+        visitedKinds.push(token.kind);
+      },
+      { maxDepth: 64, maxAttributes: 256, maxTokens: 4 },
+    );
+    const refusedKinds: string[] = [];
+    const refused = visitXml(
+      '<a><b/>text</a>',
+      token => {
+        refusedKinds.push(token.kind);
+      },
+      { maxDepth: 64, maxAttributes: 256, maxTokens: 3 },
+    );
+    expect([result, visitedKinds, refused, refusedKinds]).toStrictEqual([
+      { ok: true },
+      ['start', 'start', 'text', 'end'],
+      { ok: false, reason: 'too-many-tokens', offset: 15 },
+      ['start', 'start', 'text', 'end'],
+    ]);
+  });
+
   it('reads elements, attributes, text, CDATA, comments and processing instructions with their spans', () => {
     const text = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n<x:a b = 'c&amp;d'><!-- note --><e>f &lt;&#x41;&#66;&quot;</e><![CDATA[<g>]]><h/></x:a>\n<?xpacket end="w"?>`;
     const tokens = tokensOf(text);
