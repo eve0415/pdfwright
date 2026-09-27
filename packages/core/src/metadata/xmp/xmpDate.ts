@@ -63,6 +63,10 @@ export const compareDates = (pdf: ParsedPdfDate, xmp: XmpDate): 'equal' | 'diffe
     return same ? 'equal' : 'different';
   }
   if (xmp.zone === 'absent') return 'indeterminate';
-  const unit = UNIT_MS[precision];
-  return Math.floor(instant(pdf.date) / unit) === Math.floor(instant(xmp.date) / unit) ? 'equal' : 'different';
+  // The coarser value names an hour or minute of its own local time, which a finer value must fall within; UTC hours would split an hour of a +05:30 zone.
+  const [coarse, fine] = pdf.precision === precision ? [pdf, xmp] : [xmp, pdf];
+  const start = instant(coarse.date);
+  const at = instant(fine.date);
+  if (fine.precision === precision) return start === at ? 'equal' : 'different';
+  return at >= start && at < start + UNIT_MS[precision] ? 'equal' : 'different';
 };

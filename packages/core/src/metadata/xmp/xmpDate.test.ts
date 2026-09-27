@@ -69,6 +69,17 @@ describe('dates in XMP', () => {
     ]).toStrictEqual(['equal', 'different', 'equal', 'different', 'equal', 'equal', 'equal', 'equal']);
   });
 
+  it('takes a coarse time as the hour or minute it names in its own time zone', () => {
+    expect([
+      agreement("D:2024030112+05'30'", '2024-03-01T12:45:00+05:30'),
+      agreement("D:2024030112+05'30'", '2024-03-01T06:45:00Z'),
+      agreement("D:2024030112+05'30'", '2024-03-01T13:10:00+05:30'),
+      agreement("D:202403011245+05'45'", '2024-03-01T12:45:30+05:45'),
+      agreement("D:20240301124530+05'45'", '2024-03-01T12:45+05:45'),
+      agreement("D:2024030112+05'30'", '2024-03-01T12:00+06:00'),
+    ]).toStrictEqual(['equal', 'equal', 'different', 'equal', 'equal', 'different']);
+  });
+
   it('compares times in the years 0 to 99 as those years', () => {
     expect([
       agreement('D:19990101000000Z', '0099-01-01T00:00:00Z'),
