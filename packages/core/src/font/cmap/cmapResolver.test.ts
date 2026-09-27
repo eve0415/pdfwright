@@ -1,7 +1,8 @@
 import type { DocumentInternals } from '../../document/documentInternals.ts';
 import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { CMap } from './cmap.ts';
-import type { CMapProvider, CMapResult } from './cmapProvider.ts';
+import type { CMapProvider } from './cmapProvider.ts';
+import type { CMapResult } from './cmapResolver.ts';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +11,8 @@ import { loadDocument } from '../../document/loadDocument.ts';
 import { pdfName, pdfReference } from '../../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
 
-import { CMapResolver, PREDEFINED_CMAPS } from './cmapProvider.ts';
+import { PREDEFINED_CMAPS } from './cmapProvider.ts';
+import { CMapResolver } from './cmapResolver.ts';
 
 const document = (objects: readonly TestObject[] = []): DocumentInternals => {
   const loaded = loadDocument(
