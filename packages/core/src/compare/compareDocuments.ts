@@ -1,6 +1,8 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { BoxName, EffectiveBoxes } from '../document/loadedPage.ts';
+import type { PageEntry } from '../document/pageTree.ts';
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { CompareOptions, DifferenceArea, DocumentComparison, FontIdentity, PdfDifference } from './pdfDifference.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -8,8 +10,18 @@ import { effectiveBoxes, inherited } from '../document/loadedPage.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+import {
+  catalogDictionary,
+  catalogReference,
+  compareDocumentAttributes,
+  compareDuplicateKeys,
+  comparePageAttributes,
+  formOwners,
+  pageDictionary,
+} from './attributes.ts';
 import { fontSet } from './fontSet.ts';
 import { comparePageContent } from './pageContent.ts';
+import { comparePieceInfo } from './pieceInfo.ts';
 import { ValueGraph } from './valueGraph.ts';
 
 const AREAS: readonly DifferenceArea[] = [
@@ -72,41 +84,96 @@ const compareFonts = (
  * Compares two loaded documents by what they show and carry, never by object numbers: page count, boxes, content, resources, fonts, page-piece data and the remaining page and document entries.
  * Each difference means the documents differ there; a caller decides which kinds an edit was allowed to produce.
  */
+class Comparison {
+  private readonly sides: Sides;
+  private readonly include: ReadonlySet<DifferenceArea>;
+  readonly differences: PdfDifference[] = [];
+  private readonly pieces: PdfDifference[] = [];
+  private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
+
+  constructor(sides: Sides, include: ReadonlySet<DifferenceArea>) {
+    this.sides = sides;
+    this.include = include;
+  }
+
+  private resources(page: number, [resourcesA, resourcesB]: readonly [PdfDirectObject | undefined, PdfDirectObject | undefined]): void {
+    const { differences } = this;
+    new ValueGraph(this.sides, {
+      mismatch: ({ path, a, b }) => {
+        differences.push({ kind: 'page-resources', page, path, a, b });
+      },
+      undecodable: (where, document, reason) => {
+        differences.push({ kind: 'undecodable', where: ['page', page, ...where], document, reason });
+      },
+    }).compare(resourcesA, resourcesB, ['Resources']);
+  }
+
+  private pageFonts(page: number, [resourcesA, resourcesB]: readonly [PdfDirectObject | undefined, PdfDirectObject | undefined]): void {
+    const fontsA = fontSet(this.sides.a, resourcesA);
+    const fontsB = fontSet(this.sides.b, resourcesB);
+    for (const [key, font] of fontsA) this.fonts.a.set(key, font);
+    for (const [key, font] of fontsB) this.fonts.b.set(key, font);
+    compareFonts(page, [fontsA, fontsB], this.differences);
+  }
+
+  page(page: number, [entryA, entryB]: readonly [PageEntry, PageEntry]): void {
+    const { sides, include, differences } = this;
+    if (include.has('boxes')) compareBoxes(page, [effectiveBoxes(sides.a.objects, entryA), effectiveBoxes(sides.b.objects, entryB)], differences);
+    if (include.has('content')) comparePageContent(page, { ...sides, pageA: entryA, pageB: entryB }, differences);
+    const resources = [inherited(sides.a.objects, entryA, RESOURCES)?.value, inherited(sides.b.objects, entryB, RESOURCES)?.value] as const;
+    if (include.has('resources')) this.resources(page, resources);
+    if (include.has('pieceInfo') || include.has('lastModified')) {
+      const owner = {
+        owner: { kind: 'page', page } as const,
+        a: pageDictionary(sides.a, entryA),
+        b: pageDictionary(sides.b, entryB),
+        referenceA: entryA.reference,
+        referenceB: entryB.reference,
+      };
+      for (const each of [owner, ...formOwners(sides, { page, a: resources[0], b: resources[1] })]) comparePieceInfo(sides, each, this.pieces);
+    }
+    if (include.has('pageAttributes')) {
+      comparePageAttributes(sides, { page, a: entryA, b: entryB }, differences);
+      compareDuplicateKeys(sides, { where: ['page', page], a: entryA.reference, b: entryB.reference }, differences);
+    }
+    if (include.has('fonts')) this.pageFonts(page, resources);
+  }
+
+  document(): void {
+    const { sides, include, differences } = this;
+    if (include.has('fonts')) compareFonts('document', [this.fonts.a, this.fonts.b], differences);
+    if (include.has('pieceInfo') || include.has('lastModified')) {
+      const catalog = {
+        owner: { kind: 'catalog' } as const,
+        a: catalogDictionary(sides.a),
+        b: catalogDictionary(sides.b),
+        referenceA: catalogReference(sides.a),
+        referenceB: catalogReference(sides.b),
+      };
+      comparePieceInfo(sides, catalog, this.pieces);
+    }
+    for (const difference of this.pieces) {
+      if (difference.kind === 'last-modified' ? include.has('lastModified') : include.has('pieceInfo')) differences.push(difference);
+    }
+    if (include.has('documentAttributes')) {
+      compareDocumentAttributes(sides, differences);
+      compareDuplicateKeys(sides, { where: ['Root'], a: catalogReference(sides.a), b: catalogReference(sides.b) }, differences);
+    }
+  }
+}
+
 export const compareDocuments = (a: LoadedDocument, b: LoadedDocument, options: CompareOptions = {}): DocumentComparison => {
   const sides: Sides = { a: internals(a, 'a'), b: internals(b, 'b') };
   const include = new Set(options.include ?? AREAS);
-  const differences: PdfDifference[] = [];
+  const comparison = new Comparison(sides, include);
   const pagesA = sides.a.pages;
   const pagesB = sides.b.pages;
-  if (include.has('pages') && pagesA.length !== pagesB.length) differences.push({ kind: 'page-count', a: pagesA.length, b: pagesB.length });
-  const shared = Math.min(pagesA.length, pagesB.length);
-  const documentFonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
-  for (let page = 0; page < shared; page++) {
+  if (include.has('pages') && pagesA.length !== pagesB.length) comparison.differences.push({ kind: 'page-count', a: pagesA.length, b: pagesB.length });
+  for (let page = 0; page < Math.min(pagesA.length, pagesB.length); page++) {
     const entryA = pagesA[page];
     const entryB = pagesB[page];
-    if (entryA === undefined || entryB === undefined) continue;
-    if (include.has('boxes')) compareBoxes(page, [effectiveBoxes(sides.a.objects, entryA), effectiveBoxes(sides.b.objects, entryB)], differences);
-    if (include.has('content')) comparePageContent(page, { ...sides, pageA: entryA, pageB: entryB }, differences);
-    const resourcesA = inherited(sides.a.objects, entryA, RESOURCES)?.value;
-    const resourcesB = inherited(sides.b.objects, entryB, RESOURCES)?.value;
-    if (include.has('resources')) {
-      new ValueGraph(sides, {
-        mismatch: ({ path, a: left, b: right }) => {
-          differences.push({ kind: 'page-resources', page, path, a: left, b: right });
-        },
-        undecodable: (where, document, reason) => {
-          differences.push({ kind: 'undecodable', where: ['page', page, ...where], document, reason });
-        },
-      }).compare(resourcesA, resourcesB, ['Resources']);
-    }
-    if (include.has('fonts')) {
-      const fontsA = fontSet(sides.a, resourcesA);
-      const fontsB = fontSet(sides.b, resourcesB);
-      for (const [key, font] of fontsA) documentFonts.a.set(key, font);
-      for (const [key, font] of fontsB) documentFonts.b.set(key, font);
-      compareFonts(page, [fontsA, fontsB], differences);
-    }
+    if (entryA !== undefined && entryB !== undefined) comparison.page(page, [entryA, entryB]);
   }
-  if (include.has('fonts')) compareFonts('document', [documentFonts.a, documentFonts.b], differences);
-  return { equal: differences.length === 0, differences };
+  comparison.document();
+  return { equal: comparison.differences.length === 0, differences: comparison.differences };
 };

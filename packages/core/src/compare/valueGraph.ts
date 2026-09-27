@@ -86,9 +86,13 @@ export class ValueGraph {
   private readonly report: GraphReport;
   private readonly visited = new Set<string>();
 
-  constructor(sides: { readonly a: DocumentInternals; readonly b: DocumentInternals }, report: GraphReport) {
+  private readonly raw: boolean;
+
+  /** With `raw`, streams compare by their stored bytes only, never decoded, as private application data must survive byte for byte. */
+  constructor(sides: { readonly a: DocumentInternals; readonly b: DocumentInternals; readonly raw?: boolean }, report: GraphReport) {
     this.a = sides.a;
     this.b = sides.b;
+    this.raw = sides.raw === true;
     this.report = report;
   }
 
@@ -161,6 +165,14 @@ export class ValueGraph {
       scalarEqual(left.dictionary.get(FILTER), right.dictionary.get(FILTER)) &&
       scalarEqual(left.dictionary.get(DECODE_PARMS), right.dictionary.get(DECODE_PARMS));
     if (sameEncoding && sameBytes(left.data, right.data)) return;
+    if (this.raw) {
+      this.report.mismatch({
+        path,
+        a: { kind: 'stream', text: `${String(left.data.length)} stored bytes` },
+        b: { kind: 'stream', text: `${String(right.data.length)} stored bytes` },
+      });
+      return;
+    }
     const decodedA = decodeForComparison(this.a, left);
     const decodedB = decodeForComparison(this.b, right);
     if (!decodedA.ok) this.report.undecodable(path, 'a', decodedA.reason);
