@@ -4,6 +4,7 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { PdfDifference, ValuePath, ValueSummary } from './pdfDifference.ts';
 import type { Owner } from './pieceInfo.ts';
+import type { GraphContext } from './valueGraph.ts';
 
 import { pdfName } from '../object/pdfObject.ts';
 import { originalValue } from '../save/originalValue.ts';
@@ -67,7 +68,7 @@ interface Summaries {
   readonly b: ValueSummary;
 }
 
-const graph = (sides: Sides, differences: PdfDifference[], push: (path: ValuePath, summaries: Summaries) => void): ValueGraph =>
+const graph = (sides: GraphContext, differences: PdfDifference[], push: (path: ValuePath, summaries: Summaries) => void): ValueGraph =>
   new ValueGraph(sides, {
     mismatch: ({ path, a, b }) => {
       push(path, { a, b });
@@ -79,7 +80,7 @@ const graph = (sides: Sides, differences: PdfDifference[], push: (path: ValuePat
 
 /** Compares the page entries no other area covers (ISO 32000-1:2008, 7.7.3.3, Table 30), such as Group, Annots, Metadata or SeparationInfo. */
 export const comparePageAttributes = (
-  sides: Sides,
+  sides: GraphContext,
   pages: { readonly page: number; readonly a: PageEntry; readonly b: PageEntry },
   differences: PdfDifference[],
 ): void => {
@@ -92,7 +93,7 @@ export const comparePageAttributes = (
 };
 
 /** Compares the catalog, apart from the page tree and page-piece data, and the document information dictionary (ISO 32000-1:2008, 7.7.2 and 14.3.3). */
-export const compareDocumentAttributes = (sides: Sides, differences: PdfDifference[]): void => {
+export const compareDocumentAttributes = (sides: GraphContext, differences: PdfDifference[]): void => {
   const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'document-attribute', path, a, b });
   };

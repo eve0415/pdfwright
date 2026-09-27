@@ -4,6 +4,7 @@ import type { BoxName, EffectiveBoxes } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { CompareOptions, DifferenceArea, DocumentComparison, FontIdentity, PdfDifference } from './pdfDifference.ts';
+import type { GraphContext } from './valueGraph.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { effectiveBoxes, inherited } from '../document/loadedPage.ts';
@@ -22,7 +23,7 @@ import {
 import { fontSet } from './fontSet.ts';
 import { comparePageContent } from './pageContent.ts';
 import { comparePieceInfo } from './pieceInfo.ts';
-import { ValueGraph } from './valueGraph.ts';
+import { ValueGraph, graphContext } from './valueGraph.ts';
 
 const AREAS: readonly DifferenceArea[] = [
   'pages',
@@ -85,14 +86,14 @@ const compareFonts = (
  * Each difference means the documents differ there; a caller decides which kinds an edit was allowed to produce.
  */
 class Comparison {
-  private readonly sides: Sides;
+  private readonly sides: GraphContext;
   private readonly include: ReadonlySet<DifferenceArea>;
   readonly differences: PdfDifference[] = [];
   private readonly pieces: PdfDifference[] = [];
   private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
 
   constructor(sides: Sides, include: ReadonlySet<DifferenceArea>) {
-    this.sides = sides;
+    this.sides = graphContext(sides.a, sides.b);
     this.include = include;
   }
 

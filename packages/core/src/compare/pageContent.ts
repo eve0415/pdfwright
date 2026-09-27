@@ -11,7 +11,7 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { readOperations } from './contentTokens.ts';
-import { encodingText } from './resolvedText.ts';
+import { encodingText, sameEncoding } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
 
@@ -93,7 +93,7 @@ const sameStored = (
     streamA?.kind === 'stream' &&
     streamB?.kind === 'stream' &&
     sameBytes(streamA.data, streamB.data) &&
-    encodingText(sides.a, streamA) === encodingText(sides.b, streamB)
+    sameEncoding(encodingText(sides.a, streamA), encodingText(sides.b, streamB))
   );
 };
 

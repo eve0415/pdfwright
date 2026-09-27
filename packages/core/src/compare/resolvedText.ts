@@ -1,6 +1,7 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { md5 } from '../hash/md5.ts';
 import { pdfName } from '../object/pdfObject.ts';
@@ -91,6 +92,15 @@ export const resolvedText = (document: DocumentInternals, value: PdfObject | und
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 
-/** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5), as resolved text. */
-export const encodingText = (document: DocumentInternals, stream: Extract<PdfObject, { kind: 'stream' }>): string =>
-  `${resolvedText(document, stream.dictionary.get(FILTER))} ${resolvedText(document, stream.dictionary.get(DECODE_PARMS))}`;
+/** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5), as resolved text; undefined when an object they lead to cannot be read. */
+export const encodingText = (document: DocumentInternals, stream: Extract<PdfObject, { kind: 'stream' }>): string | undefined => {
+  try {
+    return `${resolvedText(document, stream.dictionary.get(FILTER))} ${resolvedText(document, stream.dictionary.get(DECODE_PARMS))}`;
+  } catch (error: unknown) {
+    if (error instanceof ParseError) return undefined;
+    throw error;
+  }
+};
+
+/** Whether two encodings are known to be the same. */
+export const sameEncoding = (left: string | undefined, right: string | undefined): boolean => left !== undefined && left === right;

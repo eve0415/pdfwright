@@ -2,6 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { PdfDifference, PieceOwner, ValuePath } from './pdfDifference.ts';
+import type { GraphContext } from './valueGraph.ts';
 
 import { pdfName } from '../object/pdfObject.ts';
 import { originalValue } from '../save/originalValue.ts';
@@ -21,11 +22,6 @@ export interface Owner {
   /** The owner's object in each document, for reading the source bytes of a direct PieceInfo. */
   readonly referenceA: PdfReference | undefined;
   readonly referenceB: PdfReference | undefined;
-}
-
-interface Sides {
-  readonly a: DocumentInternals;
-  readonly b: DocumentInternals;
 }
 
 const latin1 = (bytes: Uint8Array): string => {
@@ -60,7 +56,7 @@ const directSource = (document: DocumentInternals, reference: PdfReference | und
  * Compares page-piece data (ISO 32000-1:2008, 14.5) three ways: as a value graph, stream by stream by stored bytes, and, where PieceInfo is a direct object, by its source bytes.
  * The LastModified dates of the owner and of each data dictionary compare by bytes, since "modification dates shall be compared only for equality and not for sequential ordering" (14.5).
  */
-export const comparePieceInfo = (sides: Sides, owner: Owner, differences: PdfDifference[]): void => {
+export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences: PdfDifference[]): void => {
   const pieceA = owner.a?.get(PIECE_INFO);
   const pieceB = owner.b?.get(PIECE_INFO);
   const path: ValuePath = [PIECE_INFO_NAME];
@@ -93,7 +89,7 @@ export const comparePieceInfo = (sides: Sides, owner: Owner, differences: PdfDif
       }
     }
   }
-  new ValueGraph({ ...sides, raw: true }, report('stream-bytes')).compare(pieceA, pieceB, path);
+  new ValueGraph(sides, report('stream-bytes'), true).compare(pieceA, pieceB, path);
   const sourceA = directSource(sides.a, owner.referenceA);
   const sourceB = directSource(sides.b, owner.referenceB);
   if (sourceA !== undefined && sourceB !== undefined && !sameBytes(sourceA, sourceB)) {
