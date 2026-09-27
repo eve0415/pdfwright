@@ -101,6 +101,9 @@ class UnreadableError extends Error {
 
 const splitName = (name: string): readonly [string, string] => {
   const colon = name.indexOf(':');
+  if (name === '' || colon === 0 || colon === name.length - 1 || (colon !== -1 && name.includes(':', colon + 1))) {
+    throw new UnreadableError('not-well-formed');
+  }
   return colon === -1 ? ['', name] : [name.slice(0, colon), name.slice(colon + 1)];
 };
 
@@ -110,9 +113,18 @@ const declarations = (attributes: readonly XmlAttribute[], scope: ReadonlyMap<st
   if (declared.length === 0) return scope;
   const next = new Map(scope);
   for (const attribute of declared) {
+    const prefix = attribute.name === 'xmlns' ? '' : attribute.name.slice(6);
+    if (
+      prefix === 'xmlns' ||
+      (prefix === 'xml') !== (attribute.value === XML_NAMESPACE) ||
+      attribute.value === XMLNS_NAMESPACE ||
+      (prefix !== '' && prefix.includes(':'))
+    ) {
+      throw new UnreadableError('not-well-formed');
+    }
     // Namespaces in XML 1.0, 3, Namespace constraint No Prefix Undeclaring: "In a namespace declaration for a prefix (i.e., where the NSAttName is a PrefixedAttName), the attribute value MUST NOT be empty."
     if (attribute.name !== 'xmlns' && attribute.value === '') throw new UnreadableError('not-well-formed');
-    next.set(attribute.name === 'xmlns' ? '' : attribute.name.slice(6), attribute.value);
+    next.set(prefix, attribute.value);
   }
   return next;
 };

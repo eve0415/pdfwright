@@ -2,7 +2,7 @@ import type { ReadXmp, XmpProperty } from './readXmp.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { readXmp } from './readXmp.ts';
+import { RDF_NAMESPACE, readXmp } from './readXmp.ts';
 
 const RDF = 'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"';
 const DC = 'xmlns:dc="http://purl.org/dc/elements/1.1/"';
@@ -172,5 +172,15 @@ describe('reading XMP packets', () => {
       refusal(packet(`<rdf:Description xmlns=""/>`)),
       readXmp(Uint8Array.of(0x3c, 0xff)).ok,
     ]).toStrictEqual(['not-well-formed', 'doctype', 'no-rdf', 'multiple-rdf', 'not-xmp', 'not-xmp', 'unbound-prefix', 'not-well-formed', undefined, false]);
+  });
+
+  it('refuses reserved namespace rebinding and malformed qualified names', () => {
+    const cases = [
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:xml="urn:evil"/>`,
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:xmlns="urn:evil"/>`,
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:p="http://www.w3.org/XML/1998/namespace"/>`,
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}"><rdf:Description><p:x:y xmlns:p="urn:p"/></rdf:Description></rdf:RDF>`,
+    ];
+    expect(cases.map(value => refusal(value))).toStrictEqual(['not-well-formed', 'not-well-formed', 'not-well-formed', 'not-well-formed']);
   });
 });
