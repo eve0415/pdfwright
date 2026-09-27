@@ -1,4 +1,5 @@
 import type { Length } from '../length/length.ts';
+import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 
 import { formatLength } from '../length/length.ts';
@@ -18,7 +19,7 @@ export interface PageOptions {
 
 export interface PdfDocument {
   addPage: (options: PageOptions) => void;
-  save: () => Uint8Array;
+  save: () => SavedPdf;
 }
 
 const pointObject = (length: Length, fractionDigits: number): ReturnType<typeof pdfReal> => pdfReal(Number(formatLength(length, fractionDigits)));
@@ -31,7 +32,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
     addPage: (page: PageOptions): void => {
       pages.push([...page.mediaBox]);
     },
-    save: (): Uint8Array => {
+    save: (): SavedPdf => {
       const catalog = new PdfDictionaryEntries([
         [pdfName('Type').bytes, pdfName('Catalog')],
         [pdfName('Pages').bytes, pdfReference(2, 0)],

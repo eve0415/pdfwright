@@ -25,10 +25,21 @@ const sample = (fileIdentifier?: [Uint8Array, Uint8Array]): Uint8Array => {
     ],
     trailer,
     { fractionDigits: 5, version: '1.7', fileIdentifier },
-  );
+  ).toBytes();
 };
 
 describe('classic PDF writer', () => {
+  it('exposes ordered chunks to a stream without joining them', async () => {
+    const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
+    const saved = writeDocument([{ objectNumber: 1, generation: 0, value: pdfDictionary() }], trailer, { fractionDigits: 5, version: '1.7' });
+    expect(saved.chunks.length).toBeGreaterThan(1);
+    expect(saved.byteLength).toBe(saved.toBytes().length);
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    expect(chunks).toStrictEqual(saved.chunks);
+    expect(chunks[0]).toBe(saved.chunks[0]);
+  });
+
   it('points each twenty-byte xref entry at its indirect object', () => {
     const bytes = sample();
     const text = ascii(bytes);

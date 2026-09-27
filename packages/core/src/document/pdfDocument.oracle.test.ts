@@ -72,7 +72,7 @@ const checkDocument = async (directory: string, pageCount: number): Promise<Orac
   const document = createDocument();
   for (let index = 0; index < pageCount; index++) document.addPage({ mediaBox: [pt(0), pt(0), mm(210), mm(297)] });
   const file = path.join(directory, `a4-${pageCount}.pdf`);
-  await writeFile(file, document.save());
+  await writeFile(file, document.save().toBytes());
   const checked = await qpdf(['--check', file]);
   const reported = await qpdf(['--json', file]);
   const result: unknown = JSON.parse(reported.stdout);
