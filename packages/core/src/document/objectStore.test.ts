@@ -98,4 +98,16 @@ describe('object store', () => {
     ]);
     expect(() => store.resolve(3, 1)).toThrow(ParseError);
   });
+
+  it('follows an indirect Filter of an object stream', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [{ number: 1, body: 'null' }],
+        objectStreams: [{ number: 5, members: [{ number: 2, body: '(member)' }], dictionary: '/Filter 1 0 R' }],
+      },
+    ]);
+    const { store } = storeFrom(pdf.bytes, lastSection(pdf.sections));
+    expect(store.resolve(2, 0)).toStrictEqual({ kind: 'string', bytes: new TextEncoder().encode('member'), encoding: 'literal' });
+  });
 });

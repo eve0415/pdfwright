@@ -28,6 +28,8 @@ export interface DecodedObjectStream {
 
 export interface ObjectStreamContext extends XrefContext {
   readonly maxObjectStreamMembers: number;
+  /** Follows an indirect Filter or DecodeParms of the object stream. */
+  readonly deref?: (value: PdfDirectObject | undefined) => PdfObject | undefined;
 }
 
 const TYPE = pdfName('Type').bytes;
@@ -90,7 +92,12 @@ export const decodeObjectStream = (objectNumber: number, stream: PdfObject, cont
       `object stream ${String(objectNumber)} declares ${String(count)} members, more than maxObjectStreamMembers (${String(context.maxObjectStreamMembers)})`,
     );
   }
-  const data = decodeStream(stream, { maxDecodedBytes: context.maxDecodedBytes, warn: context.warn });
+  const data = decodeStream(
+    stream,
+    context.deref === undefined
+      ? { maxDecodedBytes: context.maxDecodedBytes, warn: context.warn }
+      : { maxDecodedBytes: context.maxDecodedBytes, warn: context.warn, deref: context.deref },
+  );
   if (first > data.length) throw new ParseError(`object stream ${String(objectNumber)} has First beyond its data`, 0);
   const pairs = readHeader(data.subarray(0, first), count, context);
   // "A conforming reader shall rely on the First entry in the stream dictionary to locate the first object." and "The offsets shall be in increasing order."

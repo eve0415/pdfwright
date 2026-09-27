@@ -102,7 +102,7 @@ export class ObjectStore {
     this.resolving.add(objectNumber);
     try {
       const object = this.load(objectNumber);
-      const stream = decodeObjectStream(objectNumber, object?.value ?? { kind: 'null' }, this.context);
+      const stream = decodeObjectStream(objectNumber, object?.value ?? { kind: 'null' }, { ...this.context, deref: value => this.deref(value) });
       this.decoded.set(objectNumber, stream);
       for (const number of this.decoded.keys()) {
         if (this.decoded.size <= DECODED_STREAMS) break;
