@@ -12,7 +12,7 @@ import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 
 export interface MatchTextOptions {
-  /** Which glyphs count; by default those that are visible or only empty, not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox. */
+  /** Which glyphs count; by default those that are visible or only empty, not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox. */
   readonly select?: (glyph: PageGlyph) => boolean;
   /** The order the glyphs are read in; `content` by default. */
   readonly order?: GlyphLayout;
@@ -148,19 +148,28 @@ const centre = (glyph: PageGlyph): readonly [number, number] => {
   return [(x0 + x1 + x2 + x3) / 4, (y0 + y1 + y2 + y3) / 4];
 };
 
+type Box = readonly [number, number, number, number];
+
+// ISO 32000-1:2008, 14.11.2.1: "The crop, bleed, trim, and art boxes shall not ordinarily extend beyond the boundaries of the media box. If they do, they are effectively reduced to their intersection with the media box."
+const visibleBox = (cropBox: Box | undefined, mediaBox: Box | undefined): Box | undefined => {
+  if (cropBox === undefined || mediaBox === undefined) return cropBox ?? mediaBox;
+  return [Math.max(cropBox[0], mediaBox[0]), Math.max(cropBox[1], mediaBox[1]), Math.min(cropBox[2], mediaBox[2]), Math.min(cropBox[3], mediaBox[3])];
+};
+
 /**
- * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox.
+ * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox.
  * ISO 32000-1:2008, 14.11.2.1: "The crop box defines the region to which the contents of the page shall be clipped (cropped) when displayed or printed".
  */
-const defaultSelection =
-  ({ cropBox }: PageText) =>
-  (glyph: PageGlyph): boolean => {
+const defaultSelection = ({ cropBox, mediaBox }: PageText): ((glyph: PageGlyph) => boolean) => {
+  const box = visibleBox(cropBox, mediaBox);
+  return (glyph: PageGlyph): boolean => {
     if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.clip === 'outside' || glyph.clip === 'unknown') return false;
-    if (cropBox === undefined) return true;
+    if (box === undefined) return true;
     const [x, y] = centre(glyph);
-    const [left, bottom, right, top] = cropBox;
+    const [left, bottom, right, top] = box;
     return x >= left && x <= right && y >= bottom && y <= top;
   };
+};
 
 const onlyWhiteSpace = (text: string): boolean => /^\p{White_Space}*$/u.test(text);
 

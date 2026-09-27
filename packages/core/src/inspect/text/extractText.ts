@@ -133,6 +133,8 @@ export interface PageText {
   readonly actualText: readonly ActualTextSpan[];
   /** The page's CropBox, [llx lly urx ury]; undefined when the page's boxes cannot be read. */
   readonly cropBox: readonly [number, number, number, number] | undefined;
+  /** The page's MediaBox, [llx lly urx ury]; undefined when the page's boxes cannot be read. */
+  readonly mediaBox: readonly [number, number, number, number] | undefined;
   /** False when some content could not be read or interpreted. */
   readonly complete: boolean;
   readonly warnings: readonly InspectWarning[];
@@ -341,15 +343,16 @@ class TextCollector {
 }
 
 // ISO 32000-1:2008, 14.11.2.1: "The crop box defines the region to which the contents of the page shall be clipped (cropped) when displayed or printed".
-const cropBoxOf = (document: DocumentInternals, pageIndex: number, warnings: InspectWarning[]): PageText['cropBox'] => {
+const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: InspectWarning[]): Pick<PageText, 'cropBox' | 'mediaBox'> => {
   const page = document.pages[pageIndex];
-  if (page === undefined) return undefined;
+  if (page === undefined) return { cropBox: undefined, mediaBox: undefined };
   try {
-    return effectiveBoxes(document.objects, page, createInheritedCache()).CropBox.rect;
+    const boxes = effectiveBoxes(document.objects, page, createInheritedCache());
+    return { cropBox: boxes.CropBox.rect, mediaBox: boxes.MediaBox.rect };
   } catch (error: unknown) {
     if (!unreadable(error)) throw error;
     warnings.push({ code: 'content-unreadable', detail: `the page boxes cannot be read: ${error.message}` });
-    return undefined;
+    return { cropBox: undefined, mediaBox: undefined };
   }
 };
 
@@ -373,13 +376,14 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
     },
   });
   const warnings = [...result.warnings];
-  const cropBox = cropBoxOf(parts, pageIndex, warnings);
+  const { cropBox, mediaBox } = boxesOf(parts, pageIndex, warnings);
   return {
     page: pageIndex,
     glyphs: collector.covered(covers),
     fonts: collector.fonts(),
     actualText: collector.spans.spans,
     cropBox,
+    mediaBox,
     complete: result.complete && cropBox !== undefined,
     warnings,
   };

@@ -245,6 +245,12 @@ describe('text matching', () => {
     expect(statusOf({ texts: ['山', '田'], content: line(2), entries: '/CropBox[0 0 105 800]' }, '山')).toBe('match');
   });
 
+  it('leaves out glyphs outside the MediaBox, to which a larger CropBox is reduced', () => {
+    // The page's MediaBox is [0 0 600 800].
+    const content = `BT /T 10 Tf 100 700 Td ${show(1)} 600 0 Td ${show(2)} ET`;
+    expect(statusOf({ texts: ['山', '田'], content, entries: '/CropBox[0 0 1000 1000]' }, '山')).toBe('match');
+  });
+
   describe('never matches text that does not print', () => {
     const states = '/ExtGState<</Clear<</ca 0>>>>';
 
