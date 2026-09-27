@@ -45,6 +45,13 @@ export interface VerticalExtent {
   readonly estimated: boolean;
 }
 
+/** A CIDFont glyph's metrics for writing mode 1 (ISO 32000-1:2008, 9.7.4.3): the vertical component of its displacement w1, and the position vector v from origin 0 to origin 1. */
+export interface VerticalMetrics {
+  readonly w1: number;
+  readonly vx: number;
+  readonly vy: number;
+}
+
 /**
  * One character code of a shown string and what the font says about it.
  * Displacements are in text space: a width of 0.5 moves the text position by half the font size before horizontal scaling.
@@ -74,6 +81,8 @@ export interface FontGlyph {
   readonly encodingText: string | undefined;
   /** The horizontal displacement w0 in text space, or undefined when the font gives no width for the code. */
   readonly width: number | undefined;
+  /** The code's writing mode 1 metrics in text space, for a Type 0 font whose width for the code is known; undefined for simple fonts. */
+  readonly vertical: VerticalMetrics | undefined;
   /** Whether word spacing applies: ISO 32000-1:2008, 9.3.3, "the single-byte character code 32 in a string when using a simple font or a composite font that defines code 32 as a single-byte code". */
   readonly wordSpace: boolean;
   /** The name of a predefined CMap a usecmap named and no provider supplied, when this code's CID depends on it. */

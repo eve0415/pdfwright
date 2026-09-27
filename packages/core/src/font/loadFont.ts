@@ -5,7 +5,18 @@ import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { CMapResult } from './cmap/cmapResolver.ts';
 import type { CMapCode } from './cmap/mappingTable.ts';
 import type { EncodingTable } from './encoding/simpleEncodings.ts';
-import type { DescendantFont, FontGlyph, FontModel, FontString, FontSubtype, FontWarning, Rectangle, Type3Parts, VerticalExtent } from './fontModel.ts';
+import type {
+  DescendantFont,
+  FontGlyph,
+  FontModel,
+  FontString,
+  FontSubtype,
+  FontWarning,
+  Rectangle,
+  Type3Parts,
+  VerticalExtent,
+  VerticalMetrics,
+} from './fontModel.ts';
 import type { FontSource } from './fontValues.ts';
 import type { SimpleWidths } from './simpleFont.ts';
 import type { Standard14Metrics } from './standard14.ts';
@@ -15,7 +26,7 @@ import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { CMapResolver } from './cmap/cmapResolver.ts';
-import { cidToGid, cidWidths, collectionOf, descendantOf } from './compositeFont.ts';
+import { cidToGid, cidVertical, cidWidths, collectionOf, descendantOf } from './compositeFont.ts';
 import { glyphNameText } from './encoding/glyphNames.ts';
 import { readDescriptor, verticalExtent } from './fontDescriptor.ts';
 import { dictionaryOf, latin1, nameOf, numbersOf, withoutSubsetTag } from './fontValues.ts';
@@ -175,6 +186,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
       encodingText: name === undefined ? undefined : glyphNameText(name, fontName),
       // Table 112: Type 3 widths "shall be interpreted in glyph space as specified by FontMatrix"; "If FontMatrix specifies a rotation, only the horizontal component of the transformed width shall be used."
       width: width === undefined ? undefined : width * glyphMatrix[0],
+      vertical: undefined,
       wordSpace: code === 32,
       cmapUnavailable: undefined,
     };
@@ -230,6 +242,7 @@ interface CompositeParts {
   readonly cmap: CMap;
   readonly toUnicode: CMap | undefined;
   readonly widths: ((cid: number) => number) | undefined;
+  readonly vertical: ((cid: number, w0: number) => VerticalMetrics) | undefined;
   readonly gids: ((cid: number) => number) | undefined;
   readonly ucs2: CMap | undefined;
 }
@@ -246,6 +259,7 @@ const compositeGlyph = (parts: CompositeParts, code: CMapCode, valid: boolean): 
   const cid = cidOf(parts.cmap, code, valid);
   const gid = cid === undefined ? undefined : parts.gids?.(cid);
   const width = cid === undefined ? undefined : parts.widths?.(cid);
+  const vertical = cid === undefined || width === undefined ? undefined : parts.vertical?.(cid, width);
   return {
     bytes: codeBytes(code),
     code: code.value,
@@ -260,6 +274,7 @@ const compositeGlyph = (parts: CompositeParts, code: CMapCode, valid: boolean): 
     toUnicode: parts.toUnicode?.unicode(code),
     encodingText: cid === undefined ? undefined : parts.ucs2?.unicode({ value: cid, length: 2 }),
     width: width === undefined ? undefined : width / 1000,
+    vertical: vertical === undefined ? undefined : { w1: vertical.w1 / 1000, vx: vertical.vx / 1000, vy: vertical.vy / 1000 },
     // 9.3.3: word spacing applies to code 32 in "a composite font that defines code 32 as a single-byte code".
     wordSpace: code.length === 1 && code.value === 32,
     cmapUnavailable: cid === undefined ? parts.cmap.unavailableParent : undefined,
@@ -305,6 +320,7 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
           cmap: result.cmap,
           toUnicode: loaded.toUnicode,
           widths: descendant === undefined ? undefined : cidWidths(source, descendant.dictionary),
+          vertical: descendant === undefined ? undefined : cidVertical(source, descendant.dictionary),
           gids: typeof gids === 'string' ? undefined : gids,
           ucs2,
         }

@@ -1,17 +1,19 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { CodeRange } from './cmap/parseCMap.ts';
-import type { CidFontSubtype, DescendantFont } from './fontModel.ts';
+import type { CidFontSubtype, DescendantFont, VerticalMetrics } from './fontModel.ts';
 import type { FontSource } from './fontValues.ts';
 
 import { pdfName } from '../object/pdfObject.ts';
 
 import { MappingTable } from './cmap/mappingTable.ts';
-import { decodedData, dictionaryOf, latin1, nameOf, numberOf } from './fontValues.ts';
+import { decodedData, dictionaryOf, latin1, nameOf, numberOf, numbersOf } from './fontValues.ts';
 
 const DESCENDANT_FONTS = pdfName('DescendantFonts').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const WIDTH_ARRAY = pdfName('W').bytes;
+const VERTICAL_ARRAY = pdfName('W2').bytes;
+const DEFAULT_VERTICAL = pdfName('DW2').bytes;
 const DEFAULT_WIDTH = pdfName('DW').bytes;
 const CID_TO_GID_MAP = pdfName('CIDToGIDMap').bytes;
 const CID_SYSTEM_INFO = pdfName('CIDSystemInfo').bytes;
@@ -102,4 +104,14 @@ export const cidToGid = (source: FontSource, descendant: PdfDictionaryEntries): 
   const data = decodedData(source, value);
   if (typeof data === 'string') return `the CIDToGIDMap stream cannot be decoded: ${data}`;
   return cid => (data[2 * cid] ?? 0) * 256 + (data[2 * cid + 1] ?? 0);
+};
+
+/**
+ * A CIDFont's writing mode 1 metrics for a CID with horizontal width `w0`, in glyph space (ISO 32000-1:2008, 9.7.4.3): from W2, whose groups are "the vertical component of the vertical displacement vector w1 … followed by the horizontal and vertical components for the position vector v", else from DW2, "Default value: [ 880 −1000 ]" (Table 117), whose position vector's horizontal component "shall be half the glyph width".
+ */
+export const cidVertical = (source: FontSource, descendant: PdfDictionaryEntries): ((cid: number, w0: number) => VerticalMetrics) => {
+  const table = cidMetrics(source, descendant.get(VERTICAL_ARRAY), { size: 3, make: ([w1 = 0, vx = 0, vy = 0]): VerticalMetrics => ({ w1, vx, vy }) });
+  const defaults = numbersOf(source, descendant.get(DEFAULT_VERTICAL));
+  const [vy, w1] = defaults?.length === 2 ? defaults : [880, -1000];
+  return (cid, w0) => table.find({ value: cid, length: 2 })?.metric ?? { w1: w1 ?? -1000, vx: w0 / 2, vy: vy ?? 880 };
 };

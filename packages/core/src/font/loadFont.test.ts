@@ -203,6 +203,33 @@ describe('composite fonts', () => {
     expect([...pick(glyphs, 'valid'), ...pick(glyphs, 'cid')]).toStrictEqual([false, true, 0, 2]);
   });
 
+  it('derives vertical metrics from DW2, whose default is [880 -1000], with the position vector at half the width', () => {
+    const glyphs = glyphsOf(fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)), Uint8Array.of(0x00, 0x41, 0x00, 0x20));
+    // ISO 32000-1:2008, 9.7.4.3, EXAMPLE 2: "v = (w0 ÷ 2, 880)" and "w1 = (0, – 1000)".
+    expect(pick(glyphs, 'vertical')).toStrictEqual([
+      { w1: -1, vx: 0.25, vy: 0.88 },
+      { w1: -1, vx: 0.45, vy: 0.88 },
+    ]);
+    const custom = glyphsOf(fontOf(type0Font('/Identity-V', `${CID_FONT_TYPE2}/DW2[900 -1100]`)), Uint8Array.of(0x00, 0x41));
+    expect(pick(custom, 'vertical')).toStrictEqual([{ w1: -1.1, vx: 0.25, vy: 0.9 }]);
+  });
+
+  it('reads W2 in both of its forms', () => {
+    const font = fontOf(type0Font('/Identity-V', `${CID_FONT_TYPE2}/W2[65[-1000 250 772 -950 300 800]100 200 -900 500 900]`));
+    const glyphs = glyphsOf(font, Uint8Array.of(0x00, 0x41, 0x00, 0x42, 0x00, 0x96, 0x00, 0x20));
+    expect(pick(glyphs, 'vertical')).toStrictEqual([
+      { w1: -1, vx: 0.25, vy: 0.772 },
+      { w1: -0.95, vx: 0.3, vy: 0.8 },
+      { w1: -0.9, vx: 0.5, vy: 0.9 },
+      { w1: -1, vx: 0.45, vy: 0.88 },
+    ]);
+  });
+
+  it('gives simple fonts no vertical metrics', () => {
+    const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding/WinAnsiEncoding${HELVETICA_WIDTHS}/FontDescriptor 11 0 R>>`, [descriptorObject(32)]);
+    expect(pick(glyphsOf(font, 'A'), 'vertical')).toStrictEqual([undefined]);
+  });
+
   it('takes the writing mode from the CMap', () => {
     expect([fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)).writingMode, fontOf(type0Font('/Identity-H', CID_FONT_TYPE2)).writingMode]).toStrictEqual([1, 0]);
   });
