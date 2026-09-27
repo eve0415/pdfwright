@@ -38,16 +38,18 @@ const chain = (depth: number): TestObject[] =>
     body: `<</Type/Pages/Kids[${String(index + 3)} 0 R]/Count 1${index === 0 ? '/MediaBox[0 0 7 7]/Resources<<>>' : ''}>>`,
   }));
 
-const depthProbe = (depth: number): Uint8Array => {
+// One page per level under a chain of page tree nodes; every node carries MediaBox and Resources, or only the root does.
+const depthProbe = (depth: number, attributes: 'every-node' | 'root-only' = 'every-node'): Uint8Array => {
   const objects: TestObject[] = [catalog];
   for (let level = 1; level <= depth; level++) {
     const node = 2 * level;
     const page = node + 1;
     const next = level < depth ? ` ${String(node + 2)} 0 R` : '';
+    const inheritable = attributes === 'every-node' || level === 1 ? '/MediaBox[0 0 10 10]/Resources<<>>' : '';
     objects.push(
       {
         number: node,
-        body: `<</Type/Pages/Kids[${String(page)} 0 R${next}]/Count ${String(depth - level + 1)}/MediaBox[0 0 10 10]/Resources<<>>>>`,
+        body: `<</Type/Pages/Kids[${String(page)} 0 R${next}]/Count ${String(depth - level + 1)}${inheritable}>>`,
       },
       { number: page, body: `<</Type/Page/Parent ${String(node)} 0 R>>` },
     );
@@ -144,6 +146,17 @@ describe('page tree', () => {
       const options = { maxPageTreeDepth: 2001 };
       const { equal } = compareDocuments(loadDocument(bytes, options), loadDocument(bytes, options));
       expect([equal, performance.now() - start < 20_000]).toStrictEqual([true, true]);
+    },
+    30_000,
+  );
+
+  it.runIf(inject('runtime') === 'node')(
+    'loads a depth-8000 tree that inherits from its root alone when the depth limit allows it',
+    () => {
+      const bytes = depthProbe(8000, 'root-only');
+      const start = performance.now();
+      const document = loadDocument(bytes, { maxPageTreeDepth: 8001 });
+      expect([document.pageCount, document.warnings, performance.now() - start < 20_000]).toStrictEqual([8000, [], true]);
     },
     30_000,
   );

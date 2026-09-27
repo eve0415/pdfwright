@@ -110,7 +110,7 @@ export interface Found {
   readonly from?: PdfReference;
 }
 
-/** Inherited values shared by pages and their ancestors during one comparison. */
+/** Inherited values shared by pages and their ancestors during one load or comparison. */
 export interface InheritedCache {
   readonly pages: WeakMap<PageEntry, Map<string, Found | undefined>>;
   readonly ancestors: WeakMap<TreeNode, Map<string, Found | undefined>>;
@@ -207,8 +207,8 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry, cache
   };
 };
 
-export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry): PdfDictionaryEntries | undefined => {
-  const found = inherited(resolver, entry, { key: RESOURCES });
+export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry, cache?: InheritedCache): PdfDictionaryEntries | undefined => {
+  const found = inherited(resolver, entry, { key: RESOURCES, cache });
   if (found === undefined) return undefined;
   const value = resolver.deref(found.value);
   if (value?.kind !== 'dictionary') throw new ParseError(`the Resources of page ${label(entry.reference)} is not a dictionary`, 0);

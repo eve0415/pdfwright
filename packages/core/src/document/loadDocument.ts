@@ -28,7 +28,7 @@ import { locateHeader } from '../xref/locate.ts';
 import { createDocumentHandles } from './documentHandles.ts';
 import { registerInternals } from './documentInternals.ts';
 import { EditedObjects } from './editedObjects.ts';
-import { createLoadedPage, effectiveResources } from './loadedPage.ts';
+import { createInheritedCache, createLoadedPage, effectiveResources } from './loadedPage.ts';
 import { LoadLog } from './loadLog.ts';
 import { enumeratePages } from './pageTree.ts';
 import { readFromChain, reconstruct } from './readStructure.ts';
@@ -294,9 +294,11 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     maxPageTreeDepth: count(options.maxPageTreeDepth, 256, 'maxPageTreeDepth'),
     warn,
   });
+  // Pages share their ancestors' values, so each page tree node is read once however deep the tree is.
+  const inheritance = createInheritedCache();
   for (const entry of pages) {
     // ISO 32000-1:2008, Table 30, Resources: "(Required; inheritable)"; many writers omit it for pages that need no resources, which reads as an empty dictionary.
-    if (effectiveResources(store, entry) === undefined) {
+    if (effectiveResources(store, entry, inheritance) === undefined) {
       warn({
         code: 'resources-missing',
         detail: `page ${String(entry.reference.objectNumber)} has no Resources, on itself or on an ancestor`,
