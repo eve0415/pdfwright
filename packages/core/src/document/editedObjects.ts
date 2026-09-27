@@ -13,7 +13,7 @@ const label = (reference: PdfReference): string => `${String(reference.objectNum
 /** The source file's objects with the changes made to them: set, deleted and new objects, which are kept until the document is saved. */
 export class EditedObjects implements ObjectResolver {
   readonly store: ObjectStore;
-  readonly changes = new Map<number, ObjectChange>();
+  readonly changes: Map<number, ObjectChange> = new Map();
   private next: number;
 
   private objectStreams: ReadonlySet<number> | undefined = undefined;
