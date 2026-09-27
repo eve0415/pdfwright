@@ -29,6 +29,7 @@ const XOBJECT = pdfName('XObject').bytes;
 const SHADING = pdfName('Shading').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const IMAGE_MASK = pdfName('ImageMask').bytes;
+const PROPERTIES = pdfName('Properties').bytes;
 
 /** A content stream being interpreted. */
 export interface ContentSource {
@@ -82,6 +83,15 @@ export interface GraphicsState {
   readonly rise: number;
 }
 
+/** A marked-content sequence open where an event happened (ISO 32000-1:2008, 14.6). */
+export interface MarkedContent {
+  /** Tells sequences apart: unique within one interpretation. */
+  readonly id: number;
+  readonly tag: Uint8Array;
+  /** The property list of BDC, inline or from the Properties resources (14.6.2); undefined for BMC or a name the resources do not define. */
+  readonly properties: PdfDictionaryEntries | undefined;
+}
+
 export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'image' | 'image-mask' | 'inline-image' | 'inline-image-mask' | 'shading';
 
 /**
@@ -92,6 +102,8 @@ export interface PaintEvent {
   readonly kind: PaintKind;
   readonly colorSpaces: readonly ColorSpaceUse[];
   readonly context: PaintContext;
+  /** The open marked-content sequences, outermost first. */
+  readonly markedContent: readonly MarkedContent[];
   /** The event's position among every event of the interpretation. */
   readonly sequence: number;
 }
@@ -123,6 +135,8 @@ export interface TextShowEvent {
   readonly unsplit: Exclude<FontString, { readonly kind: 'glyphs' }> | undefined;
   readonly state: GraphicsState;
   readonly context: PaintContext;
+  /** The open marked-content sequences, outermost first. */
+  readonly markedContent: readonly MarkedContent[];
   readonly sequence: number;
 }
 
@@ -252,6 +266,9 @@ class Interpreter {
   private positionKnown = true;
   private pendingClip = false;
   private compatibility = 0;
+  // Kept apart from the graphics state: 14.6 requires marked-content pairs to nest properly with BT and ET, not with q and Q.
+  private markedContent: readonly MarkedContent[] = [];
+  private markedContentIds = 0;
   private complete = true;
   private operations = 0;
   private sequence = 0;
@@ -260,6 +277,12 @@ class Interpreter {
     this.document = document;
     this.handlers = handlers;
     this.fonts = fonts;
+  }
+
+  finish(): void {
+    if (this.markedContent.length > 0) {
+      this.warn('marked-content-unbalanced', `${String(this.markedContent.length)} marked-content sequences are not closed by EMC`, false);
+    }
   }
 
   result(): InterpretResult {
@@ -324,11 +347,12 @@ class Interpreter {
     if (this.textState(operator, values, step)) return;
     if (this.textShow(operator, values, step)) return;
     if (this.color(operator, values, step)) return;
+    if (this.marked(operator, values, step)) return;
     this.painting(operation, values, step);
   }
 
   private emitPaint(kind: PaintKind, colorSpaces: readonly ColorSpaceUse[], scope: Scope): void {
-    this.handlers.paint?.({ kind, colorSpaces, context: scope.context, sequence: this.sequence++ });
+    this.handlers.paint?.({ kind, colorSpaces, context: scope.context, markedContent: this.markedContent, sequence: this.sequence++ });
   }
 
   private graphics(operator: string, values: readonly PdfDirectObject[]): boolean {
@@ -471,6 +495,7 @@ class Interpreter {
       unsplit: split.kind === 'glyphs' ? undefined : split,
       state: this.state,
       context: scope.context,
+      markedContent: this.markedContent,
       sequence: this.sequence++,
     });
   }
@@ -526,6 +551,19 @@ class Interpreter {
     else if (operator === 'RG' || operator === 'rg') this.device(operator === 'rg' ? 'fill' : 'stroke', 'DeviceRGB', { ...step, values });
     else if (operator === 'K' || operator === 'k') this.device(operator === 'k' ? 'fill' : 'stroke', 'DeviceCMYK', { ...step, values });
     else return false;
+    return true;
+  }
+
+  // 14.6, Table 320: BMC and BDC begin a sequence "terminated by a balancing EMC operator"; BDC's properties are "either an inline dictionary containing the property list or a name object associated with it in the Properties subdictionary".
+  private marked(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+    if (operator === 'BMC' || operator === 'BDC') {
+      const [tag, list] = values;
+      const properties = list?.kind === 'name' ? dictionaryOf(this.deref(this.resource(step, PROPERTIES, list.bytes))) : dictionaryOf(list);
+      this.markedContent = [...this.markedContent, { id: this.markedContentIds++, tag: nameBytes(tag), properties }];
+    } else if (operator === 'EMC') {
+      if (this.markedContent.length === 0) this.warn('marked-content-unbalanced', `${step.where}: no marked-content sequence is open`, false);
+      else this.markedContent = this.markedContent.slice(0, -1);
+    } else return operator === 'MP' || operator === 'DP';
     return true;
   }
 
@@ -641,5 +679,6 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
     context: { sources: [{ kind: 'page' }] },
     label: stream => `content stream ${String(content.indexes[stream] ?? stream)}`,
   });
+  interpreter.finish();
   return interpreter.result();
 };

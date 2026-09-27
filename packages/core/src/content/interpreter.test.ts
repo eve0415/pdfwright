@@ -210,6 +210,39 @@ describe('text state', () => {
   });
 });
 
+describe('marked content', () => {
+  it('attaches inline and named property lists to what is shown inside a sequence', () => {
+    const { texts, result } = run({
+      content: '/P <</MCID 3>> BDC BT /F1 10 Tf (A) Tj /Span /MC0 BDC (A) Tj EMC ET EMC /Artifact BMC BT /F1 10 Tf (A) Tj ET EMC',
+      resources: `${FONT_RESOURCES}/Properties<</MC0<</ActualText(x)>>>>`,
+    });
+    const tags = texts.map(text => text.markedContent.map(sequence => latin1Text(sequence.tag)));
+    expect(tags).toStrictEqual([['P'], ['P', 'Span'], ['Artifact']]);
+    const nested = texts.at(1)?.markedContent;
+    expect([
+      nested?.[0]?.properties?.get(new TextEncoder().encode('MCID')),
+      nested?.[1]?.properties?.get(new TextEncoder().encode('ActualText'))?.kind,
+    ]).toStrictEqual([{ kind: 'integer', value: 3 }, 'string']);
+    expect([texts[0]?.markedContent[0]?.id === nested?.[0]?.id, texts[2]?.markedContent[0]?.properties, result.warnings]).toStrictEqual([true, undefined, []]);
+  });
+
+  it('keeps sequences apart from the graphics state stack', () => {
+    // 14.6: marked-content and text object pairs must each nest properly, which a sequence opened before q and closed after Q does.
+    const { texts } = textRun('q /Span <</ActualText(x)>> BDC Q BT /F1 10 Tf (A) Tj ET EMC');
+    expect(texts.map(text => text.markedContent.length)).toStrictEqual([1]);
+  });
+
+  it('reports sequences that do not balance', () => {
+    const { result } = textRun('EMC /Span BMC');
+    expect([result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([true, ['marked-content-unbalanced', 'marked-content-unbalanced']]);
+  });
+
+  it('reports a property list name the resources do not define', () => {
+    const { texts, result } = textRun('/Span /Nope BDC BT /F1 10 Tf (A) Tj ET EMC');
+    expect([texts[0]?.markedContent.length, result.warnings.map(warning => warning.code)]).toStrictEqual([1, ['resource-missing']]);
+  });
+});
+
 describe('damaged content', () => {
   it('ignores unknown operators with a warning, silently inside BX and EX', () => {
     const { result } = textRun('1 2 foo BX 3 bar EX');
