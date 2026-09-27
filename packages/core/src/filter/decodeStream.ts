@@ -80,10 +80,6 @@ const inflate = (data: Uint8Array, context: DecodeContext): Uint8Array => {
   return inflated.data;
 };
 
-/**
- * Decodes a stream's data through the filters its dictionary names (ISO 32000-1:2008, 7.4.1: "The filters shall be applied in the order given").
- * Filters that are not implemented throw UnsupportedFeatureError; decoded output above maxDecodedBytes throws ResourceLimitError.
- */
 interface FilterStep {
   readonly name: string;
   readonly parameters: PdfDictionaryEntries | undefined;
@@ -119,7 +115,7 @@ const applyFilter = ({ name, parameters }: FilterStep, data: Uint8Array, context
 };
 
 /**
- * Decodes a stream's data through the filters its dictionary names (ISO 32000-1:2008, 7.4.1: "The filters shall be applied in the order given").
+ * Decodes a stream's data through the filters its dictionary names; ISO 32000-1:2008, 7.3.8.2, Table 5, Filter: "Multiple filters shall be specified in the order in which they are to be applied."
  * Filters that are not implemented throw UnsupportedFeatureError; decoded output above maxDecodedBytes throws ResourceLimitError.
  */
 export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Array => {

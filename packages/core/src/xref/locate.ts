@@ -55,7 +55,7 @@ const lastIndexOf = (bytes: Uint8Array, pattern: readonly number[]): number => {
 
 const isDigit = (byte: number | undefined): boolean => byte !== undefined && byte >= 0x30 && byte <= 0x39;
 
-// ISO 32000-1:2008, 7.5.2: "The first line of a PDF file shall be a header consisting of the 5 characters %PDF" followed by a version number.
+// ISO 32000-1:2008, 7.5.2: "The first line of a PDF file shall be a header consisting of the 5 characters %PDF– followed by a version number of the form 1.N, where N is a digit between 0 and 7." PDF 2.0 headers share the form, so any digit.digit version is read.
 // Readers also accept a header after leading bytes, so the first 1,024 bytes and then the whole first segment are searched.
 export const locateHeader = (source: ByteSource): HeaderLocation | undefined => {
   const head = source.copy(0, HEADER_SEARCH);

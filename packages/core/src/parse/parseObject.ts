@@ -151,7 +151,7 @@ class DirectObjectParser {
     return undefined;
   }
 
-  // ISO 32000-1:2008, 7.3.6: "An array shall be written as a sequence of objects enclosed in [SQUARE BRACKETS]".
+  // ISO 32000-1:2008, 7.3.6: "An array shall be written as a sequence of objects enclosed in SQUARE BRACKETS (using LEFT SQUARE BRACKET (5Bh) and RIGHT SQUARE BRACKET (5Dh))."
   private array(depth: number): PdfDirectObject {
     checkDepth(depth, this.maxNesting);
     const items: PdfDirectObject[] = [];

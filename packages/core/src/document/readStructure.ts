@@ -191,7 +191,7 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
   throw new ParseError('unreadable cross-reference data', startxref.keyword);
 };
 
-/** Rebuilds the cross-reference data by scanning the file (ISO 32000-1:2008 defines no such procedure; this follows what common readers do). */
+/** Rebuilds the cross-reference data by scanning the file; ISO 32000-1:2008, Annex C.2 says a reader "may attempt to rebuild the table by scanning all the objects in the file" without defining how, and this follows what common readers do. */
 export const reconstruct = (session: LoadSession, reason: string, header: HeaderLocation): ReadStructure => {
   const context = logged(session);
   const reconstruction = reconstructIndex(session.source, context);
