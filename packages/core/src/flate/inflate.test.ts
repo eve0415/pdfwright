@@ -69,10 +69,14 @@ describe('zlib inflation', () => {
     expect(inflateZlib(garbage).warnings.map(warning => warning.code)).toStrictEqual(['trailing-data']);
   });
 
-  it('returns decoded data when the Adler trailer is absent or wrong', () => {
+  it('returns decoded data when the Adler trailer is truncated or wrong', () => {
     const data = new TextEncoder().encode('payload');
     const compressed = compressFflate(data);
-    expect(inflateZlib(compressed.subarray(0, -4)).warnings.map(warning => warning.code)).toStrictEqual(['checksum-mismatch']);
+    for (const cut of [-4, -3, -1]) {
+      const result = inflateZlib(compressed.subarray(0, cut));
+      expect(result.warnings.map(warning => warning.code)).toStrictEqual(['truncated-trailer']);
+      expect(result.data).toStrictEqual(data);
+    }
     const corrupted = Uint8Array.from(compressed);
     corrupted.fill(0, -1);
     expect(inflateZlib(corrupted).warnings.map(warning => warning.code)).toStrictEqual(['checksum-mismatch']);

@@ -6,7 +6,7 @@ import { BitReader } from './bitReader.ts';
 import { Huffman } from './huffman.ts';
 
 export interface FlateWarning {
-  readonly code: 'trailing-data' | 'checksum-mismatch';
+  readonly code: 'trailing-data' | 'truncated-trailer' | 'checksum-mismatch';
   readonly offset: number;
 }
 
@@ -173,7 +173,8 @@ export const inflateZlib = (data: Uint8Array): InflatedZlib => {
   const decoded = decodeRaw(data.subarray(2));
   const trailerOffset = decoded.bytesConsumed + 2;
   const warnings: FlateWarning[] = [];
-  if (data.length - trailerOffset < 4) warnings.push({ code: 'checksum-mismatch', offset: trailerOffset });
+  // RFC 1950, 2.2 ends the stream with a four-byte ADLER32 field; without all four bytes there is no checksum to compare.
+  if (data.length - trailerOffset < 4) warnings.push({ code: 'truncated-trailer', offset: trailerOffset });
   else {
     // RFC 1950, 2.2 stores the Adler-32 checksum most-significant byte first.
     const expected =
