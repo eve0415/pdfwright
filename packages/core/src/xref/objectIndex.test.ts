@@ -19,7 +19,7 @@ const offsetOf = (offsets: ReadonlyMap<number, number>, objectNumber: number): n
 const validate = (text: string, index: ObjectIndex): Validation => {
   const freed: number[] = [];
   const mismatch = validateHeaders(new ByteSource(latin1Bytes(text)), index, {
-    skip: new Set([99]),
+    skip: new Map([[99, 7]]),
     offsetZero: number => {
       freed.push(number);
     },
@@ -93,6 +93,9 @@ describe('object index', () => {
     expect(mismatchOf(pdf.text, [entry(2, 'file', [offset, 1])])).toStrictEqual({ objectNumber: 2, offset });
     expect(mismatchOf(pdf.text, [entry(1, 'file', [offset, 0])])).toStrictEqual({ objectNumber: 1, offset });
     expect(mismatchOf(pdf.text, [entry(1, 'file', [1_000_000, 0])])).toStrictEqual({ objectNumber: 1, offset: 1_000_000 });
-    expect(mismatchOf(pdf.text, [entry(99, 'file', [offset, 0])])).toBeUndefined();
+    expect([mismatchOf(pdf.text, [entry(99, 'file', [7, 0])]), mismatchOf(pdf.text, [entry(99, 'file', [offset, 0])])]).toStrictEqual([
+      undefined,
+      { objectNumber: 99, offset },
+    ]);
   });
 });

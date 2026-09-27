@@ -50,8 +50,8 @@ export interface SaveBase {
   readonly trailerEnd: number;
   /** Offset the section chain's offsets are relative to: the header position when they were read relative to it, else 0. */
   readonly shift: number;
-  /** Object numbers of the cross-reference streams the chain was read from; a rewrite never writes them. */
-  readonly xrefStreams: ReadonlySet<number>;
+  /** Offsets of the cross-reference streams the chain was read from, by object number; a rewrite never writes them. */
+  readonly xrefStreams: ReadonlyMap<number, number>;
 }
 
 export interface ReadStructure {
@@ -147,11 +147,12 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
       throw new ParseError(`object ${String(number)} names object stream ${String(entry.location)}, which is not in the file`, 0);
     }
   }
-  const xrefStreams = new Set(
-    sections.flatMap(section =>
-      section.kind === 'stream' && 'objectNumber' in section && typeof section.objectNumber === 'number' ? [section.objectNumber] : [],
-    ),
-  );
+  // An update may reuse the number of an older cross-reference stream for an ordinary object, so a stream is known by its number and its offset.
+  const xrefStreams = new Map<number, number>();
+  for (const { section, hybrid } of chain.sections) {
+    if (section.kind === 'stream') xrefStreams.set(section.objectNumber, section.offset);
+    if (hybrid !== undefined) xrefStreams.set(hybrid.objectNumber, hybrid.offset);
+  }
   const mismatch = validateHeaders(session.source, index, {
     skip: xrefStreams,
     offsetZero: objectNumber => {

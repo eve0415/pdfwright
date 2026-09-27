@@ -85,6 +85,15 @@ describe('full rewrite', () => {
     expect([reloaded.pageCount, reloaded.get(pdfReference(9, 0)), reloaded.get(pdfReference(6, 0))]).toStrictEqual([1, pdfName('Changed'), { kind: 'null' }]);
   });
 
+  it('keeps an object that reuses the number of an older cross-reference stream', () => {
+    const source = buildPdf([
+      { xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R', xrefStreamNumber: 9 },
+      { xref: 'stream', objects: [{ number: 9, body: '(reused)' }], trailer: '/Root 1 0 R', xrefStreamNumber: 10 },
+    ]).bytes;
+    const reloaded = loadDocument(loadDocument(source).save({ mode: 'full' }).chunks);
+    expect(reloaded.get(pdfReference(9, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('reused'), encoding: 'literal' });
+  });
+
   it('drops linearization data and bytes around the file with warnings', () => {
     const linearized = buildPdf(
       [{ xref: 'classic', objects: [{ number: 9, body: '<</Linearized 1/L 999/H[800 20]>>' }, catalog, pages, page, content], trailer: '/Root 1 0 R' }],

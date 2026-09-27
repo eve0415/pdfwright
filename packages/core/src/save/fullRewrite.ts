@@ -145,11 +145,11 @@ class FullRewriter {
   private collect(): void {
     const { store, changes } = this.input;
     const touched = this.touchedStreams();
-    const xrefStreams = this.input.base?.xrefStreams ?? new Set<number>();
+    const xrefStreams = this.input.base?.xrefStreams ?? new Map<number, number>();
     for (const number of store.index.inUse()) {
-      // Cross-reference streams describe the source's layout and are never written.
-      if (changes.has(number) || this.dropped.has(number) || xrefStreams.has(number)) continue;
       const entry = store.index.get(number);
+      // Cross-reference streams describe the source's layout and are never written; an ordinary object that reuses such a number is.
+      if (changes.has(number) || this.dropped.has(number) || (entry.type === IN_FILE && xrefStreams.get(number) === entry.location)) continue;
       if (entry.type === COMPRESSED && !touched.has(entry.location)) {
         this.entries.set(number, { objectNumber: number, type: 2, field: entry.location, generation: entry.generation });
         this.keptStreams = true;

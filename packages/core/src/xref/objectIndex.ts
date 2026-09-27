@@ -158,8 +158,8 @@ const headerMatches = (source: ByteSource, offset: number, expected: { objectNum
   });
 
 export interface HeaderValidation {
-  /** Object numbers whose entries are not checked: the cross-reference streams themselves, which nothing locates through the index. */
-  readonly skip: ReadonlySet<number>;
+  /** Offsets of the cross-reference streams by object number: an entry that points at its own stream is not checked, since nothing locates a cross-reference stream through the index. */
+  readonly skip: ReadonlyMap<number, number>;
   readonly offsetZero: (objectNumber: number) => void;
 }
 
@@ -171,7 +171,7 @@ export const validateHeaders = (source: ByteSource, index: ObjectIndex, validati
   const { offsetZero } = validation;
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
-    if (entry.type !== IN_FILE || validation.skip.has(objectNumber)) continue;
+    if (entry.type !== IN_FILE || validation.skip.get(objectNumber) === entry.location) continue;
     if (entry.location === 0) {
       index.free(objectNumber);
       offsetZero(objectNumber);
