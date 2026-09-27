@@ -396,7 +396,7 @@ const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: Inspe
 
 /**
  * The glyphs a page shows, in content order, each with its code, font, text layers and advance box in the page's default user space.
- * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page or an option value outside its type throws InvalidArgumentError, and content past the interpreter's limits or `maxGlyphs` ResourceLimitError.
+ * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page, or an `annotations` or `maxGlyphs` value outside its type, throws InvalidArgumentError, and content past the interpreter's limits or `maxGlyphs` ResourceLimitError.
  */
 export const extractText = (document: LoadedDocument, pageIndex: number, options: ExtractTextOptions = {}): PageText => {
   const parts = internalsOf(document);

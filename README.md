@@ -83,7 +83,7 @@ export const addVarnishPlate = (input: Uint8Array): VarnishEdit => {
 
 `listFonts`, `listColorants`, `extractText` and `matchText` read a loaded document without changing it.
 Damaged content never makes them throw: what cannot be read becomes a warning or a problem, and the page results of `listColorants` and `extractText` say `complete: false`.
-They throw `InvalidArgumentError` for a page index that is not a page or an option value outside its type, as `orderGlyphs` does for a layout it does not know, and `ResourceLimitError` past their limits.
+They throw `InvalidArgumentError` for a page index that is not a page or a mode, limit or page list outside its type, as `orderGlyphs` does for a layout it does not know, and `ResourceLimitError` past their limits.
 Interpreting one page may execute at most 10,000,000 content operations and lex at most 256 MiB of decoded content, counting a form, tiling pattern cell, Type 3 glyph procedure, soft-mask group or annotation appearance each time it is drawn, because a form drawn a thousand times inside a form drawn a thousand times is a million form executions from a few hundred bytes; these two limits are fixed.
 `extractText` also throws `ResourceLimitError` past 1,000,000 glyphs a page, which its `maxGlyphs` option changes.
 
