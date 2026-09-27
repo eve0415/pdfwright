@@ -16,12 +16,26 @@ export class EditedObjects implements ObjectResolver {
   readonly changes = new Map<number, ObjectChange>();
   private next: number;
 
-  constructor(store: ObjectStore, trailerSize: PdfDirectObject | undefined) {
+  private objectStreams: ReadonlySet<number> | undefined = undefined;
+
+  constructor(store: ObjectStore) {
     this.store = store;
-    // New object numbers start above both the trailer Size and every indexed number and are never taken from the free list.
+    // New object numbers start above every number a cross-reference section lists and are never taken from the free list; a trailer Size far above them would only stretch a rewrite's table.
     // ISO 32000-1:2008, 7.5.7 requires this for object streams and compressed objects ("they shall always be assigned new object numbers, not old ones taken from the free list"); pdfwright does it for every new object.
-    const size = trailerSize?.kind === 'integer' ? trailerSize.value : 0;
-    this.next = Math.max(size, store.index.size, 1);
+    this.next = Math.max(store.index.size, 1);
+  }
+
+  // Object streams that hold objects in use: replacing or deleting one would leave its members' entries pointing at nothing.
+  private holdsObjects(objectNumber: number): boolean {
+    if (this.objectStreams === undefined) {
+      const streams = new Set<number>();
+      for (const number of this.store.index.inUse()) {
+        const entry = this.store.index.get(number);
+        if (entry.type === COMPRESSED) streams.add(entry.location);
+      }
+      this.objectStreams = streams;
+    }
+    return this.objectStreams.has(objectNumber);
   }
 
   /** One above the highest object number in use or ever assigned. */
@@ -61,6 +75,7 @@ export class EditedObjects implements ObjectResolver {
     if (generation !== reference.generation) {
       throw new InvalidArgumentError(`object ${String(reference.objectNumber)} has generation ${String(generation)}, not ${String(reference.generation)}`);
     }
+    if (this.holdsObjects(reference.objectNumber)) throw new InvalidArgumentError(`object ${label(reference)} is an object stream that holds objects in use`);
   }
 
   // ISO 32000-1:2008, 7.5.6, EXAMPLE: a changed object "retains the same object number and generation number as before".

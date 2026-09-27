@@ -68,6 +68,41 @@ describe('object changes', () => {
     expect(document.warnings.map(warning => warning.code)).toStrictEqual(['duplicate-key']);
   });
 
+  it('refuses to delete or replace an object stream that holds objects', () => {
+    const packed = loadDocument(
+      buildPdf([
+        {
+          xref: 'stream',
+          objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }],
+          objectStreams: [{ number: 5, members: [{ number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }] }],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(() => {
+      packed.delete(pdfReference(5, 0));
+    }).toThrow(InvalidArgumentError);
+    expect(() => {
+      packed.set(pdfReference(5, 0), pdfInteger(1));
+    }).toThrow(InvalidArgumentError);
+  });
+
+  it('numbers new objects above the listed objects, not above a larger trailer Size', () => {
+    const sized = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+          ],
+          trailer: '/Root 1 0 R/Size 1000000',
+        },
+      ]).bytes,
+    );
+    expect(sized.object(pdfInteger(1))).toStrictEqual(pdfReference(3, 0));
+  });
+
   it('deletes objects and numbers new objects above every number in use', () => {
     const document = load();
     document.delete(pdfReference(5, 2));

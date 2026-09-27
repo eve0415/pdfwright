@@ -84,7 +84,6 @@ export interface LoadedDocument {
 }
 
 const ROOT = pdfName('Root').bytes;
-const SIZE = pdfName('Size').bytes;
 const PAGES = pdfName('Pages').bytes;
 
 const count = (value: number | undefined, fallback: number, name: string): number => {
@@ -131,7 +130,7 @@ class LoadedPdf implements LoadedDocument {
     this.base = parts.read.base;
     this.maxNesting = parts.maxNesting;
     this.structure = parts.read.structure;
-    this.objects = new EditedObjects(parts.read.store, parts.read.structure.trailer.get(SIZE));
+    this.objects = new EditedObjects(parts.read.store);
     this.warnings = parts.warnings;
     this.pages = parts.pages;
     registerInternals(this, {
