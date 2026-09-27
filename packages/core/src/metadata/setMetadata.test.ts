@@ -211,6 +211,13 @@ describe('setting document metadata', () => {
     expect(setMetadata(load('', [], ''), INPUT, { documentId: { value: 'uuid:given' } }).documentId).toBe('uuid:given');
   });
 
+  it('derives the DocumentID from a file identifier held indirectly', () => {
+    const first = `<${'0123456789abcdef'.repeat(2)}>`;
+    const array = load('', [{ number: 4, body: `[${first}<00>]` }], '/ID 4 0 R');
+    const string = load('', [{ number: 4, body: first }], '/ID[4 0 R<00>]');
+    expect([setMetadata(array, INPUT).documentId, setMetadata(string, INPUT).documentId]).toStrictEqual([formatUuid(FIRST_ID), formatUuid(FIRST_ID)]);
+  });
+
   it('refuses an unreadable packet unless told to replace it, and changes nothing when it refuses', () => {
     const refused = unreadable();
     expect(() => setMetadata(refused, INPUT)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'xmp-unreadable' }));

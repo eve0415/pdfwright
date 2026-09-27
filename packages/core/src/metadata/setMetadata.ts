@@ -11,6 +11,7 @@ import type { ManagedValues } from './xmp/writeXmp.ts';
 import { parsePdfDate, pdfDateObject } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
 import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
@@ -355,15 +356,25 @@ const refuseSigned = (document: DocumentInternals, keep: boolean): void => {
   );
 };
 
-const documentIdOf = (document: DocumentInternals, packet: ReadPacket | undefined, option: SetMetadataOptions['documentId']): string => {
-  const trailerId = document.structure.trailer.get(pdfName('ID').bytes);
-  const first = trailerId?.kind === 'array' ? trailerId.items[0] : undefined;
-  return resolveDocumentId({
+// ISO 32000-1:2008, Table 15, ID: "If there is an Encrypt entry this array and the two byte-strings shall be direct objects"; otherwise either may be a reference. One that cannot be read gives no identifier.
+const fileIdentifierOf = (document: DocumentInternals): Uint8Array | undefined => {
+  const { objects } = document;
+  try {
+    const trailerId = objects.deref(document.structure.trailer.get(pdfName('ID').bytes));
+    const first = trailerId?.kind === 'array' ? objects.deref(trailerId.items[0]) : undefined;
+    return first?.kind === 'string' ? first.bytes : undefined;
+  } catch (error: unknown) {
+    if (error instanceof ParseError) return undefined;
+    throw error;
+  }
+};
+
+const documentIdOf = (document: DocumentInternals, packet: ReadPacket | undefined, option: SetMetadataOptions['documentId']): string =>
+  resolveDocumentId({
     existing: option === undefined || option === 'keep' ? packetText(packet, 'DocumentID') : undefined,
-    fileIdentifier: first?.kind === 'string' ? first.bytes : undefined,
+    fileIdentifier: fileIdentifierOf(document),
     supplied: typeof option === 'object' ? option.value : undefined,
   });
-};
 
 interface ProducedPacket {
   readonly value: PdfStream;
