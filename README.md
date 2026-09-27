@@ -87,6 +87,8 @@ They throw `InvalidArgumentError` for a page index that is not a page or a mode,
 Interpreting one page may execute at most 10,000,000 content operations and lex at most 256 MiB of decoded content, counting a form, tiling pattern cell, Type 3 glyph procedure, soft-mask group or annotation appearance each time it is drawn, because a form drawn a thousand times inside a form drawn a thousand times is a million form executions from a few hundred bytes; these two limits are fixed.
 Content execution also has a fixed depth cap of 64 nested streams, even when `maxNesting` is higher, because each nested stream uses a JavaScript call frame; exceeding it throws `ResourceLimitError`.
 The content reader holds at most 16,384 pending operands before an operator, including operands left at the end of a stream; exceeding this fixed cap throws `ResourceLimitError`.
+One content operand may itself contain at most 16,384 direct values, so a single array or dictionary cannot bypass the pending operand cap; exceeding it throws `ResourceLimitError` while parsing.
+A CMap is limited to 65,536 definitions and array destinations in total; a `bfrange` destination array counts each item, and exceeding the fixed cap throws `ResourceLimitError` before the strings are decoded.
 `extractText` also throws `ResourceLimitError` past 1,000,000 glyphs a page, which its `maxGlyphs` option changes.
 An embedded TrueType format 14 `cmap` is limited to 16,384 variation selector records, default ranges and non-default mappings in total; exceeding this fixed limit throws `ResourceLimitError` before those entries are materialized.
 

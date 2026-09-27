@@ -92,7 +92,7 @@ class OperationReader {
         if (this.operands.length >= MAX_CONTENT_OPERANDS) {
           throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
         }
-        this.append(parseObject(lexer, this.maxNesting));
+        this.append(parseObject(lexer, this.maxNesting, MAX_CONTENT_OPERANDS));
         continue;
       }
       lexer.next();

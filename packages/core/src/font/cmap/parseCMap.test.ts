@@ -158,6 +158,16 @@ describe('embedded and ToUnicode CMaps', () => {
     expect(codes.map(hex => cmap.unicode(code(hex)))).toStrictEqual([' ', '~', 'ff', 'fi', 'ffl', '\u{2003E}', undefined, undefined]);
   });
 
+  it('refuses a bfrange array that exceeds the content operand budget', () => {
+    const cmap = `1 beginbfrange <00000000> <00004000> [${'<0041> '.repeat(16_385)}] endbfrange`;
+    expect(() => parse(cmap)).toThrow(ResourceLimitError);
+  });
+
+  it('counts bfrange destinations across arrays', () => {
+    const cmap = `5 beginbfrange ${Array.from({ length: 5 }, (_, index) => `<${index.toString(16).padStart(4, '0')}> <${(index + 15_999).toString(16).padStart(4, '0')}> [${'<0041> '.repeat(16_000)}]`).join(' ')} endbfrange`;
+    expect(() => parse(cmap)).toThrow(ResourceLimitError);
+  });
+
   it('accepts a bfrange whose last destination byte stays within 255 and reports one that passes it', () => {
     const atBound = parse(toUnicode('1 beginbfrange <01> <03> <00FD> endbfrange'));
     expect(atBound.problems).toStrictEqual([]);

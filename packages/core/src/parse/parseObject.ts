@@ -57,10 +57,13 @@ const checkDepth = (depth: number, maxNesting: number): void => {
 class DirectObjectParser {
   private readonly lexer: Lexer;
   private readonly maxNesting: number;
+  private readonly maxNodes: number;
+  private nodes = 0;
 
-  constructor(lexer: Lexer, maxNesting: number) {
+  constructor(lexer: Lexer, maxNesting: number, maxNodes = Number.POSITIVE_INFINITY) {
     this.lexer = lexer;
     this.maxNesting = maxNesting;
+    this.maxNodes = maxNodes;
   }
 
   node(token: Token, depth: number): SourceNode {
@@ -71,6 +74,8 @@ class DirectObjectParser {
   }
 
   value(token: Token, depth: number): PdfDirectObject {
+    this.nodes++;
+    if (this.nodes > this.maxNodes) throw new ResourceLimitError(`a direct object has more than ${String(this.maxNodes)} values`);
     const { lexer } = this;
     switch (token.kind) {
       case 'integer': {
@@ -169,7 +174,8 @@ class DirectObjectParser {
 }
 
 /** Parses one direct object at the lexer's position; names are interned by the lexer, so equal keys share one array. */
-export const parseObject = (lexer: Lexer, maxNesting: number): PdfDirectObject => new DirectObjectParser(lexer, maxNesting).value(lexer.next(), 0);
+export const parseObject = (lexer: Lexer, maxNesting: number, maxNodes?: number): PdfDirectObject =>
+  new DirectObjectParser(lexer, maxNesting, maxNodes).value(lexer.next(), 0);
 
 /** Parses one direct object like parseObject and records the byte span of every value, for copying unchanged parts verbatim. */
 export const parseAnnotated = (lexer: Lexer, maxNesting: number): SourceNode => new DirectObjectParser(lexer, maxNesting).node(lexer.next(), 0);

@@ -233,7 +233,13 @@ class CMapReader {
   // "Consecutive codes starting with srcCode1 and ending with srcCode2 shall be mapped to the destination strings in the array starting with dstString1 and ending with dstStringm."
   private arrayRange(range: CodeRange, items: readonly PdfDirectObject[]): void {
     const count = range.high - range.low + 1;
-    const strings = items.slice(0, count).map(item => (item.kind === 'string' ? this.destination(item.bytes).text : undefined));
+    this.entries += items.length;
+    if (this.entries > MAX_CMAP_ENTRIES) throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    const strings: (string | undefined)[] = [];
+    for (let index = 0; index < Math.min(items.length, count); index++) {
+      const item = items[index];
+      strings.push(item?.kind === 'string' ? this.destination(item.bytes).text : undefined);
+    }
     if (strings.includes(undefined)) this.damaged('a bfrange array holds a value that is not a string');
     if (items.length < count) this.damaged(`a bfrange array has ${String(items.length)} strings for ${String(count)} codes`);
     this.unicode.push({ ...range, strings });

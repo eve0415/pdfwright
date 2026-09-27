@@ -97,6 +97,10 @@ describe('content operations', () => {
     expect(() => operations('0 '.repeat(16_385))).toThrow(ResourceLimitError);
   });
 
+  it('refuses an oversized array operand while it is parsed', () => {
+    expect(() => operations(`[${'0 '.repeat(16_385)}] TJ`)).toThrow(ResourceLimitError);
+  });
+
   it('throws ParseError for an operand it cannot read', () => {
     expect(() => operations('(unterminated Tj')).toThrow(ParseError);
   });
