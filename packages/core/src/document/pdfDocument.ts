@@ -1,3 +1,4 @@
+import type { CreatedMetadataOptions } from '../metadata/createdMetadata.ts';
 import type { DocumentInfo } from '../metadata/documentInfo.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
@@ -14,6 +15,7 @@ import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { formatLength } from '../length/length.ts';
+import { createdPacket, requireMetadataDate } from '../metadata/createdMetadata.ts';
 import { documentInfoDictionary } from '../metadata/documentInfo.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -33,6 +35,8 @@ export interface DocumentOptions {
   fileIdentifier?: [Uint8Array, Uint8Array];
   colorantPolicy?: { asciiOnly?: boolean };
   info?: DocumentInfo;
+  /** Write an XMP packet that agrees with Info; info.modificationDate is then required. */
+  metadata?: CreatedMetadataOptions;
 }
 
 export interface PageOptions {
@@ -167,6 +171,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
 };
 
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
+  if (options.metadata !== undefined) requireMetadataDate(options.info);
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined = undefined;
@@ -283,7 +288,14 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
         }
       }
-      return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
+      const { metadata, info } = options;
+      if (metadata === undefined || info === undefined) return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
+      // ISO 32000-1:2008, Table 28, Metadata: the catalog names the document packet, the last object.
+      const packetNumber = objects.length + 1;
+      catalog.set(pdfName('Metadata').bytes, pdfReference(packetNumber, 0));
+      const created = createdPacket({ objects, trailer, info, options: metadata, fileIdentifier: options.fileIdentifier, fractionDigits });
+      objects.push({ objectNumber: packetNumber, generation: 0, value: created.packet });
+      return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: created.fileIdentifier });
     },
   };
 };
