@@ -49,6 +49,7 @@ export type {
   ValueSummary,
 } from './compare/pdfDifference.ts';
 export type { LoadWarning, LoadWarningCode } from './parse/loadWarning.ts';
+export type { CMapProvider } from './font/cmap/cmapProvider.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';

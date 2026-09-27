@@ -43,17 +43,21 @@ export class CMap {
   readonly writingMode: 0 | 1;
   readonly cidSystemInfo: CidSystemInfo | undefined;
   readonly codespaces: readonly CodespaceRange[];
+  /** The name a usecmap gave for a CMap that could not be had; codes this CMap does not map are then of unknown meaning. */
+  readonly unavailableParent: string | undefined;
   private readonly parent: CMap | undefined;
   private readonly cids: MappingTable<CidMapping>;
   private readonly notdefs: MappingTable<CidMapping>;
   private readonly unicodes: MappingTable<UnicodeMapping>;
   private readonly shortest: number;
 
-  constructor(parsed: ParsedCMap, parent?: CMap) {
+  constructor(parsed: ParsedCMap, used?: CMap | { readonly unavailable: string }) {
+    const parent = used instanceof CMap ? used : undefined;
     this.name = parsed.name;
     this.writingMode = parsed.writingMode ?? parent?.writingMode ?? 0;
     this.cidSystemInfo = parsed.cidSystemInfo ?? parent?.cidSystemInfo;
     this.codespaces = [...parsed.codespaces, ...(parent?.codespaces ?? [])];
+    this.unavailableParent = used === undefined || used instanceof CMap ? parent?.unavailableParent : used.unavailable;
     this.parent = parent;
     this.cids = new MappingTable(parsed.cids);
     this.notdefs = new MappingTable(parsed.notdefs);
@@ -93,7 +97,8 @@ export class CMap {
     return { code: { value: readValue(bytes, offset, length), length }, valid: false };
   }
 
-  private mapped(code: CMapCode): number | undefined {
+  /** The CID a character mapping gives the code, here or in the CMap usecmap names, or undefined when none does. */
+  mapped(code: CMapCode): number | undefined {
     const mapping = this.cids.find(code);
     if (mapping !== undefined) return mapping.cid + (code.value - mapping.low);
     return this.parent?.mapped(code);
