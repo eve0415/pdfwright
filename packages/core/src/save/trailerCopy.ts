@@ -1,3 +1,4 @@
+import type { TrailerChange } from '../document/editedObjects.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -15,6 +16,16 @@ const CLASSIC_EXCLUDED = new Set(['Prev', 'XRefStm']);
 
 // A cross-reference stream dictionary also describes the stream itself: Table 5 (Length, Filter, DecodeParms, F, FFilter, FDecodeParms, DL) and Table 17 (Type, Index, W, Prev); Size is recomputed.
 const STREAM_EXCLUDED = new Set([...CLASSIC_EXCLUDED, 'Length', 'Filter', 'DecodeParms', 'F', 'FFilter', 'FDecodeParms', 'DL', 'Type', 'Index', 'W']);
+
+/** The entries with the changes applied in order: a set entry keeps its place or is added at the end, a removed one is left out. */
+export const withTrailerChanges = (entries: PdfDictionaryEntries, changes: readonly TrailerChange[]): PdfDictionaryEntries => {
+  const result = parsedDictionaryEntries([...entries.entries()]);
+  for (const change of changes) {
+    if (change.value === undefined) result.delete(change.key);
+    else result.set(change.key, change.value);
+  }
+  return result;
+};
 
 /** The entries of the base trailer that a new trailer carries over, in their order. */
 export const copiedTrailerEntries = (base: PdfDictionaryEntries, baseKind: 'classic' | 'stream'): PdfDictionaryEntries => {

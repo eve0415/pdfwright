@@ -1,12 +1,22 @@
+import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ObjectResolver } from './loadedPage.ts';
 import type { ObjectStore } from './objectStore.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { cloneObject, copyObject } from '../object/cloneObject.ts';
+import { cloneDirect, cloneObject, copyObject } from '../object/cloneObject.ts';
+import { withTrailerChanges } from '../save/trailerCopy.ts';
 import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
 
+/** A trailer entry a save sets, or removes when the value is undefined. */
+export interface TrailerChange {
+  readonly key: Uint8Array;
+  readonly value: PdfDirectObject | undefined;
+}
+
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
+
+const WRITER_KEYS = new Set(['Size', 'Prev', 'XRefStm', 'ID']);
 
 const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
 
@@ -17,6 +27,7 @@ export class EditedObjects implements ObjectResolver {
   private next: number;
 
   private objectStreams: ReadonlySet<number> | undefined = undefined;
+  private readonly trailerEdits = new Map<string, TrailerChange>();
 
   constructor(store: ObjectStore) {
     this.store = store;
@@ -87,6 +98,27 @@ export class EditedObjects implements ObjectResolver {
   delete(reference: PdfReference): void {
     this.current(reference);
     this.changes.set(reference.objectNumber, { generation: reference.generation, deleted: true });
+  }
+
+  /**
+   * Sets a trailer entry the next save writes, or removes it when the value is undefined.
+   * Size, Prev, XRefStm and ID describe the saved file and are the writers' own.
+   */
+  setTrailerEntry(key: Uint8Array, value: PdfDirectObject | undefined): void {
+    const name = new TextDecoder('latin1').decode(key);
+    if (WRITER_KEYS.has(name)) throw new InvalidArgumentError(`the trailer ${name} entry is written by the save`);
+    this.trailerEdits.delete(name);
+    this.trailerEdits.set(name, { key: Uint8Array.from(key), value: value === undefined ? undefined : cloneDirect(value) });
+  }
+
+  /** The trailer entry changes, in the order they were last made. */
+  get trailerChanges(): readonly TrailerChange[] {
+    return [...this.trailerEdits.values()];
+  }
+
+  /** The trailer as the next save writes its document entries: `base` with the changes applied. */
+  trailer(base: PdfDictionaryEntries): PdfDictionaryEntries {
+    return withTrailerChanges(base, this.trailerChanges);
   }
 
   add(value: PdfObject): PdfReference {

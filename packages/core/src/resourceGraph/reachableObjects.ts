@@ -25,7 +25,7 @@ const pushChildren = (work: PdfDirectObject[], value: PdfObject): void => {
 };
 
 /**
- * Lists the objects reachable from the trailer through indirect references (ISO 32000-1:2008, 7.3.10), over the document as edited: objects set, added or deleted since loading count as they are now.
+ * Lists the objects reachable from the trailer through indirect references (ISO 32000-1:2008, 7.3.10), over the document as edited: objects set, added or deleted and trailer entries set since loading count as they are now.
  * A reference counts only when it names an in-use object with its current generation; a reference to a free or missing object reaches nothing, since 7.3.10 says it "shall be treated as a reference to the null object".
  * The walk uses a work list rather than recursion and resolves each object once, so its work is linear in the size of the reachable objects.
  */
@@ -34,7 +34,7 @@ export const reachableObjects = (document: DocumentInternals): ReachableObjects 
   const objects = new Map<number, number>();
   const unreadable: { reference: PdfReference; reason: string }[] = [];
   const work: PdfDirectObject[] = [];
-  pushChildren(work, { kind: 'dictionary', entries: structure.trailer });
+  pushChildren(work, { kind: 'dictionary', entries: edited.trailer(structure.trailer) });
   for (let value = work.pop(); value !== undefined; value = work.pop()) {
     if (value.kind !== 'reference') {
       pushChildren(work, value);

@@ -2,6 +2,7 @@ import type { TestSection } from '../testing/pdfBuilder.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -155,5 +156,14 @@ describe('incremental save', () => {
       [10, 10, 600, 780],
       { kind: 'null' },
     ]);
+  });
+
+  it('writes trailer changes into the added trailer, even with no object changed', () => {
+    const document = loadDocument(base());
+    const edited = internalsOf(document)?.objects;
+    edited?.setTrailerEntry(pdfName('Info').bytes, pdfReference(4, 0));
+    edited?.setTrailerEntry(pdfName('Private').bytes, undefined);
+    const saved = document.save({ mode: 'incremental' });
+    expect(lastTrailer(saved.toBytes())).toMatch(/^\n<<\/Size 6\/Root 1 0 R\/Info 4 0 R\/Prev \d+\/ID\[<1{32}><[0-9A-F]{32}>\]>>/u);
   });
 });

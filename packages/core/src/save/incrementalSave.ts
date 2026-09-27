@@ -1,4 +1,4 @@
-import type { ObjectChange } from '../document/editedObjects.ts';
+import type { ObjectChange, TrailerChange } from '../document/editedObjects.ts';
 import type { ObjectStore } from '../document/objectStore.ts';
 import type { DocumentStructure, SaveBase } from '../document/readStructure.ts';
 import type { LexContext } from '../parse/lexer.ts';
@@ -19,12 +19,14 @@ import { FREE } from '../xref/objectIndex.ts';
 import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
-import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
+import { TRAILER_KEYS, copiedTrailerEntries, withTrailerChanges } from './trailerCopy.ts';
 import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
 
 export interface SaveInput {
   readonly store: ObjectStore;
   readonly changes: ReadonlyMap<number, ObjectChange>;
+  /** Trailer entries set or removed since loading, applied over the entries copied from the source trailer. */
+  readonly trailerChanges: readonly TrailerChange[];
   /** One above the highest object number in use or assigned. */
   readonly size: number;
   readonly structure: DocumentStructure;
@@ -113,7 +115,7 @@ interface SectionRequest {
 // ISO 32000-1:2008, 7.5.6: "The added trailer shall contain all the entries except the Prev entry (if present) from the previous trailer, whether modified or not. In addition, the added trailer dictionary shall contain a Prev entry".
 const trailerEntries = (input: SaveInput, request: SectionRequest, size: number): PdfDictionaryEntries => {
   const { structure } = input;
-  const trailer = copiedTrailerEntries(structure.trailer, structure.lastSectionKind ?? 'classic');
+  const trailer = withTrailerChanges(copiedTrailerEntries(structure.trailer, structure.lastSectionKind ?? 'classic'), input.trailerChanges);
   const previousSize = structure.trailer.get(TRAILER_KEYS.size);
   trailer.set(TRAILER_KEYS.size, pdfInteger(Math.max(previousSize?.kind === 'integer' ? previousSize.value : 0, size)));
   trailer.set(TRAILER_KEYS.prev, pdfInteger(request.previousSection - (input.base?.shift ?? 0)));
@@ -209,7 +211,9 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
     warnings.push(warning);
   };
   // Without changes the source is the update; a caller who supplies a file identifier gets an update section that carries it.
-  if (input.changes.size === 0 && input.fileIdentifier === 'derive') return savedPdf(store.source.segments, { mode: 'incremental', warnings });
+  if (input.changes.size === 0 && input.trailerChanges.length === 0 && input.fileIdentifier === 'derive') {
+    return savedPdf(store.source.segments, { mode: 'incremental', warnings });
+  }
   // Annex F, Table F.1, L: "A mismatch indicates that the file is not linearized and shall be treated as ordinary PDF, ignoring linearization information."
   if (structure.linearized) {
     warn({ code: 'linearization-invalidated', detail: 'the update makes the file an ordinary PDF; its linearization data no longer applies' });

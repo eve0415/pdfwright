@@ -3,6 +3,7 @@ import type { TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
 import { describe, expect, inject, it } from 'vitest';
 
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -289,5 +290,13 @@ describe('full rewrite', () => {
     const document = loadDocument(latin1Bytes(damaged));
     const saved = document.save();
     expect([document.structure.status, saved.mode, loadDocument(saved.chunks).structure.status]).toStrictEqual(['reconstructed', 'full', 'intact']);
+  });
+
+  it('writes trailer changes into the rewritten trailer', () => {
+    const document = loadDocument(classic([catalog, pages, page, content, { number: 5, body: '<</Producer(new)>>' }], '/Root 1 0 R/Info 9 0 R/Private(gone)'));
+    const edited = internalsOf(document)?.objects;
+    edited?.setTrailerEntry(pdfName('Info').bytes, pdfReference(5, 0));
+    edited?.setTrailerEntry(pdfName('Private').bytes, undefined);
+    expect(text(document.save({ mode: 'full' }).toBytes())).toMatch(/\ntrailer\n<<\/Size 6\/Root 1 0 R\/Info 5 0 R>>\nstartxref/u);
   });
 });

@@ -19,7 +19,7 @@ import { COMPRESSED, FREE, IN_FILE } from '../xref/objectIndex.ts';
 import { PdfEmitter } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
-import { TRAILER_KEYS, copiedTrailerEntries } from './trailerCopy.ts';
+import { TRAILER_KEYS, copiedTrailerEntries, withTrailerChanges } from './trailerCopy.ts';
 import { coveringStreamData, fieldWidths, idArray, writeCoveringTable } from './xrefWriter.ts';
 
 const TYPE = pdfName('Type').bytes;
@@ -293,7 +293,7 @@ class FullRewriter {
 
   // The trailer: Size, Root, Info and ID first, then the other entries of the source trailer that describe the document rather than a section.
   private trailer(size: number): PdfDictionaryEntries {
-    const rest = copiedTrailerEntries(this.input.structure.trailer, this.trailerKind());
+    const rest = withTrailerChanges(copiedTrailerEntries(this.input.structure.trailer, this.trailerKind()), this.input.trailerChanges);
     const trailer = parsedDictionaryEntries([[TRAILER_KEYS.size, pdfInteger(size)]]);
     for (const key of [TRAILER_KEYS.root, TRAILER_KEYS.info]) {
       const value = rest.get(key);

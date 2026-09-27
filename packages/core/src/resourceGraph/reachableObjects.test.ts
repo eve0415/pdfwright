@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
-import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { reachableObjects } from './reachableObjects.ts';
@@ -86,5 +86,11 @@ describe('objects reachable from the trailer', () => {
     ]);
     const { objects, unreadable } = reachableObjects(internals(document));
     expect([objects.has(6), objects.has(7), unreadable.map(({ reference }) => reference.objectNumber)]).toStrictEqual([true, true, [6]]);
+  });
+
+  it('starts from the trailer as edited', () => {
+    const document = load('', [{ number: 6, body: '<</Producer(new)>>' }], '/Info 7 0 R');
+    internals(document).objects.setTrailerEntry(pdfName('Info').bytes, pdfReference(6, 0));
+    expect(numbers(document)).toStrictEqual([1, 2, 3, 4, 5, 6]);
   });
 });

@@ -238,6 +238,7 @@ class LoadedPdf implements LoadedDocument {
     const input = {
       store: this.objects.store,
       changes,
+      trailerChanges: this.objects.trailerChanges,
       size: this.objects.size,
       structure: this.read,
       base: this.base,
