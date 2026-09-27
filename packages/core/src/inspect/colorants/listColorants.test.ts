@@ -1,6 +1,6 @@
 import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { TestPage } from '../../testing/textPdf.ts';
-import type { ColorantUse, PageColorants } from './listColorants.ts';
+import type { ColorantUse, ListColorantsOptions, PageColorants } from './listColorants.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -314,5 +314,14 @@ describe('pages', () => {
 
   it('refuses a page index that is not a page', () => {
     expect(() => listColorants(loadDocument(textPdfBytes({ pages: [{}] })), { pages: [1] })).toThrow(InvalidArgumentError);
+  });
+
+  it('refuses pages that is not an array of page indexes', () => {
+    const document = loadDocument(textPdfBytes({ pages: [{}] }));
+    for (const value of [5, '0', null, [0.5], ['0']]) {
+      const options: ListColorantsOptions = {};
+      Reflect.set(options, 'pages', value);
+      expect(() => listColorants(document, options)).toThrow(InvalidArgumentError);
+    }
   });
 });

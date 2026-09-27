@@ -316,6 +316,23 @@ describe('text extraction', () => {
     expect(() => extractText(loadDocument(textPdfBytes({ pages: [{}] })), 1)).toThrow(InvalidArgumentError);
   });
 
+  it('refuses option values outside their types', () => {
+    const document = loadDocument(textPdfBytes({ pages: [{}] }));
+    for (const [key, value] of [
+      ['annotations', 'bogus'],
+      ['maxGlyphs', -1],
+      ['maxGlyphs', 1.5],
+      ['maxGlyphs', Number.NaN],
+      ['maxGlyphs', Infinity],
+      ['maxGlyphs', '10'],
+    ] as const) {
+      const options: ExtractTextOptions = {};
+      Reflect.set(options, key, value);
+      expect(() => extractText(document, 0, options)).toThrow(InvalidArgumentError);
+    }
+    expect(extractText(document, 0, { maxGlyphs: 0 }).glyphs).toStrictEqual([]);
+  });
+
   it('refuses a page that shows more glyphs than maxGlyphs, counting each execution of a form', () => {
     const form: TestObject = {
       number: 120,

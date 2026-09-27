@@ -424,19 +424,29 @@ const scanPage = (context: Scan, index: number): PageColorants => {
   return { page: index, colorants: scan.result(), complete: scan.complete, warnings: scan.warnings };
 };
 
+const isList = (value: unknown): value is readonly unknown[] => Array.isArray(value);
+
+// The pages to scan, all when absent; a value outside the type, as a caller without type checking can pass, is refused rather than iterated.
+const pagesOf = (document: DocumentInternals, pages: unknown): number[] => {
+  if (pages === undefined) return [...document.pages.keys()];
+  if (!isList(pages)) throw new InvalidArgumentError(`listColorants: pages ${JSON.stringify(pages)} is not an array of page indexes`);
+  return pages.map(index => {
+    if (typeof index !== 'number' || !Number.isInteger(index) || document.pages[index] === undefined) {
+      const shown = typeof index === 'number' ? String(index) : JSON.stringify(index);
+      throw new InvalidArgumentError(`page index ${shown} is not a page of this document, which has ${String(document.pages.length)}`);
+    }
+    return index;
+  });
+};
+
 /**
  * Lists the colorants of each page: those painting operators reach in content, forms, patterns, Type 3 glyphs, images, shadings and annotation appearances (`painted`), those executed content selects without a visible mark (`selected`), and those named without being executed (`declared`), each with every reason that applies.
- * Tints and geometry are not considered: a colorant painted at tint 0, outside the crop box or wholly clipped away is painted. Damaged content becomes warnings and `complete: false`; a page index that is not a page throws InvalidArgumentError, and content past the interpreter's limits ResourceLimitError.
+ * Tints and geometry are not considered: a colorant painted at tint 0, outside the crop box or wholly clipped away is painted. Damaged content becomes warnings and `complete: false`; a page index that is not a page or a `pages` that is not an array throws InvalidArgumentError, and content past the interpreter's limits ResourceLimitError.
  */
 export const listColorants = (document: LoadedDocument, options: ListColorantsOptions = {}): readonly PageColorants[] => {
   const parts = internalsOf(document);
   if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
-  const pages = options.pages ?? [...parts.pages.keys()];
-  for (const index of pages) {
-    if (!Number.isInteger(index) || parts.pages[index] === undefined) {
-      throw new InvalidArgumentError(`page index ${String(index)} is not a page of this document, which has ${String(parts.pages.length)}`);
-    }
-  }
+  const pages = pagesOf(parts, options.pages);
   const context: Scan = { document: parts, fonts: new FontCache(parts, undefined), cache: createInheritedCache() };
   return pages.map(index => scanPage(context, index));
 };

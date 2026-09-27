@@ -396,12 +396,18 @@ const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: Inspe
 
 /**
  * The glyphs a page shows, in content order, each with its code, font, text layers and advance box in the page's default user space.
- * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page throws InvalidArgumentError, and content past the interpreter's limits or `maxGlyphs` ResourceLimitError.
+ * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page or an option value outside its type throws InvalidArgumentError, and content past the interpreter's limits or `maxGlyphs` ResourceLimitError.
  */
 export const extractText = (document: LoadedDocument, pageIndex: number, options: ExtractTextOptions = {}): PageText => {
   const parts = internalsOf(document);
   if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
-  const collector = new TextCollector(parts, options.maxGlyphs ?? MAX_GLYPHS);
+  const maxGlyphs = options.maxGlyphs ?? MAX_GLYPHS;
+  // A limit that is not a count is refused rather than compared: no glyph count is ever past NaN.
+  if (!Number.isSafeInteger(maxGlyphs) || maxGlyphs < 0) {
+    const shown = typeof maxGlyphs === 'number' ? String(maxGlyphs) : JSON.stringify(maxGlyphs);
+    throw new InvalidArgumentError(`extractText: maxGlyphs ${shown} is not a non-negative safe integer`);
+  }
+  const collector = new TextCollector(parts, maxGlyphs);
   const covers: CoverEvent[] = [];
   const result = interpretPage(parts, pageIndex, {
     fonts: new FontCache(parts, options.cmapProvider),

@@ -273,6 +273,15 @@ describe('font inventory', () => {
     expect(result.fonts.map(font => font.key)).toStrictEqual(['direct:130.0:4633']);
   });
 
+  it('refuses a shownOn that is not a boolean', () => {
+    const document = loadDocument(textPdfBytes({ pages: [{}] }));
+    for (const value of ['no', 0, null]) {
+      const options: ListFontsOptions = {};
+      Reflect.set(options, 'shownOn', value);
+      expect(() => listFonts(document, options)).toThrow(InvalidArgumentError);
+    }
+  });
+
   it('refuses a value that is not a loaded document', () => {
     const source = loadDocument(textPdfBytes({ pages: [{}] }));
     expect(() => listFonts({ ...source })).toThrow(InvalidArgumentError);

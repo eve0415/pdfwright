@@ -410,10 +410,14 @@ const showPage = (listing: Listing, index: number): void => {
 
 /**
  * Lists every font dictionary the document's pages reach through their resources, one entry per font dictionary object, with its type, embedding, subset tag, encoding, ToUnicode state, the pages that reach it and the pages that show text with it.
- * Damaged fonts and objects never throw: they become problems and unreadable entries. A value that loadDocument did not return throws InvalidArgumentError; decoded data past the document's limits and content past the interpreter's limits throw ResourceLimitError.
+ * Damaged fonts and objects never throw: they become problems and unreadable entries. A value that loadDocument did not return or a `shownOn` that is not a boolean throws InvalidArgumentError; decoded data past the document's limits and content past the interpreter's limits throw ResourceLimitError.
  */
 export const listFonts = (document: LoadedDocument, options: ListFontsOptions = {}): FontInventory => {
   const parts = internals(document);
+  // A value outside the type, as a caller without type checking can pass, is refused rather than read as true.
+  if (options.shownOn !== undefined && typeof options.shownOn !== 'boolean') {
+    throw new InvalidArgumentError(`listFonts: shownOn ${JSON.stringify(options.shownOn)} is not a boolean`);
+  }
   const listing: Listing = {
     document: parts,
     fonts: new FontCache(parts, options.cmapProvider),

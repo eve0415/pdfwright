@@ -756,4 +756,10 @@ describe('damaged content', () => {
     expect(() => interpretPage(document, 1, {})).toThrow(InvalidArgumentError);
     expect(() => interpretPage(document, -1, {})).toThrow(InvalidArgumentError);
   });
+
+  it('refuses an annotations mode it does not know', () => {
+    const options: InterpretOptions = {};
+    Reflect.set(options, 'annotations', 'bogus');
+    expect(() => interpretPage(textPdf({ pages: [{ content: '' }] }), 0, options)).toThrow(InvalidArgumentError);
+  });
 });

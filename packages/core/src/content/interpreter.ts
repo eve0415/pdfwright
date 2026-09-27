@@ -258,6 +258,8 @@ export interface InterpretOptions extends InterpretHandlers {
   readonly maxContentBytes?: number;
 }
 
+const ANNOTATION_MODES: readonly NonNullable<InterpretOptions['annotations']>[] = ['printable', 'none', 'all'];
+
 export interface InterpretResult {
   /** False when some content could not be read or interpreted: undecodable streams, bad operands, missing resources. */
   readonly complete: boolean;
@@ -1338,12 +1340,17 @@ const pageResources = (
 
 /**
  * Interprets a page's content: the graphics state, colour, text state and text positioning, calling the handlers with each paint, text-show and colour-space selection event in content order.
- * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page throws InvalidArgumentError, and a decoded size past the document's limits ResourceLimitError.
+ * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page or an annotations mode outside the type throws InvalidArgumentError, and a decoded size past the document's limits ResourceLimitError.
  */
 export const interpretPage = (document: DocumentInternals, pageIndex: number, options: InterpretOptions = {}): InterpretResult => {
   const page = Number.isInteger(pageIndex) ? document.pages[pageIndex] : undefined;
   if (page === undefined) {
     throw new InvalidArgumentError(`page index ${String(pageIndex)} is not a page of this document, which has ${String(document.pages.length)}`);
+  }
+  const annotations = options.annotations ?? 'none';
+  // A mode outside the type, as a caller without type checking can pass, is refused rather than drawn as 'all'.
+  if (!ANNOTATION_MODES.includes(annotations)) {
+    throw new InvalidArgumentError(`annotations ${JSON.stringify(annotations)} is not one of ${ANNOTATION_MODES.join(', ')}`);
   }
   const interpreter = new Interpreter(document, options, options.fonts ?? new FontCache(document, undefined));
   const { resources, owner } = pageResources(interpreter, page, { document, cache: options.inheritance ?? createInheritedCache() });
@@ -1360,7 +1367,6 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
   };
   interpreter.run(content.streams, scope);
   interpreter.finish();
-  const annotations = options.annotations ?? 'none';
   if (annotations !== 'none') interpreter.drawAnnotations(page, scope, annotations);
   return interpreter.result();
 };
