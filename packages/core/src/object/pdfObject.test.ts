@@ -60,6 +60,7 @@ describe('pdf objects', () => {
     expect(() => pdfLiteralString('é')).toThrow(InvalidArgumentError);
     expect(() => pdfInteger(1.5)).toThrow(InvalidArgumentError);
     expect(() => pdfReal(Infinity)).toThrow(InvalidArgumentError);
+    expect(() => pdfReal({ numerator: 1n, denominator: 0n })).toThrow(InvalidArgumentError);
     expect(() => pdfReference(0, 0)).toThrow(InvalidArgumentError);
   });
 });

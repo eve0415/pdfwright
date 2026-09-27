@@ -56,9 +56,7 @@ export const createGroup = (
 };
 
 // ISO 32000-1:2008, 8.10.2, Table 95 defines form XObjects; 11.6.6, Table 147 defines transparency group attributes.
-export const groupObject = (
-  ...[group, content, resources, fractionDigits, pieceInfo]: [PdfGroup, Uint8Array, PdfDirectObject, number, PieceInfoRecord | undefined]
-): PdfObject => {
+export const groupObject = (...[group, content, resources, pieceInfo]: [PdfGroup, Uint8Array, PdfDirectObject, PieceInfoRecord | undefined]): PdfObject => {
   const attributes = new PdfDictionaryEntries([
     [pdfName('S').bytes, pdfName('Transparency')],
     [pdfName('I').bytes, { kind: 'boolean', value: group.isolated }],
@@ -68,7 +66,7 @@ export const groupObject = (
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('XObject')],
     [pdfName('Subtype').bytes, pdfName('Form')],
-    [pdfName('BBox').bytes, pdfArray(group.bbox.map(length => pdfReal(Number(formatLength(length, fractionDigits)))))],
+    [pdfName('BBox').bytes, pdfArray(group.bbox.map(length => pdfReal(length)))],
     [pdfName('Resources').bytes, resources],
     [pdfName('Group').bytes, pdfDictionary(attributes)],
     [pdfName('Filter').bytes, pdfName('FlateDecode')],

@@ -1,3 +1,5 @@
+import type { Length } from '../length/length.ts';
+
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { formatInteger } from '../number/formatNumber.ts';
 
@@ -11,7 +13,7 @@ export type PdfDirectObject =
   | { kind: 'null' }
   | { kind: 'boolean'; value: boolean }
   | { kind: 'integer'; value: number }
-  | { kind: 'real'; value: number }
+  | { kind: 'real'; value: number | Length }
   | { kind: 'name'; bytes: Uint8Array }
   | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex' }
   | { kind: 'array'; items: PdfDirectObject[] }
@@ -58,8 +60,9 @@ export const pdfInteger = (value: number): Extract<PdfObject, { kind: 'integer' 
   return { kind: 'integer', value };
 };
 
-export const pdfReal = (value: number): Extract<PdfObject, { kind: 'real' }> => {
-  if (!Number.isFinite(value)) throw new InvalidArgumentError('real must be finite');
+// A Length keeps its exact rational value, so serialization rounds it once, as formatLength does.
+export const pdfReal = (value: number | Length): Extract<PdfObject, { kind: 'real' }> => {
+  if (typeof value === 'number' ? !Number.isFinite(value) : value.denominator <= 0n) throw new InvalidArgumentError('real must be finite');
   return { kind: 'real', value };
 };
 

@@ -67,6 +67,12 @@ describe('minimal PDF document', () => {
     expect(ascii(first.toBytes())).toContain(`/ID[<${'11'.repeat(16)}> <${'22'.repeat(16)}>]`);
   });
 
+  it('writes page boxes from exact lengths without a second rounding', () => {
+    const document = createDocument({ fractionDigits: 10 });
+    document.addPage({ mediaBox: [pt(0), pt(0), mm(1_000_000), mm(1_000_000)] });
+    expect(ascii(document.save().toBytes())).toContain('/MediaBox[0 0 2834645.6692913386 2834645.6692913386]');
+  });
+
   it('writes no exponent-form number tokens', () => {
     const document = createDocument({ fractionDigits: 10 });
     document.addPage({ mediaBox: [pt(0), pt(0), mm(0.000001), mm(297)] });

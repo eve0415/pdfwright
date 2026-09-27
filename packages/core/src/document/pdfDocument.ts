@@ -1,4 +1,3 @@
-import type { Length } from '../length/length.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
@@ -109,8 +108,6 @@ const graphicsStateDictionary = (options: GraphicsStateOptions): PdfDictionaryEn
   if (options.softMask !== undefined) entries.set(pdfName('SMask').bytes, pdfName('None'));
   return entries;
 };
-
-const pointObject = (length: Length, fractionDigits: number): ReturnType<typeof pdfReal> => pdfReal(Number(formatLength(length, fractionDigits)));
 
 const normalize = (box: PdfRect): PdfRect => rect(...box);
 
@@ -250,7 +247,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
   const entries = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('Page')],
     [pdfName('Parent').bytes, pdfReference(2, 0)],
-    [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pointObject(length, context.fractionDigits)))],
+    [pdfName('MediaBox').bytes, pdfArray(page.mediaBox.map(length => pdfReal(length)))],
   ]);
   if (record.pieceInfo !== undefined) {
     // ISO 32000-1:2008, 7.7.3.3, Table 30 requires page LastModified when PieceInfo is present.
@@ -273,7 +270,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
     ['TrimBox', page.trimBox],
     ['ArtBox', page.artBox],
   ] as const) {
-    if (box !== undefined) entries.set(pdfName(key).bytes, pdfArray(box.map(length => pointObject(length, context.fractionDigits))));
+    if (box !== undefined) entries.set(pdfName(key).bytes, pdfArray(box.map(length => pdfReal(length))));
   }
   const references = record.contents.map((_, index) => pdfReference(context.contentStart + index, 0));
   if (references.length === 1) {
@@ -423,7 +420,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         const number = groupNumbers.get(record.handle.id);
         if (number === undefined) throw new ValidationError('group reference is missing');
         const resources = pageResources(record, resourceNumbers) ?? pdfDictionary();
-        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, fractionDigits, record.pieceInfo) });
+        objects.push({ objectNumber: number, generation: 0, value: groupObject(record.handle, record.content, resources, record.pieceInfo) });
       }
       const trailer = new PdfDictionaryEntries([[pdfName('Root').bytes, pdfReference(1, 0)]]);
       if (options.info !== undefined) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { formatLength, mm } from '../length/length.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfNameFromBytes, pdfReal, pdfReference, pdfString } from '../object/pdfObject.ts';
 
 import { serializeObject } from './serializeObject.ts';
@@ -76,6 +77,14 @@ describe('object serialization', () => {
     entries.set(pdfName('Length').bytes, pdfInteger(999));
     expect(write({ kind: 'stream', dictionary: entries, data: new Uint8Array([65, 66]) })).toBe('<</Length 2>>\nstream\nAB\nendstream');
     expect(entries.get(pdfName('Length').bytes)).toStrictEqual(pdfInteger(999));
+  });
+
+  it('writes a length real from its exact value, rounded once', () => {
+    const kilometre = mm(1_000_000);
+    const written = ascii(serializeObject(pdfReal(kilometre), { fractionDigits: 10 }));
+    expect([written, formatLength(kilometre, 10)]).toStrictEqual(['2834645.6692913386', '2834645.6692913386']);
+    const a4Width = pdfReal(mm(210));
+    expect(write(a4Width)).toBe('595.27559');
   });
 
   it('never writes exponent notation for real values', () => {

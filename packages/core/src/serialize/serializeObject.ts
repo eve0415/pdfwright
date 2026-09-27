@@ -1,6 +1,7 @@
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { formatLength } from '../length/length.ts';
 import { formatInteger, formatNumber } from '../number/formatNumber.ts';
 import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -84,7 +85,9 @@ const writeDirectObject = (writer: ByteWriter, object: PdfDirectObject, options:
       break;
     }
     case 'real': {
-      writer.writeAscii(formatNumber(object.value, options.fractionDigits));
+      writer.writeAscii(
+        typeof object.value === 'number' ? formatNumber(object.value, options.fractionDigits) : formatLength(object.value, options.fractionDigits),
+      );
       break;
     }
     case 'name': {
