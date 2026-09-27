@@ -27,7 +27,8 @@ export type LoadWarningCode =
   | 'unknown-xref-entry-type'
   | 'xref-entry-offset-zero'
   | 'mixed-xref-chain'
-  | 'recovery-ambiguous-object';
+  | 'recovery-ambiguous-object'
+  | 'recovery-unreadable-object';
 
 export interface LoadWarning {
   readonly code: LoadWarningCode;

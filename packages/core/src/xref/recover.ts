@@ -6,6 +6,7 @@ import type { DecodedObjectStream, ObjectStreamContext } from './objectStream.ts
 import type { XrefEntry } from './xrefSection.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { deepEqual } from '../object/deepEqual.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { isRegular, isWhitespace } from '../parse/characterClass.ts';
@@ -15,7 +16,7 @@ import { parseObject } from '../parse/parseObject.ts';
 
 import { refuseEncryption } from './encryption.ts';
 import { ObjectIndex } from './objectIndex.ts';
-import { decodeObjectStream } from './objectStream.ts';
+import { decodeObjectStream, parseMember } from './objectStream.ts';
 
 export interface Reconstruction {
   readonly index: ObjectIndex;
@@ -23,8 +24,10 @@ export interface Reconstruction {
   readonly trailers: readonly PdfDictionaryEntries[];
   /** Top-level objects that are dictionaries with Type Catalog and a Pages entry, in file order. */
   readonly catalogs: readonly number[];
-  /** Object numbers with more than one copy whose bytes differ. */
+  /** Object numbers with more than one copy whose values differ, or with a copy that does not parse beside one that does. */
   readonly ambiguous: readonly number[];
+  /** Object numbers whose only copies do not parse; they resolve to null. */
+  readonly unreadable: readonly number[];
   readonly objects: number;
   readonly objectStreams: number;
 }
@@ -34,6 +37,8 @@ interface Candidate {
   /** File position that ranks copies: later wins. Object-stream members rank at their stream's position. */
   readonly position: number;
   readonly bytes: Uint8Array;
+  /** The parsed value, for comparing copies whose bytes differ. */
+  readonly value: () => PdfObject;
 }
 
 const OBJ = [0x6f, 0x62, 0x6a];
@@ -87,6 +92,18 @@ const skipDigitsBack = (bytes: Uint8Array, end: number): number => {
   return position;
 };
 
+const skipDigitsForward = (bytes: Uint8Array, start: number): number => {
+  let position = start;
+  while ((bytes[position] ?? 0) >= 0x30 && (bytes[position] ?? 0) <= 0x39) position++;
+  return position;
+};
+
+const latin1 = (bytes: Uint8Array): string => {
+  let text = '';
+  for (const byte of bytes) text += String.fromCodePoint(byte);
+  return text;
+};
+
 const skipWhitespaceBack = (bytes: Uint8Array, end: number): number => {
   let position = end;
   while (position > 0 && isWhitespace(bytes[position - 1] ?? 0)) position--;
@@ -117,6 +134,8 @@ class Scanner {
   readonly trailers: PdfDictionaryEntries[] = [];
   readonly catalogs: number[] = [];
   readonly objectStreams: { object: ParsedIndirectObject; position: number }[] = [];
+  /** Object numbers of "n g obj" headers whose objects do not parse. */
+  readonly unreadable = new Set<number>();
 
   private readonly lastEndstream: number;
 
@@ -160,18 +179,23 @@ class Scanner {
 
   private object(header: number, keyword: number): number {
     const object = this.parseObjectAt(header);
-    if (object === undefined) return keyword + OBJ.length;
+    if (object === undefined) {
+      const digits = this.bytes.subarray(header, skipDigitsForward(this.bytes, header));
+      this.unreadable.add(Number(latin1(digits)));
+      return keyword + OBJ.length;
+    }
     const { objectNumber, generation, value, source } = object;
     this.add({
       entry: { objectNumber, type: 'file', location: header, generation },
       position: header,
       bytes: this.bytes.subarray(source.valueStart, source.valueEnd),
+      value: () => value,
     });
     const type = typeName(value);
     if (type === 'XRef' && value.kind === 'stream') this.trailers.push(value.dictionary);
     if (type === 'ObjStm') this.objectStreams.push({ object, position: header });
     if (type === 'Catalog' && value.kind === 'dictionary' && value.entries.has(PAGES)) this.catalogs.push(objectNumber);
-    // Scanning resumes after the object, so bytes inside stream data never produce objects.
+    // Scanning resumes after the object, so bytes inside stream data whose extent is known never produce objects; a stream whose Length is indirect has its extent found from endstream.
     return source.objectEnd;
   }
 
@@ -204,7 +228,12 @@ class Scanner {
       decoded.push(stream);
       for (const [index, member] of stream.members.entries()) {
         const entry: XrefEntry = { objectNumber: member.objectNumber, type: 'compressed', location: object.objectNumber, generation: index };
-        this.add({ entry, position, bytes: stream.data.subarray(member.start, member.end) });
+        this.add({
+          entry,
+          position,
+          bytes: stream.data.subarray(member.start, member.end),
+          value: () => parseMember(stream, { objectNumber: member.objectNumber, index }, this.context),
+        });
       }
     }
     return decoded;
@@ -248,13 +277,16 @@ export const reconstructIndex = (input: ByteSource, context: ObjectStreamContext
     const [latest] = ordered;
     if (latest === undefined) continue;
     ranked.push(latest.entry);
-    if (ordered.some(candidate => !sameBytes(candidate.bytes, latest.bytes))) ambiguous.push(objectNumber);
+    const differs = ordered.some(candidate => !sameBytes(candidate.bytes, latest.bytes) && !deepEqual(candidate.value(), latest.value(), 'strict'));
+    if (differs || scanner.unreadable.has(objectNumber)) ambiguous.push(objectNumber);
   }
+  const unreadable = [...scanner.unreadable].filter(objectNumber => !scanner.candidates.has(objectNumber));
   return {
     index: ObjectIndex.fromEntries(ranked),
     trailers: scanner.trailers,
     catalogs: scanner.catalogs,
     ambiguous: ambiguous.toSorted((left, right) => left - right),
+    unreadable: unreadable.toSorted((left, right) => left - right),
     objects: ranked.length,
     objectStreams: streams.length,
   };

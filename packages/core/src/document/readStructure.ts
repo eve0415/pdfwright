@@ -191,13 +191,24 @@ export const reconstruct = (session: LoadSession, reason: string, header: Header
     const list = reconstruction.ambiguous.join(', ');
     if (session.options.recovery === 'refuse-ambiguous') {
       throw new ParseError(
-        `the reconstructed file holds differing copies of objects ${list}, and readers disagree about which to use; pass recovery: 'latest' to use the latest copies`,
+        `the reconstructed file holds differing or unreadable copies of objects ${list}, and readers disagree about which to use; pass recovery: 'latest' to use the latest readable copies`,
         0,
       );
     }
     for (const objectNumber of reconstruction.ambiguous) {
-      session.log.warn({ code: 'recovery-ambiguous-object', detail: `object ${String(objectNumber)} has differing copies; the latest is used`, objectNumber });
+      session.log.warn({
+        code: 'recovery-ambiguous-object',
+        detail: `object ${String(objectNumber)} has differing or unreadable copies; the latest readable one is used`,
+        objectNumber,
+      });
     }
+  }
+  for (const objectNumber of reconstruction.unreadable) {
+    session.log.warn({
+      code: 'recovery-unreadable-object',
+      detail: `object ${String(objectNumber)} was found but does not parse, so references to it read as null`,
+      objectNumber,
+    });
   }
   const store = new ObjectStore(session.source, reconstruction.index, context);
   let trailer = reconstruction.trailers.findLast(candidate => hasCatalog(store, candidate));

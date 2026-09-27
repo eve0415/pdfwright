@@ -61,6 +61,12 @@ describe('cross-reference reconstruction', () => {
     expect([located(different), different.ambiguous]).toStrictEqual([[[3, 'file', 28]], [3]]);
   });
 
+  it('compares copies by value and reports unreadable copies', () => {
+    const spacing = reconstruct('%PDF-1.4\n3 0 obj <</A 1>> endobj\n3 0 obj << /A 1 >> endobj\n').reconstruction;
+    const broken = reconstruct('%PDF-1.4\n3 0 obj (a) endobj\n3 0 obj <zz> endobj\n4 0 obj <zz> endobj\n').reconstruction;
+    expect([spacing.ambiguous, broken.ambiguous, broken.unreadable, located(broken)]).toStrictEqual([[], [3], [4], [[3, 'file', 9]]]);
+  });
+
   it('ranks object-stream members at their stream position against top-level copies', () => {
     const pdf = buildPdf([
       {
