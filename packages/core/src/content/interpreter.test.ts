@@ -513,6 +513,26 @@ describe('patterns', () => {
     expect(selects.map(select => select.context.colour)).toStrictEqual(['used', 'uncoloured-pattern']);
   });
 
+  it("starts a coloured cell from the state at the beginning of the pattern's parent content stream and applies its colours, wherever the pattern paints", () => {
+    const plain = streamBody('/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 5 5 re f');
+    const glyphFont =
+      '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>';
+    const objects: TestObject[] = [
+      { number: 115, body: plain },
+      form(116, '/BBox[0 0 10 10]', '0 0 10 10 re f'),
+      { number: 120, body: glyphFont },
+      { number: 121, body: streamBody('', '1000 0 0 0 750 750 d1 0 0 750 750 re f') },
+    ];
+    const resources = '/Pattern<</Plain 115 0 R>>/XObject<</Fm 116 0 R>>/Font<</T3 120 0 R>>';
+    const { paints, result } = run({ content: '/Pattern cs /Plain scn /Fm Do BT /T3 10 Tf (a) Tj ET', resources }, objects);
+    // The form's fill, the text and the d1 glyph's fill each paint the cell. 8.7.3.1: the cell is painted after the reader "Installs the graphics state that was in effect at the beginning of the pattern’s parent content stream", the page's, whose fill colour is DeviceGray.
+    const cells = paints.filter(paint => paint.context.sources.at(-1)?.kind === 'tiling-pattern');
+    expect([result.warnings, cells.map(paint => `${paintSpaces([paint]).join(',')} ${paint.context.colour}`)]).toStrictEqual([
+      [],
+      ['fill:DeviceGray used', 'fill:DeviceGray used', 'fill:DeviceGray used'],
+    ]);
+  });
+
   it('paints image masks in a pattern colour', () => {
     const { paints } = run({ content: '/Pattern cs /Shaded scn /Im Do BI /W 1 /H 1 /IM true ID \u0000 EI', resources: `${PATTERNS}/XObject<</Im 114 0 R>>` }, [
       ...OBJECTS,

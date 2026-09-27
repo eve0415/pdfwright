@@ -88,6 +88,10 @@ export interface PatternUse {
   readonly name: Uint8Array;
   readonly reference: PdfReference | undefined;
   readonly value: PdfObject | undefined;
+  /** The graphics state at the beginning of the content stream whose scn or SCN chose the pattern, the pattern's parent content stream, which ISO 32000-1:2008, 8.7.3.1 installs before a tiling pattern's cell is painted. */
+  readonly parentState: GraphicsState;
+  /** Whether colour operators take effect in that stream, and so in a coloured cell it paints. */
+  readonly parentColour: ColourUse;
 }
 
 /** A colour space as a content stream selected it, and the colour set in it. */
@@ -389,7 +393,7 @@ interface Scope {
   readonly context: PaintContext;
   /** Names a stream of this content in warnings. */
   readonly label: (stream: number) => string;
-  /** The graphics state the stream began in, which a tiling pattern it paints with starts from (8.7.3.1). */
+  /** The graphics state the stream began in, which a tiling pattern it chooses starts from (8.7.3.1). */
   readonly initial: GraphicsState;
   /** Whether text shown here is text of the page: not inside a Type 3 glyph procedure. */
   readonly pageText: boolean;
@@ -592,19 +596,24 @@ class Interpreter {
     const underlying = use.space?.kind === 'array' ? use.space.items[1] : undefined;
     const base: ColorSpaceUse | undefined = uncoloured ? { ...this.imageUse(underlying), components: use.components } : undefined;
     if (base !== undefined) spaces.push(base);
+    const parent = use.pattern;
+    if (parent === undefined) return;
     cells.push(() => {
-      this.tilingCell(step, { value: use.pattern?.reference ?? value, stream: value, base });
+      this.tilingCell(step, { value: parent.reference ?? value, stream: value, base, parent });
     });
   }
 
   // 8.7.3.1: the cell is painted after the reader "Installs the graphics state that was in effect at the beginning of the pattern’s parent content stream, with the current transformation matrix altered by the pattern matrix".
-  private tilingCell(step: Step, { value, stream, base }: { value: PdfObject; stream: PdfStream; base: ColorSpaceUse | undefined }): void {
-    const { initial } = step.scope;
+  private tilingCell(
+    step: Step,
+    { value, stream, base, parent }: { value: PdfObject; stream: PdfStream; base: ColorSpaceUse | undefined; parent: PatternUse },
+  ): void {
+    const initial = parent.parentState;
     const ctm = multiply(this.matrixOf(stream.dictionary.get(MATRIX)) ?? IDENTITY, initial.ctm);
     const state: GraphicsState = base === undefined ? { ...initial, ctm } : { ...initial, ctm, fill: base, stroke: base };
     const reference = value.kind === 'reference' ? value : undefined;
     const source: ContentSource = { kind: 'tiling-pattern', reference, coloured: base === undefined };
-    const colour = base === undefined ? step.scope.context.colour : 'uncoloured-pattern';
+    const colour = base === undefined ? parent.parentColour : 'uncoloured-pattern';
     const scope = this.childScope(step.scope, { stream, reference, source, colour, state });
     const data = this.decoded(stream, step.where);
     if (data !== undefined) this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
@@ -1039,7 +1048,13 @@ class Interpreter {
     let { pattern } = current;
     if (named) {
       const value = this.resource(step, PATTERN, last.bytes);
-      pattern = { name: last.bytes, reference: value?.kind === 'reference' ? value : undefined, value: value === undefined ? undefined : this.deref(value) };
+      pattern = {
+        name: last.bytes,
+        reference: value?.kind === 'reference' ? value : undefined,
+        value: value === undefined ? undefined : this.deref(value),
+        parentState: step.scope.initial,
+        parentColour: step.scope.context.colour,
+      };
     }
     const use: ColorSpaceUse = { ...current, components, pattern };
     if (used) this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
