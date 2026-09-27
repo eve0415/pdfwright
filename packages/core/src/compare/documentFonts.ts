@@ -40,7 +40,7 @@ const referenceKey = (value: PdfDirectObject): string | undefined =>
  * The fonts of one document, with each font's identity worked out once however many pages use it.
  */
 export class DocumentFonts {
-  private readonly document: DocumentInternals;
+  readonly document: DocumentInternals;
   private readonly texts: ResolvedTexts;
   private readonly identities = new Map<string, FontIdentity>();
 
