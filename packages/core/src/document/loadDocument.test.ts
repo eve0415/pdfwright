@@ -3,10 +3,12 @@ import type { LoadOptions, LoadedDocument } from './loadDocument.ts';
 import { describe, expect, it } from 'vitest';
 
 import { EncryptedDocumentError } from '../error/encryptedDocumentError.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes } from '../testing/pdfBuilder.ts';
 
+import { internalsOf } from './documentInternals.ts';
 import { loadDocument } from './loadDocument.ts';
 
 const catalog = { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' };
@@ -135,5 +137,18 @@ describe('loading documents', () => {
   it('detects linearized files', () => {
     const linearized = buildPdf([{ xref: 'classic', objects: [{ number: 3, body: '<</Linearized 1/L 999>>' }, catalog, pages], trailer: '/Root 1 0 R' }]);
     expect([loadDocument(linearized.bytes).structure.linearized]).toStrictEqual([true]);
+  });
+});
+
+describe('documents that require a full rewrite', () => {
+  it('rewrites in auto mode and refuses an incremental save once an edit requires a full rewrite', () => {
+    const document = loadDocument(base.bytes);
+    internalsOf(document)?.objects.requireFullRewrite('metadata-history');
+    expect([document.save().mode, document.save({ mode: 'full' }).mode]).toStrictEqual(['full', 'full']);
+    expect(() => document.save({ mode: 'incremental' })).toThrow(expect.objectContaining({ constructor: InvalidArgumentError, reason: 'metadata-history' }));
+  });
+
+  it('saves incrementally in auto mode while no edit requires a full rewrite', () => {
+    expect(loadDocument(base.bytes).save().mode).toBe('incremental');
   });
 });

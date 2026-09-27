@@ -1,3 +1,4 @@
+import type { InvalidArgumentReason } from '../error/invalidArgumentError.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ObjectResolver } from './loadedPage.ts';
@@ -14,6 +15,9 @@ export interface TrailerChange {
   readonly value: PdfDirectObject | undefined;
 }
 
+/** Why an edit needs the whole file written again: an incremental update would keep superseded content readable in earlier revisions. */
+export type FullRewriteReason = InvalidArgumentReason;
+
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
 
 const WRITER_KEYS = new Set(['Size', 'Prev', 'XRefStm', 'ID']);
@@ -28,6 +32,7 @@ export class EditedObjects implements ObjectResolver {
 
   private objectStreams: ReadonlySet<number> | undefined = undefined;
   private readonly trailerEdits = new Map<string, TrailerChange>();
+  private rewriteReason: FullRewriteReason | undefined = undefined;
 
   constructor(store: ObjectStore) {
     this.store = store;
@@ -109,6 +114,16 @@ export class EditedObjects implements ObjectResolver {
     if (WRITER_KEYS.has(name)) throw new InvalidArgumentError(`the trailer ${name} entry is written by the save`);
     this.trailerEdits.delete(name);
     this.trailerEdits.set(name, { key: Uint8Array.from(key), value: value === undefined ? undefined : cloneDirect(value) });
+  }
+
+  /** Marks the edits as needing a full rewrite: a save in auto mode then rewrites, and an incremental save throws InvalidArgumentError with this reason. */
+  requireFullRewrite(reason: FullRewriteReason): void {
+    this.rewriteReason ??= reason;
+  }
+
+  /** Why the edits need a full rewrite, or undefined when an incremental update may carry them. */
+  get fullRewriteReason(): FullRewriteReason | undefined {
+    return this.rewriteReason;
   }
 
   /** The trailer entry changes, in the order they were last made. */

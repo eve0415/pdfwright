@@ -53,7 +53,7 @@ export interface LoadOptions {
 }
 
 export interface SaveOptions {
-  /** 'auto' (the default) appends an update to an intact file and rewrites any other; 'incremental' and 'full' choose one. */
+  /** 'auto' (the default) appends an update to an intact file and rewrites any other or any whose edits require it; 'incremental' and 'full' choose one. */
   mode?: 'auto' | 'incremental' | 'full';
   /** 'derive' (the default) keeps the source identifier and derives a new second string; a pair is written as given. */
   fileIdentifier?: 'derive' | [Uint8Array, Uint8Array];
@@ -231,7 +231,14 @@ class LoadedPdf implements LoadedDocument {
 
   save(options: SaveOptions = {}): SavedPdf {
     let mode = options.mode ?? 'auto';
-    if (mode === 'auto') mode = this.read.status === 'intact' ? 'incremental' : 'full';
+    const rewriteReason = this.objects.fullRewriteReason;
+    if (mode === 'incremental' && rewriteReason !== undefined) {
+      throw new InvalidArgumentError(
+        `the edits require a full rewrite (${rewriteReason}); an incremental update would leave superseded content readable in the file`,
+        rewriteReason,
+      );
+    }
+    if (mode === 'auto') mode = this.read.status === 'intact' && rewriteReason === undefined ? 'incremental' : 'full';
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
