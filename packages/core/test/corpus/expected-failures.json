@@ -5,8 +5,8 @@
     "reason": "The same page object appears twice in the page tree, which pdfwright refuses as a page tree node reached twice."
   },
   "qpdf/recover-xref-stream.pdf": {
-    "error": "ParseError",
-    "reason": "The cross-reference stream places object 8 at an index of object stream 14 that holds another object, and pdfwright does not guess which object is meant."
+    "undecodable": ["Root/QTest/1"],
+    "reason": "The cross-reference stream places object 8 at an index of object stream 14 that holds another object, and pdfwright does not guess which object is meant, so comparisons report it as undecodable."
   },
   "qpdf/V4-aes.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },
   "qpdf/encrypted-40-bit-R3.pdf": { "error": "EncryptedDocumentError", "reason": "The file is encrypted." },

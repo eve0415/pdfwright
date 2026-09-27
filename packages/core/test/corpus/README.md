@@ -11,4 +11,4 @@ These files feed the corpus round trip in `packages/core/src/document/corpus.ora
 
 Each directory's `README.md` records the source repository and commit, the licence and the SHA-256 of every file; the committed PDFs total about 1 MB.
 
-`expected-failures.json` lists the files that must fail with a named error and why: encrypted files, which pdfwright refuses, and files whose structure readers disagree about, where pdfwright throws rather than chooses.
+`expected-failures.json` lists the files that must fail and why: encrypted files, which pdfwright refuses with a named error, and files whose structure readers disagree about, where pdfwright throws rather than chooses, or where comparisons must report the listed places as undecodable.

@@ -1,3 +1,5 @@
+import type { PdfDifference } from '../compare/pdfDifference.ts';
+
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,26 +16,24 @@ import { rect } from './rect.ts';
 
 const CORPUS = path.join(import.meta.dirname, '../../test/corpus');
 
-interface ExpectedFailure {
-  readonly error: string;
-  readonly reason: string;
-}
+/** How a corpus file is expected to fail: by throwing a named error, or by comparisons that report the listed places as undecodable. */
+type ExpectedFailure = { readonly error: string; readonly reason: string } | { readonly undecodable: readonly string[]; readonly reason: string };
+
+const expectedFailure = (entry: unknown): ExpectedFailure | undefined => {
+  if (typeof entry !== 'object' || entry === null || !('reason' in entry) || typeof entry.reason !== 'string') return undefined;
+  if ('error' in entry && typeof entry.error === 'string') return { error: entry.error, reason: entry.reason };
+  if (!('undecodable' in entry) || !Array.isArray(entry.undecodable)) return undefined;
+  const places = entry.undecodable.filter((place: unknown): place is string => typeof place === 'string');
+  return { undecodable: places, reason: entry.reason };
+};
 
 const expectedFailures = async (): Promise<ReadonlyMap<string, ExpectedFailure>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failures = new Map<string, ExpectedFailure>();
   if (typeof parsed !== 'object' || parsed === null) return failures;
   for (const [file, entry] of new Map<string, unknown>(Object.entries(parsed))) {
-    if (
-      typeof entry === 'object' &&
-      entry !== null &&
-      'error' in entry &&
-      typeof entry.error === 'string' &&
-      'reason' in entry &&
-      typeof entry.reason === 'string'
-    ) {
-      failures.set(file, { error: entry.error, reason: entry.reason });
-    }
+    const failure = expectedFailure(entry);
+    if (failure !== undefined) failures.set(file, failure);
   }
   return failures;
 };
@@ -59,7 +59,13 @@ const qpdfCheck = async (file: string): Promise<Check> => {
 interface Workspace {
   readonly directory: string;
   readonly source: Check;
+  /** Places, as a path joined with slashes, that the file's expected failure lists as undecodable. */
+  readonly undecodable: ReadonlySet<string>;
 }
+
+// The differences a comparison reports, leaving out the undecodable places the file is expected to have.
+const withoutExpected = (differences: readonly PdfDifference[], undecodable: ReadonlySet<string>): PdfDifference[] =>
+  differences.filter(difference => difference.kind !== 'undecodable' || !undecodable.has(difference.where.join('/')));
 
 // A save must not make qpdf report more than it did for the source: no higher exit status and no warning of a kind the source did not have.
 const checkSaved = async (workspace: Workspace, [label, bytes]: readonly [string, Uint8Array]): Promise<string[]> => {
@@ -73,14 +79,14 @@ const checkSaved = async (workspace: Workspace, [label, bytes]: readonly [string
 };
 
 // An edit of one box must show as exactly that difference.
-const checkBoxEdit = (bytes: Uint8Array): string[] => {
+const checkBoxEdit = (bytes: Uint8Array, undecodable: ReadonlySet<string>): string[] => {
   const document = loadDocument(bytes);
   if (document.pageCount === 0) return [];
   const [left, bottom, right, top] = document.page(0).boxes().CropBox.rect;
   if (right - left < 4 || top - bottom < 4) return [];
   document.page(0).setBox('TrimBox', rect(pt(left + 1), pt(bottom + 1), pt(right - 1), pt(top - 1)));
   const saved = loadDocument(document.save().chunks);
-  const differences = compareDocuments(loadDocument(bytes), saved).differences.map(difference =>
+  const differences = withoutExpected(compareDocuments(loadDocument(bytes), saved).differences, undecodable).map(difference =>
     difference.kind === 'page-box' ? `${difference.kind}:${String(difference.page)}:${difference.box}` : difference.kind,
   );
   return differences.length === 1 && differences[0] === 'page-box:0:TrimBox' ? [] : [`box edit: ${differences.join(', ')}`];
@@ -91,7 +97,9 @@ const saveMode = async (
   [document, mode]: readonly [ReturnType<typeof loadDocument>, 'auto' | 'incremental' | 'full'],
 ): Promise<string[]> => {
   const saved = document.save({ mode });
-  const differences = compareDocuments(document, loadDocument(saved.chunks)).differences.map(difference => difference.kind);
+  const differences = withoutExpected(compareDocuments(document, loadDocument(saved.chunks)).differences, workspace.undecodable).map(
+    difference => difference.kind,
+  );
   const problems = differences.length > 0 ? [`${mode}: differences ${differences.join(', ')}`] : [];
   const reported = await checkSaved(workspace, [mode, saved.toBytes()]);
   return [...problems, ...reported];
@@ -102,24 +110,34 @@ const roundTrip = async (workspace: Workspace, bytes: Uint8Array): Promise<strin
   // A reconstructed file cannot take an incremental update.
   const modes = document.structure.status === 'reconstructed' ? (['auto', 'full'] as const) : (['auto', 'incremental', 'full'] as const);
   const results = await Promise.all(modes.map(async mode => saveMode(workspace, [document, mode])));
-  return [...results.flat(), ...checkBoxEdit(bytes)];
+  return [...results.flat(), ...checkBoxEdit(bytes, workspace.undecodable)];
 };
 
 const errorName = (error: unknown): string => (error instanceof Error ? error.name : 'unknown');
 
+// A file expected to have undecodable places must still report each of them when compared with a copy of itself.
+const missingUndecodable = (bytes: Uint8Array, undecodable: ReadonlySet<string>): string[] => {
+  const copy = loadDocument(Uint8Array.from(bytes));
+  const { differences } = compareDocuments(loadDocument(bytes), copy);
+  const places = new Set(differences.map(difference => (difference.kind === 'undecodable' ? difference.where.join('/') : '')));
+  return [...undecodable].filter(place => !places.has(place)).map(place => `did not report ${place} as undecodable`);
+};
+
 const checkFile = async (file: string, expected: ExpectedFailure | undefined): Promise<string[]> => {
   const bytes = new Uint8Array(await readFile(file));
-  if (expected !== undefined) {
+  if (expected !== undefined && 'error' in expected) {
     try {
-      await roundTrip({ directory: tmpdir(), source: { rank: 2, classes: new Set() } }, bytes);
+      await roundTrip({ directory: tmpdir(), source: { rank: 2, classes: new Set() }, undecodable: new Set() }, bytes);
     } catch (error: unknown) {
       return errorName(error) === expected.error ? [] : [`threw ${errorName(error)} instead of ${expected.error}`];
     }
     return [`did not throw ${expected.error}`];
   }
+  const undecodable = new Set(expected?.undecodable);
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-corpus-'));
   try {
-    return await roundTrip({ directory, source: await qpdfCheck(file) }, bytes);
+    const problems = await roundTrip({ directory, source: await qpdfCheck(file), undecodable }, bytes);
+    return [...problems, ...missingUndecodable(bytes, undecodable)];
   } catch (error: unknown) {
     return [`threw ${errorName(error)}: ${error instanceof Error ? error.message : ''}`];
   } finally {
