@@ -86,4 +86,29 @@ describe('indirect object parser', () => {
     );
     expect([data({ object, warnings: [] }), object.source.objectEnd]).toStrictEqual(['0123456789', bytes.length - 1]);
   });
+
+  it('recovers the extent from endstream when Length is missing or wrong', () => {
+    for (const [dictionary, declared] of [
+      ['<</Length 3>>', '3'],
+      ['<</Length 40>>', '40'],
+      ['<<>>', 'missing'],
+      ['<</Length -1>>', 'missing'],
+      ['<</Length 9 0 R>>', 'missing'],
+      ['<</Length --5>>', 'missing'],
+    ]) {
+      const result = parse(`1 0 obj ${dictionary} stream\r\nabc\ndef\r\nendstream\nendobj`);
+      expect([data(result), result.object.source.clean]).toStrictEqual(['abc\ndef', false]);
+      expect(result.warnings.at(-1)).toMatchObject({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found 7 bytes before endstream` });
+    }
+  });
+
+  it('prefers an endstream followed by endobj and strips one end-of-line marker', () => {
+    expect(data(parse('1 0 obj <<>> stream\nx endstream y\nendstream endobj'))).toBe('x endstream y');
+    expect(data(parse('1 0 obj <<>> stream\nx\n\nendstream'))).toBe('x\n');
+    expect(data(parse('1 0 obj <<>> stream\nx\rendstream 2 0 obj'))).toBe('x');
+  });
+
+  it('rejects stream data with no endstream', () => {
+    expect(() => parse('1 0 obj <<>> stream\nabc')).toThrow(new ParseError('stream data has no endstream keyword', 20));
+  });
 });

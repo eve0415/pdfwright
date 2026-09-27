@@ -92,12 +92,44 @@ interface StreamExtent {
   endstreamEnd: number;
 }
 
+const ENDOBJ = [0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a];
+
+const followedByEndobj = (lexer: Lexer, endstream: number): boolean => {
+  let position = endstream + ENDSTREAM.length;
+  while (!lexer.atEnd(position) && isWhitespace(lexer.bytes[position] ?? 0)) position++;
+  return matchesAt(lexer, position, ENDOBJ);
+};
+
+// Readers recover a stream whose Length is missing or wrong by searching for endstream; the first one followed by endobj is preferred, since data can contain the bytes "endstream".
+const searchEndstream = (lexer: Lexer, dataStart: number): number => {
+  const { bytes } = lexer;
+  let first: number | undefined = undefined;
+  for (let position = bytes.indexOf(ENDSTREAM[0] ?? 0, dataStart); ; position = bytes.indexOf(ENDSTREAM[0] ?? 0, position + 1)) {
+    if (position < 0) {
+      lexer.atEnd(bytes.length);
+      if (first === undefined) throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+      return first;
+    }
+    if (matchesAt(lexer, position, ENDSTREAM)) {
+      if (followedByEndobj(lexer, position)) return position;
+      first ??= position;
+    }
+  }
+};
+
 const streamExtent = (lexer: Lexer, dictionary: PdfDictionaryEntries, keywordEnd: number): StreamExtent => {
   const dataStart = dataStartAfter(lexer, keywordEnd);
   const length = declaredLength(dictionary);
   const endstream = length === undefined ? undefined : endstreamAfterData(lexer, dataStart + length);
-  if (length === undefined || endstream === undefined) throw new ParseError('the stream Length does not match its data', lexer.base + dataStart);
-  return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
+  if (length !== undefined && endstream !== undefined) return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
+  const found = searchEndstream(lexer, dataStart);
+  let dataEnd = found;
+  // One end-of-line marker before endstream is not part of the data (Table 5, Length).
+  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0a) dataEnd--;
+  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0d) dataEnd--;
+  const declared = length === undefined ? 'missing' : String(length);
+  lexer.warn({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found ${String(dataEnd - dataStart)} bytes before endstream` }, dataStart);
+  return { dataStart, dataEnd, endstreamEnd: found + ENDSTREAM.length };
 };
 
 // Readers accept an object whose endobj is missing when the next thing is another object, a cross-reference section, a trailer or the end of the file.
