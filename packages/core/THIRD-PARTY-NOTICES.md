@@ -82,12 +82,14 @@ ZapfDingbats.afm: Notice Copyright (c) 1985, 1987, 1988, 1989, 1997 Adobe System
 This file and the 14 PostScript(R) AFM files it accompanies may be used, copied, and distributed for any purpose and without charge, with or without modification, provided that all copyright notices are retained; that the AFM files are not distributed without this file; that all modifications to this file or any of the AFM files are prominently noted in the modified file(s); and that this paragraph is not modified. Adobe Systems has no responsibility or obligation to support the use of the AFM files.
 ```
 
-## Unicode Equivalent_Unified_Ideograph and Vertical_Orientation data
+## Unicode Equivalent_Unified_Ideograph, Vertical_Orientation and East_Asian_Width data
 
 - Source: <https://www.unicode.org/Public/18.0.0/ucd/EquivalentUnifiedIdeograph.txt>, Unicode 18.0.0 (sha256 `c86c80f6a0d1d47c9a5aadfbf1c26f1a732d662d9ccb0ed2d397919ecc47bf72`).
 - Use: the CJK radicals and strokes that text comparison reads as their equivalent unified ideographs, generated into `src/inspect/text/equivalentIdeographs.ts` by `scripts/generateEquivalentIdeographs.ts`, which keeps every mapping and drops the comment lines.
 - Source: <https://www.unicode.org/Public/18.0.0/ucd/VerticalOrientation.txt>, Unicode 18.0.0 (sha256 `0803e09669d7aa7137de678e55b848bd418c6632694fa1b05f0b40941103c748`).
 - Use: the characters whose Vertical_Orientation is Tu or Tr, which text comparison expects to find drawn with vertical alternates, generated into `src/inspect/text/verticalOrientation.ts` by `scripts/generateVerticalOrientation.ts`, which keeps the Tu and Tr lines and drops their comments.
+- Source: <https://www.unicode.org/Public/18.0.0/ucd/EastAsianWidth.txt>, Unicode 18.0.0 (sha256 `a0cf29eacd00cfcaec4381c6b7c281685f18dbb4e7ff82b4076ccb342ca839aa`).
+- Use: the characters whose East_Asian_Width is F or W, whose glyphs text comparison expects to be one em wide, generated into `src/inspect/text/eastAsianWidth.ts` by `scripts/generateEastAsianWidth.ts`, which keeps the F and W ranges and drops the rest.
 - Copyright: "© 2026 Unicode®, Inc.", as the header of each file states.
 - Licence: Unicode License v3, which each file points to through <https://www.unicode.org/terms_of_use.html>, the text of <https://www.unicode.org/license.txt> (sha256 `e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96`):
 
