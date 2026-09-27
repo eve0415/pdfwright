@@ -5,6 +5,7 @@ import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { CidFontSubtype, FontEncodingSummary, FontModel, FontSubtype, FontWarningCode } from '../../font/fontModel.ts';
 import type { PdfDictionaryEntries } from '../../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfReference } from '../../object/pdfObject.ts';
+import type { Type3Reading, Type3Summary } from './type3Glyphs.ts';
 
 import { unreadable } from '../../content/unreadable.ts';
 import { internalsOf } from '../../document/documentInternals.ts';
@@ -16,6 +17,8 @@ import { STANDARD_14 } from '../../font/standard14.ts';
 import { md5 } from '../../hash/md5.ts';
 import { pdfName } from '../../object/pdfObject.ts';
 import { walkResources } from '../../resourceGraph/walkResources.ts';
+
+import { readType3Glyphs } from './type3Glyphs.ts';
 
 const RESOURCES = pdfName('Resources').bytes;
 const FONT_DESCRIPTOR = pdfName('FontDescriptor').bytes;
@@ -53,6 +56,7 @@ export type FontProblemCode =
   | 'subset-tag-reused'
   | 'descriptor-missing'
   | 'widths-missing'
+  | 'type3-resources-inherited'
   | 'font-unreadable'
   | 'to-unicode-unreadable'
   | 'to-unicode-range-overflow'
@@ -88,6 +92,8 @@ export interface FontEntry {
   readonly subset: FontSubset;
   readonly encoding: FontEncodingSummary;
   readonly toUnicode: 'present' | 'absent' | 'unreadable';
+  /** What a Type 3 font's glyph procedures paint; undefined for other fonts. */
+  readonly type3: Type3Summary | undefined;
   /** 0-based indexes of the pages whose resources reach the font: through forms, patterns, Type 3 fonts, graphics states, soft masks and annotation appearances. */
   readonly pages: readonly number[];
   readonly problems: readonly FontProblem[];
@@ -109,6 +115,8 @@ interface Reached {
   readonly value: PdfDirectObject;
   readonly model: FontModel;
   readonly pages: Set<number>;
+  /** The resources of the first page that reaches the font, where a Type 3 font without Resources finds its names. */
+  readonly pageResources: PdfDictionaryEntries | undefined;
 }
 
 // ISO 32000-1:2008, Table 126: the programs each font type's descriptor may hold.
@@ -194,9 +202,10 @@ interface Described {
   readonly descriptor: PdfDictionaryEntries | undefined;
   readonly program: Program;
   readonly malformed: boolean;
+  readonly glyphs: Type3Reading | undefined;
 }
 
-const problemsOf = ({ model, descriptor, program, malformed }: Described): FontProblem[] => {
+const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described): FontProblem[] => {
   const problems: FontProblem[] = [];
   if (program.embedding.state === 'embedded' && !program.embedding.matchesFontType) {
     problems.push({ code: 'embedding-type-mismatch', detail: `${program.embedding.file} is not a program Table 126 allows for this font type` });
@@ -206,6 +215,13 @@ const problemsOf = ({ model, descriptor, program, malformed }: Described): FontP
   const standard14 = model.baseFont !== undefined && STANDARD_14.has(latin1(model.baseFont)) && model.subtype !== 'Type0';
   const required = model.subtype === 'Type0' ? model.descendant !== undefined : model.subtype !== 'Type3' && !standard14;
   if (descriptor === undefined && required) problems.push({ code: 'descriptor-missing', detail: 'the font has no font descriptor' });
+  // Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
+  if (glyphs?.namesResources === true && glyphs.inheritsPageResources) {
+    problems.push({
+      code: 'type3-resources-inherited',
+      detail: 'the glyph procedures name resources and the font has no Resources, so the page resources are used',
+    });
+  }
   for (const warning of model.warnings) problems.push({ code: PROBLEM_OF_WARNING[warning.code], detail: warning.detail });
   return problems;
 };
@@ -215,7 +231,7 @@ interface Built {
   readonly identity: string | undefined;
 }
 
-const buildEntry = (document: DocumentInternals, { value, model, pages }: Reached): Built => {
+const buildEntry = (document: DocumentInternals, { value, model, pages, pageResources }: Reached): Built => {
   const holder = model.subtype === 'Type0' ? model.descendant?.dictionary : model.dictionary;
   const descriptorValue = holder?.get(FONT_DESCRIPTOR);
   const descriptor = dictionaryOf(document.objects.deref(descriptorValue));
@@ -224,6 +240,7 @@ const buildEntry = (document: DocumentInternals, { value, model, pages }: Reache
   const name = type3 && fontName?.kind === 'name' ? fontName.bytes : model.baseFont;
   const program: Program = type3 ? { embedding: { state: 'not-applicable' }, identity: undefined } : programOf(document, model, descriptor);
   const { subset, malformed } = subsetOf(name, type3);
+  const glyphs = model.type3 === undefined ? undefined : readType3Glyphs(document, model.type3, pageResources);
   const subtypeValue = document.objects.deref(model.dictionary.get(SUBTYPE));
   const entry: FontEntry = {
     key: model.key,
@@ -237,8 +254,9 @@ const buildEntry = (document: DocumentInternals, { value, model, pages }: Reache
     subset,
     encoding: model.encoding,
     toUnicode: model.toUnicode,
+    type3: glyphs === undefined ? undefined : { glyphs: glyphs.glyphs, procedures: glyphs.procedures, coloured: glyphs.coloured },
     pages: [...pages].toSorted((a, b) => a - b),
-    problems: problemsOf({ model, descriptor, program, malformed }),
+    problems: problemsOf({ model, descriptor, program, malformed, glyphs }),
   };
   return { entry, identity: program.identity };
 };
@@ -290,8 +308,10 @@ export const listFonts = (document: LoadedDocument, options: ListFontsOptions = 
   const problems: { page: number; reason: string }[] = [];
   for (const [index, page] of parts.pages.entries()) {
     let resources: Found | undefined = undefined;
+    let pageResources: PdfDictionaryEntries | undefined = undefined;
     try {
       resources = inherited(parts.objects, page, { key: RESOURCES, cache });
+      pageResources = dictionaryOf(parts.objects.deref(resources?.value));
     } catch (error: unknown) {
       if (!unreadable(error)) throw error;
       problems.push({ page: index, reason: `the Resources of the page cannot be read: ${error.message}` });
@@ -304,7 +324,7 @@ export const listFonts = (document: LoadedDocument, options: ListFontsOptions = 
         let font = found.get(key);
         if (font === undefined) {
           try {
-            font = { value: visit.value, model: fonts.font(visit.value, key), pages: new Set() };
+            font = { value: visit.value, model: fonts.font(visit.value, key), pages: new Set(), pageResources };
           } catch (error: unknown) {
             if (!unreadable(error)) throw error;
             problems.push({ page: index, reason: `font ${key} cannot be read: ${error.message}` });

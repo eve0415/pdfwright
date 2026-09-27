@@ -62,6 +62,7 @@ export type {
   FontSubset,
   ListFontsOptions,
 } from './inspect/fonts/listFonts.ts';
+export type { Type3Glyphs, Type3Summary } from './inspect/fonts/type3Glyphs.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';
