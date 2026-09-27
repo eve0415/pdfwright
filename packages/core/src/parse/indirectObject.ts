@@ -176,7 +176,9 @@ export const parseIndirectObject = (window: LexWindow, local: number, context: I
   if (isKeyword(afterValue, 'stream')) {
     if (direct.kind !== 'dictionary') throw new ParseError('a stream must follow a dictionary', lexer.base + afterValue.start);
     const extent = streamExtent(lexer, { dictionary: direct.entries, keywordEnd: afterValue.end }, context);
-    value = { kind: 'stream', dictionary: direct.entries, data: lexer.bytes.subarray(extent.dataStart, extent.dataEnd) };
+    // Data from a copied window is copied out, so that keeping the object does not keep the whole window alive.
+    const data = lexer.copied ? lexer.bytes.slice(extent.dataStart, extent.dataEnd) : lexer.bytes.subarray(extent.dataStart, extent.dataEnd);
+    value = { kind: 'stream', dictionary: direct.entries, data };
     stream = { dictionaryEnd: lexer.base + valueEnd, dataStart: lexer.base + extent.dataStart, dataEnd: lexer.base + extent.dataEnd };
     lexer.seek(extent.endstreamEnd);
     valueEnd = extent.endstreamEnd;

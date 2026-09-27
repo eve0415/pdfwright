@@ -26,6 +26,10 @@ export interface LexWindow {
   readonly bytes: Uint8Array;
   readonly base: number;
   readonly final: boolean;
+  /** Length of the whole source, so that a position past it ends a non-final window without asking for more bytes. */
+  readonly sourceLength?: number;
+  /** Whether `bytes` is a copy rather than a view of the source, so that values kept from it must be copied out. */
+  readonly copied?: boolean;
 }
 
 export interface LexContext {
@@ -105,6 +109,8 @@ export class Lexer {
   readonly bytes: Uint8Array;
   readonly base: number;
   readonly final: boolean;
+  readonly copied: boolean;
+  private readonly sourceLength: number;
   readonly context: LexContext;
   position: number;
   private peeked: Token | undefined = undefined;
@@ -113,6 +119,8 @@ export class Lexer {
     this.bytes = window.bytes;
     this.base = window.base;
     this.final = window.final;
+    this.copied = window.copied === true;
+    this.sourceLength = window.sourceLength ?? Number.POSITIVE_INFINITY;
     this.position = start;
     this.context = context;
   }
@@ -120,7 +128,7 @@ export class Lexer {
   /** Returns true at the end of the source and throws WindowEndError at the end of a window that is not. */
   atEnd(position: number): boolean {
     if (position < this.bytes.length) return false;
-    if (!this.final) throw new WindowEndError();
+    if (!this.final && this.base + position < this.sourceLength) throw new WindowEndError();
     return true;
   }
 

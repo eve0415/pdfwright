@@ -48,7 +48,7 @@ export class ByteSource {
     const index = this.segmentIndex(Math.min(Math.max(offset, 0), this.length - 1));
     const bytes = this.segments[index] ?? new Uint8Array();
     const base = this.starts[index] ?? 0;
-    return { bytes, base, final: base + bytes.length >= this.length };
+    return { bytes, base, final: base + bytes.length >= this.length, sourceLength: this.length };
   }
 
   /** A copy of the bytes from `start` to `end` (clipped to the source), for parsing across segment boundaries. */
@@ -61,7 +61,7 @@ export class ByteSource {
       bytes.set(view, offset);
       offset += view.length;
     }
-    return { bytes, base: from, final: to >= this.length };
+    return { bytes, base: from, final: to >= this.length, sourceLength: this.length, copied: true };
   }
 
   /** Views of the original segments covering `start` to `end`. */

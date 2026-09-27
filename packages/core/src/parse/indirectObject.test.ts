@@ -32,6 +32,11 @@ const parse = (text: string, offset = 0, base = 0): Result => {
 
 const data = (result: Result): string => (result.object.value.kind === 'stream' ? new TextDecoder('latin1').decode(result.object.value.data) : '');
 
+const parseInSource = (source: ByteSource, offset: number): ParsedIndirectObject =>
+  source.parseAt(offset, { warn: ignore, names: new Map() }, (window, local, context) => parseIndirectObject(window, local, { ...context, maxNesting: 256 }));
+
+const dataOf = (object: ParsedIndirectObject): Uint8Array => (object.value.kind === 'stream' ? object.value.data : new Uint8Array());
+
 const lengthEntry = (result: Result): PdfDirectObject | undefined =>
   result.object.value.kind === 'stream' ? result.object.value.dictionary.get(pdfName('Length').bytes) : undefined;
 
@@ -110,5 +115,15 @@ describe('indirect object parser', () => {
 
   it('rejects stream data with no endstream', () => {
     expect(() => parse('1 0 obj <<>> stream\nabc')).toThrow(new ParseError('stream data has no endstream keyword', 20));
+  });
+
+  it('reads a Length past the end of the source in the segment itself and copies data out of copied windows', () => {
+    const first = encode('1 0 obj <</Length 999999>> stream\nabc\nendstream endobj\n');
+    const second = encode('2 0 obj <</Length 10>> stream\n0123');
+    const third = encode('456789\nendstream endobj\n');
+    const source = new ByteSource([first, second, third]);
+    const inSegment = dataOf(parseInSource(source, 0));
+    const across = dataOf(parseInSource(source, first.length));
+    expect([inSegment.buffer === first.buffer, across.buffer.byteLength]).toStrictEqual([true, 10]);
   });
 });

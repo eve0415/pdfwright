@@ -37,10 +37,13 @@ export interface StoredObject {
 // Heap bytes per source byte of a parsed dictionary, rounded up from the 10-entry page dictionary measured at 5,619 bytes of heap for about 150 source bytes.
 const HEAP_PER_SOURCE_BYTE = 40;
 
-const cost = (object: StoredObject): number => {
-  const { source } = object;
-  const end = source.kind === 'file' ? (source.stream?.dictionaryEnd ?? source.valueEnd) : source.valueEnd;
-  return HEAP_PER_SOURCE_BYTE * (end - source.valueStart) + 128;
+// Stream data is free while it is a view of the source; data copied out of a window counts in full.
+const cost = (object: StoredObject, source: ByteSource): number => {
+  const span = object.source;
+  const end = span.kind === 'file' ? (span.stream?.dictionaryEnd ?? span.valueEnd) : span.valueEnd;
+  const { value } = object;
+  const data = value.kind === 'stream' && !source.segments.some(segment => segment.buffer === value.data.buffer) ? value.data.byteLength : 0;
+  return HEAP_PER_SOURCE_BYTE * (end - span.valueStart) + 128 + data;
 };
 
 // Decoded object streams kept at once; each is decoded again on demand after eviction.
@@ -64,11 +67,11 @@ export class ObjectStore {
 
   private remember(object: StoredObject): void {
     this.cache.set(object.objectNumber, object);
-    this.cached += cost(object);
+    this.cached += cost(object, this.source);
     for (const [number, oldest] of this.cache) {
       if (this.cached <= this.context.parsedObjectCacheBytes || number === object.objectNumber) break;
       this.cache.delete(number);
-      this.cached -= cost(oldest);
+      this.cached -= cost(oldest, this.source);
     }
   }
 
