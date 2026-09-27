@@ -18,12 +18,15 @@ export class LoadLog {
     this.warnings.push(warning);
   }
 
-  /** Runs `attempt` with its warnings held back; they are kept only if it returns. */
+  /** Runs `attempt` with its warnings held back; they are kept only if it returns, and warnings given to its callback later go straight to the log. */
   attempt<T>(attempt: (warn: (warning: LoadWarning) => void) => T): T {
     const held: LoadWarning[] = [];
+    let settled = false;
     const result = attempt(warning => {
-      held.push(warning);
+      if (settled) this.warn(warning);
+      else held.push(warning);
     });
+    settled = true;
     for (const warning of held) this.warn(warning);
     return result;
   }

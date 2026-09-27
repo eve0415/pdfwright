@@ -13,6 +13,7 @@ import type { DocumentStructure, LoadSession, ReadStructure, SaveBase } from './
 import type { ResourceNumbers } from './resourceRecord.ts';
 import type { Separation, SeparationOptions } from './separation.ts';
 
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
@@ -242,8 +243,8 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     try {
       read = readFromChain(session, header);
     } catch (error: unknown) {
-      // Only damage leads to a reconstruction; encryption, resource limits and unsupported features propagate.
-      if (!(error instanceof ParseError)) throw error;
+      // Only damage leads to a reconstruction; encryption, resource limits, unsupported features and references readers disagree about propagate.
+      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError) throw error;
       reason = error.message;
     }
   }

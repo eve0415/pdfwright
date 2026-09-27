@@ -4,6 +4,7 @@ import type { FileSource } from '../parse/indirectObject.ts';
 import type { ObjectIndex } from '../xref/objectIndex.ts';
 import type { DecodedObjectStream, ObjectStreamContext } from '../xref/objectStream.ts';
 
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { parseIndirectObject } from '../parse/indirectObject.ts';
 import { COMPRESSED, IN_FILE } from '../xref/objectIndex.ts';
@@ -178,7 +179,7 @@ export class ObjectStore {
     const expected = entry.type === IN_FILE ? entry.generation : 0;
     if (generation !== expected) {
       const detail = `reference ${String(objectNumber)} ${String(generation)} R names generation ${String(generation)}, but the in-use entry has generation ${String(expected)}`;
-      if (this.context.generationMismatch === 'error') throw new ParseError(detail, entry.type === IN_FILE ? entry.location : 0);
+      if (this.context.generationMismatch === 'error') throw new GenerationMismatchError(detail, entry.type === IN_FILE ? entry.location : 0);
       this.context.warn({ code: 'generation-mismatch', detail, objectNumber });
       return { kind: 'null' };
     }

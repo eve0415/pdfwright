@@ -60,6 +60,18 @@ describe('loading documents', () => {
     expect([summary(junk), junk.structure.headerOffset, junk.catalog().size]).toStrictEqual([['tolerated', ['junk-before-header']], 4, 2]);
   });
 
+  it('reads absolute offsets after leading bytes when header-relative ones do not describe the file', () => {
+    const absolute = buildPdf([{ xref: 'classic', objects: [catalog, pages], trailer: '/Root 1 0 R' }], { prefix: 'JUNKJUNKJUNKJUN' });
+    const document = loadDocument(absolute.bytes);
+    expect(summary(document)).toStrictEqual(['tolerated', ['junk-before-header']]);
+  });
+
+  it('keeps a generation mismatch on Root an error and ignores a damaged first object', () => {
+    expect(() => load(base.text.replace('/Root 1 0 R', '/Root 1 1 R'))).toThrow(ParseError);
+    const damaged = buildPdf([{ xref: 'classic', objects: [{ number: 9, body: '<</X <zz>>>' }, catalog, pages], trailer: '/Root 1 0 R' }]);
+    expect(summary(loadDocument(damaged.bytes))).toStrictEqual(['intact', []]);
+  });
+
   it('frees in-use entries at offset 0 and reports mixed chains', () => {
     const zero = buildPdf([{ xref: 'classic', objects: [catalog, pages, { number: 3, body: '(x)' }], trailer: '/Root 1 0 R' }]);
     const text = edited(zero.text, entryLine(zero.offsets.get(3)), entryLine(0));

@@ -6,6 +6,7 @@ import type { SectionChain } from '../xref/sectionChain.ts';
 import type { LoadLog } from './loadLog.ts';
 import type { StoreContext } from './objectStore.ts';
 
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
@@ -69,30 +70,7 @@ const logged = (session: LoadSession): StoreContext =>
     session.log.warn(warning);
   });
 
-interface ReadChain {
-  readonly chain: SectionChain;
-  readonly shift: number;
-}
-
-const readChain = (session: LoadSession, headerOffset: number): ReadChain => {
-  const startxref = locateStartxref(session.source);
-  if (startxref === undefined) throw new ParseError('no startxref', session.source.length);
-  // Offsets in a file with bytes before its header are read relative to the header first, then as absolute offsets.
-  const [first, ...rest]: [number, ...number[]] = headerOffset > 0 ? [headerOffset, 0] : [0];
-  const attempt = (shift: number): ReadChain => ({
-    chain: session.log.attempt(warn => readSectionChain(session.source, { startxref: startxref.offset, shift }, contextOf(session, warn))),
-    shift,
-  });
-  if (rest.length === 0) return attempt(first);
-  try {
-    return attempt(first);
-  } catch (error: unknown) {
-    if (!(error instanceof ParseError)) throw error;
-    return attempt(0);
-  }
-};
-
-const checkEntryLengths = (chain: SectionChain, log: LoadLog): void => {
+const checkEntryLengths = (chain: SectionChain, log: Pick<LoadLog, 'note' | 'warn'>): void => {
   for (const { section } of chain.sections) {
     if (section.kind !== 'classic') continue;
     const irregular = section.entryLengths.filter(length => length !== 20 && length !== 19);
@@ -105,7 +83,7 @@ const checkEntryLengths = (chain: SectionChain, log: LoadLog): void => {
   }
 };
 
-const linearized = (store: ObjectStore): boolean => {
+const firstObjectIsLinearization = (store: ObjectStore): boolean => {
   let first: number | undefined = undefined;
   let offset = Number.POSITIVE_INFINITY;
   for (const number of store.index.inUse()) {
@@ -120,6 +98,16 @@ const linearized = (store: ObjectStore): boolean => {
   return value?.kind === 'dictionary' && value.entries.has(LINEARIZED);
 };
 
+const linearized = (store: ObjectStore): boolean => {
+  try {
+    return firstObjectIsLinearization(store);
+  } catch (error: unknown) {
+    // The probe reads one object nothing may refer to; a damaged one there is not the linearization dictionary, and it is reported if something reads it.
+    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) return false;
+    throw error;
+  }
+};
+
 const hasCatalog = (store: ObjectStore, trailer: PdfDictionaryEntries): boolean => {
   const root = trailer.get(ROOT);
   if (root?.kind !== 'reference') return false;
@@ -127,17 +115,29 @@ const hasCatalog = (store: ObjectStore, trailer: PdfDictionaryEntries): boolean 
     const catalog = store.resolve(root.objectNumber, root.generation);
     return catalog.kind === 'dictionary' && catalog.entries.has(PAGES);
   } catch (error: unknown) {
-    if (error instanceof ParseError) return false;
+    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) return false;
     throw error;
   }
 };
 
-/** Reads the cross-reference sections as written; a ParseError from here means they must be reconstructed. */
-export const readFromChain = (session: LoadSession, header: HeaderLocation): ReadStructure => {
-  const { chain, shift } = readChain(session, header.offset);
+interface ShiftAttempt {
+  readonly header: HeaderLocation;
+  readonly startxref: number;
+  readonly shift: number;
+}
+
+// One reading of the section chain, with every offset the file gives moved by `shift`; a ParseError means this reading does not describe the file.
+const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warning: LoadWarning) => void): ReadStructure => {
+  const { header, shift } = attempt;
+  const chain = readSectionChain(session.source, { startxref: attempt.startxref, shift }, contextOf(session, warn));
   const sections = searchOrder(chain);
   refuseEncryption(sections.map(section => section.trailer));
-  checkEntryLengths(chain, session.log);
+  checkEntryLengths(chain, {
+    warn,
+    note: warning => {
+      session.log.note(warning);
+    },
+  });
   const index = ObjectIndex.fromSections(sections, shift);
   for (const number of index.inUse()) {
     const entry = index.get(number);
@@ -146,24 +146,17 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
     }
   }
   const mismatch = validateHeaders(session.source, index, objectNumber => {
-    session.log.warn({
-      code: 'xref-entry-offset-zero',
-      detail: `the in-use entry of object ${String(objectNumber)} has offset 0 and is read as free`,
-      objectNumber,
-    });
+    warn({ code: 'xref-entry-offset-zero', detail: `the in-use entry of object ${String(objectNumber)} has offset 0 and is read as free`, objectNumber });
   });
   if (mismatch !== undefined) throw new ParseError(`object ${String(mismatch.objectNumber)} is not at its cross-reference offset`, mismatch.offset);
   const [newest] = chain.sections;
   const trailer = newest?.section.trailer;
-  const store = new ObjectStore(session.source, index, logged(session));
+  const store = new ObjectStore(session.source, index, contextOf(session, warn));
   if (trailer === undefined || !hasCatalog(store, trailer)) throw new ParseError('the trailer has no Root that resolves to a document catalog', 0);
   const size = trailer.get(SIZE);
   // ISO 32000-1:2008, Table 15, Size: objects numbered beyond it "shall be ignored"; every common reader keeps them, and so does pdfwright.
   if (size?.kind === 'integer' && index.size > size.value) {
-    session.log.warn({
-      code: 'trailer-size-too-small',
-      detail: `trailer Size ${String(size.value)} is not above the highest object number ${String(index.size - 1)}`,
-    });
+    warn({ code: 'trailer-size-too-small', detail: `trailer Size ${String(size.value)} is not above the highest object number ${String(index.size - 1)}` });
   }
   const structure: DocumentStructure = {
     status: 'intact',
@@ -178,6 +171,24 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
   };
   const base = newest === undefined ? undefined : { trailerStart: newest.section.trailerStart, trailerEnd: newest.section.trailerEnd, shift };
   return base === undefined ? { store, structure } : { store, structure, base };
+};
+
+/**
+ * Reads the cross-reference sections as written; a ParseError from here means they must be reconstructed.
+ * Offsets in a file with bytes before its header are read relative to the header first, then as absolute offsets, and each reading must describe the whole file.
+ */
+export const readFromChain = (session: LoadSession, header: HeaderLocation): ReadStructure => {
+  const startxref = locateStartxref(session.source);
+  if (startxref === undefined) throw new ParseError('no startxref', session.source.length);
+  const shifts = header.offset > 0 ? [header.offset, 0] : [0];
+  for (const [position, shift] of shifts.entries()) {
+    try {
+      return session.log.attempt(warn => readWithShift(session, { header, startxref: startxref.offset, shift }, warn));
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError || position === shifts.length - 1) throw error;
+    }
+  }
+  throw new ParseError('unreadable cross-reference data', startxref.keyword);
 };
 
 /** Rebuilds the cross-reference data by scanning the file (ISO 32000-1:2008 defines no such procedure; this follows what common readers do). */
