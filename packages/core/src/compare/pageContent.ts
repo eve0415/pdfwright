@@ -12,6 +12,7 @@ import { decodeStream } from '../filter/decodeStream.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { readOperations } from './contentTokens.ts';
+import { duplicatesOf, reportDuplicates } from './duplicateKeys.ts';
 import { sameText } from './resolvedText.ts';
 
 const CONTENTS = pdfName('Contents').bytes;
@@ -144,6 +145,10 @@ export const comparePageContent = (page: number, sides: PageSides, differences: 
   const left = readReferences(page, [sides.a, sides.pageA, 'a'], differences);
   const right = readReferences(page, [sides.b, sides.pageB, 'b'], differences);
   if (left === undefined || right === undefined) return;
+  // A content stream's dictionary is read like any other (ISO 32000-1:2008, 7.3.7).
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    reportDuplicates(['page', page, 'Contents', index], [duplicatesOf(sides.a, left[index]), duplicatesOf(sides.b, right[index])], differences);
+  }
   if (left.length === right.length && left.every((reference, index) => sameStored(sides, [reference, right[index]]))) return;
   const decoded: Record<Side, Decoded> = { a: joinedContent(sides.a, left), b: joinedContent(sides.b, right) };
   for (const side of ['a', 'b'] as const) {

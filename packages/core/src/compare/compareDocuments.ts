@@ -4,6 +4,7 @@ import type { BoxName, EffectiveBoxes } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { Unreadable } from './attributes.ts';
+import type { DuplicateKey } from './duplicateKeys.ts';
 import type { CompareOptions, DifferenceArea, DocumentComparison, FontIdentity, PdfDifference, ValuePath } from './pdfDifference.ts';
 import type { GraphContext } from './valueGraph.ts';
 
@@ -23,6 +24,7 @@ import {
   pageDictionary,
 } from './attributes.ts';
 import { DocumentFonts } from './documentFonts.ts';
+import { duplicateKeys, reportDuplicates, trailerDuplicateKeys, withinEntry } from './duplicateKeys.ts';
 import { fontSet } from './fontSet.ts';
 import { comparePageContent } from './pageContent.ts';
 import { comparePieceInfo } from './pieceInfo.ts';
@@ -41,6 +43,7 @@ const AREAS: readonly DifferenceArea[] = [
 ];
 const BOXES: readonly BoxName[] = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
 const RESOURCES = pdfName('Resources').bytes;
+const INHERITABLE = ['Resources', 'MediaBox', 'CropBox', 'Rotate'];
 
 interface Sides {
   readonly a: DocumentInternals;
@@ -117,6 +120,22 @@ class Comparison {
     return this.read(side, ['page', page, 'Resources'], () => inherited(this.sides[side].objects, entry, RESOURCES)?.value);
   }
 
+  // An attribute a page inherits (ISO 32000-1:2008, 7.7.3.4) is read from the ancestor that holds it, so that ancestor's duplicate keys within it count for the page.
+  private inheritedDuplicates(page: number, entries: readonly [PageEntry, PageEntry]): void {
+    const holderDuplicates = (side: 'a' | 'b', key: string): Map<string, DuplicateKey> => {
+      const entry = side === 'a' ? entries[0] : entries[1];
+      try {
+        const found = inherited(this.sides[side].objects, entry, pdfName(key).bytes);
+        return found?.from === undefined ? new Map<string, DuplicateKey>() : withinEntry(duplicateKeys(this.sides[side], found.from.objectNumber), key);
+      } catch (error: unknown) {
+        // The areas that read the attribute report a value that cannot be parsed.
+        if (error instanceof ParseError) return new Map<string, DuplicateKey>();
+        throw error;
+      }
+    };
+    for (const key of INHERITABLE) reportDuplicates(['page', page], [holderDuplicates('a', key), holderDuplicates('b', key)], this.differences);
+  }
+
   private boxes(page: number, [entryA, entryB]: readonly [PageEntry, PageEntry]): void {
     const boxesA = this.read('a', ['page', page], () => effectiveBoxes(this.sides.a.objects, entryA));
     const boxesB = this.read('b', ['page', page], () => effectiveBoxes(this.sides.b.objects, entryB));
@@ -184,6 +203,7 @@ class Comparison {
     if (include.has('pageAttributes')) {
       comparePageAttributes(sides, { page, a: entryA, b: entryB }, differences);
       compareDuplicateKeys(sides, { where: ['page', page], a: entryA.reference, b: entryB.reference }, differences);
+      this.inheritedDuplicates(page, [entryA, entryB]);
     }
     if (include.has('fonts')) this.pageFonts(page, [entryA, entryB], resources);
   }
@@ -218,6 +238,7 @@ class Comparison {
     if (include.has('documentAttributes')) {
       compareDocumentAttributes(sides, differences);
       compareDuplicateKeys(sides, { where: ['Root'], a: catalogReference(sides.a), b: catalogReference(sides.b) }, differences);
+      reportDuplicates(['trailer'], [trailerDuplicateKeys(sides.a), trailerDuplicateKeys(sides.b)], differences);
     }
   }
 }

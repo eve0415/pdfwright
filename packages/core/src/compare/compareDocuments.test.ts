@@ -103,6 +103,16 @@ const duplicated = (resources: string): Uint8Array =>
     { number: 7, body: '<</CS0/DeviceRGB/CS0/DeviceCMYK>>' },
   ]);
 
+const emptyPages = { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' };
+
+const holding = (pages: string, page: string, objects: readonly TestObject[]): Uint8Array =>
+  pdf([
+    { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]${pages}>>` },
+    { number: 3, body: `<</Type/Page/Parent 2 0 R${page}>>` },
+    { number: 6, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+    ...objects,
+  ]);
+
 describe('document comparison: duplicate keys', () => {
   it.each(['<</ColorSpace<</CS0/DeviceRGB/CS0/DeviceCMYK>>>>', '<</ColorSpace 7 0 R>>'])('reports a duplicate key that an edit settled in %s', resources => {
     const bytes = duplicated(resources);
@@ -119,5 +129,35 @@ describe('document comparison: duplicate keys', () => {
       key: Uint8Array.of(0x43, 0x53, 0x30),
       document: 'a',
     });
+  });
+
+  it.each([
+    {
+      name: 'an inherited resource dictionary',
+      a: holding('/Resources<</Font<</F1 6 0 R/F1 6 0 R>>>>', '', []),
+      b: holding('/Resources<</Font<</F1 6 0 R>>>>', '', []),
+      where: ['page', 0, 'Resources', 'Font'],
+    },
+    {
+      name: 'a content stream dictionary',
+      a: holding('', '/Contents 5 0 R', [{ number: 5, body: '<</Length 0/Length 0>>stream\n\nendstream' }]),
+      b: holding('', '/Contents 5 0 R', [{ number: 5, body: '<</Length 0>>stream\n\nendstream' }]),
+      where: ['page', 0, 'Contents', 0],
+    },
+    {
+      name: 'an indirect PieceInfo',
+      a: holding('', '/PieceInfo 7 0 R', [{ number: 7, body: '<</App<</Private 1/Private 1>>>>' }]),
+      b: holding('', '/PieceInfo 7 0 R', [{ number: 7, body: '<</App<</Private 1>>>>' }]),
+      where: ['page', 0, 'PieceInfo', 'App'],
+    },
+    {
+      name: 'the trailer',
+      a: buildPdf([{ xref: 'classic', objects: [catalog, emptyPages], trailer: '/Root 1 0 R/Root 1 0 R' }]).bytes,
+      b: buildPdf([{ xref: 'classic', objects: [catalog, emptyPages], trailer: '/Root 1 0 R' }]).bytes,
+      where: ['trailer'],
+    },
+  ])('reports a duplicate key in $name', ({ a, b, where }) => {
+    const { differences } = compareDocuments(loadDocument(a), loadDocument(b));
+    expect(differences).toMatchObject([{ kind: 'ambiguous-duplicate-key', where, document: 'a' }]);
   });
 });

@@ -1,13 +1,15 @@
 import type { EditedObjects } from './editedObjects.ts';
 import type { LoadedDocument } from './loadDocument.ts';
 import type { PageEntry } from './pageTree.ts';
-import type { DocumentStructure } from './readStructure.ts';
+import type { DocumentStructure, SaveBase } from './readStructure.ts';
 
 /** What other parts of the library read from a loaded document; the public interface does not expose it. */
 export interface DocumentInternals {
   readonly objects: EditedObjects;
   readonly pages: readonly PageEntry[];
   readonly structure: DocumentStructure;
+  /** Where the newest trailer is in the source, when the cross-reference data was read rather than reconstructed. */
+  readonly base: SaveBase | undefined;
   readonly maxDecodedBytes: number;
   readonly maxNesting: number;
 }

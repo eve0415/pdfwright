@@ -10,7 +10,7 @@ import type { GraphContext } from './valueGraph.ts';
 import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
-import { duplicateKeys } from './duplicateKeys.ts';
+import { duplicateKeys, reportDuplicates } from './duplicateKeys.ts';
 import { ValueGraph } from './valueGraph.ts';
 
 interface Sides {
@@ -128,12 +128,7 @@ export const compareDuplicateKeys = (
 ): void => {
   const left = objects.a === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.a, objects.a.objectNumber);
   const right = objects.b === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.b, objects.b.objectNumber);
-  for (const [place, { where, key }] of left) {
-    if (!right.has(place)) differences.push({ kind: 'ambiguous-duplicate-key', where: [...objects.where, ...where], key, document: 'a' });
-  }
-  for (const [place, { where, key }] of right) {
-    if (!left.has(place)) differences.push({ kind: 'ambiguous-duplicate-key', where: [...objects.where, ...where], key, document: 'b' });
-  }
+  reportDuplicates(objects.where, [left, right], differences);
 };
 
 type Side = 'a' | 'b';

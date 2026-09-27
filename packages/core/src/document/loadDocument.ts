@@ -140,6 +140,7 @@ class LoadedPdf implements LoadedDocument {
       objects: this.objects,
       pages: this.pages,
       structure: this.read,
+      base: this.base,
       maxDecodedBytes: parts.maxDecodedBytes,
       maxNesting: parts.maxNesting,
     });

@@ -8,6 +8,7 @@ import { ParseError } from '../error/parseError.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { originalValue } from '../save/originalValue.ts';
 
+import { duplicatesOf, reportDuplicates } from './duplicateKeys.ts';
 import { ValueGraph } from './valueGraph.ts';
 
 const PIECE_INFO = pdfName('PieceInfo').bytes;
@@ -87,6 +88,8 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
       differences.push({ kind: 'ambiguous-duplicate-key', where: [...ownerPath(owner.owner), ...where], key, document });
     },
   });
+  const where = ownerPath(owner.owner);
+  reportDuplicates([...where, PIECE_INFO_NAME], [duplicatesOf(sides.a, pieceA), duplicatesOf(sides.b, pieceB)], differences);
   const dataA = dictionaryOf(read(sides.a, pieceA));
   const dataB = dictionaryOf(read(sides.b, pieceB));
   const values = new ValueGraph(sides, report('value'));
@@ -95,6 +98,7 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
     const applications = new Set([...dataA.entries(), ...dataB.entries()].map(([key]) => latin1(key)));
     for (const application of applications) {
       const key = pdfName(application).bytes;
+      reportDuplicates([...where, PIECE_INFO_NAME, application], [duplicatesOf(sides.a, dataA.get(key)), duplicatesOf(sides.b, dataB.get(key))], differences);
       const appA = dictionaryOf(read(sides.a, dataA.get(key)));
       const appB = dictionaryOf(read(sides.b, dataB.get(key)));
       if (appA === undefined || appB === undefined) values.compare(dataA.get(key), dataB.get(key), [...path, application]);
