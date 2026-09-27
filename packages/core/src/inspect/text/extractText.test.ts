@@ -122,6 +122,21 @@ const type3Glyphs = (content: string, { matrix, bbox = '0 0 0 0', procedure }: {
 
 const shownIn = (content: string, cidFont = ''): readonly PageGlyph[] => glyphs(content, vertical(cidFont), '/Font<</V 105 0 R>>');
 
+const notdef = (content: string, objects: readonly TestObject[]): unknown[][] =>
+  glyphs(content, objects, '/Font<</T 105 0 R>>').map(glyph => [glyph.notdef, glyph.reason, glyph.actualText]);
+
+const cidNotdefFont = (map: string): readonly TestObject[] => [
+  { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
+  {
+    number: 106,
+    body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/CIDToGIDMap ${map}/FontDescriptor 111 0 R>>`,
+  },
+  { number: 107, body: streamBody('', 'begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <0001> <0041> endbfchar endcmap') },
+  { number: 108, body: streamBody('', '\u0000\u0000\u0000\u0000') },
+];
+
+const clipped = (clip: string): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET`).map(glyph => glyph.clip);
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -435,6 +450,119 @@ describe('text extraction', () => {
       expect([round(d0.quad), round(space.quad)]).toStrictEqual([
         [100, 197, 110, 197, 110, 209, 100, 209],
         [100, 197, 110, 197, 110, 209, 100, 209],
+      ]);
+    });
+  });
+
+  describe('visibility', () => {
+    const states = '/ExtGState<</Clear<</ca 0>>/NoStroke<</CA 0>>/Half<</ca 0.5>>/Masked<</SMask<</S/Luminosity/G 125 0 R>>>>>>';
+    const maskGroup: TestObject = {
+      number: 125,
+      body: streamBody(
+        `/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency/CS/DeviceGray>>/Resources<<${FONT_RESOURCES}>>`,
+        'BT /F1 10 Tf (B) Tj ET',
+      ),
+    };
+    const flags = (content: string, objects: readonly TestObject[] = [], resources = ''): unknown[][] =>
+      glyphs(content, [maskGroup, ...objects], `${FONT_RESOURCES}${states}${resources}`).map(glyph => [glyph.visible, glyph.invisibleBecause]);
+
+    it('makes render modes 3 and 7 invisible', () => {
+      // 9.3.6, Table 106: mode 3 is "Neither fill nor stroke text (invisible)" and mode 7 "Add text to path for clipping".
+      expect(flags('BT /F1 10 Tf 1 Tr (A) Tj 3 Tr (A) Tj 7 Tr (A) Tj ET')).toStrictEqual([
+        [true, undefined],
+        [false, 'render-mode'],
+        [false, 'render-mode'],
+      ]);
+    });
+
+    it('makes text invisible when every paint of its render mode has alpha 0', () => {
+      const shown = glyphs('BT /F1 10 Tf /Clear gs (A) Tj 2 Tr (A) Tj 0 Tr /NoStroke gs 1 Tr (A) Tj ET', [maskGroup], `${FONT_RESOURCES}${states}`);
+      expect(shown.map(glyph => [glyph.visible, glyph.invisibleBecause, glyph.fillAlpha, glyph.strokeAlpha])).toStrictEqual([
+        [false, 'alpha', 0, 1],
+        [true, undefined, 0, 1],
+        [false, 'alpha', 0, 0],
+      ]);
+    });
+
+    it('applies the alpha of an enclosing transparency group', () => {
+      // 11.6.4.4: "The nonstroking alpha constant shall also be applied when painting a transparency group’s results onto its backdrop".
+      const group = {
+        number: 126,
+        body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency>>/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf (A) Tj ET'),
+      };
+      expect(flags('/Clear gs /G Do', [group], '/XObject<</G 126 0 R>>')).toStrictEqual([[false, 'alpha']]);
+    });
+
+    it('keeps text under a soft mask visible and makes text inside the mask group invisible', () => {
+      const shown = glyphs('/Masked gs BT /F1 10 Tf (A) Tj ET', [maskGroup], `${FONT_RESOURCES}${states}`);
+      expect(shown.map(glyph => [latin1Text(glyph.code), glyph.source.kind, glyph.visible, glyph.invisibleBecause, glyph.softMasked])).toStrictEqual([
+        ['B', 'soft-mask', false, 'soft-mask-group', false],
+        ['A', 'page', true, undefined, true],
+      ]);
+    });
+
+    it('makes text with a degenerate rendering matrix invisible', () => {
+      expect(flags('BT /F1 10 Tf 0 Tz (A) Tj ET 0.0001 0 0 0.0001 0 0 cm BT /F1 10 Tf (A) Tj ET')).toStrictEqual([
+        [false, 'degenerate'],
+        [false, 'degenerate'],
+      ]);
+    });
+
+    it('marks glyphs a later opaque rectangle covers, but not under a translucent or an earlier one', () => {
+      const shown = glyphs(
+        'BT /F1 10 Tf 100 200 Td (A) Tj ET BT /F1 10 Tf 300 200 Td (A) Tj ET BT /F1 10 Tf 500 200 Td (A) Tj ET 1 g 90 190 30 30 re f q /Half gs 290 190 30 30 re f Q 490 190 30 30 re f',
+        [],
+        `${FONT_RESOURCES}${states}`,
+      );
+      expect(shown.map(glyph => glyph.covered)).toStrictEqual([true, false, true]);
+      expect(glyphs('1 g 90 190 30 30 re f BT /F1 10 Tf 100 200 Td (A) Tj ET').map(glyph => glyph.covered)).toStrictEqual([false]);
+    });
+
+    it('classifies glyphs against Bézier and polygon clips with both fill rules', () => {
+      // A circle of radius 50 around (300, 300) drawn with Bézier curves, which the glyph at (100, 200) lies outside.
+      const circle = '350 300 m 350 327.6 327.6 350 300 350 c 272.4 350 250 327.6 250 300 c 250 272.4 272.4 250 300 250 c 327.6 250 350 272.4 350 300 c h W n';
+      // Two overlapping squares drawn in the same direction: their overlap winds twice, inside by the nonzero rule and outside by the even-odd rule.
+      const squares = '50 150 m 150 150 l 150 250 l 50 250 l h 80 180 m 180 180 l 180 280 l 80 280 l h';
+      expect([
+        clipped(circle),
+        clipped(`${squares} W n`),
+        clipped(`${squares} W* n`),
+        clipped('0 0 m 104 0 l 104 800 l 0 800 l h W n'),
+        clipped(''),
+      ]).toStrictEqual([['outside'], ['inside'], ['outside'], ['partial'], ['inside']]);
+    });
+
+    it('makes a Type 3 glyph whose procedure paints nothing invisible and empty', () => {
+      const glyph = one(type3Glyphs('BT /T 10 Tf (a) Tj ET', { matrix: '0.001 0 0 0.001 0 0', procedure: '1000 0 0 0 800 700 d1' }));
+      expect([glyph.visible, glyph.invisibleBecause, glyph.empty]).toStrictEqual([false, 'empty-glyph', true]);
+    });
+  });
+
+  describe('notdef glyphs', () => {
+    it('marks CID 0 and glyph index 0 as notdef', () => {
+      // 9.7.6.3: "the glyph for CID 0 (which shall be present)" is the substitute; glyph index 0 is the TrueType .notdef glyph.
+      expect(notdef('BT /T 10 Tf <00000001> Tj ET', cidNotdefFont('/Identity'))).toStrictEqual([
+        [true, 'notdef', undefined],
+        [false, undefined, undefined],
+      ]);
+      expect(notdef('BT /T 10 Tf <0001> Tj ET', cidNotdefFont('108 0 R'))).toStrictEqual([[true, 'notdef', undefined]]);
+    });
+
+    it('marks a Type 3 name without a procedure, and g0 of a Chromium-shaped font inside and outside ActualText', () => {
+      // 9.6.5: "If the name is not present as a key in CharProcs, no glyph shall be painted"; Chromium draws the source font's .notdef, glyph 0, as g0.
+      const chromium: readonly TestObject[] = [
+        {
+          number: 105,
+          body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</g0 106 0 R/g1A 106 0 R>>/Encoding<</Differences[0/g0/g1A/g2B]>>/FirstChar 0/LastChar 2/Widths[1000 1000 1000]/FontDescriptor 111 0 R/ToUnicode 107 0 R>>',
+        },
+        { number: 106, body: streamBody('', '1000 0 100 -880 900 120 d1 100 -880 800 1000 re f') },
+        { number: 107, body: streamBody('', 'begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <01> <5C71> endbfchar endcmap') },
+      ];
+      expect(notdef('BT /T 10 Tf <00> Tj /Span <</ActualText <FEFFDB80DC01>>> BDC <00> Tj EMC <0102> Tj ET', chromium)).toStrictEqual([
+        [true, 'notdef', undefined],
+        [true, 'notdef', 0],
+        [false, undefined, undefined],
+        [true, 'notdef', undefined],
       ]);
     });
   });

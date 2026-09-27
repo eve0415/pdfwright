@@ -1,6 +1,6 @@
-import type { Quad } from '../../content/clip.ts';
+import type { ClipClass, Quad } from '../../content/clip.ts';
 import type { InspectWarning } from '../../content/inspectWarning.ts';
-import type { ContentSource, MarkedContent, TextShowEvent } from '../../content/interpreter.ts';
+import type { ContentSource, CoverEvent, GraphicsState, MarkedContent, TextShowEvent } from '../../content/interpreter.ts';
 import type { DocumentInternals } from '../../document/documentInternals.ts';
 import type { LoadedDocument } from '../../document/loadDocument.ts';
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
@@ -8,7 +8,7 @@ import type { FontGlyph, FontModel } from '../../font/fontModel.ts';
 import type { PdfReference } from '../../object/pdfObject.ts';
 import type { ActualTextSpan } from './textUnits.ts';
 
-import { interpretPage } from '../../content/interpreter.ts';
+import { FILLING_MODES, STROKING_MODES, interpretPage } from '../../content/interpreter.ts';
 import { unreadable } from '../../content/unreadable.ts';
 import { internalsOf } from '../../document/documentInternals.ts';
 import { createInheritedCache, effectiveBoxes } from '../../document/loadedPage.ts';
@@ -34,6 +34,9 @@ export type GlyphSource =
  * Why a glyph has no text, or `notdef` for a .notdef glyph whatever its text: its code selects the font's .notdef glyph; nothing maps it; its text depends on a predefined CMap or a registry–ordering–UCS2 map the CMap provider did not supply; or the font cannot decode the string.
  */
 export type GlyphTextReason = 'notdef' | 'no-mapping' | 'predefined-cmap-unavailable' | 'undecodable';
+
+/** Why a glyph paints nothing that can be seen; the first that applies, in this order. */
+export type InvisibleBecause = 'render-mode' | 'alpha' | 'soft-mask-group' | 'degenerate' | 'empty-glyph';
 
 /** A marked-content sequence a glyph lies in (ISO 32000-1:2008, 14.6), with the MCID its property list gives (14.7.4.2). */
 export interface GlyphMarkedContent {
@@ -64,6 +67,8 @@ export interface PageGlyph {
   readonly reason: GlyphTextReason | undefined;
   /** Whether the code selects the font's .notdef glyph. */
   readonly notdef: boolean;
+  /** Whether the glyph is a Type 3 glyph whose procedure paints nothing. */
+  readonly empty: boolean;
   /** The index in `PageText.actualText` of the outermost ActualText span the glyph is shown in. */
   readonly actualText: number | undefined;
   /** The font's writing mode, as stored. */
@@ -78,6 +83,22 @@ export interface PageGlyph {
   readonly fontSize: number;
   /** Tr, 0 to 7 (ISO 32000-1:2008, 9.3.6, Table 106). */
   readonly renderMode: number;
+  /**
+   * False for render modes 3 and 7, text whose render mode paints only at alpha 0, text inside a soft mask's transparency group, a degenerate rendering matrix, and an empty Type 3 glyph.
+   * Text painted under a soft mask stays visible, with `softMasked` set.
+   */
+  readonly visible: boolean;
+  readonly invisibleBecause: InvisibleBecause | undefined;
+  /** The nonstroking alpha the glyph is seen at: the ExtGState ca in force times the alpha of the transparency groups it is drawn in. */
+  readonly fillAlpha: number;
+  /** The stroking alpha, CA, times the alpha of the enclosing transparency groups. */
+  readonly strokeAlpha: number;
+  /** Whether a soft mask was active where the glyph was painted, by an ExtGState SMask or on an enclosing transparency group. */
+  readonly softMasked: boolean;
+  /** Whether a later opaque fill of a rectangle with sides parallel to the page axes covers the whole advance box. Fills of other shapes, images and shadings are not considered. */
+  readonly covered: boolean;
+  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit. */
+  readonly clip: ClipClass;
   /** False after a glyph whose width is unknown or a string that could not be split, until a text-positioning operator sets the position again. */
   readonly positionKnown: boolean;
   /** Whether the box's vertical extent is the default guess, because neither the font descriptor nor a bounding box gives one. */
@@ -150,8 +171,38 @@ const unsplitText = (unsplit: NonNullable<TextShowEvent['unsplit']>): Pick<PageG
   reason: unsplit.kind === 'cmap-unavailable' ? 'predefined-cmap-unavailable' : 'undecodable',
 });
 
+// ISO 32000-1:2008, 9.3.6, Table 106 and 8.4.5, Table 58: what a glyph's render mode paints with, and whether any of it is seen; a transparency group's alpha applies to everything in it (11.6.4.4).
+const invisibility = (
+  state: GraphicsState,
+  { sources, degenerate, empty }: { sources: readonly ContentSource[]; degenerate: boolean; empty: boolean },
+): InvisibleBecause | undefined => {
+  const { renderMode } = state;
+  const fills = FILLING_MODES.has(renderMode);
+  const strokes = STROKING_MODES.has(renderMode);
+  if (!fills && !strokes) return 'render-mode';
+  const seen = (fills && state.fillAlpha * state.group.alpha > 0) || (strokes && state.strokeAlpha * state.group.alpha > 0);
+  if (!seen) return 'alpha';
+  if (sources.some(source => source.kind === 'soft-mask')) return 'soft-mask-group';
+  if (degenerate) return 'degenerate';
+  return empty ? 'empty-glyph' : undefined;
+};
+
+// A point on a rectangle's edge counts as covered.
+const COVER_TOLERANCE = 1e-6;
+
+const coversQuad = ([left, bottom, right, top]: CoverEvent['rectangle'], quad: Quad): boolean => {
+  for (let index = 0; index < quad.length; index += 2) {
+    const x = quad[index] ?? Number.NaN;
+    const y = quad[index + 1] ?? Number.NaN;
+    if (!(x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE)) return false;
+  }
+  return true;
+};
+
 class TextCollector {
   readonly glyphs: PageGlyph[] = [];
+  // The interpreter's event sequence of each glyph's text-show event, so that only fills after it can cover it.
+  readonly sequences: number[] = [];
   readonly spans: ActualTextSpans;
   private readonly document: DocumentInternals;
 
@@ -172,6 +223,9 @@ class TextCollector {
     ): void => {
       const geometry = glyphGeometry(font, glyph, { state, textMatrix: place.textMatrix });
       const index = this.glyphs.length;
+      const empty = glyph?.empty ?? false;
+      const invisibleBecause = invisibility(state, { sources: event.context.sources, degenerate: geometry.degenerate, empty });
+      this.sequences.push(event.sequence);
       this.glyphs.push({
         index,
         code: glyph?.bytes ?? event.string,
@@ -182,6 +236,7 @@ class TextCollector {
         toUnicode: glyph?.toUnicode ?? null,
         encodingText: glyph?.encodingText ?? null,
         notdef: glyph?.notdef ?? false,
+        empty,
         actualText: this.spans.add(index, event.markedContent),
         writingMode: font.writingMode,
         origin: geometry.origin,
@@ -189,6 +244,13 @@ class TextCollector {
         quad: geometry.quad,
         fontSize: geometry.fontSize,
         renderMode: state.renderMode,
+        visible: invisibleBecause === undefined,
+        invisibleBecause,
+        fillAlpha: state.fillAlpha * state.group.alpha,
+        strokeAlpha: state.strokeAlpha * state.group.alpha,
+        softMasked: state.softMask !== undefined || state.group.softMasked,
+        covered: false,
+        clip: state.clip.classifyQuad(geometry.quad),
         positionKnown: place.positionKnown,
         extentEstimated: geometry.extentEstimated,
         source,
@@ -197,6 +259,16 @@ class TextCollector {
     };
     if (unsplit !== undefined) push(undefined, event, unsplitText(unsplit));
     for (const shown of event.glyphs) push(shown.glyph, shown, glyphText(font, shown.glyph));
+  }
+
+  /** The glyphs, each marked covered when an opaque rectangle fill after it covers its box. */
+  covered(covers: readonly CoverEvent[]): PageGlyph[] {
+    if (covers.length === 0) return this.glyphs;
+    return this.glyphs.map((glyph, index) => {
+      const sequence = this.sequences[index] ?? Infinity;
+      const covered = covers.some(cover => cover.sequence > sequence && coversQuad(cover.rectangle, glyph.quad));
+      return covered ? { ...glyph, covered } : glyph;
+    });
   }
 }
 
@@ -221,18 +293,22 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   const parts = internalsOf(document);
   if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
   const collector = new TextCollector(parts);
+  const covers: CoverEvent[] = [];
   const result = interpretPage(parts, pageIndex, {
     fonts: new FontCache(parts, options.cmapProvider),
     annotations: options.annotations ?? 'none',
     text: event => {
       collector.add(event);
     },
+    cover: event => {
+      covers.push(event);
+    },
   });
   const warnings = [...result.warnings];
   const cropBox = cropBoxOf(parts, pageIndex, warnings);
   return {
     page: pageIndex,
-    glyphs: collector.glyphs,
+    glyphs: collector.covered(covers),
     actualText: collector.spans.spans,
     cropBox,
     complete: result.complete && cropBox !== undefined,

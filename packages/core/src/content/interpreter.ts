@@ -323,9 +323,10 @@ const INLINE_FAMILIES = new Map([
   ['Indexed', 'Indexed'],
 ]);
 
-// 9.3.6, Table 106: render modes 0, 2, 4 and 6 fill glyphs; 1, 2, 5 and 6 stroke them; 3 and 7 paint nothing.
-const FILLING_MODES = new Set([0, 2, 4, 6]);
-const STROKING_MODES = new Set([1, 2, 5, 6]);
+/** ISO 32000-1:2008, 9.3.6, Table 106: render modes 0, 2, 4 and 6 fill glyphs. */
+export const FILLING_MODES: ReadonlySet<number> = new Set([0, 2, 4, 6]);
+/** Table 106: render modes 1, 2, 5 and 6 stroke glyphs; 3 and 7 paint nothing. */
+export const STROKING_MODES: ReadonlySet<number> = new Set([1, 2, 5, 6]);
 
 const CONSTRUCTION = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
 

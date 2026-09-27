@@ -12,8 +12,14 @@ export interface GlyphGeometry {
   readonly advance: readonly [number, number];
   readonly quad: Quad;
   readonly fontSize: number;
+  /** Whether the text rendering matrix is degenerate: its absolute determinant is below 10⁻⁶, or the em square is shorter than 0.5 along either axis. */
+  readonly degenerate: boolean;
   readonly extentEstimated: boolean;
 }
+
+// Below these a glyph cannot be seen: a matrix that flattens it, or an em square under half a unit of default user space.
+const DEGENERATE_DETERMINANT = 1e-6;
+const SMALLEST_EM = 0.5;
 
 /**
  * The text rendering matrix of ISO 32000-1:2008, 9.4.4: Trm = [Tfs×Th 0 0 Tfs 0 Trise] × Tm × CTM, mapping text space to the page's default user space.
@@ -140,6 +146,10 @@ export const glyphGeometry = (
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
     fontSize: Math.hypot(trm[2], trm[3]),
+    degenerate:
+      Math.abs(trm[0] * trm[3] - trm[1] * trm[2]) < DEGENERATE_DETERMINANT ||
+      Math.hypot(trm[0], trm[1]) < SMALLEST_EM ||
+      Math.hypot(trm[2], trm[3]) < SMALLEST_EM,
     extentEstimated: box.estimated,
   };
 };
