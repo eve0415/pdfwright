@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { pdfReference } from '../../object/pdfObject.ts';
 import { latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
@@ -285,6 +286,16 @@ describe('text extraction', () => {
     const text = extract({ content: '', entries: '/CropBox[10 20 300 400]' });
     expect([text.page, text.cropBox, text.complete, text.warnings]).toStrictEqual([0, [10, 20, 300, 400], true, []]);
     expect(() => extractText(loadDocument(textPdfBytes({ pages: [{}] })), 1)).toThrow(InvalidArgumentError);
+  });
+
+  it('refuses a page that shows more glyphs than maxGlyphs, counting each execution of a form', () => {
+    const form: TestObject = {
+      number: 120,
+      body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf (AB) Tj ET'),
+    };
+    const page = { content: '/Fm Do /Fm Do /Fm Do', resources: '/XObject<</Fm 120 0 R>>' };
+    expect(extract(page, [form], { maxGlyphs: 6 }).glyphs).toHaveLength(6);
+    expect(() => extract(page, [form], { maxGlyphs: 5 })).toThrow(ResourceLimitError);
   });
 
   describe('glyph text', () => {

@@ -15,6 +15,7 @@ import { unreadable } from '../../content/unreadable.ts';
 import { internalsOf } from '../../document/documentInternals.ts';
 import { createInheritedCache, effectiveBoxes } from '../../document/loadedPage.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { numberOf } from '../../font/fontValues.ts';
 import { FontCache } from '../../font/loadFont.ts';
 import { pdfName } from '../../object/pdfObject.ts';
@@ -146,7 +147,12 @@ export interface ExtractTextOptions {
   readonly annotations?: 'printable' | 'none' | 'all';
   /** Supplies predefined CMaps other than Identity-H and Identity-V, and registry–ordering–UCS2 maps. */
   readonly cmapProvider?: CMapProvider;
+  /** The glyphs the page may show, counting those of a form each time it is drawn; past it ResourceLimitError is thrown. Default 1,000,000. */
+  readonly maxGlyphs?: number;
 }
+
+/** The default for `ExtractTextOptions.maxGlyphs`. */
+const MAX_GLYPHS = 1_000_000;
 
 // The innermost content stream other than the page's own.
 const sourceOf = (sources: readonly ContentSource[]): GlyphSource => {
@@ -256,14 +262,20 @@ class TextCollector {
   private readonly clips: Clip[] = [];
   readonly spans: ActualTextSpans;
   private readonly document: DocumentInternals;
+  private readonly maxGlyphs: number;
 
-  constructor(document: DocumentInternals) {
+  constructor(document: DocumentInternals, maxGlyphs: number) {
     this.document = document;
+    this.maxGlyphs = maxGlyphs;
     this.spans = new ActualTextSpans(document);
   }
 
   add(event: TextShowEvent): void {
     const { font, state } = event;
+    // One Tj is one operation however many glyphs it shows, so maxOperations does not bound the glyphs a page collects.
+    if (this.glyphs.length + event.glyphs.length + (event.unsplit === undefined ? 0 : 1) > this.maxGlyphs) {
+      throw new ResourceLimitError(`the page shows more than maxGlyphs (${String(this.maxGlyphs)}) glyphs`);
+    }
     if (!this.fontModels.has(font.key)) this.fontModels.set(font.key, font);
     const source = sourceOf(event.context.sources);
     const markedContent = markedContentOf(this.document, event.markedContent);
@@ -357,12 +369,12 @@ const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: Inspe
 
 /**
  * The glyphs a page shows, in content order, each with its code, font, text layers and advance box in the page's default user space.
- * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page throws InvalidArgumentError, and content past the interpreter's limits ResourceLimitError.
+ * Damaged content never throws: it becomes warnings and `complete: false`. A page index that is not a page throws InvalidArgumentError, and content past the interpreter's limits or `maxGlyphs` ResourceLimitError.
  */
 export const extractText = (document: LoadedDocument, pageIndex: number, options: ExtractTextOptions = {}): PageText => {
   const parts = internalsOf(document);
   if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
-  const collector = new TextCollector(parts);
+  const collector = new TextCollector(parts, options.maxGlyphs ?? MAX_GLYPHS);
   const covers: CoverEvent[] = [];
   const result = interpretPage(parts, pageIndex, {
     fonts: new FontCache(parts, options.cmapProvider),
