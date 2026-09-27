@@ -634,6 +634,7 @@ class Interpreter {
       colour,
       state,
       resources = stream.dictionary.get(RESOURCES),
+      holder,
     }: {
       stream: PdfStream;
       reference: PdfReference | undefined;
@@ -641,12 +642,14 @@ class Interpreter {
       colour: ColourUse;
       state: GraphicsState;
       resources?: PdfDirectObject | undefined;
+      /** The key of the object holding a direct resource dictionary, when it is not the stream itself. */
+      holder?: string;
     },
   ): Scope {
     const resolved = this.deref(resources);
     const own = resolved === undefined || resolved.kind === 'null' ? undefined : dictionaryOf(resolved);
     const key = reference === undefined ? parent.owner : referenceKey(reference);
-    let owner = key;
+    let owner = holder ?? key;
     if (own === undefined) ({ owner } = this.page);
     else if (resources?.kind === 'reference') owner = referenceKey(resources);
     return {
@@ -950,7 +953,7 @@ class Interpreter {
     const colour = described === 'd1' ? 'd1-glyph' : step.scope.context.colour;
     const state: GraphicsState = { ...this.state, ctm: multiply(font.glyphMatrix, textSpace) };
     // Table 112, Resources: without it the glyph procedures' names "shall be looked up in the resource dictionary of the page on which the font is used".
-    const scope = this.childScope(step.scope, { stream, reference, source, colour, state, resources: font.type3?.resources });
+    const scope = this.childScope(step.scope, { stream, reference, source, colour, state, resources: font.type3?.resources, holder: font.key });
     this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
   }
 

@@ -550,6 +550,20 @@ describe('glyph procedures of Type 3 fonts', () => {
     ]);
   });
 
+  it('names a direct font in the resources of a Type 3 font after the Type 3 font', () => {
+    const DIRECT = '/Resources<</Font<</F9<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>';
+    const { paints } = run({ content: 'BT /T3 10 Tf (ab) Tj ET', resources: '/Font<</T3 110 0 R>>' }, [
+      {
+        number: 110,
+        body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R/b 112 0 R>>/Encoding<</Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[1000 1000]${DIRECT}>>`,
+      },
+      { number: 111, body: streamBody('', '1000 0 d0 BT /F9 1 Tf (A) Tj ET') },
+      { number: 112, body: streamBody('', '1000 0 d0 BT /F9 1 Tf (A) Tj ET') },
+    ]);
+    // The font model's key names a direct font by the nearest indirect object holding its resource dictionary, here the Type 3 font 110.
+    expect(paints.slice(1).map(paint => paint.state.font?.key)).toStrictEqual(['direct:110.0:4639', 'direct:110.0:4639']);
+  });
+
   it('draws no glyph procedures for text that paints nothing', () => {
     const { paints } = run({ content: 'BT /T3 10 Tf 3 Tr (ab) Tj ET', resources: `/Font<</T3 110 0 R/F1 101 0 R>>/ColorSpace<</CS1/DeviceCMYK>>` }, TYPE3);
     expect(paints).toStrictEqual([]);
