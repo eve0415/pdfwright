@@ -26,7 +26,8 @@ export type MetadataFindingCode =
   | 'modification-after-metadata'
   | 'xmp-transcoded'
   | 'opaque-property-kept'
-  | 'info-value-kept';
+  | 'info-value-kept'
+  | 'xmp-value-kept';
 
 /** Something about the document's metadata that a reader or a preflight may need to know. */
 export interface MetadataFinding {

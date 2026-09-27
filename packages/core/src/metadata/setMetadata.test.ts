@@ -158,6 +158,18 @@ const withUnreadInfo = (): LoadedDocument =>
     `${ID}/Info 5 0 R`,
   );
 
+const UNPARSED_XMP = '<xmp:CreateDate>not a date</xmp:CreateDate><pdf:Trapped>maybe</pdf:Trapped>';
+
+const withUnparsedXmp = (info: string): LoadedDocument =>
+  load(
+    '/Metadata 4 0 R',
+    [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(UNPARSED_XMP)) },
+      { number: 5, body: info },
+    ],
+    `${ID}/Info 5 0 R`,
+  );
+
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
@@ -332,6 +344,33 @@ describe('setting document metadata', () => {
         { key: 'Subject', from: 'xmp', discarded: '/Bar' },
         { key: 'CreationDate', from: 'input', discarded: 'Tue May 06 2020' },
         { key: 'ModDate', from: 'input', discarded: '12' },
+      ],
+    ]);
+  });
+
+  it('keeps packet values it cannot read when nothing replaces them, and lists those it replaces', () => {
+    const kept = withUnparsedXmp('<<>>');
+    const change = setMetadata(kept, { modificationDate: MODIFIED, producer: 'P' });
+    const bytes = latin1Text(kept.save().toBytes());
+    const fromInfo = setMetadata(withUnparsedXmp('<</CreationDate(D:2020)/Trapped/True>>'), { modificationDate: MODIFIED });
+    const fromInput = setMetadata(withUnparsedXmp('<<>>'), { modificationDate: MODIFIED, creationDate: null, trapped: 'False' });
+    expect([
+      bytes.includes('<xmp:CreateDate>not a date</xmp:CreateDate>'),
+      bytes.includes('<pdf:Trapped>maybe</pdf:Trapped>'),
+      change.findings.map(finding => finding.code),
+      fromInfo.reconciled,
+      fromInput.reconciled,
+    ]).toStrictEqual([
+      true,
+      true,
+      ['xmp-value-kept', 'xmp-value-kept'],
+      [
+        { key: 'CreationDate', from: 'info', discarded: 'not a date' },
+        { key: 'Trapped', from: 'info', discarded: 'maybe' },
+      ],
+      [
+        { key: 'CreationDate', from: 'input', discarded: 'not a date' },
+        { key: 'Trapped', from: 'input', discarded: 'maybe' },
       ],
     ]);
   });

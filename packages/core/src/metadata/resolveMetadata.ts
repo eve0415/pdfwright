@@ -117,6 +117,12 @@ const storedUnread = (stored: StoredInfo, key: MappedKey): string | undefined =>
   return `a value of type ${value.kind === 'other' ? value.type : value.kind}`;
 };
 
+// What replaces a packet value that cannot be read: the input when it sets the key, else a readable Info value, else nothing.
+const replacer = (inputSet: boolean, infoReadable: boolean): ReconciledValue['from'] | undefined => {
+  if (inputSet) return 'input';
+  return infoReadable ? 'info' : undefined;
+};
+
 const dateToInfo = (value: ParsedPdfDate): InfoAction => ({ kind: 'set', value: pdfString(new TextEncoder().encode(pdfDateText(value))) });
 const dateToXmp = (value: ParsedPdfDate): XmpAction => ({ kind: 'write', value: xmpDateText(value) });
 
@@ -240,14 +246,37 @@ class Resolver {
     return this.storedOr(key, xmp !== undefined, () => this.resolve(key, { info: row?.info, xmp }, TEXT_WRITERS));
   }
 
+  // The packet's text for a key whose value the key's type cannot hold: a date that does not parse, or a Trapped other than True or False.
+  private unparsedXmp(key: MappedKey, typed: (text: string) => boolean): string | undefined {
+    const row = this.row(key);
+    const text = row?.xmp === undefined ? undefined : comparableText(row.xmp);
+    return text !== undefined && !typed(text) ? text : undefined;
+  }
+
+  // A packet value that cannot be read is listed when Info or the input replaces it, and otherwise left as it is, and Info as stored.
+  private unparsed(key: MappedKey, text: string, replacedBy: ReconciledValue['from'] | undefined): KeyPlan | undefined {
+    if (replacedBy !== undefined) {
+      this.reconciled.push({ key, from: replacedBy, discarded: text });
+      return undefined;
+    }
+    if (this.occurrences.get(key)?.length !== 1) return undefined;
+    this.kept.add(key);
+    this.findings.push({ code: 'xmp-value-kept', detail: `${this.row(key)?.property ?? key} cannot be read and was left as it is` });
+    return { info: storedUnread(this.stored, key) === undefined ? REMOVE : KEEP, xmp: KEEP };
+  }
+
   trapped(input: MetadataInput['trapped']): KeyPlan {
+    const row = this.row('Trapped');
+    const unparsedText = this.unparsedXmp('Trapped', text => text === 'True' || text === 'False');
     if (input !== undefined) this.replaceStored('Trapped', 'input');
+    const replacedBy = replacer(input !== undefined, trappedName(row?.info) !== undefined);
+    const kept = unparsedText === undefined ? undefined : this.unparsed('Trapped', unparsedText, replacedBy);
+    if (kept !== undefined) return kept;
     if (input === null) return BOTH_REMOVED;
     if (input !== undefined) return { info: { kind: 'set', value: pdfName(input) }, xmp: TRAPPED_WRITERS.xmp(input) };
     const unread = this.unread('Trapped');
     if (unread !== undefined) return unread;
-    const row = this.row('Trapped');
-    const xmp = trappedName(row?.xmp === undefined ? undefined : comparableText(row.xmp));
+    const xmp = trappedName(row?.xmp === undefined || unparsedText !== undefined ? undefined : comparableText(row.xmp));
     return this.storedOr('Trapped', xmp !== undefined, () => this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS));
   }
 
@@ -264,7 +293,13 @@ class Resolver {
 
   // A date is written to each side to its own precision, from the side that gives more where both agree, so that a coarse date never replaces a finer one and no field or time zone is added (XMP Part 1 8.2.1.2); where they disagree, the authoritative side is kept, and where they cannot be compared, Info, whose time has a zone.
   creationDate(input: PdfDate | null | undefined): KeyPlan {
+    const row = this.row('CreationDate');
+    const unparsedText = this.unparsedXmp('CreationDate', text => parseXmpDate(text) !== undefined);
     if (input !== undefined) this.replaceStored('CreationDate', 'input');
+    const readableInfo = row?.info !== undefined && parsePdfDate(row.info) !== undefined;
+    const replacedBy = replacer(input !== undefined, readableInfo);
+    const kept = unparsedText === undefined ? undefined : this.unparsed('CreationDate', unparsedText, replacedBy);
+    if (kept !== undefined) return kept;
     if (input === null) return BOTH_REMOVED;
     if (input !== undefined) return { info: { kind: 'set', value: pdfDateObject(input) }, xmp: { kind: 'write', value: xmpDateString(input) } };
     const unread = this.unread('CreationDate');
