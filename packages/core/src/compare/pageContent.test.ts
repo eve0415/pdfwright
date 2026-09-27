@@ -83,6 +83,12 @@ describe('page content comparison', () => {
     expect([same.length, same[0] === first, other[1] === same[1], other[2] === same[2]]).toStrictEqual([3, true, false, true]);
   });
 
+  it('keeps the first byte of ASCII base-85 inline image data that follows ID directly', () => {
+    const [, direct] = contentOperations(latin1Bytes('BI /F /A85 ID<~9j~> EI'), 32);
+    const [, spaced] = contentOperations(latin1Bytes('BI /F /A85 ID\n<~9j~> EI'), 32);
+    expect([direct, spaced]).toStrictEqual(['/46 /413835 ID3c7e396a7e3e ID', '/46 /413835 ID3c7e396a7e3e ID']);
+  });
+
   it('compares operations exactly, so strings no digest could tell apart still differ', () => {
     const thueMorse = Array.from({ length: 32 }, (_, index) => index.toString(2).split('1').length % 2);
     const text = (low: string, high: string): string => thueMorse.map(bit => `${high}${low}`.charAt(bit)).join('');

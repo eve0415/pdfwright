@@ -59,10 +59,10 @@ const canonical = (value: PdfDirectObject): string => {
 
 const operatorText = (lexer: Lexer, token: Token): string => new TextDecoder('latin1').decode(lexer.bytes.subarray(token.start, token.end));
 
-// ISO 32000-1:2008, 8.9.7: an inline image's data follows "the ID operator" and a single white-space character, and ends before EI; the data is compared as raw bytes.
+// ISO 32000-1:2008, 8.9.7: "Unless the image uses ASCIIHexDecode or ASCII85Decode as one of its filters, the ID operator shall be followed by a single white-space character, and the next character shall be interpreted as the first byte of image data." The data, up to the white space before EI, is compared as raw bytes.
 const inlineImageData = (lexer: Lexer): string => {
   const { bytes } = lexer;
-  const start = lexer.position + 1;
+  const start = lexer.position + (isWhitespace(bytes[lexer.position] ?? 0) ? 1 : 0);
   for (let position = start; position + 1 < bytes.length; position++) {
     if (
       bytes[position] === 0x45 &&
