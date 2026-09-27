@@ -12,21 +12,18 @@ const CONSTANTS = [
   0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1, 0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 ];
 
-export const md5 = (data: Uint8Array): Uint8Array => {
-  // RFC 1321, 3.1 and 3.2 append a one bit, zeros, then the 64-bit original bit length in little-endian order.
-  const padded = new Uint8Array(Math.ceil((data.length + 9) / 64) * 64);
-  padded.set(data);
-  padded[data.length] = 0x80;
-  const view = new DataView(padded.buffer);
-  const bitLength = BigInt(data.length) * 8n;
-  view.setUint32(padded.length - 8, Number(bitLength & 0xffffffffn), true);
-  view.setUint32(padded.length - 4, Number((bitLength >> 32n) & 0xffffffffn), true);
+export interface Md5 {
+  update: (bytes: Uint8Array) => Md5;
+  digest: () => Uint8Array;
+}
 
-  let stateA = 0x67452301;
-  let stateB = 0xefcdab89;
-  let stateC = 0x98badcfe;
-  let stateD = 0x10325476;
-  for (let block = 0; block < padded.length; block += 64) {
+// RFC 1321, 3.3 initializes the four-word buffer; 3.4 processes each 16-word block with four rounds.
+const processBlocks = (state: Uint32Array, view: DataView, end: number): void => {
+  let stateA = state[0] ?? 0;
+  let stateB = state[1] ?? 0;
+  let stateC = state[2] ?? 0;
+  let stateD = state[3] ?? 0;
+  for (let block = 0; block < end; block += 64) {
     let a = stateA;
     let b = stateB;
     let c = stateC;
@@ -57,11 +54,51 @@ export const md5 = (data: Uint8Array): Uint8Array => {
     stateC = (stateC + c) >>> 0;
     stateD = (stateD + d) >>> 0;
   }
-  const result = new Uint8Array(16);
-  const output = new DataView(result.buffer);
-  output.setUint32(0, stateA, true);
-  output.setUint32(4, stateB, true);
-  output.setUint32(8, stateC, true);
-  output.setUint32(12, stateD, true);
-  return result;
+  state.set([stateA, stateB, stateC, stateD]);
 };
+
+// Hashes input supplied in any number of pieces, holding at most one partial 64-byte block between calls.
+export const createMd5 = (): Md5 => {
+  const state = Uint32Array.of(0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476);
+  const pending = new Uint8Array(64);
+  const pendingView = new DataView(pending.buffer);
+  let pendingLength = 0;
+  let totalLength = 0;
+  const hash: Md5 = {
+    update: bytes => {
+      totalLength += bytes.length;
+      let offset = 0;
+      if (pendingLength > 0) {
+        offset = Math.min(64 - pendingLength, bytes.length);
+        pending.set(bytes.subarray(0, offset), pendingLength);
+        pendingLength += offset;
+        if (pendingLength < 64) return hash;
+        processBlocks(state, pendingView, 64);
+        pendingLength = 0;
+      }
+      const whole = Math.floor((bytes.length - offset) / 64) * 64;
+      if (whole > 0) processBlocks(state, new DataView(bytes.buffer, bytes.byteOffset + offset, whole), whole);
+      pending.set(bytes.subarray(offset + whole));
+      pendingLength = bytes.length - offset - whole;
+      return hash;
+    },
+    digest: () => {
+      // RFC 1321, 3.1 and 3.2 append a one bit, zeros to 56 bytes modulo 64, then the 64-bit bit length in little-endian order.
+      const final = new Uint8Array(pendingLength < 56 ? 64 : 128);
+      final.set(pending.subarray(0, pendingLength));
+      final[pendingLength] = 0x80;
+      const view = new DataView(final.buffer);
+      view.setUint32(final.length - 8, (totalLength % 0x20000000) * 8, true);
+      view.setUint32(final.length - 4, Math.floor(totalLength / 0x20000000), true);
+      const finalState = Uint32Array.from(state);
+      processBlocks(finalState, view, final.length);
+      const result = new Uint8Array(16);
+      const output = new DataView(result.buffer);
+      for (let word = 0; word < 4; word++) output.setUint32(word * 4, finalState[word] ?? 0, true);
+      return result;
+    },
+  };
+  return hash;
+};
+
+export const md5 = (data: Uint8Array): Uint8Array => createMd5().update(data).digest();

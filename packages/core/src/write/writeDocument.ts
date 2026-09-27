@@ -55,7 +55,6 @@ export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDi
     writer.writeAscii('\nendobj\n');
     finishChunk();
   }
-  const body = savedPdf(chunks).toBytes();
   const xrefOffset = byteLength;
   // ISO 32000-1:2008, 7.5.4 requires one subsection beginning at object 0 for an initial xref section and exactly 20 bytes per entry.
   writer.writeAscii(`xref\n0 ${ordered.length + 1}\n`);
@@ -70,7 +69,7 @@ export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDi
   entries.set(pdfName('Size').bytes, pdfInteger(ordered.length + 1));
   entries.delete(pdfName('ID').bytes);
   const trailerWithoutId = serializeObject({ kind: 'dictionary', entries }, options);
-  const identifiers = fileIdentifier(body, trailerWithoutId, options.fileIdentifier);
+  const identifiers = fileIdentifier(chunks, trailerWithoutId, options.fileIdentifier);
   entries.set(pdfName('ID').bytes, pdfArray([pdfString(identifiers[0], 'hex'), pdfString(identifiers[1], 'hex')]));
   writer.writeAscii('trailer\n');
   writePdfObject(writer, { kind: 'dictionary', entries }, options);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { md5 } from './md5.ts';
+import { createMd5, md5 } from './md5.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 const nextState = (state: number): number => {
@@ -33,5 +33,21 @@ describe('message digest', () => {
       bytes[index] = state % 256;
     }
     expect(hex(md5(bytes))).toBe('3be900009b1e4cdeded0d446b66616d4');
+  });
+
+  it('gives the one-shot digest when the input arrives in chunks that straddle blocks', () => {
+    const bytes = new Uint8Array(4096);
+    let state = 0x9e3779b9;
+    for (let index = 0; index < bytes.length; index++) {
+      state = nextState(state);
+      bytes[index] = state % 256;
+    }
+    for (const size of [1, 55, 56, 63, 64, 65, 200, 4096]) {
+      const hash = createMd5();
+      for (let offset = 0; offset < bytes.length; offset += size) hash.update(bytes.subarray(offset, offset + size));
+      expect(hex(hash.digest()), `chunk size ${String(size)}`).toBe(hex(md5(bytes)));
+    }
+    const empty = createMd5().update(new Uint8Array()).digest();
+    expect(hex(empty)).toBe('d41d8cd98f00b204e9800998ecf8427e');
   });
 });
