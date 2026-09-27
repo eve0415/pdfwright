@@ -107,8 +107,8 @@ export const simpleGlyphNames = ({ source, font, subtype, descriptor }: SimpleFo
   return { names, differences, problems };
 };
 
-/** A simple font's width for each code in glyph space, or undefined when the font has no usable Widths array. */
-export type SimpleWidths = ((code: number) => number) | undefined;
+/** A simple font's width for each code in glyph space, undefined for a code whose width is unknown; the whole is undefined when the font gives no widths. */
+export type SimpleWidths = ((code: number) => number | undefined) | undefined;
 
 /**
  * Widths from FirstChar, LastChar and Widths (Table 111): "For character codes outside the range FirstChar to LastChar, the value of MissingWidth from the FontDescriptor entry for this font shall be used"; for a Type 3 font "the width shall be 0" there (Table 112).

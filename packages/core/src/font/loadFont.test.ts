@@ -96,6 +96,19 @@ describe('simple fonts', () => {
     expect(font.warnings.map(warning => warning.code)).toStrictEqual(['widths-unknown']);
   });
 
+  it('takes the widths of a standard 14 font without Widths from its bundled metrics, by glyph name', () => {
+    const helvetica = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding<</Differences[66/a1]>>>>');
+    const symbol = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Symbol>>');
+    expect([...pick(glyphsOf(helvetica, 'A B'), 'width'), ...pick(glyphsOf(symbol, 'a'), 'width')]).toStrictEqual([0.667, 0.278, undefined, 0.631]);
+    expect([...helvetica.warnings, ...symbol.warnings]).toStrictEqual([]);
+    expect(helvetica.verticalExtent).toStrictEqual({ descent: -225, ascent: 931, estimated: false });
+  });
+
+  it('prefers the Widths array of a standard 14 font to its bundled metrics', () => {
+    const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica/FirstChar 65/LastChar 65/Widths[500]>>');
+    expect(pick(glyphsOf(font, 'A'), 'width')).toStrictEqual([0.5]);
+  });
+
   it('maps codes through a ToUnicode stream and reports a ToUnicode name as unreadable', () => {
     const toUnicode = streamBody('', '1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <00660069> endbfchar');
     const mapped = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/ToUnicode 12 0 R${HELVETICA_WIDTHS}/FontDescriptor 11 0 R>>`, [

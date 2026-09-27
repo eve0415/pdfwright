@@ -4,8 +4,11 @@ import type { CMap } from './cmap/cmap.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { CMapResult } from './cmap/cmapResolver.ts';
 import type { CMapCode } from './cmap/mappingTable.ts';
-import type { DescendantFont, FontGlyph, FontModel, FontString, FontSubtype, FontWarning, Rectangle, Type3Parts } from './fontModel.ts';
+import type { EncodingTable } from './encoding/simpleEncodings.ts';
+import type { DescendantFont, FontGlyph, FontModel, FontString, FontSubtype, FontWarning, Rectangle, Type3Parts, VerticalExtent } from './fontModel.ts';
 import type { FontSource } from './fontValues.ts';
+import type { SimpleWidths } from './simpleFont.ts';
+import type { Standard14Metrics } from './standard14.ts';
 import type { ProcedureSummary } from './type3Procedures.ts';
 
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -17,6 +20,7 @@ import { glyphNameText } from './encoding/glyphNames.ts';
 import { readDescriptor, verticalExtent } from './fontDescriptor.ts';
 import { dictionaryOf, latin1, nameOf, numbersOf, withoutSubsetTag } from './fontValues.ts';
 import { simpleGlyphNames, simpleWidths } from './simpleFont.ts';
+import { standard14Metrics } from './standard14.ts';
 import { normalised, readProcedure } from './type3Procedures.ts';
 
 const SUBTYPE = pdfName('Subtype').bytes;
@@ -108,6 +112,18 @@ const fontBBoxOf = (context: LoadContext, dictionary: PdfDictionaryEntries): Rec
 const chromiumType3 = (differences: readonly string[], hasDescriptor: boolean): boolean =>
   hasDescriptor && differences.length > 0 && differences.every(name => /^g[0-9A-F]+$/u.test(name));
 
+const standardWidths = (metrics: Standard14Metrics | undefined, names: EncodingTable): SimpleWidths => {
+  if (metrics === undefined) return undefined;
+  return code => {
+    const name = names[code];
+    return name === undefined ? undefined : metrics.width(name);
+  };
+};
+
+// A standard 14 font without a descriptor takes its vertical extent from the FontBBox of its bundled metrics.
+const extentWithMetrics = (extent: VerticalExtent, metrics: Standard14Metrics | undefined): VerticalExtent =>
+  extent.estimated && metrics !== undefined ? { descent: metrics.bbox[1], ascent: metrics.bbox[3], estimated: false } : extent;
+
 const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyof Loaded | 'toUnicode' | 'warnings'> => {
   const { source } = context;
   const { dictionary, subtype } = loaded;
@@ -115,7 +131,9 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
   const input = { source, font: dictionary, subtype, descriptor };
   const { names, differences, problems } = simpleGlyphNames(input);
   for (const detail of problems) context.warnings.push({ code: 'font-unreadable', detail });
-  const widths = simpleWidths(input);
+  // Table 111 exempts the standard 14 fonts from Widths, and their widths then come from the bundled AFM metrics by glyph name; a Widths array, when present, is used as it is.
+  const standard = subtype === 'Type1' && loaded.baseFont !== undefined ? standard14Metrics(latin1(loaded.baseFont)) : undefined;
+  const widths = simpleWidths(input) ?? standardWidths(standard, names);
   if (widths === undefined) context.warnings.push({ code: 'widths-unknown', detail: 'the font has no Widths array with a FirstChar' });
   const glyphMatrix = subtype === 'Type3' ? fontMatrixOf(context, dictionary) : THOUSANDTH;
   const charProcs = dictionaryOf(source.objects.deref(dictionary.get(CHAR_PROCS)));
@@ -166,7 +184,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
     descendant: undefined,
     writingMode: 0,
     glyphMatrix,
-    verticalExtent: verticalExtent(source, descriptor.dictionary, subtype === 'Type3' ? dictionary.get(FONT_BBOX) : undefined),
+    verticalExtent: extentWithMetrics(verticalExtent(source, descriptor.dictionary, subtype === 'Type3' ? dictionary.get(FONT_BBOX) : undefined), standard),
     collectionMap: undefined,
     type3,
     glyphs: (string): FontString => ({
