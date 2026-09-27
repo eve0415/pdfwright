@@ -12,7 +12,7 @@ export interface GlyphGeometry {
   readonly advance: readonly [number, number];
   readonly quad: Quad;
   readonly fontSize: number;
-  /** Whether the glyph cannot be seen for its size: the em square, 1000 glyph units, maps to the page with an absolute determinant below 10⁻⁶ or narrower than 0.5 in its thinnest direction. */
+  /** Whether the glyph cannot be seen for its size: the em square, one unit of text space, maps to the page with an absolute determinant below 10⁻⁶ or narrower than 0.5 in its thinnest direction. */
   readonly degenerate: boolean;
   readonly extentEstimated: boolean;
 }
@@ -21,9 +21,8 @@ export interface GlyphGeometry {
 const DEGENERATE_DETERMINANT = 1e-6;
 const SMALLEST_EM = 0.5;
 
-// Whether 1000 units of glyph space, mapped by the glyph matrix times Trm, flatten to nothing or to less than half a unit across in the thinnest direction: the smallest singular value of the linear part is its determinant over the largest.
-const degenerate = ([a, b, c, d]: Matrix): boolean => {
-  const [p, q, r, t] = [a * 1000, b * 1000, c * 1000, d * 1000];
+// Whether the unit square of text space, the em square whatever the font's glyph matrix (ISO 32000-1:2008, 9.2.4: "for a Type 3 font, the transformation from glyph space to text space shall be defined by a font matrix"), mapped by Trm, flattens to nothing or to less than half a unit across in the thinnest direction: the smallest singular value of the linear part is its determinant over the largest.
+const degenerate = ([p, q, r, t]: Matrix): boolean => {
   const determinant = Math.abs(p * t - q * r);
   const sum = p * p + q * q + r * r + t * t;
   const largest = Math.sqrt((sum + Math.sqrt(Math.max(0, sum * sum - 4 * determinant * determinant))) / 2);
@@ -155,7 +154,7 @@ export const glyphGeometry = (
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
     fontSize: Math.hypot(trm[2], trm[3]),
-    degenerate: degenerate(multiply(font.glyphMatrix, trm)),
+    degenerate: degenerate(trm),
     extentEstimated: box.estimated,
   };
 };

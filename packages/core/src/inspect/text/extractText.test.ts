@@ -511,14 +511,22 @@ describe('text extraction', () => {
       ]);
     });
 
-    it('makes text flattened by a shear, or drawn by a Type 3 font matrix a millionth of a unit, invisible', () => {
+    it('makes text flattened by a shear invisible', () => {
       // 1 0 0.9999 0.0001 cm keeps both axes long but squeezes the em square to a thousandth of a point across.
       expect(flags('1 0 0.9999 0.0001 0 0 cm BT /F1 10 Tf 100 200 Td (A) Tj ET')).toStrictEqual([[false, 'degenerate']]);
-      const tiny = type3Glyphs('BT /T 10 Tf 100 200 Td (a) Tj ET', {
-        matrix: '0.000001 0 0 0.000001 0 0',
-        procedure: '1000 0 0 0 800 700 d1 0 0 800 700 re f',
+    });
+
+    it('measures a Type 3 glyph by the text-space unit, whatever its font matrix', () => {
+      // An identity FontMatrix at 0.002 Tf draws a glyph 0.002 points square; a FontMatrix of 0.0001 at 4 Tf draws a 10000-unit glyph 4 points square.
+      const unit = type3Glyphs('BT /T 0.002 Tf 100 200 Td (a) Tj ET', { matrix: '1 0 0 1 0 0', procedure: '1 0 0 0 1 1 d1 0 0 1 1 re f' });
+      const fine = type3Glyphs('BT /T 4 Tf 100 200 Td (a) Tj ET', {
+        matrix: '0.0001 0 0 0.0001 0 0',
+        procedure: '10000 0 0 0 10000 10000 d1 0 0 10000 10000 re f',
       });
-      expect(tiny.map(glyph => [glyph.visible, glyph.invisibleBecause])).toStrictEqual([[false, 'degenerate']]);
+      expect([...unit, ...fine].map(glyph => [glyph.visible, glyph.invisibleBecause])).toStrictEqual([
+        [false, 'degenerate'],
+        [true, undefined],
+      ]);
     });
 
     it('marks glyphs a later opaque rectangle covers, but not under a translucent or an earlier one', () => {
