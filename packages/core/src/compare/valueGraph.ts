@@ -163,7 +163,7 @@ export class ValueGraph {
   private readonly done = new Map<string, boolean>();
   private reported = 0;
 
-  /** With `raw`, streams compare by their stored bytes only, never decoded, as private application data must survive byte for byte. */
+  /** With `raw`, only stream data is compared, by its stored bytes and never decoded, as private application data must survive byte for byte. */
   constructor(context: GraphContext, report: GraphReport, raw = false) {
     this.context = context;
     this.raw = raw;
@@ -225,6 +225,7 @@ export class ValueGraph {
   }
 
   private mismatch(mismatch: Mismatch): void {
+    if (this.raw) return;
     this.report.mismatch(mismatch);
   }
 

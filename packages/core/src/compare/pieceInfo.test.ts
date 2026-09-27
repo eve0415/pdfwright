@@ -56,6 +56,15 @@ describe('page-piece data, LastModified and attribute comparison', () => {
     expect(kinds(compareDocuments(source, changed).differences)).toStrictEqual(['piece-info:value', 'piece-info:stream-bytes']);
   });
 
+  it('reports a changed date or scalar in private data by value only', () => {
+    const dated = load(objects([{ number: 9, body: '<</LastModified(D:20250101000000Z)/Private 10 0 R>>' }]));
+    const scalar = load(objects([{ number: 9, body: "<</LastModified(D:20070624192720-05'00')/Private 10 0 R/Version 2>>" }]));
+    expect([kinds(compareDocuments(source, dated).differences), kinds(compareDocuments(source, scalar).differences)]).toStrictEqual([
+      ['last-modified'],
+      ['piece-info:value'],
+    ]);
+  });
+
   it('reports a direct PieceInfo whose source bytes changed although its value did not', () => {
     const respaced = load(objects([page('<< /Illustrator 9 0 R >>')]));
     expect(compareDocuments(source, respaced).differences).toMatchObject([
