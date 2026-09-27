@@ -196,10 +196,16 @@ describe('composite fonts', () => {
     ]);
   });
 
-  it('reports a string in a predefined CMap no provider supplies, and reads it with a provider', () => {
+  it('reports a string in a predefined CMap no provider supplies or one supplies empty, and reads it with a provider', () => {
     const font = type0Font('/UniJIS-UTF16-H', '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>');
     const without = fontOf(font);
     expect([without.glyphs(Uint8Array.of(0x5c, 0x71)), ...without.warnings.map(warning => warning.code)]).toStrictEqual([
+      { kind: 'cmap-unavailable', cmap: 'UniJIS-UTF16-H' },
+      'cmap-unavailable',
+      'cmap-unavailable',
+    ]);
+    const empty = fontOf(font, [], providerOf({ 'UniJIS-UTF16-H': '', 'Adobe-Japan1-UCS2': '' }));
+    expect([empty.glyphs(Uint8Array.of(0x5c, 0x71)), ...empty.warnings.map(warning => warning.code)]).toStrictEqual([
       { kind: 'cmap-unavailable', cmap: 'UniJIS-UTF16-H' },
       'cmap-unavailable',
       'cmap-unavailable',

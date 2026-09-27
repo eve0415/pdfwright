@@ -58,6 +58,14 @@ describe('resolved CMaps', () => {
     expect(new CMapResolver(document(), undefined).named('UniJIS-UTF16-H')).toStrictEqual({ kind: 'unavailable', name: 'UniJIS-UTF16-H' });
   });
 
+  it('reports a CMap the provider supplies as empty or unparsable bytes as unavailable', () => {
+    const resolver = new CMapResolver(document(), provider({ Empty: '', Garbage: 'not a CMap )]>> at all' }));
+    expect([resolver.named('Empty'), resolver.named('Garbage')]).toStrictEqual([
+      { kind: 'unavailable', name: 'Empty' },
+      { kind: 'unavailable', name: 'Garbage' },
+    ]);
+  });
+
   it('parses a CMap the provider supplies once, and follows its usecmap through the provider', () => {
     const files = provider({ Parent: PARENT, Child: '/Parent usecmap /WMode 1 def 1 begincidchar <0041> 7 endcidchar' });
     const resolver = new CMapResolver(document(), files);

@@ -26,8 +26,12 @@ const build = (parsed: ParsedCMap, used: CMapResult | undefined): CMapResult => 
   return { kind: 'cmap', cmap: new CMap(parsed, used.cmap), problems: [...parsed.problems, ...used.problems] };
 };
 
+// A provider's file with no codespace range, mapping or usecmap, such as empty or unparsable bytes, supplies nothing, so the CMap is still not available.
+const definesNothing = (parsed: ParsedCMap): boolean =>
+  parsed.useCMap === undefined && [parsed.codespaces, parsed.cids, parsed.notdefs, parsed.unicode].every(entries => entries.length === 0);
+
 /**
- * Resolves the CMaps of one document: Identity-H and Identity-V built in, other names through the caller's provider, embedded CMap streams from the document, each with the CMap its usecmap operator or UseCMap entry names.
+ * Resolves the CMaps of one document: Identity-H and Identity-V built in, other names through the caller's provider (a file that defines nothing counts as not supplied), embedded CMap streams from the document, each with the CMap its usecmap operator or UseCMap entry names.
  * Results are cached by name and by stream reference. A usecmap cycle makes every CMap on it unreadable; a chain deeper than the document's `maxNesting` throws ResourceLimitError, and so does a stream that decodes past `maxDecodedBytes` or a CMap past its entry limit.
  */
 export class CMapResolver {
@@ -65,6 +69,7 @@ export class CMapResolver {
       const bytes = this.provider?.cmap(name);
       if (bytes === undefined) return { kind: 'unavailable', name };
       const parsed = parseCMap(bytes, this.document.maxNesting);
+      if (definesNothing(parsed)) return { kind: 'unavailable', name };
       return build(parsed, parsed.useCMap === undefined ? undefined : this.named(parsed.useCMap));
     });
   }
