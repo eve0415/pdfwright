@@ -43,6 +43,21 @@ export class ByteSource {
     return this.segments[index]?.[offset - (this.starts[index] ?? 0)];
   }
 
+  /** Every occurrence of a byte pattern in order, including those crossing segment boundaries. */
+  indexesOf(pattern: readonly number[]): number[] {
+    const found: number[] = [];
+    const [first] = pattern;
+    if (first === undefined) return found;
+    for (const [index, segment] of this.segments.entries()) {
+      const start = this.starts[index] ?? 0;
+      for (let local = segment.indexOf(first); local !== -1; local = segment.indexOf(first, local + 1)) {
+        const inside = local + pattern.length <= segment.length;
+        if (pattern.every((byte, offset) => (inside ? segment[local + offset] : this.byteAt(start + local + offset)) === byte)) found.push(start + local);
+      }
+    }
+    return found;
+  }
+
   /** Last occurrence of a byte pattern, including one crossing segment boundaries. */
   lastIndexOf(pattern: readonly number[]): number {
     if (pattern.length === 0) return this.length;
