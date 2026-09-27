@@ -86,7 +86,7 @@ export type { EmbeddedCmap } from './inspect/text/glyphEvidence.ts';
 export type { InspectWarning, InspectWarningCode } from './content/inspectWarning.ts';
 export type { FontWarningCode } from './font/fontModel.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
-export type { DocumentInfo } from './document/documentInfo.ts';
+export type { DocumentInfo } from './metadata/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';
 export { cmyk, gray, rgb } from './document/color.ts';
 export type { DeviceColor } from './document/color.ts';

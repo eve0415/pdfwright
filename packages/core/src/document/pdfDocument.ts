@@ -1,8 +1,8 @@
+import type { DocumentInfo } from '../metadata/documentInfo.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder } from './contentBuilder.ts';
-import type { DocumentInfo } from './documentInfo.ts';
 import type { GroupOptions, PdfGroup } from './group.ts';
 import type { ImageOptions, ImageRecord, PdfImage } from './image.ts';
 import type { DocumentPieceInfoInput, PieceInfoInput, PieceInfoRecord } from './pieceInfo.ts';
@@ -14,6 +14,7 @@ import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { formatLength } from '../length/length.ts';
+import { documentInfoDictionary } from '../metadata/documentInfo.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
@@ -21,7 +22,6 @@ import { writeDocument } from '../write/writeDocument.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
 import { createDocumentHandles } from './documentHandles.ts';
-import { documentInfoDictionary } from './documentInfo.ts';
 import { groupObject } from './group.ts';
 import { imageObject, softMaskObject } from './image.ts';
 import { pieceInfoRecord } from './pieceInfo.ts';

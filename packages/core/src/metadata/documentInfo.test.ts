@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { pdfDate } from '../date/pdfDate.ts';
+import { createDocument } from '../document/pdfDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
-
-import { createDocument } from './pdfDocument.ts';
 
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
