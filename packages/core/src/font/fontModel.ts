@@ -90,6 +90,28 @@ export interface FontGlyph {
   readonly cmapUnavailable: string | undefined;
 }
 
+/**
+ * A font's Encoding entry: for a simple font a predefined encoding name, an encoding dictionary with the count of names its Differences array gives, or none, when the font program's built-in encoding applies (ISO 32000-1:2008, 9.6.6); for a Type 0 font its CMap (9.7.5), predefined or embedded as a stream.
+ * `available` says whether a predefined CMap other than Identity-H and Identity-V, and any CMap a usecmap names, was supplied by the CMap provider.
+ */
+export type FontEncodingSummary =
+  | {
+      readonly kind: 'named';
+      readonly name: 'StandardEncoding' | 'MacRomanEncoding' | 'WinAnsiEncoding' | 'MacExpertEncoding' | 'other';
+      readonly bytes: Uint8Array;
+    }
+  | { readonly kind: 'differences'; readonly base: Uint8Array | undefined; readonly differences: number }
+  | { readonly kind: 'font-program' }
+  | {
+      readonly kind: 'cmap';
+      readonly name: Uint8Array;
+      readonly predefined: boolean;
+      readonly embedded: boolean;
+      readonly writingMode: 0 | 1;
+      readonly available: boolean;
+    }
+  | { readonly kind: 'unreadable'; readonly reason: string };
+
 /** The glyphs of a shown string; or why the string cannot be split, when the font's encoding is a predefined CMap no provider supplied or cannot be read. */
 export type FontString =
   | { readonly kind: 'glyphs'; readonly glyphs: readonly FontGlyph[] }
@@ -115,6 +137,7 @@ export interface FontModel {
   readonly glyphMatrix: Matrix;
   readonly verticalExtent: VerticalExtent;
   readonly toUnicode: 'present' | 'absent' | 'unreadable';
+  readonly encoding: FontEncodingSummary;
   /** The registry–ordering–UCS2 map a Type 0 font's encoding text comes from (ISO 32000-1:2008, 9.10.2), and whether the provider supplied it. */
   readonly collectionMap: { readonly name: string; readonly available: boolean } | undefined;
   readonly type3: Type3Parts | undefined;

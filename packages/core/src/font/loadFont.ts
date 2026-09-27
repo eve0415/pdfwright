@@ -9,6 +9,7 @@ import type { CMapCode } from './cmap/mappingTable.ts';
 import type { EncodingTable } from './encoding/simpleEncodings.ts';
 import type {
   DescendantFont,
+  FontEncodingSummary,
   FontGlyph,
   FontModel,
   FontString,
@@ -47,6 +48,8 @@ const FONT_BBOX = pdfName('FontBBox').bytes;
 const CHAR_PROCS = pdfName('CharProcs').bytes;
 const RESOURCES = pdfName('Resources').bytes;
 const FONT_FILE_2 = pdfName('FontFile2').bytes;
+const BASE_ENCODING = pdfName('BaseEncoding').bytes;
+const CMAP_NAME = pdfName('CMapName').bytes;
 
 // ISO 32000-1:2008, 9.2.4: glyph space units are 1/1000 of text space for every font type but Type 3, whose FontMatrix maps glyph space to text space.
 const THOUSANDTH = [0.001, 0, 0, 0.001, 0, 0] as const satisfies Matrix;
@@ -162,6 +165,20 @@ const embeddedCmapOf = (source: FontSource, descriptor?: PdfDictionaryEntries): 
   };
 };
 
+// ISO 32000-1:2008, Table 111, Encoding: "a name or dictionary"; Table 114 gives the dictionary's BaseEncoding and Differences.
+const simpleEncoding = (source: FontSource, value: PdfDirectObject | undefined, differences: number): FontEncodingSummary => {
+  const encoding = source.objects.deref(value);
+  if (encoding === undefined || encoding.kind === 'null') return { kind: 'font-program' };
+  if (encoding.kind === 'name') {
+    const text = latin1(encoding.bytes);
+    const name = text === 'StandardEncoding' || text === 'MacRomanEncoding' || text === 'WinAnsiEncoding' || text === 'MacExpertEncoding' ? text : 'other';
+    return { kind: 'named', name, bytes: encoding.bytes };
+  }
+  if (encoding.kind !== 'dictionary') return { kind: 'unreadable', reason: 'the Encoding entry is not a name or a dictionary' };
+  const base = source.objects.deref(encoding.entries.get(BASE_ENCODING));
+  return { kind: 'differences', base: base?.kind === 'name' ? base.bytes : undefined, differences };
+};
+
 const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyof Loaded | 'toUnicode' | 'warnings'> => {
   const { source } = context;
   const { dictionary, subtype } = loaded;
@@ -221,6 +238,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
   const glyphs: (FontGlyph | undefined)[] = [];
   return {
     descendant: undefined,
+    encoding: simpleEncoding(source, dictionary.get(ENCODING), differences.length),
     writingMode: 0,
     glyphMatrix,
     verticalExtent: extentWithMetrics(verticalExtent(source, descriptor.dictionary, subtype === 'Type3' ? dictionary.get(FONT_BBOX) : undefined), standard),
@@ -341,6 +359,21 @@ const unicodeMapOf = (context: LoadContext, name: string, toUnicode: FontModel['
   return undefined;
 };
 
+// Table 121, Encoding: "The name of a predefined CMap, or a stream containing a CMap that maps character codes to font numbers and CIDs"; Table 120, CMapName names an embedded one.
+const compositeEncoding = (
+  source: FontSource,
+  { value, result, writingMode }: { value: PdfDirectObject | undefined; result: CMapResult; writingMode: 0 | 1 },
+): FontEncodingSummary => {
+  if (result.kind === 'unreadable') return { kind: 'unreadable', reason: result.reason };
+  const encoding = source.objects.deref(value);
+  const available = result.kind === 'cmap' && result.cmap.unavailableParent === undefined;
+  if (encoding?.kind === 'name') return { kind: 'cmap', name: encoding.bytes, predefined: true, embedded: false, writingMode, available };
+  const stored = encoding?.kind === 'stream' ? source.objects.deref(encoding.dictionary.get(CMAP_NAME)) : undefined;
+  const parsed = result.kind === 'cmap' ? result.cmap.name : undefined;
+  const name = stored?.kind === 'name' ? stored.bytes : latin1Bytes(parsed ?? '');
+  return { kind: 'cmap', name, predefined: false, embedded: true, writingMode, available };
+};
+
 const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyof Loaded | 'toUnicode' | 'warnings'> => {
   const { source } = context;
   const encodingValue = loaded.dictionary.get(ENCODING);
@@ -366,9 +399,11 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
       : undefined;
   const cache = new Map<string, FontGlyph>();
   const descriptorDictionary = descendant === undefined ? undefined : readDescriptor(source, descendant.dictionary).dictionary;
+  const writingMode = writingModeOf(result, encodingName);
   return {
     descendant,
-    writingMode: writingModeOf(result, encodingName),
+    encoding: compositeEncoding(source, { value: encodingValue, result, writingMode }),
+    writingMode,
     glyphMatrix: THOUSANDTH,
     verticalExtent: verticalExtent(source, descriptorDictionary),
     collectionMap: mapName === undefined ? undefined : { name: mapName, available: ucs2 !== undefined },
@@ -400,6 +435,7 @@ const loadFont = (context: LoadContext, value: PdfDirectObject, key: string): Fo
       glyphMatrix: THOUSANDTH,
       verticalExtent: { descent: -200, ascent: 800, estimated: true },
       toUnicode: 'absent',
+      encoding: { kind: 'unreadable', reason },
       collectionMap: undefined,
       type3: undefined,
       embeddedCmap: embeddedCmapOf(source),

@@ -50,6 +50,18 @@ export type {
 } from './compare/pdfDifference.ts';
 export type { LoadWarning, LoadWarningCode } from './parse/loadWarning.ts';
 export type { CMapProvider } from './font/cmap/cmapProvider.ts';
+export type { CidFontSubtype, FontEncodingSummary, FontSubtype } from './font/fontModel.ts';
+export { listFonts } from './inspect/fonts/listFonts.ts';
+export type {
+  FontDescendant,
+  FontEmbedding,
+  FontEntry,
+  FontInventory,
+  FontProblem,
+  FontProblemCode,
+  FontSubset,
+  ListFontsOptions,
+} from './inspect/fonts/listFonts.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';
