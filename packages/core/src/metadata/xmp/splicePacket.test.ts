@@ -35,6 +35,14 @@ const properties = (bytes: Uint8Array | undefined): readonly (readonly [string, 
   return read.ok ? read.packet.properties.map(property => [`${property.namespace}${property.localName}`, property.value] as const) : [];
 };
 
+// The XML declaration of a UTF-16 packet that starts with `declaration`, after a splice.
+const declarationAfterSplice = (declaration: string): string => {
+  const source = `${declaration}<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about=""/></rdf:RDF>`;
+  const utf16 = Uint8Array.from([0xfe, 0xff, ...[...encode(source)].flatMap(byte => [0, byte])]);
+  const text = new TextDecoder().decode(splice(utf16)?.bytes);
+  return text.slice(0, text.indexOf('?>') + 2);
+};
+
 // The source packet in pieces: the removed ones are managed or legacy properties, with the white space before them.
 const KEPT_START =
   '<?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>\n<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Tool 1.0">\n' +
@@ -91,6 +99,14 @@ describe('splicing managed properties into an existing packet', () => {
     const result = splice(`<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="${RDF}" /></x:xmpmeta>`);
     const description = managedDescription(VALUES, { about: '', declareRdf: true, resetLanguage: false });
     expect(new TextDecoder().decode(result?.bytes)).toBe(`<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="${RDF}" >${description}\n</r:RDF></x:xmpmeta>`);
+  });
+
+  it('declares UTF-8 in the XML declaration of a re-encoded packet', () => {
+    expect([
+      declarationAfterSplice('<?xml version="1.0" encoding="UTF-16"?>'),
+      declarationAfterSplice("<?xml version='1.0' encoding = 'utf-16' standalone='yes'?>"),
+      declarationAfterSplice('<?xml version="1.0"?>'),
+    ]).toStrictEqual(['<?xml version="1.0" encoding="UTF-8"?>', "<?xml version='1.0' encoding = 'UTF-8' standalone='yes'?>", '<?xml version="1.0"?>']);
   });
 
   it('checks the result in time linear in the number of properties', () => {

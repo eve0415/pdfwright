@@ -139,6 +139,12 @@ describe('setting document metadata', () => {
     expect(setMetadata(load(''), INPUT).findings).toStrictEqual([]);
   });
 
+  it('reports re-encoding a packet as UTF-8', () => {
+    const utf16 = Uint8Array.from([0xfe, 0xff, ...[...new TextEncoder().encode(packet(''))].flatMap(byte => [0, byte])]);
+    const document = load('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', latin1Text(utf16)) }]);
+    expect(setMetadata(document, INPUT).findings.map(finding => finding.code)).toStrictEqual(['xmp-transcoded']);
+  });
+
   it('reconciles values the input leaves out from the authoritative side and reports what it discarded', () => {
     const document = load(
       '/Metadata 4 0 R',

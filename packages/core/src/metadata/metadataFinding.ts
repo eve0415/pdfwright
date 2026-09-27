@@ -22,7 +22,8 @@ export type MetadataFindingCode =
   | 'info-text-undecodable'
   | 'date-unparseable'
   | 'date-zone-unknown'
-  | 'modification-after-metadata';
+  | 'modification-after-metadata'
+  | 'xmp-transcoded';
 
 /** Something about the document's metadata that a reader or a preflight may need to know. */
 export interface MetadataFinding {

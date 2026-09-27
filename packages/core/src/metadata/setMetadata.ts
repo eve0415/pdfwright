@@ -246,11 +246,12 @@ const streamDictionary = (existing: PdfStream | undefined): PdfDictionaryEntries
 interface WrittenPacket {
   readonly bytes: Uint8Array;
   readonly removedLegacy: readonly string[];
+  readonly transcoded: boolean;
 }
 
 type PacketWriter = (values: ManagedValues) => WrittenPacket;
 
-const writeNew: PacketWriter = values => ({ bytes: newPacket(values), removedLegacy: [] });
+const writeNew: PacketWriter = values => ({ bytes: newPacket(values), removedLegacy: [], transcoded: false });
 
 // The packet is spliced when it can be read; one that cannot be read, or whose edit does not read back, is replaced only when the caller allows it.
 const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptions, sample: ManagedValues): PacketWriter => {
@@ -387,7 +388,7 @@ const documentIdOf = (document: DocumentInternals, packet: ReadPacket | undefine
 interface ProducedPacket {
   readonly value: PdfStream;
   readonly instanceId: string;
-  readonly removedLegacy: readonly string[];
+  readonly written: WrittenPacket;
 }
 
 interface Prepared {
@@ -443,7 +444,7 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
       changedObjectBytes(objectNumber, value, serializeOptions);
     const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: changesDigest(changes, excluded, serialize) });
     const written = write(managedValues(resolved.values, input, { documentId, instanceId }));
-    return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, removedLegacy: written.removedLegacy };
+    return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, written };
   };
   const current = produce(objects.changes, DEFAULT_FRACTION_DIGITS);
   objects.set(placement.packet, current.value);
@@ -455,11 +456,13 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   if (state.info !== undefined && state.info.reference === undefined) {
     findings.push({ code: 'info-not-indirect', detail: 'the direct document information dictionary was replaced by an indirect one' });
   }
+  // XMP Part 3 1.6.1: "The XMP must be encoded as UTF-8".
+  if (current.written.transcoded) findings.push({ code: 'xmp-transcoded', detail: 'the packet was re-encoded as UTF-8' });
   internals.objects.adopt(objects);
   previousInstanceIds.set(internals.objects, previous);
   return {
     reconciled: resolved.reconciled,
-    removedLegacy: current.removedLegacy,
+    removedLegacy: current.written.removedLegacy,
     deletedOrphans,
     documentId,
     instanceId: current.instanceId,

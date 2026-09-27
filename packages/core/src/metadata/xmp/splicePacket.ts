@@ -18,6 +18,9 @@ export interface SplicedPacket {
 
 const key = (namespace: string, name: string): string => `${namespace}\n${name}`;
 
+// XML 1.0, 2.8, production [23] XMLDecl, and 4.3.3, productions [80] EncodingDecl and [81] EncName: the encoding pseudo-attribute of an XML declaration at the start of the text.
+const ENCODING_DECLARATION = /^(<\?xml[ \t\r\n][^?]*?[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*)(["'])[A-Za-z][\w.-]*\2/u;
+
 const textValue = (value: string | undefined): XmpValue | undefined => (value === undefined ? undefined : { kind: 'text', text: value, language: undefined });
 
 const arrayValue = (type: 'Alt' | 'Seq', value: string | undefined): XmpValue | undefined =>
@@ -117,8 +120,12 @@ export const splicePacket = (packet: ReadPacket, values: ManagedValues): Spliced
       ? `${text.slice(from, packet.rdfEnd)}${description}\n${text.slice(packet.rdfEnd)}`
       : `${text.slice(from, packet.rdfEnd)}>${description}\n</${empty}>${text.slice(packet.rdfEnd + 2)}`;
   const transcoded = packet.encoding !== 'utf8';
-  // The byte-order mark of a UTF-16 or UTF-32 packet has no purpose in UTF-8, where XMP Part 1 7.1 does not recommend one.
-  if (transcoded && result.startsWith('\u{FEFF}')) result = result.slice(1);
+  if (transcoded) {
+    // The byte-order mark of a UTF-16 or UTF-32 packet has no purpose in UTF-8, where XMP Part 1 7.1 does not recommend one.
+    if (result.startsWith('\u{FEFF}')) result = result.slice(1);
+    // XML 1.0, 4.3.3: "it is a fatal error for an entity including an encoding declaration to be presented to the XML processor in an encoding other than that named in the declaration".
+    result = result.replace(ENCODING_DECLARATION, '$1$2UTF-8$2');
+  }
   const bytes = new TextEncoder().encode(result);
   if (!readsBack(bytes, expected)) throw new ValidationError('the edited packet does not read back with the values written into it', 'xmp-unreadable');
   const removedLegacy = removed.flatMap(property => LEGACY.get(key(property.namespace, property.localName)) ?? []);
