@@ -175,6 +175,14 @@ const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
 
 describe('setting document metadata', () => {
+  it('reports the rewrite requirement retained from an earlier metadata edit', () => {
+    const document = load('');
+    setMetadata(document, INPUT);
+    const change = setMetadata(document, INPUT, { revisions: 'keep' });
+    expect(change.saveMode).toBe('full-required');
+    expect(() => document.save({ mode: 'incremental' })).toThrow(expect.objectContaining({ reason: 'metadata-history' }));
+  });
+
   it('writes Info and a new packet that agree into a document that has neither', () => {
     const document = load('');
     const change = setMetadata(document, INPUT);

@@ -322,7 +322,7 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
     deletedOrphans,
     documentId,
     instanceId: current.instanceId,
-    saveMode: keep ? 'any' : 'full-required',
+    saveMode: internals.objects.fullRewriteReason === undefined ? 'any' : 'full-required',
     supersededPackets,
     findings,
   };
