@@ -131,7 +131,7 @@ class Aligner {
     const middle = { aLow: a0, aHigh: a1, bLow: b0, bHigh: b1 };
     if (a0 === a1 || b0 === b1) this.unmatched(middle);
     else this.bisect(middle);
-    steps.push(...suffix.toReversed());
+    for (const step of suffix.toReversed()) steps.push(step);
   }
 }
 

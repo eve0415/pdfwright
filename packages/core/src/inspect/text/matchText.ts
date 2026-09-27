@@ -207,20 +207,20 @@ class FoundText {
   /** By font, the glyphs whose font's embedded program has no usable cmap to check them against. */
   readonly unchecked = new Map<string, number[]>();
   private readonly settings: Settings;
-  private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: number[] }>();
+  private readonly folds = new Map<string, { fold: TextFold | 'caller'; from: string; to: string; glyphs: Set<number> }>();
 
   constructor(settings: Settings) {
     this.settings = settings;
   }
 
   foldsApplied(): FoldApplied[] {
-    return [...this.folds.values()];
+    return [...this.folds.values()].map(({ fold, from, to, glyphs }) => ({ fold, from, to, glyphs: [...glyphs] }));
   }
 
   private recordFold(fold: TextFold | 'caller', { from, to }: { from: string; to: string }, glyphs: readonly number[]): void {
     const key = `${fold}\u0000${from}\u0000${to}`;
-    const entry = this.folds.get(key) ?? { fold, from, to, glyphs: [] };
-    entry.glyphs.push(...glyphs.filter(glyph => !entry.glyphs.includes(glyph)));
+    const entry = this.folds.get(key) ?? { fold, from, to, glyphs: new Set<number>() };
+    for (const glyph of glyphs) entry.glyphs.add(glyph);
     this.folds.set(key, entry);
   }
 
@@ -244,7 +244,9 @@ class FoundText {
 
   private check(glyph: PageGlyph, text: string): void {
     if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
-      this.unchecked.set(glyph.font, [...(this.unchecked.get(glyph.font) ?? []), glyph.index]);
+      const glyphs = this.unchecked.get(glyph.font);
+      if (glyphs === undefined) this.unchecked.set(glyph.font, [glyph.index]);
+      else glyphs.push(glyph.index);
       return;
     }
     const cmap = this.settings.cmaps.get(glyph.font);
@@ -261,10 +263,10 @@ class FoundText {
 
   // Whether a selector a span gives a one-glyph unit is confirmed by the format 14 subtable of the glyph's font.
   private variantByCmap(glyphs: readonly PageGlyph[], cluster: string): boolean {
-    const [glyph, ...rest] = glyphs;
+    const [glyph] = glyphs;
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [base, selector] = Array.from(cluster, character => character.codePointAt(0) ?? 0);
-    if (glyph?.gid === undefined || cmap === undefined || rest.length > 0 || base === undefined || selector === undefined) return false;
+    if (glyph?.gid === undefined || cmap === undefined || glyphs.length > 1 || base === undefined || selector === undefined) return false;
     return variantConfirmed(cmap, glyph.gid, [base, selector]);
   }
 
@@ -299,8 +301,9 @@ class FoundText {
       return;
     }
     const glyphText = glyphs.map(glyph => (glyph.text === null ? '' : this.read(glyph, glyph.text))).join('');
+    const glyphSelectors = new Set(glyphText.match(SELECTORS));
     // ISO 32000-1:2008, 14.9.4 makes the span a character substitution; it is used only when its text equals the glyphs' own, apart from variation selectors the span has and the glyphs lack anywhere, which are set aside here and reported by the alignment.
-    const lacking = (character: string): boolean => isSelector(character.codePointAt(0) ?? 0) && !glyphText.includes(character);
+    const lacking = (character: string): boolean => isSelector(character.codePointAt(0) ?? 0) && !glyphSelectors.has(character);
     const comparable = (value: string, setAside: (character: string) => boolean): string =>
       clusters(value, character => this.keep(character) && !setAside(character))
         .map(cluster => cluster.text)
@@ -349,7 +352,7 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
   let wanted: Cluster[] = [];
   let had: FoundCluster[] = [];
   const flush = (): void => {
-    differences.push(...gapDifferences(wanted, had));
+    for (const difference of gapDifferences(wanted, had)) differences.push(difference);
     wanted = [];
     had = [];
   };
@@ -428,21 +431,34 @@ const readTogether = (glyphs: readonly PageGlyph[], positions: ReadonlyMap<numbe
   return read.every((position, index) => index === 0 || position === (read[index - 1] ?? 0) + 1);
 };
 
+// The smallest and largest of the values, by a loop, since spreading a long array into Math.min exceeds the call stack.
+const extent = (values: readonly number[]): readonly [number, number] => {
+  let [low, high] = [Infinity, -Infinity];
+  for (const value of values) {
+    low = Math.min(low, value);
+    high = Math.max(high, value);
+  }
+  return [low, high];
+};
+
 // Units in reading order: a span is taken whole where its first compared glyph is read, when its compared glyphs are read together, and otherwise its glyphs are compared one by one; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
 const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'checked' | 'ignore'): Unit[] => {
   if (actualText === 'ignore') return selected.map(glyph => ({ kind: 'glyph', glyph }));
   const bySpan = new Map<number, PageGlyph[]>();
-  for (const glyph of selected) if (glyph.actualText !== undefined) bySpan.set(glyph.actualText, [...(bySpan.get(glyph.actualText) ?? []), glyph]);
+  for (const glyph of selected) {
+    if (glyph.actualText === undefined) continue;
+    const glyphs = bySpan.get(glyph.actualText);
+    if (glyphs === undefined) bySpan.set(glyph.actualText, [glyph]);
+    else glyphs.push(glyph);
+  }
   const positions = new Map(selected.map((glyph, position) => [glyph.index, position]));
   for (const [index, glyphs] of bySpan) if (!readTogether(glyphs, positions)) bySpan.delete(index);
-  const selectedIndexes = selected.map(glyph => glyph.index);
-  const first = Math.min(...selectedIndexes);
-  const last = Math.max(...selectedIndexes);
+  const [first, last] = extent(selected.map(glyph => glyph.index));
   const unseen = page.actualText
     .flatMap((span, index) => {
       if (span.glyphs.some(glyph => positions.has(glyph)) || span.glyphs.length === 0) return [];
-      const start = Math.min(...span.glyphs);
-      return first < start && last > Math.max(...span.glyphs) ? [{ index, start }] : [];
+      const [start, end] = extent(span.glyphs);
+      return first < start && last > end ? [{ index, start }] : [];
     })
     .toSorted((a, b) => a.start - b.start);
   const units: Unit[] = [];
