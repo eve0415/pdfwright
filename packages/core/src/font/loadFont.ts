@@ -24,6 +24,7 @@ import type { FontSource } from './fontValues.ts';
 import type { SimpleWidths } from './simpleFont.ts';
 import type { Standard14Metrics } from './standard14.ts';
 import type { CmapReading } from './trueType/cmapTable.ts';
+import type { GlyphBoundsReading } from './trueType/glyphBounds.ts';
 import type { ProcedureSummary } from './type3Procedures.ts';
 
 import { unreadable } from '../content/unreadable.ts';
@@ -38,6 +39,7 @@ import { decodedData, dictionaryOf, latin1, nameOf, numbersOf, withoutSubsetTag 
 import { simpleGlyphNames, simpleWidths } from './simpleFont.ts';
 import { standard14Metrics } from './standard14.ts';
 import { readTrueTypeCmap } from './trueType/cmapTable.ts';
+import { readTrueTypeGlyphBounds } from './trueType/glyphBounds.ts';
 import { normalised, readProcedure } from './type3Procedures.ts';
 
 const SUBTYPE = pdfName('Subtype').bytes;
@@ -181,17 +183,32 @@ const standardWidths = (metrics: Standard14Metrics | undefined, names: EncodingT
 const extentWithMetrics = (extent: VerticalExtent, metrics: Standard14Metrics | undefined): VerticalExtent =>
   extent.estimated && metrics !== undefined ? { descent: metrics.bbox[1], ascent: metrics.bbox[3], estimated: false } : extent;
 
-// Table 122, FontFile2: "(Optional; PDF 1.1) A stream containing a TrueType font program". The program is decoded and read once, on the first call.
-const programCmap = (data: Uint8Array | string): CmapReading => (typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeCmap(data));
-
-const embeddedCmapOf = (source: FontSource, descriptor?: PdfDictionaryEntries): (() => CmapReading | undefined) => {
-  let reading: { readonly value: CmapReading | undefined } | null = null;
+// A value computed on the first call and kept.
+const once = <T>(compute: () => T): (() => T) => {
+  let kept: { readonly value: T } | undefined = undefined;
   return () => {
-    if (reading === null) {
-      const program = source.objects.deref(descriptor?.get(FONT_FILE_2));
-      reading = { value: program?.kind === 'stream' ? programCmap(decodedData(source, program)) : undefined };
-    }
-    return reading.value;
+    kept ??= { value: compute() };
+    return kept.value;
+  };
+};
+
+// Table 122, FontFile2: "(Optional; PDF 1.1) A stream containing a TrueType font program". The program is decoded once, on the first call that reads it, and each table is read once.
+const embeddedTablesOf = (source: FontSource, descriptor?: PdfDictionaryEntries): Pick<FontModel, 'embeddedCmap' | 'embeddedGlyphBounds'> => {
+  const program = once((): Uint8Array | string | undefined => {
+    const stream = source.objects.deref(descriptor?.get(FONT_FILE_2));
+    return stream?.kind === 'stream' ? decodedData(source, stream) : undefined;
+  });
+  return {
+    embeddedCmap: once((): CmapReading | undefined => {
+      const data = program();
+      if (data === undefined) return undefined;
+      return typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeCmap(data);
+    }),
+    embeddedGlyphBounds: once((): GlyphBoundsReading | undefined => {
+      const data = program();
+      if (data === undefined) return undefined;
+      return typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeGlyphBounds(data);
+    }),
   };
 };
 
@@ -274,7 +291,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
     verticalExtent: extentWithMetrics(verticalExtent(source, descriptor.dictionary, subtype === 'Type3' ? dictionary.get(FONT_BBOX) : undefined), standard),
     collectionMap: undefined,
     type3,
-    embeddedCmap: embeddedCmapOf(source, subtype === 'TrueType' ? descriptor.dictionary : undefined),
+    ...embeddedTablesOf(source, subtype === 'TrueType' ? descriptor.dictionary : undefined),
     glyphs: (string): FontString => ({
       kind: 'glyphs',
       glyphs: [...string].map(code => {
@@ -448,7 +465,7 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
     verticalExtent: verticalExtent(source, descriptorDictionary),
     collectionMap: mapName === undefined ? undefined : { name: mapName, available: ucs2 !== undefined },
     type3: undefined,
-    embeddedCmap: embeddedCmapOf(source, descendant?.subtype === 'CIDFontType2' ? descriptorDictionary : undefined),
+    ...embeddedTablesOf(source, descendant?.subtype === 'CIDFontType2' ? descriptorDictionary : undefined),
     glyphs: (string): FontString => {
       if (result.kind === 'unavailable') return { kind: 'cmap-unavailable', cmap: result.name };
       if (result.kind === 'unreadable') return { kind: 'undecodable', reason: result.reason };
@@ -478,7 +495,7 @@ const loadFont = (context: LoadContext, value: PdfDirectObject, key: string): Fo
       encoding: { kind: 'unreadable', reason },
       collectionMap: undefined,
       type3: undefined,
-      embeddedCmap: embeddedCmapOf(source),
+      ...embeddedTablesOf(source),
       warnings: [{ code: 'font-unreadable', detail: reason }],
       glyphs: () => ({ kind: 'undecodable', reason }),
     };

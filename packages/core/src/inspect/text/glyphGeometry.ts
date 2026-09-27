@@ -11,7 +11,9 @@ export interface GlyphGeometry {
   readonly origin: readonly [number, number];
   readonly advance: readonly [number, number];
   readonly quad: Quad;
-  /** The core box, in the quad's corner order: in horizontal writing the advance box from 0.12 em below the baseline to 0.88 em above it, within the font's extent; in vertical writing one em across the column, centred on the glyph, and its vertical advance. */
+  /**
+   * The box a cut into the glyph is measured against, in the quad's corner order: the glyph's ink box where the font gives one, the bounding box of an embedded TrueType glyph or the d1 box of a Type 3 glyph; otherwise the core box, in horizontal writing the advance box from 0.12 em below the baseline to 0.88 em above it, within the font's extent, and in vertical writing one em across the column, centred on the glyph, and its vertical advance.
+   */
   readonly core: Quad;
   /** The core box inset by CORE_BOX_TOLERANCE on every side, or to its centre line where it is narrower than twice that: what a cut must reach to count. */
   readonly coreInner: Quad;
@@ -101,8 +103,38 @@ const EM_TOP = 0.88;
 /** [left bottom right top] in text space. */
 type TextRectangle = readonly [number, number, number, number];
 
+// An ink box wider or taller than this many ems is taken as damage.
+const MAX_INK_EMS = 16;
+
+// The box of glyph-space corners in text space, through the font's glyph matrix, which may flip or rotate them; undefined past MAX_INK_EMS.
+const textBoxOf = (font: FontModel, [left, bottom, right, top]: Rectangle): TextRectangle | undefined => {
+  const points = [
+    transformPoint(font.glyphMatrix, left, bottom),
+    transformPoint(font.glyphMatrix, right, bottom),
+    transformPoint(font.glyphMatrix, right, top),
+    transformPoint(font.glyphMatrix, left, top),
+  ];
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as const;
+  return box[2] - box[0] > MAX_INK_EMS || box[3] - box[1] > MAX_INK_EMS ? undefined : box;
+};
+
 /**
- * How deep, in ems, a clip or cover must cut into a glyph's core box from any side before the glyph counts as partly hidden.
+ * The glyph's ink box in text space relative to its origin 0, where the font gives one: a Type 3 glyph's d1 bounding box (ISO 32000-1:2008, 9.6.5, Table 113) through its FontMatrix, or the `glyf` bounding box of an embedded TrueType glyph, whose em is one unit of text space.
+ * Undefined for a glyph that paints nothing, a d0 glyph, a font without such a program, and a program or entry that cannot be read.
+ */
+const inkOf = (font: FontModel, glyph: FontGlyph | undefined): TextRectangle | undefined => {
+  if (glyph === undefined || glyph.empty) return undefined;
+  if (font.type3 !== undefined) return glyph.type3Box !== undefined && hasArea(glyph.type3Box) ? textBoxOf(font, glyph.type3Box) : undefined;
+  if (glyph.gid === undefined) return undefined;
+  const reading = font.embeddedGlyphBounds();
+  const bounds = reading?.kind === 'bounds' ? reading.bounds.bounds(glyph.gid) : undefined;
+  return bounds === undefined || bounds === 'empty' ? undefined : bounds;
+};
+
+/**
+ * How deep, in ems, a clip or cover must cut into a glyph's ink box, or its core box where the font gives no ink box, from any side before the glyph counts as partly hidden.
  * Chromium's page-margin clip cuts 0.02 to 0.04 em into the core boxes of correct proofs (the first line of IPAGothic text at 0.84 to 0.86 em above the baseline, and the column side of full-width glyphs set vertically), while a CSS overflow clip or a covering box that shows half a character cuts 0.5 em or more.
  */
 export const CORE_BOX_TOLERANCE = 0.1;
@@ -170,12 +202,16 @@ export const glyphGeometry = (
   const trm = textRenderingMatrix(state, textMatrix);
   const box = font.writingMode === 1 ? verticalBox(glyph, state) : horizontalBox(font, glyph, state);
   const [dx, dy] = box.displacement ?? [0, 0];
+  // In vertical writing the glyph's origin 0 lies at −v from the text position (9.2.4).
+  const [vx, vy] = font.writingMode === 1 ? [glyph?.vertical?.vx ?? 0, glyph?.vertical?.vy ?? 0] : [0, 0];
+  const ink = inkOf(font, glyph);
+  const measured: TextRectangle = ink === undefined ? box.core : [ink[0] - vx, ink[1] - vy, ink[2] - vx, ink[3] - vy];
   return {
     origin: transformPoint(trm, 0, 0),
     advance: transformVector(multiply(textMatrix, state.ctm), dx, dy),
     quad: quadOf(trm, box.corners),
-    core: quadOf(trm, cornersOf(box.core)),
-    coreInner: quadOf(trm, cornersOf(inset(box.core))),
+    core: quadOf(trm, cornersOf(measured)),
+    coreInner: quadOf(trm, cornersOf(inset(measured))),
     fontSize: Math.hypot(trm[2], trm[3]),
     degenerate: degenerate(trm),
     extentEstimated: box.estimated,

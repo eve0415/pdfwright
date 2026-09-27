@@ -104,9 +104,9 @@ export interface PageGlyph {
   /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
   /**
-   * How much of the glyph's core box the clip or later opaque rectangle fills hide, tested at a grid of points: `entirely`; `partly` when they cut more than CORE_BOX_TOLERANCE (0.1 em) into it from some side; otherwise `none`, as also where the clip's shape is unknown.
-   * The core box is the advance box limited, in horizontal writing, to the ideographic em box from 0.12 em below the baseline to 0.88 em above it, and in vertical writing to one em across the column centred on the glyph.
-   * An ascent above the em box, which Chromium's page-margin clip routinely cuts, and Latin descenders below 0.12 em lie outside it, so a clip that cuts only those does not count; a cut inside it removes ink.
+   * How much of the glyph's ink box the clip or later opaque rectangle fills hide, tested at a grid of points: `entirely`; `partly` when they cut more than CORE_BOX_TOLERANCE (0.1 em) into it from some side; otherwise `none`, as also where the clip's shape is unknown.
+   * The ink box is the bounding box of an embedded TrueType glyph or the d1 box of a Type 3 glyph, so that a cut through the blank part of a glyph's em, as Chromium's trimmed punctuation at the start of a line shows, does not count.
+   * Where the font gives no ink box (other font programs, d0 glyphs, glyphs without outlines, damaged programs), the core box stands in: the advance box limited, in horizontal writing, to the ideographic em box from 0.12 em below the baseline to 0.88 em above it, and in vertical writing to one em across the column centred on the glyph. An ascent above the em box, which Chromium's page-margin clip routinely cuts, and Latin descenders below 0.12 em lie outside it.
    */
   readonly coreHidden: 'none' | 'partly' | 'entirely';
   /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit, under a clip made from glyph outlines (render modes 4 to 7), which are not read, and in a tiling pattern's cell, whose placement depends on where the pattern is painted. */

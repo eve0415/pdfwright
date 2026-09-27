@@ -107,6 +107,19 @@ const withoutCmap = (program: Uint8Array): Uint8Array => {
 /** Shows the codes at 10 points from (x, y). */
 const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${String(x)} ${String(y)} Td ${codes} ET`;
 
+/** A TrueType program whose glyph 1, for U+FF08, has ink from `left` to 900 thousandths across and from −100 to 800 up. */
+const inkedAt = (left: number): Uint8Array =>
+  syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [left, -100, 900, 800] }], characters: [[0xff08, 1]] });
+
+/** A Type 3 font, E, whose glyph a is drawn by the procedure. */
+const type3Drawn = (procedure: string): readonly TestObject[] => [
+  {
+    number: 120,
+    body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
+  },
+  { number: 121, body: streamBody('', procedure) },
+];
+
 /** A clip of 10-point columns from x 100, each up to the height given, and the whole page either side of them. */
 const clipAbove = (tops: readonly number[]): string =>
   `${tops.map((top, index) => `${String(100 + 10 * index)} 0 10 ${String(top)} re`).join(' ')} 0 0 100 800 re ${String(100 + 10 * tops.length)} 0 400 800 re W n`;
@@ -301,19 +314,39 @@ describe('text matching', () => {
     });
 
     it('leaves out a glyph whose core box is hidden, though the ascent and descent around it show', () => {
-      // The d1 box spans −300 to 1100 thousandths: at 10 points from (100, 700) the advance box is 697–711 and the core box 698.8–708.8.
+      // A d0 glyph gives no ink box, so the cut is measured against the core box; the FontBBox spans −300 to 1100 thousandths: at 10 points from (100, 700) the advance box is 697–711 and the core box 698.8–708.8.
       const type3: readonly TestObject[] = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/Type3/FontBBox[0 -300 1000 1100]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
         },
-        { number: 121, body: streamBody('', '1000 0 0 -300 1000 1100 d1 0 -300 1000 1400 re f') },
+        { number: 121, body: streamBody('', '1000 0 d0 0 -300 1000 1400 re f') },
       ];
       const result = match(
         { texts: [], content: '0 0 600 698.5 re W n BT /E 10 Tf 100 700 Td (a) Tj ET', resources: '/Font<</E 120 0 R>>', objects: type3 },
         'a',
       );
       expect([result.status, result.glyphs]).toStrictEqual(['mismatch', []]);
+    });
+
+    it('measures the cut by the ink of an embedded TrueType glyph, and by the em box without one', () => {
+      // Chromium pushes the blank half of a full-width （ at the start of a line past the content edge when it trims punctuation spacing; the margin clip then cuts 0.49 em of the advance box, but none of the ink, which lies in the right half.
+      const cut = `104.9 0 500 800 re W n ${line(1)}`;
+      const hidden = [inkedAt(500), inkedAt(100)].map(program => page({ texts: ['（'], program, content: cut }).glyphs.map(glyph => glyph.coreHidden));
+      const fallback = page({ texts: ['（'], content: cut }).glyphs.map(glyph => glyph.coreHidden);
+      expect([...hidden, fallback]).toStrictEqual([['none'], ['partly'], ['partly']]);
+    });
+
+    it('measures the cut by the d1 box of a Type 3 glyph, and by the em box for a d0 glyph', () => {
+      const hidden = ['1000 0 500 -100 900 800 d1 500 -100 400 900 re f', '1000 0 d0 500 -100 400 900 re f'].map(procedure =>
+        page({
+          texts: [],
+          content: '104.9 0 500 800 re W n BT /E 10 Tf 100 700 Td (a) Tj ET',
+          resources: '/Font<</E 120 0 R>>',
+          objects: type3Drawn(procedure),
+        }).glyphs.map(glyph => glyph.coreHidden),
+      );
+      expect(hidden).toStrictEqual([['none'], ['partly']]);
     });
 
     it('rejects text after text shown to clip, whose outlines are not read', () => {

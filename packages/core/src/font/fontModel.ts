@@ -2,6 +2,7 @@ import type { Matrix } from '../content/matrix.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { CmapReading } from './trueType/cmapTable.ts';
+import type { GlyphBoundsReading } from './trueType/glyphBounds.ts';
 
 /** The font subtypes of ISO 32000-1:2008, Table 110, and `other` for any other value. */
 export type FontSubtype = 'Type0' | 'Type1' | 'MMType1' | 'TrueType' | 'Type3' | 'other';
@@ -147,6 +148,8 @@ export interface FontModel {
    * For a simple TrueType font the descriptor is the font's own, for a Type 0 font its CIDFontType2 descendant's.
    */
   readonly embeddedCmap: () => CmapReading | undefined;
+  /** The glyph bounding boxes of the same embedded TrueType program, read on the first call; undefined for a font that embeds no such program. */
+  readonly embeddedGlyphBounds: () => GlyphBoundsReading | undefined;
   /** Splits a shown string into its codes, one byte per code for simple fonts and by the CMap's codespace ranges for Type 0 fonts. */
   readonly glyphs: (string: Uint8Array) => FontString;
 }
