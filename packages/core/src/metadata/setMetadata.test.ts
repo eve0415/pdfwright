@@ -236,8 +236,11 @@ describe('setting document metadata', () => {
     expect([refused.save().mode, codes(saved(replaced))]).toStrictEqual(['incremental', []]);
   });
 
-  it('refuses documents with AppendOnly signatures unless revisions are kept, and then allows an incremental save', () => {
+  it('refuses documents with signatures unless revisions are kept, and then allows an incremental save', () => {
     expect(() => setMetadata(signed(), INPUT)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'signed-document' }));
+    expect(() => setMetadata(load('/AcroForm<</Fields[]/SigFlags 1>>'), INPUT)).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'signed-document' }),
+    );
     const kept = signed();
     const change = setMetadata(kept, INPUT, { revisions: 'keep' });
     const update = kept.save({ mode: 'incremental' });

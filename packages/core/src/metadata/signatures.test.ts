@@ -23,7 +23,7 @@ const protection = (catalog: string, objects: readonly TestObject[] = []): strin
 };
 
 describe('signature protection', () => {
-  it('finds the AppendOnly flag of the interactive form and a permissions dictionary', () => {
+  it('finds the SignaturesExist and AppendOnly flags of the interactive form and a permissions dictionary', () => {
     expect([
       protection(''),
       protection('/AcroForm<</Fields[]/SigFlags 1>>'),
@@ -34,7 +34,7 @@ describe('signature protection', () => {
       ]),
       protection('/Perms<</DocMDP 3 0 R>>', [{ number: 3, body: '<<>>' }]),
       protection('/AcroForm<</SigFlags 2.0>>'),
-    ]).toStrictEqual([undefined, undefined, 'append-only', 'append-only', 'permissions', 'append-only']);
+    ]).toStrictEqual([undefined, 'signatures-exist', 'append-only', 'append-only', 'permissions', 'append-only']);
   });
 
   it('treats flags it cannot read as an integer as protection', () => {

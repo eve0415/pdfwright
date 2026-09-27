@@ -354,6 +354,7 @@ const refuseSigned = (document: DocumentInternals, keep: boolean): void => {
   const protection = signatureProtection(document);
   if (keep || protection === undefined) return;
   const what = {
+    'signatures-exist': 'signature fields',
     'append-only': 'AppendOnly signatures',
     permissions: 'a permissions dictionary',
     'unreadable-flags': 'signature flags that cannot be read',
