@@ -104,8 +104,11 @@ export class CMap {
     return this.parent?.mapped(code);
   }
 
-  // A notdef range maps every code in it to its one CID, a substitute glyph (9.7.6.3): the 9.7.5.4 EXAMPLE maps codes <00> to <1F> to CID 231, the CID its cidrange gives the space code <20>.
-  private notdef(code: CMapCode): number | undefined {
+  /**
+   * The CID a notdef mapping gives the code, here or in the CMap usecmap names, or undefined when none does.
+   * A notdef range maps every code in it to its one CID, a substitute glyph (9.7.6.3): the 9.7.5.4 EXAMPLE maps codes <00> to <1F> to CID 231, the CID its cidrange gives the space code <20>.
+   */
+  notdef(code: CMapCode): number | undefined {
     const mapping = this.notdefs.find(code);
     if (mapping !== undefined) return mapping.cid;
     return this.parent?.notdef(code);

@@ -1,13 +1,11 @@
-import type { DocumentInternals } from '../../document/documentInternals.ts';
-import type { PdfDirectObject, PdfObject } from '../../object/pdfObject.ts';
+import type { PdfDirectObject } from '../../object/pdfObject.ts';
+import type { FontSource, PdfStream } from '../fontValues.ts';
 import type { CMapProvider } from './cmapProvider.ts';
 import type { CMapProblem, ParsedCMap } from './parseCMap.ts';
 
-import { ParseError } from '../../error/parseError.ts';
 import { ResourceLimitError } from '../../error/resourceLimitError.ts';
-import { UnsupportedFeatureError } from '../../error/unsupportedFeatureError.ts';
-import { decodeStream } from '../../filter/decodeStream.ts';
 import { pdfName } from '../../object/pdfObject.ts';
+import { decodedData, latin1 } from '../fontValues.ts';
 
 import { CMap } from './cmap.ts';
 import { identityCMap } from './identityCMap.ts';
@@ -19,15 +17,7 @@ export type CMapResult =
   | { readonly kind: 'unavailable'; readonly name: string }
   | { readonly kind: 'unreadable'; readonly reason: string };
 
-type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
-
 const USE_CMAP = pdfName('UseCMap').bytes;
-
-const latin1 = (bytes: Uint8Array): string => {
-  let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
-  return text;
-};
 
 const build = (parsed: ParsedCMap, used: CMapResult | undefined): CMapResult => {
   if (used === undefined) return { kind: 'cmap', cmap: new CMap(parsed), problems: parsed.problems };
@@ -41,12 +31,12 @@ const build = (parsed: ParsedCMap, used: CMapResult | undefined): CMapResult => 
  * Results are cached by name and by stream reference. A usecmap cycle makes every CMap on it unreadable; a chain deeper than the document's `maxNesting` throws ResourceLimitError, and so does a stream that decodes past `maxDecodedBytes` or a CMap past its entry limit.
  */
 export class CMapResolver {
-  private readonly document: Pick<DocumentInternals, 'objects' | 'maxDecodedBytes' | 'maxNesting'>;
+  private readonly document: FontSource;
   private readonly provider: CMapProvider | undefined;
   private readonly results = new Map<string, CMapResult>();
   private readonly resolving = new Set<string>();
 
-  constructor(document: Pick<DocumentInternals, 'objects' | 'maxDecodedBytes' | 'maxNesting'>, provider: CMapProvider | undefined) {
+  constructor(document: FontSource, provider: CMapProvider | undefined) {
     this.document = document;
     this.provider = provider;
   }
@@ -79,24 +69,9 @@ export class CMapResolver {
     });
   }
 
-  private decoded(stream: PdfStream): Uint8Array | string {
-    try {
-      return decodeStream(stream, {
-        maxDecodedBytes: this.document.maxDecodedBytes,
-        warn: (): void => {
-          // Flate trailer warnings leave the decoded data usable; the CMap parse reports what the data lacks.
-        },
-        deref: value => this.document.objects.deref(value),
-      });
-    } catch (error) {
-      if (error instanceof ParseError || error instanceof UnsupportedFeatureError) return error.message;
-      throw error;
-    }
-  }
-
   // The stream dictionary's UseCMap entry, a name or a stream, is preferred to the file's usecmap operator; 9.7.5.4 a) requires them to name the same CMap.
   private embedded(stream: PdfStream): CMapResult {
-    const bytes = this.decoded(stream);
+    const bytes = decodedData(this.document, stream);
     if (typeof bytes === 'string') return { kind: 'unreadable', reason: bytes };
     const parsed = parseCMap(bytes, this.document.maxNesting);
     const entry = stream.dictionary.get(USE_CMAP);
