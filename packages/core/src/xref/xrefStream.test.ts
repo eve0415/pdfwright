@@ -103,4 +103,12 @@ describe('cross-reference streams', () => {
     expect(() => read('/Type/XRef/Size 1/W[1 2]', new Uint8Array(3))).toThrow(ParseError);
     expect(() => read('/Type/XRef/Size 1/W 3 0 R', new Uint8Array(3))).toThrow(ParseError);
   });
+
+  it('rejects entries without width and more entries than the file has bytes', () => {
+    expect(() => read('/Type/XRef/Size 4/W[0 0 0]/Index[0 200000000]', new Uint8Array())).toThrow(
+      new ParseError('the cross-reference stream W entry gives entries no width', 0),
+    );
+    const zeros = deflateZlib(new Uint8Array(100_000));
+    expect(() => read('/Type/XRef/Size 100000/W[1 0 0]/Filter/FlateDecode', zeros)).toThrow(ParseError);
+  });
 });

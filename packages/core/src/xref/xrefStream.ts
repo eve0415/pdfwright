@@ -130,6 +130,12 @@ export const readXrefStream = (source: ByteSource, offset: number, context: Xref
   if (value.kind !== 'stream' || !isName(value.dictionary.get(TYPE), XREF)) throw new ParseError('not a cross-reference stream', at);
   const { dictionary } = value;
   const structure = layout(dictionary, at);
+  const entryWidth = structure.widths[0] + structure.widths[1] + structure.widths[2];
+  // Each entry takes W bytes of the decoded data, so entries of zero width cannot be told apart; and a section that lists more objects than the file has bytes does not describe this file.
+  if (structure.total > 0 && entryWidth === 0) throw new ParseError('the cross-reference stream W entry gives entries no width', at);
+  if (structure.total > source.length + 1024) {
+    throw new ParseError(`the cross-reference stream lists ${String(structure.total)} entries, more than the file has bytes`, at);
+  }
   const data = decodeStream(value, { maxDecodedBytes: context.maxDecodedBytes, warn: context.warn });
   const entries = readEntries({ data, widths: structure.widths, at, warn: context.warn }, structure);
   return {
