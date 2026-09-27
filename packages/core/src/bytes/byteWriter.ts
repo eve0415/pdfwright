@@ -6,6 +6,11 @@ export class ByteWriter {
     return this.used;
   }
 
+  /** The last byte written, or undefined before the first. */
+  get last(): number | undefined {
+    return this.used === 0 ? undefined : this.buffer[this.used - 1];
+  }
+
   private reserve(additional: number): void {
     const needed = this.used + additional;
     if (needed <= this.buffer.length) return;

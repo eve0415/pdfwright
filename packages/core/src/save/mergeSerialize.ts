@@ -7,6 +7,7 @@ import type { SaveWarning } from './saveWarning.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { isRegular } from '../parse/characterClass.ts';
 import { needsSpace, writeName, writePdfObject } from '../serialize/serializeObject.ts';
 
 export interface MergeContext {
@@ -43,8 +44,16 @@ class MergeWriter {
     this.writer.writeBytes(this.context.bytes.subarray(start, end));
   }
 
+  // Copied gaps can be empty where the original value began with a delimiter; a new value that begins with a regular character then needs white space to stay a separate token (ISO 32000-1:2008, 7.2.2).
+  private separate(startsRegular: boolean): void {
+    const { last } = this.writer;
+    if (startsRegular && last !== undefined && isRegular(last)) this.writer.writeByte(0x20);
+  }
+
   value(value: PdfDirectObject, original: SourceNode | undefined): void {
-    if (original !== undefined && deepEqual(value, original.value, 'strict')) this.copy(original.start, original.end);
+    const same = original !== undefined && deepEqual(value, original.value, 'strict');
+    this.separate(same ? isRegular(this.context.bytes[original.start] ?? 0x20) : value.kind !== 'dictionary' && value.kind !== 'array' && needsSpace(value));
+    if (same) this.copy(original.start, original.end);
     else if (value.kind === 'dictionary' && original?.entries !== undefined) this.dictionary(value.entries, original);
     else if (value.kind === 'array' && original?.items !== undefined) this.array(value.items, original);
     else writePdfObject(this.writer, value, this.context);

@@ -89,6 +89,16 @@ describe('merge serializer', () => {
     expect([text, warnings.map(warning => warning.code)]).toStrictEqual(['<</K (last)/B 2/C 3>>', ['duplicate-key-resolved']]);
   });
 
+  it('keeps a changed value that begins with a regular character apart from the token before it', () => {
+    const parsed = parse('<</Foo/Bar/Arr[/A/B]/List[(a)7]>>');
+    const value = edited(parsed, entries => {
+      entries.set(pdfName('Foo').bytes, pdfInteger(5));
+      entries.set(pdfName('Arr').bytes, pdfArray([pdfName('A'), pdfInteger(7)]));
+      entries.set(pdfName('List').bytes, pdfArray([pdfInteger(5), pdfInteger(7)]));
+    });
+    expect(merge(value, parsed).text).toBe('<</Foo 5/Arr[/A 7]/List[5 7]>>');
+  });
+
   it('serializes values without an original with the plain serializer', () => {
     const fresh = pdfArray([pdfReal(0.1234567), pdfName('X')]);
     const longer = pdfArray([pdfInteger(1), pdfReal(2.5), pdfInteger(4), pdfInteger(5)]);
