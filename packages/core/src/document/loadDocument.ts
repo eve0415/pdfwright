@@ -61,6 +61,8 @@ export interface SaveOptions {
   fractionDigits?: number;
   /** Most entries a full rewrite's classic cross-reference table may hold for object numbers the file does not use; default 100,000. */
   maxTableGapEntries?: number;
+  /** Most entries a full rewrite's cross-reference stream may hold for object numbers the file does not use; default 10,000,000. */
+  maxGeneratedXrefEntries?: number;
 }
 
 export interface LoadedDocument {
@@ -242,6 +244,7 @@ class LoadedPdf implements LoadedDocument {
       fractionDigits: options.fractionDigits ?? DEFAULT_FRACTION_DIGITS,
       maxNesting: this.maxNesting,
       maxTableGapEntries: count(options.maxTableGapEntries, 100_000, 'maxTableGapEntries'),
+      maxGeneratedXrefEntries: count(options.maxGeneratedXrefEntries, 10_000_000, 'maxGeneratedXrefEntries'),
       fileIdentifier: options.fileIdentifier ?? 'derive',
       warnings,
     };

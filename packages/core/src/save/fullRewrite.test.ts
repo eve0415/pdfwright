@@ -33,6 +33,10 @@ const streamRows = (xref: PdfObject): number => {
   return inflateZlib(xref.data).data.length / rowBytes;
 };
 
+// A file with a cross-reference stream whose last object is numbered far above the others.
+const highStream = (high: number): Uint8Array =>
+  buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content, { number: high, body: '(high)' }], trailer: '/Root 1 0 R' }]).bytes;
+
 // The header a full rewrite writes and the codes of its warnings.
 const headerAndWarnings = (sections: readonly TestSection[], header: string): readonly [string, readonly string[]] => {
   const saved = loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' });
@@ -113,6 +117,17 @@ describe('full rewrite', () => {
     );
     const raised = loadDocument(sparse(200_000)).save({ mode: 'full', maxTableGapEntries: 200_000 });
     expect(loadDocument(raised.chunks).get(pdfReference(200_000, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' });
+  });
+
+  it('refuses a cross-reference stream that would hold more entries for unused numbers than the limit allows', () => {
+    const start = performance.now();
+    expect(() => loadDocument(highStream(2_147_483_647)).save({ mode: 'full' })).toThrow(ResourceLimitError);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(() => loadDocument(highStream(1000)).save({ mode: 'full', maxGeneratedXrefEntries: 100 })).toThrow(
+      new ResourceLimitError('the cross-reference stream would hold 995 entries for unused object numbers, more than maxGeneratedXrefEntries (100)'),
+    );
+    const raised = loadDocument(highStream(1000)).save({ mode: 'full', maxGeneratedXrefEntries: 995 });
+    expect(loadDocument(raised.chunks).get(pdfReference(1000, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' });
   });
 
   it.runIf(inject('runtime') === 'node')(

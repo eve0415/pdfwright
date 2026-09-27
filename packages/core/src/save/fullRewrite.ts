@@ -315,7 +315,7 @@ class FullRewriter {
     return [previous[0], hash.update(trailerWithoutId).digest()];
   }
 
-  // Every object number from 0 to Size - 1 gets an entry, generated as it is written; a classic table cannot be compressed, so the entries it adds for unused numbers are limited.
+  // Every object number from 0 to Size - 1 gets an entry, generated as it is written; the entries added for unused numbers are limited, since each costs time to generate and a classic table cannot be compressed.
   private writeCrossReference(): number {
     const { emitter } = this;
     this.freeEntries();
@@ -324,6 +324,16 @@ class FullRewriter {
     for (const number of this.entries.keys()) highest = Math.max(highest, number + 1);
     const xrefNumber = this.writesStream() ? highest : undefined;
     const size = xrefNumber === undefined ? highest : highest + 1;
+    const unused = size - this.entries.size - (xrefNumber === undefined ? 0 : 1);
+    const [limit, limitName, section] =
+      xrefNumber === undefined
+        ? [this.input.maxTableGapEntries, 'maxTableGapEntries', 'table']
+        : [this.input.maxGeneratedXrefEntries, 'maxGeneratedXrefEntries', 'stream'];
+    if (unused > limit) {
+      throw new ResourceLimitError(
+        `the cross-reference ${section} would hold ${String(unused)} entries for unused object numbers, more than ${limitName} (${String(limit)})`,
+      );
+    }
     const { offset } = emitter;
     if (xrefNumber !== undefined) this.entries.set(xrefNumber, { objectNumber: xrefNumber, type: 1, field: offset, generation: 0 });
     const trailer = this.trailer(size);
@@ -337,13 +347,6 @@ class FullRewriter {
       return writer.toUint8Array();
     };
     if (xrefNumber === undefined) {
-      const unused = size - this.entries.size;
-      const limit = this.input.maxTableGapEntries;
-      if (unused > limit) {
-        throw new ResourceLimitError(
-          `the cross-reference table would hold ${String(unused)} entries for unused object numbers, more than maxTableGapEntries (${String(limit)})`,
-        );
-      }
       writeCoveringTable(emitter.writer, this.entries, size);
       const pair = this.identifier(serialize(trailer));
       if (pair !== undefined) trailer.set(TRAILER_KEYS.id, idArray(pair));

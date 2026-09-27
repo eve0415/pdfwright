@@ -33,6 +33,8 @@ export interface SaveInput {
   readonly maxNesting: number;
   /** Most entries a classic table covering every object number may hold for numbers without an object. */
   readonly maxTableGapEntries: number;
+  /** Most entries a cross-reference stream covering every object number may hold for numbers without an object. */
+  readonly maxGeneratedXrefEntries: number;
   readonly fileIdentifier: 'derive' | readonly [Uint8Array, Uint8Array];
   /** Warnings found before serialization, such as a raised version. */
   readonly warnings: readonly SaveWarning[];
