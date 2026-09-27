@@ -6,7 +6,7 @@ import { describe, expect, inject, it } from 'vitest';
 
 import { md5 } from '../hash/md5.ts';
 
-import { ZlibDeflater, deflateRaw, deflateZlib } from './deflate.ts';
+import { ZlibDeflater, createDeflateStream, deflateRaw, deflateZlib } from './deflate.ts';
 import { inflateRaw, inflateZlib } from './inflate.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -134,5 +134,25 @@ describe('deterministic deflate encoding', () => {
     const ratio = encoded.length / deflatePako(compressible, { level: 6 }).length;
     expect(ratio, `compressible: ${ratio.toFixed(4)}× pako`).toBeLessThanOrEqual(1.1);
     expect(elapsed).toBeLessThan(3000);
+  });
+});
+
+describe('incremental deflate output', () => {
+  it('emits bounded pieces byte-identical to one-shot compression across input boundaries', () => {
+    const input = Uint8Array.from({ length: 2_200_000 }, (_, index) => (index * 73 + (index >>> 8)) & 255);
+    for (const level of [0, 6, 9] as const) {
+      const stream = createDeflateStream({ level });
+      const parts: Uint8Array[] = [];
+      for (let offset = 0; offset < input.length; offset += 19_871) parts.push(...stream.push(input.subarray(offset, offset + 19_871)));
+      parts.push(stream.finish());
+      const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        result.set(part, offset);
+        offset += part.length;
+      }
+      expect(result).toStrictEqual(deflateZlib(input, { level }));
+      expect(Math.max(...parts.map(part => part.length))).toBeLessThan(1_100_000);
+    }
   });
 });

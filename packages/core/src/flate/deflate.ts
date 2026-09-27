@@ -117,6 +117,10 @@ export class ZlibDeflater {
     }
   }
 
+  drain(): Uint8Array {
+    return this.writer.drain();
+  }
+
   /** Writes the final block and the Adler-32 trailer, in big-endian order (RFC 1950, 2.2). */
   finish(): Uint8Array {
     this.encode(this.block.subarray(0, this.used), true);
@@ -126,6 +130,34 @@ export class ZlibDeflater {
     return this.writer.finish();
   }
 }
+
+export interface DeflateStream {
+  push: (data: Uint8Array) => Uint8Array[];
+  finish: () => Uint8Array;
+}
+
+/** Emits complete zlib bytes after each input block while retaining only the current block and pending bits. */
+export const createDeflateStream = (options?: DeflateOptions): DeflateStream => {
+  const encoder = new ZlibDeflater(options);
+  let finished = false;
+  return {
+    push(data) {
+      if (finished) throw new InvalidArgumentError('deflate stream is finished');
+      const parts: Uint8Array[] = [];
+      for (let offset = 0; offset < data.length; offset += 65536) {
+        encoder.write(data.subarray(offset, offset + 65536));
+        const part = encoder.drain();
+        if (part.length > 0) parts.push(part);
+      }
+      return parts;
+    },
+    finish() {
+      if (finished) throw new InvalidArgumentError('deflate stream is finished');
+      finished = true;
+      return encoder.finish();
+    },
+  };
+};
 
 export const deflateZlib = (data: Uint8Array, options?: DeflateOptions): Uint8Array => {
   const deflater = new ZlibDeflater(options);

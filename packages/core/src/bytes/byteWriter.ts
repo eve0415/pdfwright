@@ -49,4 +49,11 @@ export class ByteWriter {
   toUint8Array(): Uint8Array {
     return this.buffer.slice(0, this.used);
   }
+
+  drain(): Uint8Array {
+    const result = this.toUint8Array();
+    this.buffer = new Uint8Array(256);
+    this.used = 0;
+    return result;
+  }
 }

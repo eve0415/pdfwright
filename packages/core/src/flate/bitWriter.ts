@@ -34,4 +34,8 @@ export class BitWriter {
     this.alignByte();
     return this.bytes.toUint8Array();
   }
+
+  drain(): Uint8Array {
+    return this.bytes.drain();
+  }
 }
