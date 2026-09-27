@@ -29,6 +29,7 @@ describe('xmp token cap', () => {
   it('reads and preserves a packet with 50,000 DocumentAncestors entries at the default', () => {
     const document = loadDocument(source);
     expect(readMetadata(document).xmp).toHaveProperty('packet.properties.0.localName', 'DocumentAncestors');
+    expect(readMetadata(document).xmp).toHaveProperty('packet.properties.0.value.items.length', 50_000);
     setMetadata(document, input);
     const saved = document.save().toBytes();
     expect(readMetadata(loadDocument(saved)).xmp).toHaveProperty('packet.properties.0.localName', 'DocumentAncestors');

@@ -85,6 +85,9 @@ interface XmlElement {
   readonly children: XmlElement[];
   /** Character data and CDATA directly inside the element, in order. */
   readonly text: string[];
+  /** Array items are collected when each rdf:li closes, so the tree does not retain a node for every item. */
+  arrayItems?: XmpArrayItem[];
+  arrayInvalid?: boolean;
   readonly span: { start: number; end: number };
   endTagStart: number;
 }
@@ -168,45 +171,54 @@ const openElement = (token: Extract<XmlToken, { kind: 'start' }>, parent: OpenEl
   return { element, scope };
 };
 
+const isDeclaration = (attribute: Attribute): boolean => attribute.namespace === XMLNS_NAMESPACE || attribute.name === 'xmlns';
+const language = (value: string | undefined): string | undefined => (value === '' ? undefined : value);
+
+const collectArrayItem = (parent: XmlElement | undefined, item: XmlElement): void => {
+  if (parent?.namespace !== RDF_NAMESPACE || !['Alt', 'Seq', 'Bag'].includes(parent.localName)) return;
+  parent.children.pop();
+  const qualified = item.attributes.some(attribute => !isDeclaration(attribute) && !(attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang'));
+  if (item.namespace !== RDF_NAMESPACE || item.localName !== 'li' || item.children.length > 0 || qualified) {
+    parent.arrayInvalid = true;
+    return;
+  }
+  parent.arrayItems ??= [];
+  parent.arrayItems.push({ text: item.text.join(''), language: language(item.language) });
+};
+
 // Builds the element tree with a stack; the tokenizer has already bounded the depth.
 const buildTree = (tokens: readonly XmlToken[]): readonly XmlElement[] => {
-  const all: XmlElement[] = [];
+  const rdfs: XmlElement[] = [];
   const stack: OpenElement[] = [];
   for (const token of tokens) {
     const parent = stack.at(-1);
     if (token.kind === 'start') {
       const open = openElement(token, parent);
-      all.push(open.element);
-      if (!token.selfClosing) stack.push(open);
+      if (open.element.namespace === RDF_NAMESPACE && open.element.localName === 'RDF') rdfs.push(open.element);
+      if (token.selfClosing) collectArrayItem(parent?.element, open.element);
+      else stack.push(open);
     } else if (token.kind === 'end' && parent !== undefined) {
       parent.element.span.end = token.span.end;
       parent.element.endTagStart = token.span.start;
       stack.pop();
+      collectArrayItem(stack.at(-1)?.element, parent.element);
     } else if ((token.kind === 'text' || token.kind === 'cdata') && parent !== undefined) parent.element.text.push(token.text);
   }
-  return all;
+  return rdfs;
 };
 
 const isRdf = (element: XmlElement, localName: string): boolean => element.namespace === RDF_NAMESPACE && element.localName === localName;
 const isBlank = (element: XmlElement): boolean => element.text.every(text => /^[ \t\r\n]*$/u.test(text));
-const isDeclaration = (attribute: Attribute): boolean => attribute.namespace === XMLNS_NAMESPACE || attribute.name === 'xmlns';
-const language = (value: string | undefined): string | undefined => (value === '' ? undefined : value);
 
 // XMP Part 1 7.7: an array is an rdf:Alt, rdf:Seq or rdf:Bag whose items are rdf:li elements; only items with simple, unqualified values are read.
 const arrayValue = (element: XmlElement): XmpValue => {
   const [array] = element.children;
   if (array === undefined || element.children.length !== 1 || array.attributes.some(attribute => !isDeclaration(attribute))) return { kind: 'opaque' };
   const type = array.localName;
-  if (array.namespace !== RDF_NAMESPACE || (type !== 'Alt' && type !== 'Seq' && type !== 'Bag') || !isBlank(array)) return { kind: 'opaque' };
-  const items: XmpArrayItem[] = [];
-  for (const item of array.children) {
-    const qualified = item.attributes.some(
-      attribute => !isDeclaration(attribute) && !(attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang'),
-    );
-    if (!isRdf(item, 'li') || item.children.length > 0 || qualified) return { kind: 'opaque' };
-    items.push({ text: item.text.join(''), language: language(item.language) });
+  if (array.namespace !== RDF_NAMESPACE || (type !== 'Alt' && type !== 'Seq' && type !== 'Bag') || !isBlank(array) || array.arrayInvalid === true) {
+    return { kind: 'opaque' };
   }
-  return { kind: 'array', type, items };
+  return { kind: 'array', type, items: array.arrayItems ?? [] };
 };
 
 const isLanguage = (attribute: Attribute): boolean => attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang';
@@ -309,9 +321,8 @@ const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: reado
 };
 
 const readTree = (text: string, encoding: XmlEncoding, tokens: readonly XmlToken[]): ReadPacket => {
-  const elements = buildTree(tokens);
+  const rdfs = buildTree(tokens);
   // XMP Part 1 7.4: "A single XMP packet shall be serialized using a single rdf:RDF XML element"; 7.3.3: x:xmpmeta or other elements may surround it.
-  const rdfs = elements.filter(element => isRdf(element, 'RDF'));
   const [rdf] = rdfs;
   if (rdf === undefined) throw new UnreadableError('no-rdf');
   if (rdfs.length > 1) throw new UnreadableError('multiple-rdf');
