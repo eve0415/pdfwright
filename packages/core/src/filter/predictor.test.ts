@@ -80,6 +80,7 @@ describe('predictors', () => {
   it('rejects unknown PNG tags and parameters outside Table 8', () => {
     expect(() => undoPredictor(Uint8Array.of(5, 0), { predictor: 12, colors: 1, bitsPerComponent: 8, columns: 1 })).toThrow(ParseError);
     expect(() => undoPredictor(Uint8Array.of(0), { predictor: 3, colors: 1, bitsPerComponent: 8, columns: 1 })).toThrow(UnsupportedFeatureError);
+    expect(undoPredictor(Uint8Array.of(1, 5, 5), { predictor: 16, colors: 1, bitsPerComponent: 8, columns: 2 })).toStrictEqual(Uint8Array.of(5, 10));
     expect(() => undoPredictor(Uint8Array.of(0), { predictor: 12, colors: 0, bitsPerComponent: 8, columns: 1 })).toThrow(ParseError);
     expect(() => undoPredictor(Uint8Array.of(0), { predictor: 12, colors: 1, bitsPerComponent: 3, columns: 1 })).toThrow(ParseError);
   });

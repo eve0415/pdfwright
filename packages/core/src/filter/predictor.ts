@@ -108,6 +108,6 @@ export const undoPredictor = (data: Uint8Array, parameters: PredictorParameters)
   validate(parameters);
   // Table 10 gives 2 for TIFF Predictor 2; 7.4.4.4: "For LZWDecode and FlateDecode, a Predictor value greater than or equal to 10 shall indicate that a PNG predictor is in use".
   if (parameters.predictor === 2) return undoTiff(data, parameters);
-  if (parameters.predictor >= 10 && parameters.predictor <= 15) return undoPng(data, parameters);
+  if (parameters.predictor >= 10) return undoPng(data, parameters);
   throw new UnsupportedFeatureError(`predictor ${String(parameters.predictor)} is not defined by ISO 32000-1 Table 10`);
 };
