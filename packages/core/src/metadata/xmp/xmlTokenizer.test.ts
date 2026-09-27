@@ -96,6 +96,11 @@ describe('the XML tokenizer', () => {
     ]).toStrictEqual(['doctype', 'doctype', 'undefined-entity', 'undefined-entity', 'invalid-character', 'invalid-character', 'not-well-formed']);
   });
 
+  it('expands character references with any number of leading zeros', () => {
+    expect(characterData(tokensOf('<a>&#x0000041;&#00000066;&#x00000000001F600;</a>'))).toStrictEqual(['AB\u{1F600}']);
+    expect(refusal('<a>&#x0000110000;</a>')).toBe('invalid-character');
+  });
+
   it('bounds nesting and attributes', () => {
     expect([refusal(nested(64)), refusal(nested(65)), refusal(attributes(256)), refusal(attributes(257))]).toStrictEqual([
       undefined,

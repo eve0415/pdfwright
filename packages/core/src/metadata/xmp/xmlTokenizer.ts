@@ -55,11 +55,11 @@ const PREDEFINED: ReadonlyMap<string, string> = new Map([
 
 const isCharacter = (code: number): boolean => !INVALID_CHARACTER.test(String.fromCodePoint(code));
 
-// XML 1.0, 4.1, production [66] CharRef: a decimal or hexadecimal number, which must name a Char.
+// XML 1.0, 4.1, production [66] CharRef: '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';', so any number of leading zeros, and the number must name a Char.
 const characterReference = (name: string): number | undefined => {
-  const decimal = /^#(\d{1,7})$/u.exec(name);
+  const decimal = /^#(\d+)$/u.exec(name);
   if (decimal !== null) return Number(decimal[1]);
-  const hex = /^#x([\dA-Fa-f]{1,6})$/u.exec(name);
+  const hex = /^#x([\dA-Fa-f]+)$/u.exec(name);
   return hex === null ? undefined : Number.parseInt(hex[1] ?? '', 16);
 };
 
