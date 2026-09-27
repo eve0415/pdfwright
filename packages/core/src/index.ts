@@ -30,6 +30,10 @@ export {
 export type { InvalidObjectReason, PdfDirectObject, PdfObject, PdfReference } from './object/pdfObject.ts';
 export { serializeObject } from './serialize/serializeObject.ts';
 export { createDocument } from './document/pdfDocument.ts';
+export { loadDocument } from './document/loadDocument.ts';
+export type { LoadOptions, LoadedDocument } from './document/loadDocument.ts';
+export type { DocumentStructure, StructureStatus } from './document/readStructure.ts';
+export type { LoadWarning, LoadWarningCode } from './parse/loadWarning.ts';
 export type { DocumentOptions, PageOptions, PdfDocument, PdfPage } from './document/pdfDocument.ts';
 export type { DocumentInfo } from './document/documentInfo.ts';
 export type { ContentBuilder, ContentNumber, PathBuilder } from './document/contentBuilder.ts';
