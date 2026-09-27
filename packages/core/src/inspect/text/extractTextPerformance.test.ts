@@ -35,27 +35,31 @@ const extractLine = (count: number, after: string): readonly boolean[] => {
 };
 
 describe('text extraction cost', () => {
-  it('tests 40,000 glyphs against 40,000 later rectangles in time close to that of the glyphs alone', async ({ annotate }) => {
-    const count = 40_000;
-    const unfilled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re n`).join('\n');
-    const filled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re f`).join('\n');
-    const apart = '500 10 1 1 re f\n'.repeat(count);
-    let results: (readonly boolean[])[] = [];
-    const base = elapsed(() => {
-      results.push(extractLine(count, unfilled));
-    });
-    const time = elapsed(() => {
-      results = [...results, extractLine(count, `1 g ${filled}`), extractLine(count, `1 g ${apart}`)];
-    });
-    await annotate(`40,000 glyphs alone in ${base.toFixed(0)} ms, twice with 40,000 fills in ${time.toFixed(0)} ms`);
-    expect([results.map(covered => [covered.length, covered.filter(Boolean).length]), time < 10 * base + 1000, time < TIME_LIMIT_MS]).toStrictEqual([
-      [
-        [count, 0],
-        [count, count],
-        [count, 0],
-      ],
-      true,
-      true,
-    ]);
-  });
+  it(
+    'tests 40,000 glyphs against 40,000 later rectangles in time close to that of the glyphs alone',
+    async ({ annotate }) => {
+      const count = 40_000;
+      const unfilled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re n`).join('\n');
+      const filled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re f`).join('\n');
+      const apart = '500 10 1 1 re f\n'.repeat(count);
+      let results: (readonly boolean[])[] = [];
+      const base = elapsed(() => {
+        results.push(extractLine(count, unfilled));
+      });
+      const time = elapsed(() => {
+        results = [...results, extractLine(count, `1 g ${filled}`), extractLine(count, `1 g ${apart}`)];
+      });
+      await annotate(`40,000 glyphs alone in ${base.toFixed(0)} ms, twice with 40,000 fills in ${time.toFixed(0)} ms`);
+      expect([results.map(covered => [covered.length, covered.filter(Boolean).length]), time < 10 * base + 1000, time < TIME_LIMIT_MS]).toStrictEqual([
+        [
+          [count, 0],
+          [count, count],
+          [count, 0],
+        ],
+        true,
+        true,
+      ]);
+    },
+    TIME_LIMIT_MS,
+  );
 });
