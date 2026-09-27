@@ -171,6 +171,17 @@ describe('embedded and ToUnicode CMaps', () => {
     }).toThrow(ResourceLimitError);
   });
 
+  it('bounds work for many distinct codespace misses', () => {
+    const entries = Array.from({ length: 2000 }, (_, index) => {
+      const hex = index.toString(16).padStart(4, '0');
+      return `<${hex}> <${hex}>`;
+    });
+    const cmap = new CMap(parse(`2000 begincodespacerange ${entries.join(' ')} endcodespacerange`));
+    expect(() => {
+      for (let index = 0; index < 1000; index++) cmap.read(Uint8Array.of(0xff, 0xff), 0);
+    }).toThrow(ResourceLimitError);
+  });
+
   it('counts bfrange destinations across arrays', () => {
     const cmap = `5 beginbfrange ${Array.from({ length: 5 }, (_, index) => `<${index.toString(16).padStart(4, '0')}> <${(index + 15_999).toString(16).padStart(4, '0')}> [${'<0041> '.repeat(16_000)}]`).join(' ')} endbfrange`;
     expect(() => parse(cmap)).toThrow(ResourceLimitError);
