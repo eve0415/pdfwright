@@ -225,6 +225,11 @@ describe('text matching', () => {
       expect(statusOf({ texts: ['山', '田'], content: `${triangle} ${line(2)}` }, '山田')).toBe('mismatch');
     });
 
+    it('rejects text after text shown to clip, whose outlines are not read', () => {
+      // 9.3.6: at the end of a text object in render mode 7 the glyph outlines become the clip; a dot far from the name hides it.
+      expect(statusOf({ texts: ['山', '田', '・'], content: `BT /T 10 Tf 7 Tr 400 100 Td ${show(3)} ET 0 Tr ${line(2)}` }, '山田')).toBe('mismatch');
+    });
+
     it('rejects a Type 3 glyph whose procedure paints nothing, but not an empty space glyph', () => {
       // Chromium's Type 3 space is the empty procedure 224 0 0 0 0 0 d1; an empty procedure for 山 prints nothing.
       const type3: readonly TestObject[] = [

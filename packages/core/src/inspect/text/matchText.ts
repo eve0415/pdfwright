@@ -10,7 +10,7 @@ import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 
 export interface MatchTextOptions {
-  /** Which glyphs count; by default those that are visible or only empty, not covered, not clipped out, and whose box's centre lies inside the CropBox. */
+  /** Which glyphs count; by default those that are visible or only empty, not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox. */
   readonly select?: (glyph: PageGlyph) => boolean;
   /** The order the glyphs are read in; `content` by default. */
   readonly order?: GlyphLayout;
@@ -140,13 +140,13 @@ const centre = (glyph: PageGlyph): readonly [number, number] => {
 };
 
 /**
- * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, not clipped out, and whose box's centre lies inside the CropBox.
+ * The default selection: glyphs that paint (or are empty Type 3 glyphs, which matchText reports as missing), not covered, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox.
  * ISO 32000-1:2008, 14.11.2.1: "The crop box defines the region to which the contents of the page shall be clipped (cropped) when displayed or printed".
  */
 const defaultSelection =
   ({ cropBox }: PageText) =>
   (glyph: PageGlyph): boolean => {
-    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.clip === 'outside') return false;
+    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.clip === 'outside' || glyph.clip === 'unknown') return false;
     if (cropBox === undefined) return true;
     const [x, y] = centre(glyph);
     const [left, bottom, right, top] = cropBox;

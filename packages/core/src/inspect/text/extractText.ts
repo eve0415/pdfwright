@@ -99,7 +99,7 @@ export interface PageGlyph {
   readonly softMasked: boolean;
   /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
-  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit. */
+  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit and under a clip made from glyph outlines (render modes 4 to 7), which are not read. */
   readonly clip: ClipClass;
   /** False after a glyph whose width is unknown or a string that could not be split, until a text-positioning operator sets the position again. */
   readonly positionKnown: boolean;

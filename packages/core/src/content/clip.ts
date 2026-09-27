@@ -158,6 +158,11 @@ export class Clip {
     return new Clip(this, { polygons, rule, bounds: boundsOf(polygons.flat()) }, vertices);
   }
 
+  /** This clip intersected with a path whose shape is not known, such as glyph outlines, which makes every later classification `unknown`. */
+  intersectUnknown(): Clip {
+    return new Clip(undefined, undefined, Math.max(this.vertices, MAX_CLIP_VERTICES + 1));
+  }
+
   private *paths(): Generator<ClipPath> {
     if (this.path !== undefined) yield this.path;
     for (let clip = this.parent; clip !== undefined; clip = clip.parent) if (clip.path !== undefined) yield clip.path;

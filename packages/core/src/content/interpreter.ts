@@ -325,6 +325,9 @@ const INLINE_FAMILIES = new Map([
 
 /** ISO 32000-1:2008, 9.3.6, Table 106: render modes 0, 2, 4 and 6 fill glyphs. */
 export const FILLING_MODES: ReadonlySet<number> = new Set([0, 2, 4, 6]);
+// Table 106: render modes 4 to 7 add the glyphs to the path for clipping.
+const CLIPPING_MODES: ReadonlySet<number> = new Set([4, 5, 6, 7]);
+
 /** Table 106: render modes 1, 2, 5 and 6 stroke glyphs; 3 and 7 paint nothing. */
 export const STROKING_MODES: ReadonlySet<number> = new Set([1, 2, 5, 6]);
 
@@ -453,6 +456,8 @@ class Interpreter {
   private textMatrix: Matrix = IDENTITY;
   private lineMatrix: Matrix = IDENTITY;
   private positionKnown = true;
+  // Whether the text object shows text in a render mode that adds to the clip (4 to 7), which ET applies.
+  private textClip = false;
   private path: PathBuilder | undefined = undefined;
   private pendingClip: FillRule | undefined = undefined;
   private compatibility = 0;
@@ -737,6 +742,7 @@ class Interpreter {
       textMatrix: this.textMatrix,
       lineMatrix: this.lineMatrix,
       positionKnown: this.positionKnown,
+      textClip: this.textClip,
       path: this.path,
       pendingClip: this.pendingClip,
       compatibility: this.compatibility,
@@ -764,7 +770,14 @@ class Interpreter {
         );
       }
     } finally {
-      ({ state: this.state, stack: this.stack, textMatrix: this.textMatrix, lineMatrix: this.lineMatrix, positionKnown: this.positionKnown } = saved);
+      ({
+        state: this.state,
+        stack: this.stack,
+        textMatrix: this.textMatrix,
+        lineMatrix: this.lineMatrix,
+        positionKnown: this.positionKnown,
+        textClip: this.textClip,
+      } = saved);
       ({
         path: this.path,
         pendingClip: this.pendingClip,
@@ -820,8 +833,10 @@ class Interpreter {
     else if (operator === 'Tf') this.state = { ...this.state, font: this.namedFont(step, nameBytes(values[0])), fontSize: number(values, 1) };
     else if (operator === 'gs') this.graphicsStateParameters(step, nameBytes(values[0]));
     // 9.4.1, Table 107: BT sets the text matrix and the text line matrix to the identity matrix.
-    else if (operator === 'BT') this.setLine(IDENTITY);
-    else if (operator === 'ET') this.positionKnown = true;
+    else if (operator === 'BT') {
+      this.setLine(IDENTITY);
+      this.textClip = false;
+    } else if (operator === 'ET') this.endText();
     else if (operator === 'Td') this.nextLine(value, number(values, 1));
     else if (operator === 'TD') {
       // 9.4.2, Table 108: TD has the effect of −ty TL followed by tx ty Td.
@@ -832,6 +847,13 @@ class Interpreter {
     else if (operator === 'T*') this.nextLine(0, -this.state.leading);
     else return false;
     return true;
+  }
+
+  // 9.3.6: "At the end of the text object, the accumulated glyph outlines, if any, shall be combined into a single path", and the clip becomes its intersection with the previous one; glyph outlines are not read, so the clip's shape becomes unknown.
+  private endText(): void {
+    this.positionKnown = true;
+    if (this.textClip) this.state = { ...this.state, clip: this.state.clip.intersectUnknown() };
+    this.textClip = false;
   }
 
   private setLine(matrix: Matrix): void {
@@ -983,6 +1005,7 @@ class Interpreter {
       }
     } else this.positionKnown = false;
     const { renderMode } = this.state;
+    this.textClip ||= CLIPPING_MODES.has(renderMode) && string.length > 0;
     const spaces = [...(FILLING_MODES.has(renderMode) ? [this.state.fill] : []), ...(STROKING_MODES.has(renderMode) ? [this.state.stroke] : [])];
     if (string.length > 0 && spaces.length > 0) this.paintWith('text', spaces, step);
     if (scope.pageText) {
