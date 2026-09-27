@@ -31,6 +31,11 @@ export interface DictionaryPair {
   readonly skip?: ReadonlySet<string>;
 }
 
+const referenceKey = (reference: Extract<PdfDirectObject, { kind: 'reference' }>): string =>
+  `${String(reference.objectNumber)}.${String(reference.generation)}`;
+
+const pageNumbers = (document: DocumentInternals): Map<string, number> => new Map(document.pages.map((page, index) => [referenceKey(page.reference), index]));
+
 const STREAM_KEYS = new Set(['Length', 'Filter', 'DecodeParms', 'DL']);
 const SUBTYPE = pdfName('Subtype').bytes;
 const FILTER = pdfName('Filter').bytes;
@@ -85,6 +90,8 @@ export class ValueGraph {
   private readonly b: DocumentInternals;
   private readonly report: GraphReport;
   private readonly visited = new Set<string>();
+  private readonly pagesA: ReadonlyMap<string, number>;
+  private readonly pagesB: ReadonlyMap<string, number>;
 
   private readonly raw: boolean;
 
@@ -94,6 +101,21 @@ export class ValueGraph {
     this.b = sides.b;
     this.raw = sides.raw === true;
     this.report = report;
+    this.pagesA = pageNumbers(sides.a);
+    this.pagesB = pageNumbers(sides.b);
+  }
+
+  // Pages are compared page by page elsewhere, so a reference to a page, from an outline, an annotation or the structure tree, compares by the page's position.
+  private samePage(left: Value, right: Value, path: ValuePath): boolean {
+    const pageA = left?.kind === 'reference' ? this.pagesA.get(referenceKey(left)) : undefined;
+    const pageB = right?.kind === 'reference' ? this.pagesB.get(referenceKey(right)) : undefined;
+    if (pageA === undefined && pageB === undefined) return false;
+    if (pageA !== pageB) {
+      const summary = (page: number | undefined, value: Value): ValueSummary =>
+        page === undefined ? summarize(value) : { kind: 'page', text: `page ${String(page)}` };
+      this.report.mismatch({ path, a: summary(pageA, left), b: summary(pageB, right) });
+    }
+    return true;
   }
 
   // Two unchanged objects at the same position of the same buffer are equal without being parsed.
@@ -133,7 +155,7 @@ export class ValueGraph {
   }
 
   compare(left: Value, right: Value, path: ValuePath): void {
-    if (this.sameSource(left, right) || this.seen(left, right)) return;
+    if (this.sameSource(left, right) || this.samePage(left, right, path) || this.seen(left, right)) return;
     const a = this.resolveA(left);
     const b = this.resolveB(right);
     if (a?.kind === 'dictionary' && b?.kind === 'dictionary') this.entries({ left: a.entries, right: b.entries, path });

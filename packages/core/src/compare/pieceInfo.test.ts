@@ -26,7 +26,8 @@ const objects = (overrides: readonly TestObject[] = [], catalog = ''): TestObjec
     { number: 10, body: streamBody('', 'AIPrivateData1 %%EndData') },
     { number: 11, body: '<</Title(Plate)>>' },
   ];
-  return base.map(object => overrides.find(override => override.number === object.number) ?? object);
+  const replaced = base.map(object => overrides.find(override => override.number === object.number) ?? object);
+  return [...replaced, ...overrides.filter(override => !base.some(object => object.number === override.number))];
 };
 
 const load = (list: readonly TestObject[]): ReturnType<typeof loadDocument> =>
@@ -73,6 +74,21 @@ describe('page-piece data, LastModified and attribute comparison', () => {
     edited.page(0).setLastModified(pdfDate({ year: 2026, month: 1, day: 2, hour: 3, minute: 4, second: 5, offset: 'Z' }));
     const { differences } = compareDocuments(source, edited, { include: ['lastModified'] });
     expect(paths(differences)).toStrictEqual([['PieceInfo', 'Illustrator', 'LastModified'], ['LastModified']]);
+  });
+
+  it('compares references to pages by page position and does not report page changes as catalog changes', () => {
+    const outlined = objects(
+      [
+        { number: 12, body: '<</Count 1/First 13 0 R/Last 13 0 R>>' },
+        { number: 13, body: '<</Title(Page)/Parent 12 0 R/Dest[3 0 R/Fit]>>' },
+      ],
+      '/Outlines 12 0 R',
+    );
+    const original = load(outlined);
+    const edited = load(outlined);
+    edited.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
+    const saved = loadDocument(edited.save().chunks);
+    expect(kinds(compareDocuments(original, saved).differences)).toStrictEqual(['page-box']);
   });
 
   it('reports other page entries, catalog and Info changes, and settled duplicate keys', () => {
