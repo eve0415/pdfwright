@@ -324,17 +324,6 @@ const PATH_PAINTS = new Map<string, 'fill' | 'stroke' | 'fill-stroke'>([
   ['b*', 'fill-stroke'],
 ]);
 
-// A colour that paints over what is below: not a pattern, whose cells may leave gaps, and not the None colorant, which 8.6.6.4 says "shall not produce any visible output".
-const opaqueSpace = ({ space }: ColorSpaceUse): boolean => {
-  if (space === undefined) return false;
-  if (space.kind === 'name') return latin1(space.bytes) !== 'Pattern';
-  if (space.kind !== 'array') return false;
-  const [family, colorant] = space.items;
-  if (family?.kind !== 'name') return false;
-  const familyName = latin1(family.bytes);
-  return familyName !== 'Pattern' && !(familyName === 'Separation' && colorant?.kind === 'name' && latin1(colorant.bytes) === 'None');
-};
-
 // Table 52: blend mode, soft mask and alpha constants reset "at the beginning of execution of a transparency group XObject"; the group is composited with the blend mode and soft mask in force where it is drawn, and 11.6.4.4 says "The nonstroking alpha constant shall also be applied when painting a transparency group’s results onto its backdrop".
 const enterGroup = (state: GraphicsState): GraphicsState => ({
   ...state,
@@ -348,6 +337,8 @@ const enterGroup = (state: GraphicsState): GraphicsState => ({
   blendMode: 'Normal',
   softMask: undefined,
 });
+
+const isNone = (value: PdfObject | undefined): boolean => value?.kind === 'name' && latin1(value.bytes) === 'None';
 
 const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)}.${String(reference.generation)}`;
 
@@ -1111,10 +1102,25 @@ class Interpreter {
     return [scaleX, 0, 0, scaleY, left - boxLeft * scaleX, bottom - boxBottom * scaleY];
   }
 
+  // A colour that paints over what is below: not a pattern, whose cells may leave gaps, and not only None colorants, since 8.6.6.4 says "The special colorant name None shall not produce any visible output" and 8.6.6.5 that a None component "shall never be painted"; an Indexed space paints in its base (8.6.6.3).
+  private opaque(space: PdfObject | undefined, depth = 0): boolean {
+    if (space?.kind === 'name') return latin1(space.bytes) !== 'Pattern';
+    if (space?.kind !== 'array' || depth > 2) return false;
+    const [family, second] = space.items;
+    const familyName = family?.kind === 'name' ? latin1(family.bytes) : undefined;
+    if (familyName === 'Separation') return !isNone(this.deref(second));
+    if (familyName === 'DeviceN') {
+      const names = this.deref(second);
+      return !(names?.kind === 'array' && names.items.every(name => isNone(this.deref(name))));
+    }
+    if (familyName === 'Indexed') return this.opaque(this.deref(second), depth + 1);
+    return familyName !== undefined && familyName !== 'Pattern';
+  }
+
   // Only fills that mark the page count: not those in a pattern cell, a glyph procedure or a soft mask's group.
   private cover(scope: Scope): void {
     const { fillAlpha, blendMode, softMask, fill, clip, group } = this.state;
-    if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !opaqueSpace(fill)) return;
+    if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !this.opaque(fill.space)) return;
     if (group.alpha !== 1 || group.blendMode !== 'Normal' || group.softMasked) return;
     if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) return;
     const rectangle = this.path?.axisAlignedRectangle();

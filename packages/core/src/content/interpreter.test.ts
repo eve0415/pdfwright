@@ -320,6 +320,18 @@ describe('transparency', () => {
     expect(covers).toStrictEqual([]);
   });
 
+  it('does not report fills in spaces whose colorants are all None', () => {
+    const { covers } = run(
+      {
+        content: 'q /AllNone cs 1 1 sc 0 0 10 10 re f Q q /IndexedNone cs 1 sc 0 0 10 10 re f Q 0 0 10 10 re f',
+        resources: '/ColorSpace<</AllNone[/DeviceN[/None/None]/DeviceGray 111 0 R]/IndexedNone[/Indexed[/Separation/None/DeviceGray 111 0 R]1<00FF>]>>',
+      },
+      [{ number: 111, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>' }],
+    );
+    // 8.6.6.5: a DeviceN component named None "shall never be painted"; an Indexed space paints in its base space (8.6.6.3).
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([[0, 0, 10, 10]]);
+  });
+
   it('does not report fills that could let what is below show through or that are not rectangles', () => {
     const { covers } = run(
       {
