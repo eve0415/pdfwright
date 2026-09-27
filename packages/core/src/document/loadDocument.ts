@@ -242,7 +242,8 @@ class LoadedPdf implements LoadedDocument {
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
     this.versionChange(changes, warnings);
-    this.objects.saveHook?.(changes);
+    const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
+    this.objects.saveHook?.(changes, { fractionDigits });
     const input = {
       store: this.objects.store,
       changes,
@@ -250,7 +251,7 @@ class LoadedPdf implements LoadedDocument {
       size: this.objects.size,
       structure: this.read,
       base: this.base,
-      fractionDigits: options.fractionDigits ?? DEFAULT_FRACTION_DIGITS,
+      fractionDigits,
       maxNesting: this.maxNesting,
       maxTableGapEntries: count(options.maxTableGapEntries, 100_000, 'maxTableGapEntries'),
       maxGeneratedXrefEntries: count(options.maxGeneratedXrefEntries, 10_000_000, 'maxGeneratedXrefEntries'),

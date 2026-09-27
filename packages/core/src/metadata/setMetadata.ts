@@ -14,8 +14,10 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries, pdfName } from '../object/pdfObject.ts';
 import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
+import { changedObjectBytes } from '../save/mergeSerialize.ts';
 
 import { pdfTextString } from './documentInfo.ts';
 import { changesDigest, deriveInstanceId, resolveDocumentId } from './identifiers.ts';
@@ -437,15 +439,18 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   previousInstanceIds.set(objects, previous);
   const excluded = new Set([placement.packet.objectNumber, placement.info.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
-  const produce = (changes: ReadonlyMap<number, ObjectChange>): ProducedPacket => {
-    const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: changesDigest(changes, excluded) });
+  const produce = (changes: ReadonlyMap<number, ObjectChange>, fractionDigits: number): ProducedPacket => {
+    const serializeOptions = { store: objects.store, maxNesting: internals.maxNesting, fractionDigits };
+    const serialize = ({ objectNumber, value }: { readonly objectNumber: number; readonly value: PdfObject }): Uint8Array =>
+      changedObjectBytes(objectNumber, value, serializeOptions);
+    const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: changesDigest(changes, excluded, serialize) });
     const written = write(managedValues(resolved.values, input, { documentId, instanceId }));
     return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, removedLegacy: written.removedLegacy };
   };
-  const current = produce(objects.changes);
+  const current = produce(objects.changes, DEFAULT_FRACTION_DIGITS);
   objects.set(placement.packet, current.value);
-  objects.setSaveHook(changes => {
-    changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes).value });
+  objects.setSaveHook((changes, context) => {
+    changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes, context.fractionDigits).value });
   });
   return {
     reconciled: resolved.reconciled,

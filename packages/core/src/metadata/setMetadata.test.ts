@@ -271,6 +271,18 @@ describe('setting document metadata', () => {
     expect([first === instanceIdOf(saved(document)), first === '']).toStrictEqual([true, false]);
   });
 
+  it('digests changed objects as the save writes them, so values a save copies from the source are accepted', () => {
+    const added = load('/Big 1000000000000');
+    setMetadata(added, INPUT);
+    const edited = load('/Big 1000000000000/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) }]);
+    setMetadata(edited, INPUT);
+    edited.set(pdfReference(1, 0), { kind: 'dictionary', entries: edited.catalog() });
+    expect([saved(added).catalog().get(new TextEncoder().encode('Big')), saved(edited).catalog().get(new TextEncoder().encode('Big'))]).toStrictEqual([
+      { kind: 'integer', value: 1_000_000_000_000 },
+      { kind: 'integer', value: 1_000_000_000_000 },
+    ]);
+  });
+
   it('writes identical bytes for identical edits', () => {
     expect(editedBytes()).toBe(editedBytes());
   });

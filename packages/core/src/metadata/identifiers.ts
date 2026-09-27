@@ -1,8 +1,8 @@
 import type { ObjectChange } from '../document/editedObjects.ts';
+import type { PdfObject } from '../object/pdfObject.ts';
 
 import { ValidationError } from '../error/validationError.ts';
 import { createMd5, md5 } from '../hash/md5.ts';
-import { serializeObject } from '../serialize/serializeObject.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
@@ -42,10 +42,14 @@ export const resolveDocumentId = (sources: DocumentIdSources): string => {
 const ENCODER = new TextEncoder();
 
 /**
- * The MD5 of every changed, new and deleted object other than the excluded ones, in object-number order: a set or new object as its number, generation and serialized value, a deleted one as its number and generation.
+ * The MD5 of every changed, new and deleted object other than the excluded ones, in object-number order: a set or new object as its number, generation and value as `serialize` writes it, a deleted one as its number and generation.
  * Two change sets that write different objects digest differently; the same change set always digests the same.
  */
-export const changesDigest = (changes: ReadonlyMap<number, ObjectChange>, excluded: ReadonlySet<number>): Uint8Array => {
+export const changesDigest = (
+  changes: ReadonlyMap<number, ObjectChange>,
+  excluded: ReadonlySet<number>,
+  serialize: (change: { readonly objectNumber: number; readonly value: PdfObject }) => Uint8Array,
+): Uint8Array => {
   const hash = createMd5();
   for (const objectNumber of [...changes.keys()].toSorted((left, right) => left - right)) {
     const change = changes.get(objectNumber);
@@ -55,7 +59,7 @@ export const changesDigest = (changes: ReadonlyMap<number, ObjectChange>, exclud
       continue;
     }
     hash.update(ENCODER.encode(`${String(objectNumber)} ${String(change.generation)} obj\n`));
-    hash.update(serializeObject(change.value, { fractionDigits: 5 }));
+    hash.update(serialize({ objectNumber, value: change.value }));
     hash.update(ENCODER.encode('\nendobj\n'));
   }
   return hash.digest();

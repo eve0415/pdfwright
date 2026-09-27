@@ -18,11 +18,17 @@ export interface TrailerChange {
 /** Why an edit needs the whole file written again: an incremental update would keep superseded content readable in earlier revisions. */
 export type FullRewriteReason = InvalidArgumentReason;
 
+/** What a save hook needs to know about the save that runs it. */
+export interface SaveHookContext {
+  /** The fraction digits the save writes reals with. */
+  readonly fractionDigits: number;
+}
+
 /**
  * Rewrites the changes a save writes, after every edit and before either writer runs, for objects whose content depends on everything else the save writes.
  * It works on the save's own copy of the changes, sets only objects that are already in use or already changed, and must give the same result for the same changes.
  */
-export type SaveHook = (changes: Map<number, ObjectChange>) => void;
+export type SaveHook = (changes: Map<number, ObjectChange>, context: SaveHookContext) => void;
 
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
 

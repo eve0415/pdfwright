@@ -1,10 +1,12 @@
 import type { ObjectChange } from '../document/editedObjects.ts';
+import type { PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
 import { ValidationError } from '../error/validationError.ts';
 import { md5 } from '../hash/md5.ts';
 import { pdfInteger, pdfLiteralString } from '../object/pdfObject.ts';
+import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { changesDigest, deriveInstanceId, formatUuid, resolveDocumentId } from './identifiers.ts';
 
@@ -12,7 +14,9 @@ const bytes = (length: number, first = 0): Uint8Array => Uint8Array.from({ lengt
 
 const hex = (data: Uint8Array): string => [...data].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
-const digestOf = (entries: readonly (readonly [number, ObjectChange])[]): string => hex(changesDigest(new Map(entries), new Set([9])));
+const serialized = ({ value }: { readonly value: PdfObject }): Uint8Array => serializeObject(value, { fractionDigits: 5 });
+
+const digestOf = (entries: readonly (readonly [number, ObjectChange])[]): string => hex(changesDigest(new Map(entries), new Set([9]), serialized));
 
 const set = (value: number): ObjectChange => ({ generation: 0, value: pdfInteger(value) });
 

@@ -1,14 +1,17 @@
-import type { ByteWriter } from '../bytes/byteWriter.ts';
+import type { ObjectStore } from '../document/objectStore.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { SourceEntry, SourceNode } from '../parse/parseObject.ts';
 import type { SaveWarning } from './saveWarning.ts';
 
+import { ByteWriter } from '../bytes/byteWriter.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { isRegular } from '../parse/characterClass.ts';
 import { needsSpace, writeName, writePdfObject } from '../serialize/serializeObject.ts';
+
+import { originalValue } from './originalValue.ts';
 
 export interface MergeContext {
   /** The value as it was parsed, with the spans of its parts; undefined for a new value. */
@@ -123,4 +126,25 @@ export const mergeSerialize = (writer: ByteWriter, value: PdfObject, context: Me
   writer.writeAscii('\nstream\n');
   writer.writeBytes(value.data);
   writer.writeAscii('\nendstream');
+};
+
+export interface ChangedObjectOptions {
+  readonly store: ObjectStore;
+  readonly maxNesting: number;
+  readonly fractionDigits: number;
+}
+
+/** The bytes a save writes for the value of a changed or new object, serialized against the source object of the same number as both writers do, so that a value copied from the source is never refused. */
+export const changedObjectBytes = (objectNumber: number, value: PdfObject, options: ChangedObjectOptions): Uint8Array => {
+  const original = originalValue(options.store, objectNumber, options.maxNesting);
+  const writer = new ByteWriter();
+  mergeSerialize(writer, value, {
+    original: original?.node,
+    bytes: original?.bytes ?? new Uint8Array(),
+    fractionDigits: options.fractionDigits,
+    warn: (): void => {
+      // The writers report duplicate keys when they write the object.
+    },
+  });
+  return writer.toUint8Array();
 };
