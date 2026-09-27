@@ -227,13 +227,15 @@ const samples = (quad: Quad): (readonly [number, number])[] => {
 };
 
 /**
- * Whether later opaque rectangles cover the glyph's box where the clip lets it show: every sampled point of the box inside the clip lies in one of them.
+ * Whether later opaque rectangles cover the glyph's box where the clip lets it show: every sampled point of the box inside the glyph's clip lies in one of them, inside that rectangle's own clip.
  * Rectangles are tested together, so adjacent fills that hide a glyph between them count, and the part of the box a clip hides needs no cover.
  */
-const coveredBy = (rectangles: readonly CoverEvent['rectangle'][], { quad, clip }: { quad: Quad; clip: Clip }): boolean => {
-  if (rectangles.length === 0) return false;
+const coveredBy = (covers: readonly CoverEvent[], { quad, clip }: { quad: Quad; clip: Clip }): boolean => {
+  if (covers.length === 0) return false;
   const shown = samples(quad).filter(([x, y]) => clip.classifyPoint(x, y) !== 'outside');
-  return shown.length > 0 && shown.every(point => rectangles.some(rectangle => insideRectangle(rectangle, point)));
+  const hidden = (point: readonly [number, number]): boolean =>
+    covers.some(cover => insideRectangle(cover.rectangle, point) && cover.clip.classifyPoint(point[0], point[1]) === 'inside');
+  return shown.length > 0 && shown.every(point => hidden(point));
 };
 
 // The embedded cmap of a CIDFontType2 font; a program that cannot be read gives none.
@@ -325,7 +327,7 @@ class TextCollector {
     return this.glyphs.map((glyph, index) => {
       const sequence = this.sequences[index] ?? Infinity;
       const clip = this.clips[index] ?? Clip.NONE;
-      const later = covers.filter(cover => cover.sequence > sequence).map(cover => cover.rectangle);
+      const later = covers.filter(cover => cover.sequence > sequence);
       const covered = coveredBy(later, { quad: glyph.quad, clip });
       return covered ? { ...glyph, covered } : glyph;
     });

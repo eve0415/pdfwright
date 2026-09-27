@@ -223,12 +223,14 @@ export interface TextShowEvent {
 }
 
 /**
- * An opaque fill of a rectangle with sides parallel to the page axes, lying wholly inside the clip: alpha 1, blend mode Normal, no soft mask, a colour space that is not a Pattern or a None separation.
- * Whatever the page showed there before is hidden. Fills of other shapes, images and shadings that hide content are not reported.
+ * An opaque fill of a rectangle with sides parallel to the page axes, not wholly clipped away: alpha 1, blend mode Normal, no soft mask, a colour space that is not a Pattern or a None separation.
+ * Whatever the page showed there before, where the clip lets the fill paint, is hidden. Fills of other shapes, images and shadings that hide content are not reported.
  */
 export interface CoverEvent {
   /** [left bottom right top] in page space. */
   readonly rectangle: readonly [number, number, number, number];
+  /** The clip the fill was painted under: only the part of the rectangle inside it covers anything. */
+  readonly clip: Clip;
   readonly context: PaintContext;
   readonly sequence: number;
 }
@@ -1228,8 +1230,9 @@ class Interpreter {
     const rectangle = this.path?.axisAlignedRectangle();
     if (rectangle === undefined) return;
     const [left, bottom, right, top] = rectangle;
-    if (clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]) !== 'inside') return;
-    this.handlers.cover?.({ rectangle, context: scope.context, sequence: this.sequence++ });
+    const placed = clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]);
+    if (placed === 'outside' || placed === 'unknown') return;
+    this.handlers.cover?.({ rectangle, clip, context: scope.context, sequence: this.sequence++ });
   }
 
   private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {

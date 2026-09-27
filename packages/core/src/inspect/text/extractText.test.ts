@@ -537,7 +537,9 @@ describe('text extraction', () => {
         coveredUnder('', '90 190 13 30 re f 103 190 13 30 re f'),
         coveredUnder('0 0 600 205 re W n', '90 190 30 15 re f'),
         coveredUnder('', '90 190 30 15 re f'),
-      ]).toStrictEqual([[true], [true], [false]]);
+        coveredUnder('', 'q 0 0 600 205 re W n 90 190 30 30 re f Q'),
+        coveredUnder('', 'q 20 20 560 760 re W n 0 150 600 200 re f Q'),
+      ]).toStrictEqual([[true], [true], [false], [false], [true]]);
     });
 
     it('classifies glyphs against Bézier and polygon clips with both fill rules', () => {

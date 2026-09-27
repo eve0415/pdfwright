@@ -354,8 +354,11 @@ describe('transparency', () => {
         { number: 112, body: streamBody('/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 5 5 re f') },
       ],
     );
-    // Only the last fill, whose clip holds all of it, covers; a clip that cuts the rectangle would leave text beside it uncovered.
-    expect(covers.map(cover => cover.rectangle)).toStrictEqual([[0, 0, 10, 10]]);
+    // Only the fills under clips cover, each with its clip: the part a clip cuts away paints nothing.
+    expect(covers.map(cover => [cover.rectangle, cover.clip.classifyPoint(7, 7)])).toStrictEqual([
+      [[0, 0, 10, 10], 'outside'],
+      [[0, 0, 10, 10], 'inside'],
+    ]);
   });
 });
 
