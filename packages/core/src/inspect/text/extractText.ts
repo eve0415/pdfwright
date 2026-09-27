@@ -6,6 +6,7 @@ import type { LoadedDocument } from '../../document/loadDocument.ts';
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { FontGlyph, FontModel } from '../../font/fontModel.ts';
 import type { PdfReference } from '../../object/pdfObject.ts';
+import type { ActualTextSpan } from './textUnits.ts';
 
 import { interpretPage } from '../../content/interpreter.ts';
 import { unreadable } from '../../content/unreadable.ts';
@@ -17,6 +18,7 @@ import { FontCache } from '../../font/loadFont.ts';
 import { pdfName } from '../../object/pdfObject.ts';
 
 import { glyphGeometry } from './glyphGeometry.ts';
+import { ActualTextSpans } from './textUnits.ts';
 
 const MCID = pdfName('MCID').bytes;
 
@@ -62,6 +64,8 @@ export interface PageGlyph {
   readonly reason: GlyphTextReason | undefined;
   /** Whether the code selects the font's .notdef glyph. */
   readonly notdef: boolean;
+  /** The index in `PageText.actualText` of the outermost ActualText span the glyph is shown in. */
+  readonly actualText: number | undefined;
   /** The font's writing mode, as stored. */
   readonly writingMode: 0 | 1;
   /** Where the glyph is painted: in horizontal writing, origin 0. */
@@ -87,6 +91,8 @@ export interface PageText {
   /** The 0-based page index. */
   readonly page: number;
   readonly glyphs: readonly PageGlyph[];
+  /** The ActualText spans glyphs are shown in, in the order their first glyphs are shown. */
+  readonly actualText: readonly ActualTextSpan[];
   /** The page's CropBox, [llx lly urx ury]; undefined when the page's boxes cannot be read. */
   readonly cropBox: readonly [number, number, number, number] | undefined;
   /** False when some content could not be read or interpreted. */
@@ -146,10 +152,12 @@ const unsplitText = (unsplit: NonNullable<TextShowEvent['unsplit']>): Pick<PageG
 
 class TextCollector {
   readonly glyphs: PageGlyph[] = [];
+  readonly spans: ActualTextSpans;
   private readonly document: DocumentInternals;
 
   constructor(document: DocumentInternals) {
     this.document = document;
+    this.spans = new ActualTextSpans(document);
   }
 
   add(event: TextShowEvent): void {
@@ -163,8 +171,9 @@ class TextCollector {
       layers: Pick<PageGlyph, 'text' | 'reason'>,
     ): void => {
       const geometry = glyphGeometry(font, glyph, { state, textMatrix: place.textMatrix });
+      const index = this.glyphs.length;
       this.glyphs.push({
-        index: this.glyphs.length,
+        index,
         code: glyph?.bytes ?? event.string,
         cid: glyph?.cid,
         gid: glyph?.gid,
@@ -173,6 +182,7 @@ class TextCollector {
         toUnicode: glyph?.toUnicode ?? null,
         encodingText: glyph?.encodingText ?? null,
         notdef: glyph?.notdef ?? false,
+        actualText: this.spans.add(index, event.markedContent),
         writingMode: font.writingMode,
         origin: geometry.origin,
         advance: geometry.advance,
@@ -220,5 +230,12 @@ export const extractText = (document: LoadedDocument, pageIndex: number, options
   });
   const warnings = [...result.warnings];
   const cropBox = cropBoxOf(parts, pageIndex, warnings);
-  return { page: pageIndex, glyphs: collector.glyphs, cropBox, complete: result.complete && cropBox !== undefined, warnings };
+  return {
+    page: pageIndex,
+    glyphs: collector.glyphs,
+    actualText: collector.spans.spans,
+    cropBox,
+    complete: result.complete && cropBox !== undefined,
+    warnings,
+  };
 };

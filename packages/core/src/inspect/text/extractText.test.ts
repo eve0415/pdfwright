@@ -95,6 +95,8 @@ const PROVIDED = new Map([
 ]);
 const provider: CMapProvider = { cmap: name => PROVIDED.get(name) };
 
+const spans = (content: string, resources = FONT_RESOURCES, objects: readonly TestObject[] = []): PageText => extract({ content, resources }, objects);
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -280,6 +282,40 @@ describe('text extraction', () => {
     it('reports a string whose font cannot be decoded as undecodable', () => {
       const objects = [...type0('131 0 R', 'Identity'), { number: 131, body: streamBody('/Type/CMap/Filter/Unknown', 'data') }];
       expect(textOf('BT /T 10 Tf <0041> Tj ET', objects)).toStrictEqual([[null, null, null, 'undecodable']]);
+    });
+  });
+
+  describe('actual text', () => {
+    it('records the span each glyph is shown in, and its text', () => {
+      // 14.9.4: replacement text is given "through an ActualText entry in a property list attached to the marked-content sequence with a Span tag".
+      const text = spans('BT /H 10 Tf /Span <</ActualText <FEFF5C71>>> BDC <2F2D> Tj EMC <0041> Tj ET');
+      expect([text.actualText, text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([[{ text: '山', language: undefined, glyphs: [0] }], [0, undefined]]);
+    });
+
+    it('spans strings and forms shown inside the sequence, and reads property lists by name', () => {
+      const form = { number: 120, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 500 500]/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf (B) Tj ET') };
+      const text = spans(
+        '/Span /P1 BDC BT /F1 10 Tf (A) Tj ET /X Do EMC',
+        `${FONT_RESOURCES}/XObject<</X 120 0 R>>/Properties<</P1<</ActualText (AB)/Lang (en)>>>>`,
+        [form],
+      );
+      expect(text.actualText).toStrictEqual([{ text: 'AB', language: 'en', glyphs: [0, 1] }]);
+    });
+
+    it('lets the outermost of nested spans replace the glyphs and keeps the inner ones', () => {
+      const text = spans('BT /F1 10 Tf /Span <</ActualText (xy)>> BDC (A) Tj /Span <</ActualText (y)>> BDC (B) Tj EMC EMC ET');
+      expect([text.actualText.map(span => [span.text, span.glyphs]), text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([
+        [
+          ['xy', [0, 1]],
+          ['y', [1]],
+        ],
+        [0, 0],
+      ]);
+    });
+
+    it('ignores ActualText on sequences with other tags', () => {
+      const text = spans('BT /F1 10 Tf /P <</ActualText (x)>> BDC (A) Tj EMC ET');
+      expect([text.actualText, text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([[], [undefined]]);
     });
   });
 });
