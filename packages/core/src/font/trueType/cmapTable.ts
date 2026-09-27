@@ -98,7 +98,7 @@ const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined)
     if (codePoint > 0xffff) return undefined;
     const segment = bySearch(segments, codePoint);
     if (segment === undefined) return undefined;
-    // "If the idRangeOffset value for the segment is not 0, the mapping of character codes relies on glyphIdArray"; "All idDelta[i] arithmetic is modulo 65536."
+    // A segment whose idRangeOffset is not 0 reads the glyph from glyphIdArray, and a glyph found there that is not 0 takes idDelta too; idDelta arithmetic is modulo 65536.
     let glyph = codePoint;
     if (segment.glyphs !== 0) {
       const at = segment.glyphs + 2 * (codePoint - segment.start);
