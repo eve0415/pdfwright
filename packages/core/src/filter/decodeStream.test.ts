@@ -50,6 +50,11 @@ describe('stream decoding', () => {
     expect(decode(input).data).toBe(text);
   });
 
+  it('limits unfiltered streams and empty filter arrays', () => {
+    expect(() => decode(stream(text, []), 100)).toThrow(ResourceLimitError);
+    expect(() => decode(stream(text, [['Filter', pdfArray([])]]), 100)).toThrow(ResourceLimitError);
+  });
+
   it('inflates FlateDecode data given as a name or a one-element array', () => {
     const compressed = deflateZlib(text);
     const flate = pdfName('FlateDecode');

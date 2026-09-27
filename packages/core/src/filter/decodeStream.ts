@@ -131,5 +131,8 @@ export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Ar
       throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
     }
   }
+  if (data.length > context.maxDecodedBytes) {
+    throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
+  }
   return data;
 };
