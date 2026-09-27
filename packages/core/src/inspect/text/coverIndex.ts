@@ -1,6 +1,8 @@
 import type { Quad } from '../../content/clip.ts';
 import type { CoverEvent } from '../../content/interpreter.ts';
 
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
+
 // A point on a rectangle's edge counts as covered.
 const COVER_TOLERANCE = 1e-6;
 
@@ -8,7 +10,9 @@ const COVER_TOLERANCE = 1e-6;
 const MAX_CELLS_PER_COVER = 64;
 
 // The grid has at most this many columns and rows.
-const MAX_CELLS_PER_SIDE = 4096;
+const MAX_CELLS_PER_SIDE = 65_536;
+const LARGE_BANDS = 64;
+const MAX_COVER_COMPARISONS = 4_000_000;
 
 interface Bounds {
   readonly left: number;
@@ -19,6 +23,19 @@ interface Bounds {
 
 const insideRectangle = ([left, bottom, right, top]: CoverEvent['rectangle'], x: number, y: number): boolean =>
   x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE;
+
+const band = (value: number, low: number, high: number): number => {
+  const at = high > low ? Math.floor(((value - low) / (high - low)) * LARGE_BANDS) : 0;
+  return Math.min(LARGE_BANDS - 1, Math.max(0, at));
+};
+
+const addBand = (index: Map<number, CoverEvent[]>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
+  for (let at = span.first; at <= span.last; at++) {
+    const list = index.get(at);
+    if (list === undefined) index.set(at, [cover]);
+    else list.push(cover);
+  }
+};
 
 /** The bounds of the quads, or undefined when there are none or a coordinate is not finite. */
 export const quadBounds = (quads: Iterable<Quad>): Bounds | undefined => {
@@ -41,7 +58,10 @@ export class CoverIndex {
   private readonly columns: number;
   private readonly rows: number;
   private readonly cells = new Map<number, CoverEvent[]>();
-  private readonly large: CoverEvent[] = [];
+  private readonly rowBands = new Map<number, CoverEvent[]>();
+  private readonly columnBands = new Map<number, CoverEvent[]>();
+  private readonly seen = new WeakMap<CoverEvent['clip'], Set<string>>();
+  private comparisons = 0;
 
   /** A grid over `bounds` with cells about the size that gives each of `count` glyphs one. */
   constructor(bounds: Bounds, count: number) {
@@ -70,10 +90,18 @@ export class CoverIndex {
     const { bounds } = this;
     const tolerance = COVER_TOLERANCE;
     if (right < bounds.left - tolerance || left > bounds.right + tolerance || top < bounds.bottom - tolerance || bottom > bounds.top + tolerance) return;
+    const rectangleKey = cover.rectangle.join(',');
+    const rectangles = this.seen.get(cover.clip);
+    if (rectangles?.has(rectangleKey) === true) return;
+    if (rectangles === undefined) this.seen.set(cover.clip, new Set([rectangleKey]));
+    else rectangles.add(rectangleKey);
     const [firstColumn, lastColumn] = [this.column(left - tolerance), this.column(right + tolerance)];
     const [firstRow, lastRow] = [this.row(bottom - tolerance), this.row(top + tolerance)];
     if ((lastColumn - firstColumn + 1) * (lastRow - firstRow + 1) > MAX_CELLS_PER_COVER) {
-      this.large.push(cover);
+      const [firstBandRow, lastBandRow] = [band(bottom - tolerance, bounds.bottom, bounds.top), band(top + tolerance, bounds.bottom, bounds.top)];
+      const [firstBandColumn, lastBandColumn] = [band(left - tolerance, bounds.left, bounds.right), band(right + tolerance, bounds.left, bounds.right)];
+      if (lastBandRow - firstBandRow <= lastBandColumn - firstBandColumn) addBand(this.rowBands, { first: firstBandRow, last: lastBandRow }, cover);
+      else addBand(this.columnBands, { first: firstBandColumn, last: lastBandColumn }, cover);
       return;
     }
     for (let row = firstRow; row <= lastRow; row++) {
@@ -89,7 +117,12 @@ export class CoverIndex {
   /** Whether a fill added so far paints over the point: the point lies in its rectangle and inside the clip it was painted under. */
   hides(x: number, y: number): boolean {
     const near = this.cells.get(this.row(y) * this.columns + this.column(x)) ?? [];
-    const paints = (cover: CoverEvent): boolean => insideRectangle(cover.rectangle, x, y) && cover.clip.classifyPoint(x, y) === 'inside';
-    return near.some(cover => paints(cover)) || this.large.some(cover => paints(cover));
+    const rows = this.rowBands.get(band(y, this.bounds.bottom, this.bounds.top)) ?? [];
+    const columns = this.columnBands.get(band(x, this.bounds.left, this.bounds.right)) ?? [];
+    const paints = (cover: CoverEvent): boolean => {
+      if (++this.comparisons > MAX_COVER_COMPARISONS) throw new ResourceLimitError(`cover queries exceed ${String(MAX_COVER_COMPARISONS)} comparisons`);
+      return insideRectangle(cover.rectangle, x, y) && cover.clip.classifyPoint(x, y) === 'inside';
+    };
+    return near.some(cover => paints(cover)) || rows.some(cover => paints(cover)) || columns.some(cover => paints(cover));
   }
 }

@@ -92,6 +92,8 @@ One content operand may itself contain at most 16,384 direct values, so a single
 A CMap is limited to 65,536 definitions and array destinations in total; a `bfrange` destination array counts each item, and exceeding the fixed cap throws `ResourceLimitError` before the strings are decoded.
 `extractText` also throws `ResourceLimitError` past 1,000,000 glyphs a page, which its `maxGlyphs` option changes.
 `matchText` limits sequence alignment to 2,000,000 comparisons and search steps per call; a larger mismatch throws `ResourceLimitError`.
+Text cover queries place wide fills in 64 coarse row or column bands and stop after 4,000,000 rectangle comparisons per page; exceeding this fixed work cap throws `ResourceLimitError`.
+Identical opaque fills under the same clip are indexed once, even when the content paints them repeatedly.
 An embedded TrueType format 14 `cmap` is limited to 16,384 variation selector records, default ranges and non-default mappings in total; exceeding this fixed limit throws `ResourceLimitError` before those entries are materialized.
 
 ### Fonts
