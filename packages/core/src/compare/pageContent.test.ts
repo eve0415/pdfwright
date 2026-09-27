@@ -53,6 +53,11 @@ describe('page content comparison', () => {
     ]);
   });
 
+  it('reads content streams that refer to missing objects as empty', () => {
+    const missing = document('[4 0 R 9 0 R]', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S 0.50 g') }]);
+    expect(content(compareDocuments(single, missing))).toStrictEqual([]);
+  });
+
   it('reports content that cannot be decoded instead of passing it', () => {
     const encoded = document('4 0 R', [{ number: 4, body: streamBody('/Filter/DCTDecode', 'xx') }]);
     expect(content(compareDocuments(single, encoded))).toStrictEqual([

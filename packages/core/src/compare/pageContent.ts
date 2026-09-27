@@ -25,8 +25,9 @@ const contentReferences = (document: DocumentInternals, page: PageEntry): PdfDir
   const contents = dictionary.kind === 'dictionary' ? dictionary.entries.get(CONTENTS) : undefined;
   if (contents === undefined) return [];
   const resolved = document.objects.deref(contents);
-  if (resolved?.kind === 'array') return [...resolved.items];
-  return [contents];
+  const references = resolved?.kind === 'array' ? [...resolved.items] : [contents];
+  // ISO 32000-1:2008, 7.3.10: a reference to a missing object is a reference to null, which contributes no content.
+  return references.filter(reference => document.objects.deref(reference)?.kind !== 'null');
 };
 
 // Two unchanged objects at the same position of the same buffer are the same bytes, which is the common case when a document is compared with a save of itself.
