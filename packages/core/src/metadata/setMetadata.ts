@@ -5,6 +5,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { MappedKey, MappedProperty, MetadataMapping } from './mapping.ts';
 import type { ComponentPacket, DocumentPacket, MetadataState } from './readMetadata.ts';
+import type { SignatureProtection } from './signatures.ts';
 import type { ReadPacket } from './xmp/readXmp.ts';
 import type { ManagedValues } from './xmp/writeXmp.ts';
 
@@ -352,8 +353,13 @@ const supersededCount = (document: DocumentInternals, state: MetadataState, grap
 const refuseSigned = (document: DocumentInternals, keep: boolean): void => {
   const protection = signatureProtection(document);
   if (keep || protection === undefined) return;
+  const what = {
+    'append-only': 'AppendOnly signatures',
+    permissions: 'a permissions dictionary',
+    'unreadable-flags': 'signature flags that cannot be read',
+  } as const satisfies Record<SignatureProtection, string>;
   throw new ValidationError(
-    `the document has ${protection === 'append-only' ? 'AppendOnly signatures' : 'a permissions dictionary'} that a full rewrite could invalidate; pass revisions 'keep' to append an update`,
+    `the document has ${what[protection]} that a full rewrite could invalidate; pass revisions 'keep' to append an update`,
     'signed-document',
   );
 };

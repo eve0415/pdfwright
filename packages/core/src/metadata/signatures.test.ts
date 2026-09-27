@@ -34,6 +34,16 @@ describe('signature protection', () => {
       ]),
       protection('/Perms<</DocMDP 3 0 R>>', [{ number: 3, body: '<<>>' }]),
       protection('/AcroForm<</SigFlags 2.0>>'),
-    ]).toStrictEqual([undefined, undefined, 'append-only', 'append-only', 'permissions', undefined]);
+    ]).toStrictEqual([undefined, undefined, 'append-only', 'append-only', 'permissions', 'append-only']);
+  });
+
+  it('treats flags it cannot read as an integer as protection', () => {
+    expect([
+      protection('/AcroForm<</SigFlags 2.5>>'),
+      protection('/AcroForm<</SigFlags(2)>>'),
+      protection('/AcroForm<</SigFlags 3 0 R>>', [{ number: 3, body: '<</Not(an integer)>>' }]),
+      protection('/AcroForm<</SigFlags 0.0>>'),
+      protection('/AcroForm<</SigFlags null>>'),
+    ]).toStrictEqual(['unreadable-flags', 'unreadable-flags', 'unreadable-flags', undefined, undefined]);
   });
 });
