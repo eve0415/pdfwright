@@ -396,17 +396,25 @@ type Unit =
   | { readonly kind: 'span'; readonly index: number; readonly glyphs: readonly PageGlyph[] }
   | { readonly kind: 'unseen'; readonly index: number };
 
-// Units in reading order: a span is taken whole where its first compared glyph is read; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
+// Whether a span's compared glyphs are read one after another, with no other glyph between them.
+const readTogether = (glyphs: readonly PageGlyph[], positions: ReadonlyMap<number, number>): boolean => {
+  const read = glyphs.map(glyph => positions.get(glyph.index) ?? -1).toSorted((a, b) => a - b);
+  return read.every((position, index) => index === 0 || position === (read[index - 1] ?? 0) + 1);
+};
+
+// Units in reading order: a span is taken whole where its first compared glyph is read, when its compared glyphs are read together, and otherwise its glyphs are compared one by one; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
 const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'checked' | 'ignore'): Unit[] => {
   if (actualText === 'ignore') return selected.map(glyph => ({ kind: 'glyph', glyph }));
   const bySpan = new Map<number, PageGlyph[]>();
   for (const glyph of selected) if (glyph.actualText !== undefined) bySpan.set(glyph.actualText, [...(bySpan.get(glyph.actualText) ?? []), glyph]);
+  const positions = new Map(selected.map((glyph, position) => [glyph.index, position]));
+  for (const [index, glyphs] of bySpan) if (!readTogether(glyphs, positions)) bySpan.delete(index);
   const selectedIndexes = selected.map(glyph => glyph.index);
   const first = Math.min(...selectedIndexes);
   const last = Math.max(...selectedIndexes);
   const unseen = page.actualText
     .flatMap((span, index) => {
-      if (bySpan.has(index) || span.glyphs.length === 0) return [];
+      if (span.glyphs.some(glyph => positions.has(glyph)) || span.glyphs.length === 0) return [];
       const start = Math.min(...span.glyphs);
       return first < start && last > Math.max(...span.glyphs) ? [{ index, start }] : [];
     })
@@ -417,7 +425,7 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
   for (const glyph of selected) {
     for (let note = unseen[next]; note !== undefined && note.start < glyph.index; note = unseen[++next]) units.push({ kind: 'unseen', index: note.index });
     const spanIndex = glyph.actualText;
-    if (spanIndex === undefined) units.push({ kind: 'glyph', glyph });
+    if (spanIndex === undefined || !bySpan.has(spanIndex)) units.push({ kind: 'glyph', glyph });
     else if (!taken.has(spanIndex)) {
       taken.add(spanIndex);
       units.push({ kind: 'span', index: spanIndex, glyphs: bySpan.get(spanIndex) ?? [glyph] });

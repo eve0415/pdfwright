@@ -356,6 +356,13 @@ describe('text matching', () => {
       ]);
     });
 
+    it('does not take a span whole when the chosen order puts other glyphs between its glyphs', () => {
+      // Content order draws B and A inside one span, then X between them on the line; read in rows the page shows B X A.
+      const content = `BT /T 10 Tf 1 0 0 1 100 700 Tm ${span('BA', `${show(1)} 1 0 0 1 120 700 Tm ${show(2)}`)} 1 0 0 1 110 700 Tm ${show(3)} ET`;
+      const proof = { texts: ['B', 'A', 'X'], content };
+      expect([statusOf(proof, 'BAX', { order: 'rows' }), statusOf(proof, 'BXA', { order: 'rows' })]).toStrictEqual(['mismatch', 'match']);
+    });
+
     it('reads the shared hyphenation point without spans when they are ignored', () => {
       expect(statusOf({ texts: ['‧'], content: spanned(['・', 1]) }, '・', { actualText: 'ignore' })).toBe('match');
     });
