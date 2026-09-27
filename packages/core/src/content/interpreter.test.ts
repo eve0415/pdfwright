@@ -210,6 +210,42 @@ describe('text state', () => {
   });
 });
 
+describe('clipping', () => {
+  it('intersects the clip with a path after the operator that paints it, in page space, until Q', () => {
+    const { texts, paints } = textRun('q 2 0 0 2 0 0 cm 0 0 50 50 re W f BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf (A) Tj ET');
+    const clipped = texts[0]?.state.clip;
+    // ISO 32000-1:2008, 8.5.4: the clip changes "After the path has been painted", so the fill itself is not clipped by its own path.
+    expect([clipped?.classifyPoint(90, 90), clipped?.classifyPoint(110, 90), texts[1]?.state.clip.vertices, paints.map(paint => paint.kind)]).toStrictEqual([
+      'inside',
+      'outside',
+      0,
+      ['fill', 'text', 'text'],
+    ]);
+  });
+
+  it('builds clips from curves and applies the even-odd rule of W*', () => {
+    const { texts } = textRun(
+      '0 50 m 0 77.6 22.4 100 50 100 c 77.6 100 100 77.6 100 50 c 100 22.4 77.6 0 50 0 c 22.4 0 0 22.4 0 50 c h W n BT /F1 10 Tf (A) Tj ET 0 0 m 100 0 l 100 100 l 0 100 l h 25 25 m 75 25 l 75 75 l 25 75 l h W* n BT /F1 10 Tf (A) Tj ET',
+    );
+    // The circle of radius 50 about (50, 50) excludes (5, 5), inside its bounding square; the even-odd square then cuts out its middle.
+    expect([texts[0]?.state.clip.classifyPoint(5, 5), texts[0]?.state.clip.classifyPoint(20, 50), texts[1]?.state.clip.classifyPoint(50, 50)]).toStrictEqual([
+      'outside',
+      'inside',
+      'outside',
+    ]);
+  });
+
+  it('builds curves whose omitted control point is the current point or the end point', () => {
+    // v takes the current point as its first control point and y the end point as its second (8.5.2.2, Table 59); both bulge out to the right here.
+    const { texts } = textRun('0 0 m 100 50 0 100 v h W n BT /F1 10 Tf (A) Tj ET 0 0 m 100 50 0 100 y h W n BT /F1 10 Tf (A) Tj ET');
+    expect([texts[0]?.state.clip.classifyPoint(30, 50), texts[1]?.state.clip.classifyPoint(30, 50), texts[1]?.state.clip.classifyPoint(60, 50)]).toStrictEqual([
+      'inside',
+      'inside',
+      'outside',
+    ]);
+  });
+});
+
 describe('marked content', () => {
   it('attaches inline and named property lists to what is shown inside a sequence', () => {
     const { texts, result } = run({

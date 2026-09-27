@@ -4,6 +4,7 @@ import type { PageEntry } from '../document/pageTree.ts';
 import type { FontGlyph, FontModel, FontString } from '../font/fontModel.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { FillRule } from './clip.ts';
 import type { ContentOperand, ContentOperation, InlineImage } from './contentOperations.ts';
 import type { InspectWarning, InspectWarningCode } from './inspectWarning.ts';
 import type { Matrix } from './matrix.ts';
@@ -15,10 +16,12 @@ import { dictionaryOf, latin1, numberOf } from '../font/fontValues.ts';
 import { FontCache, fontKey } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+import { Clip } from './clip.ts';
 import { readContent } from './contentOperations.ts';
 import { IDENTITY, multiply } from './matrix.ts';
 import { checkOperands } from './operands.ts';
 import { pageContent } from './pageContent.ts';
+import { PathBuilder } from './path.ts';
 
 const RESOURCES = pdfName('Resources').bytes;
 const FONT = pdfName('Font').bytes;
@@ -64,6 +67,8 @@ export interface ColorSpaceUse {
 /** The graphics state parameters the interpreter keeps (ISO 32000-1:2008, 8.4.1), including the text state (9.3.1), which q and Q save and restore with the rest. */
 export interface GraphicsState {
   readonly ctm: Matrix;
+  /** The current clipping path in page space (8.5.4). Text render modes that add glyphs to the clip (4 to 7) do not change it, since glyph outlines are not read. */
+  readonly clip: Clip;
   readonly fill: ColorSpaceUse;
   readonly stroke: ColorSpaceUse;
   readonly font: FontModel | undefined;
@@ -166,6 +171,7 @@ const INITIAL_COLOR: ColorSpaceUse = { space: pdfName('DeviceGray'), resourceNam
 // ISO 32000-1:2008, 8.4.1, Table 52 and 9.3.1, Table 104: the initial values of the parameters kept.
 const INITIAL_STATE: GraphicsState = {
   ctm: IDENTITY,
+  clip: Clip.NONE,
   fill: INITIAL_COLOR,
   stroke: INITIAL_COLOR,
   font: undefined,
@@ -264,7 +270,8 @@ class Interpreter {
   private textMatrix: Matrix = IDENTITY;
   private lineMatrix: Matrix = IDENTITY;
   private positionKnown = true;
-  private pendingClip = false;
+  private path: PathBuilder | undefined = undefined;
+  private pendingClip: FillRule | undefined = undefined;
   private compatibility = 0;
   // Kept apart from the graphics state: 14.6 requires marked-content pairs to nest properly with BT and ET, not with q and Q.
   private markedContent: readonly MarkedContent[] = [];
@@ -348,6 +355,7 @@ class Interpreter {
     if (this.textShow(operator, values, step)) return;
     if (this.color(operator, values, step)) return;
     if (this.marked(operator, values, step)) return;
+    if (this.construction(operator, values)) return;
     this.painting(operation, values, step);
   }
 
@@ -567,17 +575,42 @@ class Interpreter {
     return true;
   }
 
+  // 8.5.2, Table 59: path construction, with the points in user space transformed by the CTM as they are given.
+  private construction(operator: string, values: readonly PdfDirectObject[]): boolean {
+    this.path ??= new PathBuilder(this.state.ctm);
+    const { path } = this;
+    const at = (index: number): number => number(values, index);
+    if (operator === 'm') path.moveTo(at(0), at(1));
+    else if (operator === 'l') path.lineTo(at(0), at(1));
+    else if (operator === 'c') path.curveTo([at(0), at(1), at(2), at(3), at(4), at(5)]);
+    else if (operator === 'v') {
+      const [x, y] = path.currentPoint() ?? [at(0), at(1)];
+      path.curveTo([x, y, at(0), at(1), at(2), at(3)]);
+    } else if (operator === 'y') path.curveTo([at(0), at(1), at(2), at(3), at(2), at(3)]);
+    else if (operator === 'h') path.close();
+    else if (operator === 're') path.rectangle([at(0), at(1), at(2), at(3)]);
+    else return false;
+    return true;
+  }
+
+  // 8.5.4: "After the path has been painted, the clipping path in the graphics state shall be set to the intersection of the current clipping path and the newly constructed path."
+  private endPath(): void {
+    if (this.pendingClip !== undefined && this.path !== undefined) this.state = { ...this.state, clip: this.state.clip.intersect(this.path, this.pendingClip) };
+    this.pendingClip = undefined;
+    this.path = undefined;
+  }
+
   private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {
     const { scope } = step;
     const { operator } = operation;
     const paint = PATH_PAINTS.get(operator);
     if (paint !== undefined) {
-      this.pendingClip = false;
       this.emitPaint(paint, paint === 'fill-stroke' ? [this.state.fill, this.state.stroke] : [paint === 'fill' ? this.state.fill : this.state.stroke], scope);
-    } else if (operator === 'W' || operator === 'W*') this.pendingClip = true;
+      this.endPath();
+    } else if (operator === 'W' || operator === 'W*') this.pendingClip = operator === 'W' ? 'nonzero' : 'even-odd';
     else if (operator === 'n') {
-      if (this.pendingClip) this.emitPaint('clip', [this.state.fill, this.state.stroke], scope);
-      this.pendingClip = false;
+      if (this.pendingClip !== undefined) this.emitPaint('clip', [this.state.fill, this.state.stroke], scope);
+      this.endPath();
     } else if (operator === 'Do') this.xObject(step, nameBytes(values[0]));
     else if (operator === 'sh') this.shading(step, nameBytes(values[0]));
     else if (operator === 'BI' && operation.inlineImage !== undefined) this.inlineImage(step, operation.inlineImage);
