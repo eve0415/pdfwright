@@ -246,6 +246,14 @@ describe('setting document metadata', () => {
     expect([plain[0] === plain[1], again[1] === plain[1], extra[0] === extra[1], extra[1] === plain[1]]).toStrictEqual([true, true, false, false]);
   });
 
+  it('writes the same InstanceID on every save of one state, edits made after setMetadata included', () => {
+    const document = load('');
+    setMetadata(document, INPUT);
+    document.object(pdfInteger(1));
+    const first = instanceIdOf(saved(document));
+    expect([first === instanceIdOf(saved(document)), first === '']).toStrictEqual([true, false]);
+  });
+
   it('writes identical bytes for identical edits', () => {
     expect(editedBytes()).toBe(editedBytes());
   });
