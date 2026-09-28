@@ -4,7 +4,9 @@ import { zstdCompress, zstdDecompress } from 'node:zlib';
 import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
+import { encodeCompressedBlock } from './compressBlock.ts';
 import { encodeRawFrame, normalizeZstandardFrame } from './frame.ts';
+import { createMatchFinder } from './matchFinder.ts';
 
 const decodeWithLibzstd = promisify(zstdDecompress);
 const compressWithLibzstd = promisify(zstdCompress);
@@ -27,5 +29,21 @@ describe('zstandard decoder agreement', () => {
     const decoded = await decodeWithLibzstd(normalized);
     expect(decoded.compare(input)).toBe(0);
     expect(Buffer.from(decompress(normalized)).compare(input)).toBe(0);
+  });
+
+  it('decodes our predefined-table compressed block with libzstd', async () => {
+    const input = new TextEncoder().encode(`${'abcd'.repeat(5000)}${'variable text '.repeat(100)}`);
+    const parse = createMatchFinder(input).parseBlock(0, input.length);
+    const body = encodeCompressedBlock(parse);
+    const frame = new Uint8Array(9 + body.length);
+    frame.set([0x28, 0xb5, 0x2f, 0xfd, 0, 0x58]);
+    const header = (body.length << 3) | 5;
+    frame[6] = header & 255;
+    frame[7] = (header >>> 8) & 255;
+    frame[8] = (header >>> 16) & 255;
+    frame.set(body, 9);
+    const decoded = await decodeWithLibzstd(frame);
+    expect(decoded.compare(input)).toBe(0);
+    expect(Buffer.from(decompress(frame)).compare(input)).toBe(0);
   });
 });
