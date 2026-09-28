@@ -14,6 +14,7 @@ import type { SourceSpace } from './sourceSpace.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -362,10 +363,10 @@ const jpegColorTransform = (scan: ImageScan, image: PdfStream): 0 | 1 | undefine
   const parameters = deref(scan, image.dictionary.get(DECODE_PARMS));
   const dictionary = parameters?.kind === 'array' ? deref(scan, parameters.items[0]) : parameters;
   if (dictionary === undefined || dictionary.kind === 'null') return undefined;
-  if (dictionary.kind !== 'dictionary') return invalid('JPEG DecodeParms must be a dictionary');
+  if (dictionary.kind !== 'dictionary') throw new ParseError('JPEG DecodeParms must be a dictionary', 0);
   const value = deref(scan, dictionary.entries.get(COLOR_TRANSFORM));
   if (value === undefined) return undefined;
-  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) return invalid('JPEG ColorTransform must be 0 or 1');
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) throw new ParseError('JPEG ColorTransform must be 0 or 1', 0);
   return value.value;
 };
 

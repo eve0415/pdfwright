@@ -8,6 +8,7 @@ import type { RewriteColorOptions } from './rewriteContent.ts';
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -136,10 +137,10 @@ const inlineColorTransform = (values: ReadonlyMap<string, PdfDirectObject>): 0 |
   const decodeParameters = values.get('DP') ?? values.get('DecodeParms');
   const dictionary = decodeParameters?.kind === 'array' ? decodeParameters.items[0] : decodeParameters;
   if (dictionary === undefined || dictionary.kind === 'null') return undefined;
-  if (dictionary.kind !== 'dictionary') return invalid('inline JPEG DecodeParms must be a dictionary');
+  if (dictionary.kind !== 'dictionary') throw new ParseError('inline JPEG DecodeParms must be a dictionary', 0);
   const value = dictionary.entries.get(pdfName('ColorTransform').bytes);
   if (value === undefined) return undefined;
-  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) return invalid('inline JPEG ColorTransform must be 0 or 1');
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) throw new ParseError('inline JPEG ColorTransform must be 0 or 1', 0);
   return value.value;
 };
 

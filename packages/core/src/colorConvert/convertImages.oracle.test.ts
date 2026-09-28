@@ -13,6 +13,7 @@ import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -503,6 +504,25 @@ describe('image colour conversion', () => {
     const expected = new Uint8Array(8);
     transform.convertRow8(rows, expected, 2);
     expect(imageData(document)).toStrictEqual(expected);
+  });
+
+  it.each(['2', '-1', '0.5'])('reports PDF JPEG ColorTransform %s as a parse error', async value => {
+    const jpeg = await jpegFixture();
+    const xobject = loadDocument(imagePdf('DCTDecode', jpeg, { decodeParms: `/DecodeParms<</ColorTransform ${value}>>` }));
+    expect(() => convertImages(xobject, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
+      expect.objectContaining({ constructor: ParseError, message: 'JPEG ColorTransform must be 0 or 1' }),
+    );
+
+    const inline = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels)));
+    const content = joined([
+      new TextEncoder().encode(`BI /W 2 /H 1 /BPC 8 /CS /RGB /F /DCT /DP<</ColorTransform ${value}>> ID\n`),
+      jpeg,
+      new TextEncoder().encode('\nEI'),
+    ]);
+    inline.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
+    expect(() => rewritePageColors(inline, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
+      expect.objectContaining({ constructor: ParseError, message: 'inline JPEG ColorTransform must be 0 or 1' }),
+    );
   });
 
   it('refuses JPEG 2000 under the transcode policy', () => {

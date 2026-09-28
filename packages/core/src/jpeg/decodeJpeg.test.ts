@@ -1,5 +1,8 @@
+import type { DecodeJpegOptions } from './decodeJpeg.ts';
+
 import { describe, expect, it } from 'vitest';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
@@ -41,6 +44,12 @@ const grayJpeg = (entropy: readonly number[]): Uint8Array =>
   ]);
 
 describe('jpeg input validation', () => {
+  it('reports an invalid caller colorTransform as an argument error', () => {
+    const options: DecodeJpegOptions = {};
+    Object.defineProperty(options, 'colorTransform', { value: 2 });
+    expect(() => decodeJpeg(grayJpeg([0x3f]), options)).toThrow(InvalidArgumentError);
+  });
+
   it('rejects data and restart markers after the final MCU', () => {
     expect([...decodeJpeg(grayJpeg([0x3f])).rows()]).toHaveLength(8);
     for (const entropy of [[0x3f, 1, 2, 3], [0x3f, 255, 0xd0], [0x3e]]) {

@@ -16,7 +16,7 @@ export interface DecodeJpegOptions {
   readonly maxDecodedBytes?: number;
   /** Maximum storage for one MCU row, 4 MiB by default. */
   readonly maxRowBytes?: number;
-  /** PDF DCTDecode ColorTransform when APP14 does not provide one; defaults to 1 for three components and 0 for one. */
+  /** PDF DCTDecode ColorTransform when APP14 does not provide one; defaults to 1 for three components and 0 for one. Invalid caller values throw InvalidArgumentError; invalid PDF /ColorTransform values throw ParseError during transcoding. */
   readonly colorTransform?: 0 | 1;
 }
 
