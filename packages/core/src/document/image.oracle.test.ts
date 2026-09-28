@@ -12,7 +12,7 @@ import { createDocument } from './pdfDocument.ts';
 import { rect } from './rect.ts';
 
 const addImagePage = (
-  colorSpace: 'DeviceRGB' | ReturnType<ReturnType<typeof createDocument>['separation']>,
+  colorSpace: 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | ReturnType<ReturnType<typeof createDocument>['separation']>,
   samples: Uint8Array,
   document: ReturnType<typeof createDocument>,
 ): void => {
@@ -31,6 +31,28 @@ const addImagePage = (
 };
 
 describe('soft mask rendering', () => {
+  it.each([
+    ['DeviceCMYK', new Uint8Array([0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0]), 1],
+    ['DeviceGray', new Uint8Array([0, 0, 0]), 3],
+  ] as const)('applies three mask bands to a %s image in Ghostscript', async (colorSpace, samples, channel) => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-process-mask-'));
+    try {
+      const document = createDocument();
+      addImagePage(colorSpace, samples, document);
+      const file = path.join(directory, 'image.pdf');
+      const output = path.join(directory, 'image.tif');
+      await writeFile(file, document.save().toBytes());
+      const first = await renderGsCmykPixel(file, output, 5, 5);
+      const middle = await renderGsCmykPixel(file, output, 15, 5);
+      const last = await renderGsCmykPixel(file, output, 25, 5);
+      expect(first[channel]).toBeGreaterThan(240);
+      expect(Math.abs(middle[channel] - 128)).toBeLessThanOrEqual(5);
+      expect(last[channel]).toBeLessThan(5);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('applies three mask bands to a White separation image plate', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-white-mask-'));
     try {
