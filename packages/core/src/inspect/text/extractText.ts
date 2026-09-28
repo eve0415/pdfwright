@@ -135,6 +135,7 @@ export interface TextFont {
   readonly cmapMissing: boolean;
 }
 
+/** Glyphs, fonts, ActualText spans, page boxes, completeness, and nonfatal warnings from a zero-based page under ISO 32000-1:2008, 9.10 and 14.9.3. */
 export interface PageText {
   /** The 0-based page index. */
   readonly page: number;
@@ -152,6 +153,7 @@ export interface PageText {
   readonly warnings: readonly InspectWarning[];
 }
 
+/** Controls annotation appearances, predefined CMaps, and glyph count: annotations default to none and maxGlyphs to one million; exceeding that cap raises ResourceLimitError under ISO 32000-1:2008, 9.7 and 12.5.3. */
 export interface ExtractTextOptions {
   /** Which annotations' normal appearances are read after the page content: none (the default), those that print (ISO 32000-1:2008, 12.5.3, Table 165), or all. */
   readonly annotations?: 'printable' | 'none' | 'all';

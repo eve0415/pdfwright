@@ -1,3 +1,4 @@
+/** Typed codes for tolerated or reconstructed PDF damage, from header and cross-reference repairs to stream and page problems under ISO 32000-1:2008, 7.5. */
 export type LoadWarningCode =
   | 'junk-before-header'
   | 'startxref-corrected'
@@ -33,6 +34,7 @@ export type LoadWarningCode =
   | 'recovery-ambiguous-object'
   | 'recovery-unreadable-object';
 
+/** A nonfatal load finding with optional byte offset and object number; parsing continues when the damaged construct can be handled under ISO 32000-1:2008, 7.5. */
 export interface LoadWarning {
   readonly code: LoadWarningCode;
   readonly detail: string;

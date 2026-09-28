@@ -15,6 +15,7 @@ export type InspectWarningCode =
   | 'colorspace-unreadable'
   | 'marked-content-unbalanced';
 
+/** A typed nonfatal reason why content, font, or a resource could not be inspected; the page result remains available with `complete` false under ISO 32000-1:2008, 7.8 and 9.10. */
 export interface InspectWarning {
   readonly code: InspectWarningCode;
   readonly detail: string;

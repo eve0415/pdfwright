@@ -13,6 +13,7 @@ import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 import { orderGlyphs } from './orderGlyphs.ts';
 import { hasVerticalAlternate } from './verticalAlternates.ts';
 
+/** Selects glyphs, reading order, folds, ActualText, variation selectors, and duplicates; defaults ignore whitespace, require glyph evidence, check ActualText, and collapse close duplicate runs under ISO 32000-1:2008, 9.10 and 14.9.3. */
 export interface MatchTextOptions {
   /** Which glyphs count; by default those that are visible or only empty, not covered, whose core box is not entirely hidden, not clipped out or under a clip whose shape is unknown, and whose box's centre lies inside the CropBox reduced to the MediaBox. */
   readonly select?: (glyph: PageGlyph) => boolean;
@@ -102,6 +103,7 @@ export interface DuplicateRuns {
   readonly kept: number;
 }
 
+/** A match, mismatch, or unverified comparison of intended text with page glyphs, carrying differences, folds, font evidence, and compared glyph indexes under ISO 32000-1:2008, 9.10. */
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.

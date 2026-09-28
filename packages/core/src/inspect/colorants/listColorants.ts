@@ -56,6 +56,7 @@ export type DeclaredOnlyReason =
   /** Named by the page's SeparationInfo (ISO 32000-1:2008, 14.11.4). */
   | 'separation-info';
 
+/** A colorant name kept as bytes, its kind, painted and selected uses, declarations, and alternate definitions under ISO 32000-1:2008, 8.6.6.4 and 14.11.4. */
 export interface ColorantUse {
   /** The colorant name as bytes, with #xx escapes decoded. */
   readonly name: Uint8Array;
@@ -69,6 +70,7 @@ export interface ColorantUse {
   readonly alternates: readonly AlternateSummary[];
 }
 
+/** The byte-sorted colorants on a zero-based page with completeness and nonfatal warnings under ISO 32000-1:2008, 8.6.6.4. */
 export interface PageColorants {
   readonly page: number;
   /** Sorted by name bytes. */
@@ -78,6 +80,7 @@ export interface PageColorants {
   readonly warnings: readonly InspectWarning[];
 }
 
+/** Selects zero-based pages to inspect; omission inspects every page, and an invalid index raises InvalidArgumentError without a reason. */
 export interface ListColorantsOptions {
   /** 0-based indexes of the pages to inspect; all pages when absent. */
   readonly pages?: readonly number[];

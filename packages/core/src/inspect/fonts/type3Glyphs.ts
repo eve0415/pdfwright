@@ -15,6 +15,7 @@ const SUBTYPE = pdfName('Subtype').bytes;
 /** What a Type 3 font's glyph procedures paint: only vector shapes, only images, both, or `unreadable` when a procedure cannot be read. */
 export type Type3Glyphs = 'vector' | 'image' | 'mixed' | 'unreadable';
 
+/** Classifies Type 3 glyph procedures by vector or image painting, counts procedures and d0 coloured glyphs under ISO 32000-1:2008, 9.6.5. */
 export interface Type3Summary {
   readonly glyphs: Type3Glyphs;
   /** The entries of CharProcs. */

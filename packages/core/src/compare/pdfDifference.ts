@@ -9,12 +9,14 @@ export interface ValueSummary {
   readonly text: string;
 }
 
+/** A compared box or rotation value with whether it was explicit rather than inherited or defaulted under ISO 32000-1:2008, 7.7.3.3, Table 30. */
 export interface BoxValue {
   readonly value: readonly number[] | number;
   /** For boxes: whether the page or an ancestor sets it rather than a default applying. */
   readonly explicit: boolean;
 }
 
+/** The page, catalog, or form that owns compared page-piece data under ISO 32000-1:2008, 14.5. */
 export type PieceOwner =
   | { readonly kind: 'page'; readonly page: number }
   | { readonly kind: 'catalog' }
@@ -28,6 +30,7 @@ export interface FontIdentity {
   readonly program: string;
 }
 
+/** A typed difference in page count, boxes, content, resources, fonts, page-piece data, attributes, or readability; `compareDocuments` reports these rather than throwing for each mismatch under ISO 32000-1:2008, 7.7 and 14.5. */
 export type PdfDifference =
   | { readonly kind: 'page-count'; readonly a: number; readonly b: number }
   | { readonly kind: 'page-box'; readonly page: number; readonly box: BoxName | 'Rotate' | 'UserUnit'; readonly a: BoxValue; readonly b: BoxValue }
@@ -61,13 +64,16 @@ export type PdfDifference =
   | { readonly kind: 'ambiguous-duplicate-key'; readonly where: ValuePath; readonly key: Uint8Array; readonly document: 'a' | 'b' }
   | { readonly kind: 'undecodable'; readonly where: ValuePath; readonly document: 'a' | 'b'; readonly reason: string };
 
+/** One area selected for `compareDocuments`: pages, boxes, content, resources, fonts, page-piece data, dates, or attributes. */
 export type DifferenceArea = 'pages' | 'boxes' | 'content' | 'resources' | 'fonts' | 'pieceInfo' | 'lastModified' | 'pageAttributes' | 'documentAttributes';
 
+/** Selects comparison areas with `include`; all areas are compared by default and object numbers are ignored under ISO 32000-1:2008, 7.3.10. */
 export interface CompareOptions {
   /** The areas to compare; all by default. */
   readonly include?: readonly DifferenceArea[];
 }
 
+/** Whether two documents compare equal, alongside typed differences; the result reports differences without making comparison itself an exception. */
 export interface DocumentComparison {
   readonly equal: boolean;
   readonly differences: readonly PdfDifference[];

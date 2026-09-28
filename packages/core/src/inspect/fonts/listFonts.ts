@@ -55,6 +55,7 @@ export type FontSubset =
   | { readonly state: 'not-subset' }
   | { readonly state: 'not-applicable'; readonly tag: string | undefined };
 
+/** Typed codes for font embedding, subset, descriptor, widths, CMap, or decoding problems reported under ISO 32000-1:2008, 9.6–9.10. */
 export type FontProblemCode =
   | 'embedding-type-mismatch'
   | 'subset-tag-malformed'
@@ -67,6 +68,7 @@ export type FontProblemCode =
   | 'to-unicode-range-overflow'
   | 'cmap-unavailable';
 
+/** A font problem code with its detail; `listFonts` reports it rather than throwing for each damaged font under ISO 32000-1:2008, 9.6–9.10. */
 export interface FontProblem {
   readonly code: FontProblemCode;
   readonly detail: string;
@@ -106,6 +108,7 @@ export interface FontEntry {
   readonly problems: readonly FontProblem[];
 }
 
+/** Fonts ordered by first reachable page and unreadable paths, with page indexes zero-based under ISO 32000-1:2008, 7.8 and 9.6. */
 export interface FontInventory {
   /** Ordered by the first page that reaches or shows each font, then by object number, with direct fonts after indirect ones. */
   readonly fonts: readonly FontEntry[];
@@ -113,6 +116,7 @@ export interface FontInventory {
   readonly unreadable: readonly { readonly page: number; readonly reason: string }[];
 }
 
+/** Controls font inventory: `shownOn` defaults true, and `cmapProvider` supplies non-Identity predefined CMaps when available under ISO 32000-1:2008, 9.7.5. */
 export interface ListFontsOptions {
   /** Whether to interpret every page's content to fill `shownOn`; default true. False gives an inventory of resources alone. */
   readonly shownOn?: boolean;
