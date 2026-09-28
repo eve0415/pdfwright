@@ -41,7 +41,14 @@ interface MaskGroup {
   readonly overprintNames?: OverprintNames;
   readonly overprintAdjustments?: number;
   readonly newInlineImages?: readonly NamedInlineImage[];
-  readonly grayImages?: readonly { readonly name: Uint8Array; readonly image: PdfStream }[];
+  readonly grayXObjects?: readonly GrayXObjectPlan[];
+}
+
+interface GrayXObjectPlan {
+  readonly name: Uint8Array;
+  readonly stream: PdfStream;
+  readonly resources?: PdfDictionaryEntries | undefined;
+  readonly children: readonly GrayXObjectPlan[];
 }
 
 interface MaskResource {
@@ -217,13 +224,60 @@ const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values
   };
 };
 
-const planGrayImages = (
+interface GrayWalk {
+  readonly bytes: Uint8Array;
+  readonly resources: PdfDictionaryEntries;
+  readonly paintGray: (values: readonly number[]) => number;
+  readonly active: ReadonlySet<number>;
+}
+
+const planGrayForm = (
   scan: MaskScan,
-  config: { bytes: Uint8Array; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
-): readonly { readonly name: Uint8Array; readonly image: PdfStream }[] => {
-  const { bytes, resources, paintGray } = config;
+  input: { name: Uint8Array; reference: PdfReference; form: PdfStream; walk: GrayWalk; recurse: (walk: GrayWalk) => readonly GrayXObjectPlan[] },
+): GrayXObjectPlan => {
+  const { name, reference, form, walk, recurse } = input;
+  if (walk.active.size >= scan.internals.maxNesting || walk.active.has(reference.objectNumber)) {
+    throw new ResourceLimitError('luminosity form nesting exceeds maxNesting');
+  }
+  const own = scan.internals.objects.deref(form.dictionary.get(RESOURCES));
+  const resources = own?.kind === 'dictionary' ? own.entries : walk.resources;
+  const bytes = decodedData(scan.internals, form);
+  if (typeof bytes === 'string') throw new ValidationError(`luminosity form cannot be read: ${bytes}`, 'color-operator');
+  checkCompressedRgbImages(scan, bytes, resources);
+  const children = recurse({ bytes, resources, paintGray: walk.paintGray, active: new Set([...walk.active, reference.objectNumber]) });
+  const rewritten = rewriteDeviceRgbLuminosity(bytes, walk.paintGray);
+  if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity form exceeds maxDecodedBytes');
+  const dictionary = new Entries(form.dictionary.entries());
+  const groupValue = scan.internals.objects.deref(dictionary.get(GROUP));
+  if (groupValue?.kind === 'dictionary' && groupValue.entries.get(COLOR_SPACE) !== undefined) {
+    const group = new Entries(groupValue.entries.entries());
+    group.set(COLOR_SPACE, pdfName('DeviceGray'));
+    dictionary.set(GROUP, pdfDictionary(group));
+  }
+  dictionary.set(FILTER, pdfName('FlateDecode'));
+  dictionary.delete(DECODE_PARMS);
+  return { name, stream: { kind: 'stream', dictionary, data: deflateZlib(rewritten) }, resources, children };
+};
+
+const planGrayImage = (
+  scan: MaskScan,
+  input: { name: Uint8Array; image: PdfStream; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
+): GrayXObjectPlan | undefined => {
+  const { name, image, resources, paintGray } = input;
+  const color = image.dictionary.get(COLOR_SPACE_ENTRY);
+  if (color === undefined) throw new ValidationError('luminosity image ColorSpace is missing', 'color-space');
+  const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
+  if (space.kind === 'gray') return undefined;
+  if (space.kind !== 'rgb') throw new UnsupportedFeatureError('luminosity image colour space is unsupported');
+  const gray = nameOf(scan.internals.objects.deref(color));
+  const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
+  return { name, stream: grayImage(scan, image, imageGray), children: [] };
+};
+
+const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): readonly GrayXObjectPlan[] => {
+  const { bytes, resources } = walk;
   const category = scan.internals.objects.deref(resources.get(XOBJECT));
-  const plans: { name: Uint8Array; image: PdfStream }[] = [];
+  const plans: GrayXObjectPlan[] = [];
   const seen = new Set<string>();
   for (const operation of readContent(bytes, scan.internals.maxNesting)) {
     if (operation.operator !== 'Do') continue;
@@ -232,18 +286,17 @@ const planGrayImages = (
     const key = [...operand.bytes].join(',');
     if (seen.has(key)) continue;
     seen.add(key);
-    const image = scan.internals.objects.deref(category.entries.get(operand.bytes));
-    if (image?.kind !== 'stream' || nameOf(scan.internals.objects.deref(image.dictionary.get(SUBTYPE))) !== 'Image') {
-      throw new UnsupportedFeatureError('luminosity mask contains an unsupported form XObject');
+    const reference = category.entries.get(operand.bytes);
+    const object = scan.internals.objects.deref(reference);
+    if (reference?.kind !== 'reference' || object?.kind !== 'stream') throw new ValidationError('luminosity XObject is missing', 'color-space');
+    const subtype = nameOf(scan.internals.objects.deref(object.dictionary.get(SUBTYPE)));
+    if (subtype === 'Form') {
+      plans.push(planGrayForm(scan, { name: Uint8Array.from(operand.bytes), reference, form: object, walk, recurse: child => planGrayXObjects(scan, child) }));
+      continue;
     }
-    const color = image.dictionary.get(COLOR_SPACE_ENTRY);
-    if (color === undefined) throw new ValidationError('luminosity image ColorSpace is missing', 'color-space');
-    const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
-    if (space.kind === 'gray') continue;
-    if (space.kind !== 'rgb') throw new UnsupportedFeatureError('luminosity image colour space is unsupported');
-    const gray = nameOf(scan.internals.objects.deref(color));
-    const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-    plans.push({ name: Uint8Array.from(operand.bytes), image: grayImage(scan, image, imageGray) });
+    if (subtype !== 'Image') throw new UnsupportedFeatureError('luminosity mask XObject subtype is unsupported');
+    const planned = planGrayImage(scan, { name: Uint8Array.from(operand.bytes), image: object, resources, paintGray: walk.paintGray });
+    if (planned !== undefined) plans.push(planned);
   }
   return plans;
 };
@@ -338,7 +391,7 @@ const planRgbLuminosityMask = (
     const rgbSource = resolveSourceSpace(scan.document, pdfName('DeviceRGB'), { resources: groupResources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (rgbSource.kind !== 'rgb') throw new ValidationError('DeviceRGB does not resolve to an RGB profile', 'color-space');
     const paintGray = cie ? cieLuminosity(rgbSource.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
-    const grayImages = planGrayImages(scan, { bytes, resources: groupResources, paintGray });
+    const grayXObjects = planGrayXObjects(scan, { bytes, resources: groupResources, paintGray, active: new Set([groupReference.objectNumber]) });
     const rewritten = rewriteDeviceRgbLuminosity(bytes, paintGray);
     if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity mask exceeds maxDecodedBytes');
     scan.groups.set(groupReference.objectNumber, {
@@ -347,8 +400,8 @@ const planRgbLuminosityMask = (
       group,
       data: deflateZlib(rewritten),
       outputSpace: 'DeviceGray',
-      resources: grayImages.length === 0 ? undefined : groupResources,
-      grayImages,
+      resources: grayXObjects.length === 0 ? undefined : groupResources,
+      grayXObjects,
     });
     if (cie) scan.approximated.add(groupReference.objectNumber);
   }
@@ -470,6 +523,23 @@ const scanAppearances = (scan: MaskScan, page: PdfReference, resources: PdfDicti
   }
 };
 
+const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayXObjectPlan[]): PdfDictionaryEntries => {
+  const original = scan.internals.objects.deref(resources.get(XOBJECT));
+  if (original?.kind !== 'dictionary') throw new ValidationError('luminosity XObjects are missing', 'color-space');
+  const xobjects = new Entries(original.entries.entries());
+  for (const plan of plans) {
+    const dictionary = new Entries(plan.stream.dictionary.entries());
+    if (plan.children.length > 0) {
+      if (plan.resources === undefined) throw new ValidationError('luminosity form resources are missing', 'color-space');
+      dictionary.set(RESOURCES, pdfDictionary(grayXObjects(scan, plan.resources, plan.children)));
+    }
+    xobjects.set(plan.name, scan.document.object({ kind: 'stream', dictionary, data: plan.stream.data }));
+  }
+  const mapped = new Entries(resources.entries());
+  mapped.set(XOBJECT, pdfDictionary(xobjects));
+  return mapped;
+};
+
 const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
   for (const plan of scan.groups.values()) {
     const dictionary = new Entries(plan.form.dictionary.entries());
@@ -486,12 +556,9 @@ const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
         addOverprintStates(scan.document, resources, plan.overprintNames);
       }
       addInlineXObjects(scan.document, resources, plan.newInlineImages ?? []);
-      if (plan.grayImages !== undefined && plan.grayImages.length > 0) {
-        const original = scan.internals.objects.deref(resources.get(XOBJECT));
-        if (original?.kind !== 'dictionary') throw new ValidationError('luminosity XObjects are missing', 'color-space');
-        const xobjects = new Entries(original.entries.entries());
-        for (const gray of plan.grayImages) xobjects.set(gray.name, scan.document.object(gray.image));
-        resources.set(XOBJECT, pdfDictionary(xobjects));
+      if (plan.grayXObjects !== undefined && plan.grayXObjects.length > 0) {
+        const mapped = grayXObjects(scan, resources, plan.grayXObjects);
+        resources.set(XOBJECT, mapped.get(XOBJECT) ?? pdfDictionary(new Entries()));
       }
       const oldResources = dictionary.get(RESOURCES);
       if (oldResources?.kind === 'reference') discarded.push(oldResources);

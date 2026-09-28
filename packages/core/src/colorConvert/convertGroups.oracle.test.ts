@@ -162,6 +162,36 @@ const rgbImageMaskPdf = buildPdf([
   },
 ]);
 
+const nestedFormMaskPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>' },
+      { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+      {
+        number: 6,
+        body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</XObject<</Fm 9 0 R>>>>', '/Fm Do'),
+      },
+      { number: 9, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]', '1 0 0 rg 0 0 10 10 re f') },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
+  const group = document.get(pdfReference(6, 0));
+  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  const resources = group.dictionary.get(pdfName('Resources').bytes);
+  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  const xobjects = resources.entries.get(pdfName('XObject').bytes);
+  if (xobjects?.kind !== 'dictionary') throw new Error('mask XObjects are missing');
+  const reference = xobjects.entries.get(pdfName(name).bytes);
+  if (reference?.kind !== 'reference') throw new Error('mask XObject is missing');
+  return reference;
+};
+
 const maskImage = (document: ReturnType<typeof loadDocument>) => {
   const group = document.get(pdfReference(6, 0));
   if (group.kind !== 'stream') throw new Error('mask group is missing');
@@ -191,8 +221,8 @@ const groupSpace = (document: ReturnType<typeof loadDocument>, reference: Return
   return new TextDecoder('latin1').decode(color.bytes);
 };
 
-const luminosityContent = (document: ReturnType<typeof loadDocument>): string => {
-  const form = document.get(pdfReference(6, 0));
+const contentAt = (document: ReturnType<typeof loadDocument>, number: number): string => {
+  const form = document.get(pdfReference(number, 0));
   if (form.kind !== 'stream') throw new Error('mask group is missing');
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('document internals are missing');
@@ -200,6 +230,8 @@ const luminosityContent = (document: ReturnType<typeof loadDocument>): string =>
   if (typeof data === 'string') throw new Error(data);
   return latin1Text(data);
 };
+
+const luminosityContent = (document: ReturnType<typeof loadDocument>): string => contentAt(document, 6);
 
 const backdrop = (document: ReturnType<typeof loadDocument>): readonly number[] => {
   const state = document.page(0).resources().get(pdfName('ExtGState').bytes);
@@ -314,5 +346,14 @@ describe('transparency group conversion', () => {
     expect(image.data).toStrictEqual(Uint8Array.of(77));
     expect(image.reference).not.toBe(9);
     expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceGray');
+  });
+
+  it('converts a nested form in a luminosity group without changing the original form', () => {
+    const document = loadDocument(nestedFormMaskPdf.bytes);
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    const converted = maskXObject(document, 'Fm');
+    expect(converted.objectNumber).not.toBe(9);
+    expect(contentAt(document, converted.objectNumber)).toContain('0.3 g');
+    expect(contentAt(document, 9)).toContain('1 0 0 rg');
   });
 });
