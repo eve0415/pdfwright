@@ -74,16 +74,20 @@ export const validateDocument = (document: IllustratorDocument): void => {
     return number;
   };
   const spots = new Map<string, SpotColor>();
+  const spotNames = new Map<string, string>();
   const checkSpot = (spot: SpotColor): void => {
     knownFields(spot, ['name', 'nameBytes', 'alternate'], 'spot');
     nativeName(spot.name, 'spot name');
     if (spot.nameBytes?.length === 0) throw new ValidationError('spot name bytes cannot be empty');
     for (const component of spot.alternate) unitInterval(component, 'spot alternate');
     const key = spotKey(spot);
+    const earlierKey = spotNames.get(spot.name);
+    if (earlierKey !== undefined && earlierKey !== key) throw new ValidationError('spot name has conflicting colorant bytes', 'illustrator-spot-identity');
     const earlier = spots.get(key);
     if (earlier !== undefined && (earlier.name !== spot.name || earlier.alternate.some((component, index) => component !== spot.alternate[index]))) {
-      throw new ValidationError('spot colorant bytes have conflicting definitions');
+      throw new ValidationError('spot colorant bytes have conflicting definitions', 'illustrator-spot-identity');
     }
+    spotNames.set(spot.name, key);
     spots.set(key, spot);
   };
   const checkPaint = (paint: Paint): void => {

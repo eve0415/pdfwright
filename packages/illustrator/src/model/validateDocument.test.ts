@@ -69,6 +69,16 @@ describe('illustrator document validation', () => {
     expect(validates({ ...document, layers: [{ name: 'A', items: [path, second] }] })).toThrow(ValidationError);
   });
 
+  it('rejects one spot name with different page bytes or alternates', () => {
+    const different: SpotColor = { name: 'White', nameBytes: Uint8Array.of(0x57, 0x68, 0x69, 0x74, 0x65, 0x32), alternate: [0, 0, 0, 0] };
+    const second: PathItem = { ...path, fill: { paint: { kind: 'spot', spot: different } } };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [path, second] }] })).toThrow(ValidationError);
+    const alternate: SpotColor = { name: 'White', alternate: [0, 0, 0, 1] };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [path, { ...path, fill: { paint: { kind: 'spot', spot: alternate } } }] }] })).toThrow(
+      ValidationError,
+    );
+  });
+
   it('rejects unsupported artwork fields with a typed feature error', () => {
     const rgbDocument = { ...document, colorSpace: 'RGB' };
     const openPath = { ...path, open: true };

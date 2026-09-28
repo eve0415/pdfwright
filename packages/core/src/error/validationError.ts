@@ -20,7 +20,9 @@ export type ValidationReason =
   | 'colorant-ascii-only'
   | 'reserved-colorant'
   | 'invisible-overprint'
-  | 'raw-content-unchecked';
+  | 'raw-content-unchecked'
+  | 'illustrator-spot-identity'
+  | 'illustrator-model';
 
 /** An input or document state violates a requirement of the requested operation. */
 export class ValidationError extends PdfwrightError {
