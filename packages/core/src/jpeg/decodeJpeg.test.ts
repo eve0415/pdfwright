@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
+import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { md5 } from '../hash/md5.ts';
 
@@ -52,7 +53,7 @@ describe('jpeg input validation', () => {
       const bytes = frame(0xc0);
       const offset = seed % bytes.length;
       bytes[offset] = seed;
-      expect(() => decodeJpeg(bytes)).toThrow(Error);
+      expect(() => decodeJpeg(bytes)).toThrow(PdfwrightError);
     }
   });
 });
