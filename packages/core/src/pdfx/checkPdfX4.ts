@@ -238,7 +238,16 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-EMBEDDED': context =>
     globalCheck(
       context,
-      value => value.kind === 'dictionary' && (value.entries.has(key('EmbeddedFiles')) || nameOf(value.entries.get(key('Subtype'))) === 'FileAttachment'),
+      value => {
+        if (value.kind !== 'dictionary' && value.kind !== 'stream') return false;
+        const entries = value.kind === 'dictionary' ? value.entries : value.dictionary;
+        return (
+          entries.has(key('EmbeddedFiles')) ||
+          entries.has(key('EF')) ||
+          nameOf(entries.get(key('Subtype'))) === 'FileAttachment' ||
+          nameOf(entries.get(key('Type'))) === 'EmbeddedFile'
+        );
+      },
       'embedded file or FileAttachment annotation',
     ),
   'X4-EXTERNAL': context =>

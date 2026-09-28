@@ -105,4 +105,23 @@ describe('pdfx structural checker', () => {
     attach(document, 'Extra', stream);
     expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
   });
+
+  it('finds an embedded file attached through catalog AF', () => {
+    const document = prepared();
+    const data = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries([[pdfName('Type').bytes, pdfName('EmbeddedFile')]]),
+      data: Uint8Array.of(1),
+    });
+    const file = document.object({ kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('EF').bytes, pdfArray([data])]]) });
+    attach(document, 'AF', document.object(pdfArray([file])));
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe('violation');
+  });
+
+  it('finds a reachable file specification with EF', () => {
+    const document = prepared();
+    const file = document.object({ kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('EF').bytes, pdfName('SomeData')]]) });
+    attach(document, 'Extra', file);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe('violation');
+  });
 });
