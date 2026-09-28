@@ -9,6 +9,7 @@ import { chromium } from 'playwright';
 import { describe, expect, it } from 'vitest';
 
 import { runTool } from '../../../../scripts/readerOracle.ts';
+import { compareDocuments } from '../compare/compareDocuments.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 
 import { listFonts } from './fonts/listFonts.ts';
@@ -201,7 +202,44 @@ const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; read
   }
 };
 
+const qpdfRank = (code: number): number => {
+  if (code === 0) return 0;
+  return code === 3 ? 1 : 2;
+};
+
+const qpdfWarnings = (output: string, file: string): string[] =>
+  output
+    .replaceAll(file, 'FILE')
+    .split('\n')
+    .filter(line => line.includes('WARNING'))
+    .map(line => line.replaceAll(/\d+/gu, 'N'));
+
 describe('print proofs from Chromium', { timeout: 120_000 }, () => {
+  it.each(PROOFS)('saves and compares the $proof proof in both modes', async ({ proof }) => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-proof-save-'));
+    try {
+      const source = path.join(directory, 'source.pdf');
+      const bytes = await proofBytes(proof);
+      await writeFile(source, bytes);
+      const sourceCheck = await runTool('qpdf', ['--check', source]);
+      const sourceWarnings = new Set(qpdfWarnings(sourceCheck.output, source));
+      await Promise.all(
+        (['incremental', 'full'] as const).map(async mode => {
+          const document = loadDocument(bytes);
+          const saved = document.save({ mode });
+          expect(compareDocuments(document, loadDocument(saved.chunks)).differences).toStrictEqual([]);
+          const output = path.join(directory, `${mode}.pdf`);
+          await writeFile(output, saved.toBytes());
+          const check = await runTool('qpdf', ['--check', output]);
+          expect(qpdfRank(check.code)).toBeLessThanOrEqual(qpdfRank(sourceCheck.code));
+          expect(qpdfWarnings(check.output, output).filter(warning => !sourceWarnings.has(warning))).toStrictEqual([]);
+        }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('embeds IPAGothic, a TrueType-outline face, as a CIDFontType2 subset with Identity-H and ToUnicode', async () => {
     const fonts = await proofFonts('ipaGothic-name');
     expect(fonts.map(font => fontSummary(font))).toMatchObject([IPA_GOTHIC]);
