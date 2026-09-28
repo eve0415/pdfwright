@@ -38,6 +38,8 @@ export { writePdfX4Metadata } from './pdfx/writeMetadata.ts';
 export type { PdfX4MetadataOptions } from './pdfx/writeMetadata.ts';
 export { preparePdfX4Pages } from './pdfx/preparePages.ts';
 export type { PdfX4PageChange, PdfX4PageOptions } from './pdfx/preparePages.ts';
+export { checkPdfX4, pdfX4Rules } from './pdfx/checkPdfX4.ts';
+export type { PdfX4Finding, PdfX4Report, PdfX4Rule, PdfX4RuleId, RuleAuthority } from './pdfx/checkPdfX4.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
