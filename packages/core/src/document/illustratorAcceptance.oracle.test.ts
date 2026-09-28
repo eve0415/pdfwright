@@ -263,8 +263,8 @@ const localFiles = [
   { label: 'RGB AI', file: 'A-illustrator/A2-ref-rgb.ai' },
   { label: 'swatches', file: 'A-illustrator/A3-resave-probe-ai-pdf17.pdf' },
   { label: 'Illustrator rewrite', file: 'B-corpus/B2-illustrator-resave.pdf' },
-  { label: 'Acrobat object stream', file: 'B-corpus/B3-acrobat-incremental.pdf' },
-  { label: 'Acrobat PDF/X-4', file: 'B-corpus/B4-acrobat-pdfx4-jc2001.pdf' },
+  { label: 'Object stream', file: 'B-corpus/B3-acrobat-incremental.pdf' },
+  { label: 'PDF/X-4', file: 'B-corpus/B4-acrobat-pdfx4-jc2001.pdf' },
 ];
 const localCases = localFiles.flatMap(({ label, file }) => modes.flatMap(mode => [false, true].map(updateDate => ({ label, file, mode, updateDate }))));
 

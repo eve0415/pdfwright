@@ -85,7 +85,7 @@ const dynamicTrees = (reader: BitReader): [Huffman, Huffman] => {
   // RFC 1951, 3.2.7 encodes the code-length alphabet in a fixed permutation, then run-length encodes the two trees.
   const literalCount = reader.readBits(5) + 257;
   const distanceCount = reader.readBits(5) + 1;
-  // RFC 1951, 3.2.7 gives HLIT the range "(257 - 286)". Its HDIST range is "(1 - 32)", but 3.2.6 says "distance codes 30-31 will never actually occur in the compressed data", and zlib's inflate rejects more than 30 distance codes, so this decoder does too.
+  // RFC 1951, 3.2.7 gives HLIT the range "(257 - 286)". Its HDIST range is "(1 - 32)", but 3.2.6 says "distance codes 30-31 cannot occur in the compressed data", and zlib's inflate rejects more than 30 distance codes, so this decoder does too.
   const headerOffset = Math.ceil(reader.bitPosition / 8);
   if (literalCount > 286) throw new ParseError(`dynamic block declares ${String(literalCount)} literal/length codes; at most 286 are allowed`, headerOffset);
   if (distanceCount > 30) throw new ParseError(`dynamic block declares ${String(distanceCount)} distance codes; at most 30 are allowed`, headerOffset);

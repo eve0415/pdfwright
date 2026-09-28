@@ -39,7 +39,7 @@ const duplicatesIn = (root: SourceNode): Map<string, DuplicateKey> => {
   return found;
 };
 
-// Whether the object, parsed now if it was not yet, holds a key more than once; an object that cannot be parsed is reported where its value is compared.
+// Whether the object, parsed now if necessary, holds a key more than once; an object that cannot be parsed is reported where its value is compared.
 const parsedWithDuplicates = (document: DocumentInternals, objectNumber: number): boolean => {
   try {
     document.objects.store.load(objectNumber);

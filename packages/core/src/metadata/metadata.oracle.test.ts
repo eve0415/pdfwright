@@ -25,9 +25,9 @@ const SUMMARY = path.join(CORPUS, 'metadata-summary.json');
 
 const MODIFIED = pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: { sign: '+', hours: 9, minutes: 0 } });
 const INPUT = {
-  title: '山田 太郎 proof',
-  author: 'Print shop',
-  subject: 'Keyring',
+  title: '山田 太郎',
+  author: 'Example',
+  subject: 'Name',
   producer: 'pdfwright',
   trapped: 'False',
   modificationDate: MODIFIED,
@@ -141,12 +141,12 @@ describe('metadata saves against qpdf and poppler', () => {
       check: view.check,
       streams: view.streams.length,
       filtered: view.streams.some(([, filtered]) => filtered),
-      printed: view.meta.includes('<dc:title><rdf:Alt><rdf:li xml:lang="x-default">山田 太郎 proof</rdf:li>'),
+      printed: view.meta.includes('<dc:title><rdf:Alt><rdf:li xml:lang="x-default">山田 太郎</rdf:li>'),
       title: infoLine(view.info, 'Title'),
       author: infoLine(view.info, 'Author'),
       custom: infoLine(view.info, 'Custom'),
       headers: view.headers,
-    }).toStrictEqual({ check: 0, streams: 1, filtered: false, printed: true, title: '山田 太郎 proof', author: 'Print shop', custom: 'kept', headers: 1 });
+    }).toStrictEqual({ check: 0, streams: 1, filtered: false, printed: true, title: '山田 太郎', author: 'Example', custom: 'kept', headers: 1 });
   });
 
   it('writes a created document whose packet and Info both tools read', async () => {
@@ -159,7 +159,7 @@ describe('metadata saves against qpdf and poppler', () => {
       view.meta.includes('<pdf:Producer>pdfwright</pdf:Producer>'),
       infoLine(view.info, 'Title'),
       view.headers,
-    ]).toStrictEqual([0, 1, true, '山田 太郎 proof', 1]);
+    ]).toStrictEqual([0, 1, true, '山田 太郎', 1]);
   });
 });
 

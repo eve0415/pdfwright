@@ -28,7 +28,7 @@ const piece = { number: 9, body: "<</LastModified(D:20070624192720-05'00')/Priva
 const privateData = { number: 10, body: streamBody('', '%AI private data') };
 const hidden = { number: 11, body: '(an object only a cross-reference stream lists)' };
 
-// The bases the incremental rule has to serve: classic, cross-reference streams with and without object streams (the page inside one, as current Illustrator writes it), and an Acrobat-style hybrid.
+// The bases the incremental rule has to serve: classic, cross-reference streams with and without object streams (including a page in an object stream), and a hybrid cross-reference section.
 const classicBase: TestSection[] = [{ xref: 'classic', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
 const streamBase: TestSection[] = [{ xref: 'stream', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
 const objectStreamBase: TestSection[] = [

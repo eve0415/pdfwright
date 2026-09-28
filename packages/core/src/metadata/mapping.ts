@@ -200,7 +200,7 @@ const stampOf = (packet: XmpPacket): XmpDate | undefined => {
 };
 
 // ISO 32000-1:2008, 14.3.2: "If this date stamp is equal to or later than the document modification date recorded in the document information dictionary, the metadata stream shall be taken as authoritative."
-// XMP Part 3 2.2.2: Acrobat "compares the time given by the Info ModDate value with the time given by the xmp:MetadataDate value"; xmp:ModifyDate stands in when a packet has no xmp:MetadataDate.
+// XMP Specification Part 3, 2.2.2 compares Info ModDate with xmp:MetadataDate; xmp:ModifyDate stands in when a packet has no xmp:MetadataDate.
 const authorityOf = (
   info: ReadonlyMap<string, InfoValue> | undefined,
   packet: XmpPacket | undefined,

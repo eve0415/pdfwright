@@ -138,7 +138,7 @@ const trailerEntries = (input: SaveInput, request: SectionRequest, size: number)
 interface Identified {
   readonly emitter: PdfEmitter;
   readonly appendStart: number;
-  /** Serializes the trailer or stream dictionary as it will be written, without ID. */
+  /** Serializes the trailer or stream dictionary for output, without ID. */
   readonly withoutId: () => Uint8Array;
 }
 
