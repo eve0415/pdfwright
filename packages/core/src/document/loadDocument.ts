@@ -122,6 +122,20 @@ const sessionOptions = (options: LoadOptions): LoadSession['options'] => ({
   recovery: options.recovery ?? 'refuse-ambiguous',
 });
 
+const recoverySaveWarnings = (warnings: readonly LoadWarning[]): SaveWarning[] => {
+  const dropped: SaveWarning[] = [];
+  for (const warning of warnings) {
+    if (warning.code === 'recovery-unreadable-object' && warning.objectNumber !== undefined) {
+      dropped.push({
+        code: 'recovery-object-dropped',
+        detail: `unreadable object ${String(warning.objectNumber)} was left out after reconstruction`,
+        objectNumber: warning.objectNumber,
+      });
+    }
+  }
+  return dropped;
+};
+
 interface LoadedParts {
   readonly read: ReadStructure;
   readonly warnings: readonly LoadWarning[];
@@ -281,7 +295,7 @@ class LoadedPdf implements LoadedDocument {
       throw new InvalidArgumentError('a full rewrite would invalidate signatures; set invalidateSignatures to true to allow it', 'signed-document');
     }
     const changes = new Map(this.objects.changes);
-    const warnings: SaveWarning[] = [];
+    const warnings: SaveWarning[] = recoverySaveWarnings(this.log);
     const lowerVersion = this.pdfx4Version && versionNumber(this.read.headerVersion) > 16;
     if (lowerVersion || this.pdfx4CatalogLowered) warnings.push({ code: 'version-lowered', detail: 'the PDF version was lowered to 1.6 for PDF/X-4 output' });
     this.versionChange(changes, warnings);

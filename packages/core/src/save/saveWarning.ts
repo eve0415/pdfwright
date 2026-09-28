@@ -4,6 +4,7 @@ export type SaveWarningCode =
   | 'linearization-removed'
   | 'version-raised'
   | 'version-lowered'
+  | 'recovery-object-dropped'
   | 'junk-dropped';
 
 export interface SaveWarning {

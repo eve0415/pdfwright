@@ -292,6 +292,14 @@ describe('full rewrite', () => {
     expect([document.structure.status, saved.mode, loadDocument(saved.chunks).structure.status]).toStrictEqual(['reconstructed', 'full', 'intact']);
   });
 
+  it('reports an unreadable object discarded during reconstruction in the save warnings', () => {
+    const source = buildPdf([{ xref: 'classic', objects: [catalog, pages, page, content, { number: 5, body: '<zz>' }], trailer: '/Root 1 0 R' }]);
+    const damaged = source.text.replace(/startxref\n\d+/u, 'startxref\n3');
+    const document = loadDocument(latin1Bytes(damaged));
+    expect(document.warnings.map(warning => warning.code)).toContain('recovery-unreadable-object');
+    expect(document.save().warnings.map(warning => [warning.code, warning.objectNumber])).toContainEqual(['recovery-object-dropped', 5]);
+  });
+
   it('writes trailer changes into the rewritten trailer', () => {
     const document = loadDocument(classic([catalog, pages, page, content, { number: 5, body: '<</Producer(new)>>' }], '/Root 1 0 R/Info 9 0 R/Private(gone)'));
     const edited = internalsOf(document)?.objects;

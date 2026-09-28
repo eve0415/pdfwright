@@ -97,8 +97,12 @@ describe('object store', () => {
   });
 
   it('resolves free and absent objects to null and caches parsed objects', () => {
-    const { store } = storeOf([{ number: 2, body: streamBody('', 'x') }]);
+    const { store, warnings } = storeOf([{ number: 2, body: streamBody('', 'x') }]);
     expect([store.resolve(1, 0), store.resolve(7, 0)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+    expect(warnings.map(warning => [warning.code, warning.objectNumber])).toStrictEqual([
+      ['dangling-reference', 1],
+      ['dangling-reference', 7],
+    ]);
     expect(store.resolve(2, 0)).toBe(store.resolve(2, 0));
     expect(store.parse(2)?.value).not.toBe(store.resolve(2, 0));
   });

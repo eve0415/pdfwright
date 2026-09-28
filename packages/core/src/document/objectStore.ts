@@ -61,6 +61,7 @@ export class ObjectStore {
   private cached = 0;
   private readonly resolving = new Set<number>();
   private readonly duplicateKeys = new Set<number>();
+  private readonly dangling = new Set<string>();
   private readonly decoded = new Map<number, DecodedObjectStream>();
   private lastEndstream: number | undefined;
 
@@ -202,7 +203,14 @@ export class ObjectStore {
    */
   resolve(objectNumber: number, generation: number): PdfObject {
     const entry = this.index.get(objectNumber);
-    if (entry.type !== IN_FILE && entry.type !== COMPRESSED) return { kind: 'null' };
+    if (entry.type !== IN_FILE && entry.type !== COMPRESSED) {
+      const label = `${String(objectNumber)} ${String(generation)} R`;
+      if (!this.dangling.has(label)) {
+        this.dangling.add(label);
+        this.context.warn({ code: 'dangling-reference', detail: `reference ${label} has no in-use object and reads as null`, objectNumber });
+      }
+      return { kind: 'null' };
+    }
     const expected = entry.type === IN_FILE ? entry.generation : 0;
     if (generation !== expected) {
       const detail = `reference ${String(objectNumber)} ${String(generation)} R names generation ${String(generation)}, but the in-use entry has generation ${String(expected)}`;
