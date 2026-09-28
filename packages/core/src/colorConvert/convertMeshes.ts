@@ -20,6 +20,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { convertMeshSamples } from './meshSamples.ts';
+import { subdivideMesh } from './meshSubdivision.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -27,7 +28,11 @@ import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 
 export interface MeshConversionReport {
   readonly meshes: number;
-  readonly approximations: readonly { readonly shading: PdfReference; readonly kind: 'mesh-interpolation' | 'function-sampling' }[];
+  readonly approximations: readonly {
+    readonly shading: PdfReference;
+    readonly kind: 'mesh-interpolation' | 'function-sampling';
+    readonly cappedTriangles?: number;
+  }[];
 }
 
 interface MeshScan {
@@ -45,6 +50,19 @@ interface MeshPlan {
   readonly discarded: readonly PdfReference[];
   readonly function: ConvertedCmykFunction | undefined;
   readonly outputComponentBits: number | undefined;
+  readonly outputCoordinateBits: number | undefined;
+  readonly outputType: 4 | undefined;
+  readonly triangles: number | undefined;
+  readonly cappedTriangles: number | undefined;
+}
+
+interface EncodedMesh {
+  readonly data: Uint8Array;
+  readonly outputComponentBits: number;
+  readonly outputCoordinateBits: number | undefined;
+  readonly outputType: 4 | undefined;
+  readonly triangles: number | undefined;
+  readonly cappedTriangles: number | undefined;
 }
 
 const SHADING = pdfName('Shading').bytes;
@@ -107,6 +125,8 @@ const meshKind = (value: number): 4 | 5 | 6 | 7 | undefined => {
   if (value === 7) return 7;
   return undefined;
 };
+
+const sourceChannels = (kind: 'rgb' | 'gray'): 1 | 3 => (kind === 'rgb' ? 3 : 1);
 
 const meshParameters = (config: {
   shading: PdfStream;
@@ -225,7 +245,61 @@ const functionMesh = (
   }
   const originalDecode = shading.dictionary.get(DECODE);
   if (originalDecode === undefined) return invalid('function-driven mesh Decode is missing');
-  return { reference, shading, data: shading.data, decode: originalDecode, background, discarded, function: sampled, outputComponentBits: undefined };
+  return {
+    reference,
+    shading,
+    data: shading.data,
+    decode: originalDecode,
+    background,
+    discarded,
+    function: sampled,
+    outputComponentBits: undefined,
+    outputCoordinateBits: undefined,
+    outputType: undefined,
+    triangles: undefined,
+    cappedTriangles: undefined,
+  };
+};
+
+const validateLattice = (type: 4 | 5 | 6 | 7, verticesPerRow: number | undefined, records: number | undefined): void => {
+  if (type !== 5) return;
+  if (verticesPerRow === undefined || verticesPerRow < 2 || (records !== undefined && records % verticesPerRow !== 0)) {
+    invalid('lattice mesh vertex rows are incomplete');
+  }
+};
+
+const encodedMesh = (config: { scan: MeshScan; shading: PdfStream; type: 4 | 5 | 6 | 7; channels: number; transform: ColorTransform }): EncodedMesh => {
+  const { scan, shading, type, channels, transform } = config;
+  const internals = internalsOf(scan.document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  const data = decodedData(internals, shading);
+  if (typeof data === 'string') return invalid(`mesh stream cannot be decoded: ${data}`);
+  const parameters = meshParameters({ shading, type, channels, transform, maxBytes: Math.min(internals.maxDecodedBytes, MAX_MESH_WORKING_BYTES) });
+  const verticesPerRow = type === 5 ? integer(shading.dictionary.get(VERTICES_PER_ROW), 'VerticesPerRow') : undefined;
+  const refined =
+    channels === 3
+      ? subdivideMesh(data, {
+          type,
+          coordinateBits: parameters.coordinateBits,
+          componentBits: parameters.componentBits,
+          flagBits: parameters.flagBits,
+          decode: parameters.decode,
+          verticesPerRow,
+          transform,
+          destination: scan.options.outputProfile,
+          maxBytes: parameters.maxBytes,
+        })
+      : undefined;
+  const converted = refined === undefined ? convertMeshSamples(data, parameters) : undefined;
+  validateLattice(type, verticesPerRow, converted?.records);
+  return {
+    data: deflateZlib(refined?.data ?? converted?.data ?? data),
+    outputComponentBits: refined?.componentBits ?? parameters.outputComponentBits,
+    outputCoordinateBits: refined?.coordinateBits,
+    outputType: refined === undefined ? undefined : 4,
+    triangles: refined?.triangles,
+    cappedTriangles: refined?.cappedTriangles,
+  };
 };
 
 const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: PdfStream }, resources: PdfDictionaryEntries): MeshPlan | undefined => {
@@ -240,29 +314,24 @@ const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: Pd
     options: { iccGray: scan.options.iccGray ?? 'convert' },
   });
   if (space.kind !== 'rgb' && space.kind !== 'gray') return undefined;
-  const channels = space.kind === 'rgb' ? 3 : 1;
+  const channels = sourceChannels(space.kind);
   const transform = colorTransform(space.source, scan.options);
   const background = backgroundFor(shading.dictionary.get(BACKGROUND), channels, transform);
   if (shading.dictionary.get(FUNCTION) !== undefined) return functionMesh(scan, { reference, shading, color, channels, transform, background });
-  const internals = internalsOf(scan.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
-  const data = decodedData(internals, shading);
-  if (typeof data === 'string') return invalid(`mesh stream cannot be decoded: ${data}`);
-  const parameters = meshParameters({ shading, type, channels, transform, maxBytes: Math.min(internals.maxDecodedBytes, MAX_MESH_WORKING_BYTES) });
-  const converted = convertMeshSamples(data, parameters);
-  if (type === 5) {
-    const vertices = integer(shading.dictionary.get(VERTICES_PER_ROW), 'VerticesPerRow');
-    if (vertices < 2 || converted.records % vertices !== 0) return invalid('lattice mesh vertex rows are incomplete');
-  }
+  const converted = encodedMesh({ scan, shading, type, channels, transform });
   return {
     reference,
     shading,
-    data: deflateZlib(converted.data),
+    data: converted.data,
     decode: outputDecode(shading),
     background,
     discarded: color.kind === 'reference' ? [color] : [],
     function: undefined,
-    outputComponentBits: parameters.outputComponentBits,
+    outputComponentBits: converted.outputComponentBits,
+    outputCoordinateBits: converted.outputCoordinateBits,
+    outputType: converted.outputType,
+    triangles: converted.triangles,
+    cappedTriangles: converted.cappedTriangles,
   };
 };
 
@@ -290,7 +359,7 @@ const scanResources = (scan: MeshScan, visit: ResourceVisit): void => {
   }
 };
 
-/** Converts unfunctioned Type 4–7 mesh vertex colours while retaining encoded geometry. */
+/** Converts unfunctioned Type 4–7 meshes to adaptively refined CMYK triangles. */
 export const convertMeshShadings = (document: LoadedDocument, options: RewriteColorOptions): MeshConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
@@ -315,6 +384,12 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
     if (plan.function === undefined) {
       dictionary.set(DECODE, plan.decode);
       if (plan.outputComponentBits !== undefined) dictionary.set(BITS_PER_COMPONENT, { kind: 'integer', value: plan.outputComponentBits });
+      if (plan.outputCoordinateBits !== undefined) dictionary.set(BITS_PER_COORDINATE, { kind: 'integer', value: plan.outputCoordinateBits });
+      if (plan.outputType !== undefined) {
+        dictionary.set(SHADING_TYPE, { kind: 'integer', value: plan.outputType });
+        dictionary.set(BITS_PER_FLAG, { kind: 'integer', value: 8 });
+        dictionary.delete(VERTICES_PER_ROW);
+      }
       dictionary.set(FILTER, pdfName('FlateDecode'));
       dictionary.delete(DECODE_PARMS);
     } else dictionary.set(FUNCTION, writeCmykFunction(document, plan.function));
@@ -326,10 +401,14 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
     deleteDiscarded(document, internals, discarded);
     internals.objects.requireFullRewrite('color-conversion');
   }
-  const approximations: { shading: PdfReference; kind: 'mesh-interpolation' | 'function-sampling' }[] = [];
+  const approximations: { shading: PdfReference; kind: 'mesh-interpolation' | 'function-sampling'; cappedTriangles?: number }[] = [];
   for (const plan of scan.plans.values()) {
-    if (plan.function === undefined) approximations.push({ shading: plan.reference, kind: 'mesh-interpolation' });
-    else if (plan.function.kind === 'sampled' && plan.function.maxDeltaE2000 > 0.1) approximations.push({ shading: plan.reference, kind: 'function-sampling' });
+    const capped = plan.cappedTriangles;
+    if (plan.function === undefined && capped !== undefined && capped > 0) {
+      approximations.push({ shading: plan.reference, kind: 'mesh-interpolation', cappedTriangles: capped });
+    } else if (plan.function?.kind === 'sampled' && plan.function.maxDeltaE2000 > 0.1) {
+      approximations.push({ shading: plan.reference, kind: 'function-sampling' });
+    }
   }
   return { meshes: scan.plans.size, approximations };
 };

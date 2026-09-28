@@ -58,6 +58,7 @@ Converted Flate and unfiltered images are decoded one row at a time and written 
 Image conversion limits three input rows plus one CMYK output row and, when needed, one mask row to `maxDecodedBytes` (16 MiB by default); the deflater also holds a 1 MiB block, up to 4 MiB of tokens and pending encoded bytes, and the transform cache holds 512 KiB.
 The converted image's total decoded size has no separate 4 MiB ceiling, and `measureByteLength()` regenerates the encoded stream to count it without retaining it.
 Colour conversion refuses RGB DCTDecode or JPXDecode images inside luminosity masks with reason `luminosity-compressed-rgb-image`.
+RGB shading meshes of Types 4–7 become adaptively refined DeviceCMYK triangles; each source triangle stops after six splits, unresolved colour error is reported in `approximations`, and the decoded output stream is limited to 4 MiB.
 
 ```ts
 import type { PdfDifference, SavedPdf } from '@pdfwright/core';

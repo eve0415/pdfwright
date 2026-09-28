@@ -30,8 +30,8 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 
-const lab = (channels: readonly number[]): readonly number[] => {
-  const pcs = toPcs(channels);
+const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+  const pcs = toPcs([...channels]);
   return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
 };
 
@@ -184,12 +184,54 @@ const patch = (type: 6 | 7, joined = false): Uint8Array => {
   return writer.finish(1024);
 };
 
-const secondPatchFlag = (data: Uint8Array, type: 6 | 7): number => {
-  const reader = new MeshBitReader(data);
-  reader.read(2);
-  for (let index = 0; index < (type === 6 ? 12 : 16) * 2 + 16; index++) reader.read(8);
-  reader.alignByte();
-  return reader.read(2);
+const rectangularPatch = (type: 6 | 7, saturated = false): Uint8Array => {
+  const writer = new MeshBitWriter();
+  writer.write(2, 0);
+  const boundary = [
+    [0, 0],
+    [0, 33],
+    [0, 67],
+    [0, 100],
+    [33, 100],
+    [67, 100],
+    [100, 100],
+    [100, 67],
+    [100, 33],
+    [100, 0],
+    [67, 0],
+    [33, 0],
+  ];
+  const interior =
+    type === 7
+      ? [
+          [33, 33],
+          [33, 67],
+          [67, 67],
+          [67, 33],
+        ]
+      : [];
+  for (const coordinates of [...boundary, ...interior]) {
+    writer.write(8, coordinates[0] ?? 0);
+    writer.write(8, coordinates[1] ?? 0);
+  }
+  const colors = saturated
+    ? [
+        [255, 0, 0],
+        [0, 255, 0],
+        [255, 255, 255],
+        [0, 0, 255],
+      ]
+    : [
+        [204, 51, 26],
+        [204, 77, 26],
+        [230, 102, 26],
+        [230, 51, 26],
+      ];
+  for (const color of colors) {
+    for (const component of color) writer.write(8, component);
+  }
+  writer.alignByte();
+  return writer.finish(1024);
 };
 
 const meshPdf = (type: 5 | 6 | 7, data: Uint8Array): Uint8Array => {
@@ -280,6 +322,7 @@ interface MeshInfo {
   readonly colorSpace: string;
   readonly decodeLength: number;
   readonly componentBits: number;
+  readonly shadingType: number;
 }
 
 const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
@@ -290,10 +333,70 @@ const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
   const color = shading.dictionary.get(pdfName('ColorSpace').bytes);
   const decode = shading.dictionary.get(pdfName('Decode').bytes);
   const componentBits = shading.dictionary.get(pdfName('BitsPerComponent').bytes);
-  if (typeof data === 'string' || color?.kind !== 'name' || decode?.kind !== 'array' || componentBits?.kind !== 'integer') {
+  const shadingType = shading.dictionary.get(pdfName('ShadingType').bytes);
+  if (typeof data === 'string' || color?.kind !== 'name' || decode?.kind !== 'array' || componentBits?.kind !== 'integer' || shadingType?.kind !== 'integer') {
     throw new Error('converted mesh is invalid');
   }
-  return { data, colorSpace: new TextDecoder('latin1').decode(color.bytes), decodeLength: decode.items.length, componentBits: componentBits.value };
+  return {
+    data,
+    colorSpace: new TextDecoder('latin1').decode(color.bytes),
+    decodeLength: decode.items.length,
+    componentBits: componentBits.value,
+    shadingType: shadingType.value,
+  };
+};
+
+const triangleVertices = (data: Uint8Array): readonly { readonly x: number; readonly y: number; readonly color: readonly number[] }[] => {
+  const reader = new MeshBitReader(data);
+  const vertices: { x: number; y: number; color: number[] }[] = [];
+  while (reader.remainingBits > 0) {
+    const flag = reader.read(8);
+    const x = reader.read(16);
+    const y = reader.read(16);
+    const color = Array.from({ length: 4 }, () => reader.read(8));
+    if (flag !== 0) throw new Error('emitted triangle has an unexpected edge flag');
+    vertices.push({ x, y, color });
+  }
+  return vertices;
+};
+
+const sourceCorner = (data: Uint8Array): readonly number[] => {
+  const corner = triangleVertices(data).find(vertex => vertex.x === 0 && vertex.y === 0);
+  if (corner === undefined) throw new Error('source corner is missing');
+  return corner.color;
+};
+
+const cornerCoordinates = (vertices: readonly { readonly x: number; readonly y: number }[]): ReadonlySet<string> =>
+  new Set(
+    vertices
+      .filter(vertex => (vertex.x === 0 || vertex.x === 25_700) && (vertex.y === 0 || vertex.y === 25_700))
+      .map(vertex => `${String(vertex.x)},${String(vertex.y)}`),
+  );
+
+const decodeCoordinate = (raw: number): number => (raw / 65535) * 100;
+
+const interpolatedAt = (data: Uint8Array, x: number, y: number): readonly number[] => {
+  const vertices = triangleVertices(data);
+  for (let index = 0; index < vertices.length; index += 3) {
+    const a = vertices[index];
+    const b = vertices[index + 1];
+    const c = vertices[index + 2];
+    if (a === undefined || b === undefined || c === undefined) throw new Error('triangle is incomplete');
+    const ax = decodeCoordinate(a.x);
+    const ay = decodeCoordinate(a.y);
+    const bx = decodeCoordinate(b.x);
+    const by = decodeCoordinate(b.y);
+    const cx = decodeCoordinate(c.x);
+    const cy = decodeCoordinate(c.y);
+    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (Math.abs(denominator) < 1e-9) continue;
+    const wa = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
+    const wb = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
+    const wc = 1 - wa - wb;
+    if (wa < -1e-5 || wb < -1e-5 || wc < -1e-5) continue;
+    return Array.from({ length: 4 }, (_, channel) => (wa * (a.color[channel] ?? 0) + wb * (b.color[channel] ?? 0) + wc * (c.color[channel] ?? 0)) / 255);
+  }
+  throw new Error('sample point is outside the converted patch');
 };
 
 const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
@@ -336,11 +439,8 @@ describe('mesh shading conversion', () => {
     convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const converted = mesh(document);
     expect(converted.componentBits).toBe(8);
-    const reader = new MeshBitReader(converted.data);
-    reader.read(2);
-    reader.read(8);
-    reader.read(8);
-    const actual = Array.from({ length: 4 }, () => reader.read(8) / 255);
+    expect(converted.data).toHaveLength(27);
+    const actual = sourceCorner(converted.data).map(value => value / 255);
     const expected = await transicc(color.map(value => value / (2 ** bits - 1)));
     expect(deltaE2000(lab(actual), lab(expected))).toBeLessThanOrEqual(0.5);
   });
@@ -352,43 +452,71 @@ describe('mesh shading conversion', () => {
     expect(report.meshes).toBe(1);
   });
 
-  it('converts Type 4 vertex RGB samples and keeps flags and coordinates', () => {
+  it('converts Type 4 RGB samples into triangles containing the source corners', () => {
     const document = loadDocument(pdf.bytes);
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const converted = mesh(document);
-    const reader = new MeshBitReader(converted.data);
-    const first = [reader.read(2), reader.read(8), reader.read(8), reader.read(8), reader.read(8), reader.read(8), reader.read(8)];
+    const corner = sourceCorner(converted.data);
     const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
     const expected = new Uint8Array(4);
     transform.convertRow8(Uint8Array.of(255, 0, 0), expected, 1);
     expect(report.meshes).toBe(1);
     expect(converted.colorSpace).toBe('DeviceCMYK');
     expect(converted.decodeLength).toBe(12);
-    expect(first).toStrictEqual([0, 0, 0, ...expected]);
+    expect(converted.shadingType).toBe(4);
+    expect(corner).toStrictEqual([...expected]);
   });
 
   it.each([
-    { type: 5, input: lattice(), bytes: 24 },
-    { type: 6, input: patch(6), bytes: 41 },
-    { type: 7, input: patch(7), bytes: 49 },
-  ] as const)('converts Type $type mesh colour fields', ({ type, input, bytes }) => {
+    { type: 5, input: lattice() },
+    { type: 6, input: patch(6) },
+    { type: 7, input: patch(7) },
+  ] as const)('triangulates Type $type mesh colour fields', ({ type, input }) => {
     const document = loadDocument(meshPdf(type, input));
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const converted = mesh(document);
     expect(report.meshes).toBe(1);
     expect(converted.colorSpace).toBe('DeviceCMYK');
-    expect(converted.data).toHaveLength(bytes);
+    expect(converted.shadingType).toBe(4);
+    expect(converted.data.length % 27).toBe(0);
+    expect(converted.data.length).toBeGreaterThan(0);
   });
 
-  it.each([
-    { type: 6, bytes: 66 },
-    { type: 7, bytes: 82 },
-  ] as const)('keeps a shared-edge flag in Type $type', ({ type, bytes }) => {
+  it.each([6, 7] as const)('triangulates a shared edge in Type %i', type => {
     const document = loadDocument(meshPdf(type, patch(type, true)));
     convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const converted = mesh(document);
-    expect(converted.data).toHaveLength(bytes);
-    expect(secondPatchFlag(converted.data, type)).toBe(1);
+    const single = loadDocument(meshPdf(type, patch(type)));
+    convertMeshShadings(single, { sourceRgbProfile: source, outputProfile: destination });
+    expect(converted.shadingType).toBe(4);
+    expect(converted.data.length).toBeGreaterThan(mesh(single).data.length);
+  });
+
+  it.each([6, 7] as const)('preserves the corners of a rectangular Type %i patch', type => {
+    const document = loadDocument(meshPdf(type, rectangularPatch(type)));
+    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const vertices = triangleVertices(mesh(document).data);
+    expect(cornerCoordinates(vertices)).toStrictEqual(new Set(['0,0', '0,25700', '25700,0', '25700,25700']));
+  });
+
+  it.each([6, 7] as const)('preserves bilinear RGB colour inside a saturated Type %i patch', type => {
+    const document = loadDocument(meshPdf(type, rectangularPatch(type, true)));
+    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const { data } = mesh(document);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    let maximum = 0;
+    for (let column = 0; column < 8; column++) {
+      for (let row = 0; row < 8; row++) {
+        const u = (column + 0.5) / 8;
+        const v = (row + 0.5) / 8;
+        const extent = (100 * 100) / 255;
+        const actual = interpolatedAt(data, u * extent, v * extent);
+        const expected = new Float64Array(4);
+        transform.convert(Float64Array.of(1 - u - v + 2 * u * v, v, u), expected);
+        maximum = Math.max(maximum, deltaE2000(lab(actual), lab(expected)));
+      }
+    }
+    expect(maximum).toBeLessThanOrEqual(1);
   });
 
   it('composes a Type 4 parametric Function and retains vertex data', () => {
