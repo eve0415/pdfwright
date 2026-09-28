@@ -38,6 +38,22 @@ const pdf = buildPdf([
   },
 ]);
 
+const shadingPatternPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Pattern<</P 7 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Pattern cs /P scn 0 0 100 100 re f') },
+      { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>' },
+      { number: 6, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+      { number: 7, body: '<</Type/Pattern/PatternType 2/Shading 5 0 R>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const functionPdf = buildPdf([
   {
     xref: 'classic',
@@ -227,7 +243,20 @@ const convertedShading = (document: ReturnType<typeof loadDocument>): ConvertedS
   };
 };
 
+const patternShadingColor = (document: ReturnType<typeof loadDocument>) => {
+  const shading = document.get(pdfReference(5, 0));
+  if (shading.kind !== 'dictionary') throw new Error('pattern shading is missing');
+  return shading.entries.get(pdfName('ColorSpace').bytes);
+};
+
 describe('function shading conversion', () => {
+  it('converts an axial shading named by a shading pattern', () => {
+    const document = loadDocument(shadingPatternPdf.bytes);
+    const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(patternShadingColor(document)).toStrictEqual(pdfName('DeviceCMYK'));
+    expect(report.shadings).toBe(1);
+  });
+
   it('converts axial RGB functions and the Background to CMYK', () => {
     const document = loadDocument(pdf.bytes);
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });

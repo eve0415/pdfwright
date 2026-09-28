@@ -60,6 +60,27 @@ const pdf = buildPdf([
   },
 ]);
 
+const meshPatternPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Pattern<</P 6 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Pattern cs /P scn 0 0 100 100 re f') },
+      {
+        number: 5,
+        body: streamBody(
+          '/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1 0 1 0 1]',
+          triangleData,
+        ),
+      },
+      { number: 6, body: '<</Type/Pattern/PatternType 2/Shading 5 0 R>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const lattice = (): Uint8Array => {
   const writer = new MeshBitWriter();
   for (const vertex of [
@@ -243,6 +264,13 @@ const meshStop = (document: ReturnType<typeof loadDocument>): number => {
 };
 
 describe('mesh shading conversion', () => {
+  it('converts a mesh named by a shading pattern', () => {
+    const document = loadDocument(meshPatternPdf.bytes);
+    const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(mesh(document).colorSpace).toBe('DeviceCMYK');
+    expect(report.meshes).toBe(1);
+  });
+
   it('converts Type 4 vertex RGB samples and keeps flags and coordinates', () => {
     const document = loadDocument(pdf.bytes);
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });

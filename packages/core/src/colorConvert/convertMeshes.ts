@@ -47,6 +47,8 @@ interface MeshPlan {
 }
 
 const SHADING = pdfName('Shading').bytes;
+const PATTERN = pdfName('Pattern').bytes;
+const PATTERN_TYPE = pdfName('PatternType').bytes;
 const SHADING_TYPE = pdfName('ShadingType').bytes;
 const COLOR_SPACE = pdfName('ColorSpace').bytes;
 const BITS_PER_COORDINATE = pdfName('BitsPerCoordinate').bytes;
@@ -265,14 +267,24 @@ const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: Pd
 const scanResources = (scan: MeshScan, visit: ResourceVisit): void => {
   const internals = internalsOf(scan.document);
   if (internals === undefined) return invalid('document internals are unavailable');
-  const category = internals.objects.deref(visit.resources.get(SHADING));
-  if (category?.kind !== 'dictionary') return;
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || scan.plans.has(value.objectNumber)) continue;
+  const planReference = (value: PdfDirectObject): void => {
+    if (value.kind !== 'reference' || scan.plans.has(value.objectNumber)) return;
     const shading = internals.objects.deref(value);
-    if (shading?.kind !== 'stream') continue;
+    if (shading?.kind !== 'stream') return;
     const plan = meshPlan(scan, { reference: value, shading }, visit.resources);
     if (plan !== undefined) scan.plans.set(value.objectNumber, plan);
+  };
+  const category = internals.objects.deref(visit.resources.get(SHADING));
+  if (category?.kind === 'dictionary') for (const [, value] of category.entries.entries()) planReference(value);
+  const patterns = internals.objects.deref(visit.resources.get(PATTERN));
+  if (patterns?.kind !== 'dictionary') return;
+  for (const [, value] of patterns.entries.entries()) {
+    const pattern = internals.objects.deref(value);
+    if (pattern?.kind !== 'dictionary') continue;
+    const type = pattern.entries.get(PATTERN_TYPE);
+    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    const shading = pattern.entries.get(SHADING);
+    if (shading !== undefined) planReference(shading);
   }
 };
 

@@ -68,6 +68,8 @@ interface FormShadingPlan {
 }
 
 const SHADING = pdfName('Shading').bytes;
+const PATTERN = pdfName('Pattern').bytes;
+const PATTERN_TYPE = pdfName('PatternType').bytes;
 const COLOR_SPACE = pdfName('ColorSpace').bytes;
 const SHADING_TYPE = pdfName('ShadingType').bytes;
 const FUNCTION = pdfName('Function').bytes;
@@ -321,14 +323,24 @@ const planShading = (
 const scanResources = (context: ShadingContext, plans: Map<number, ShadingPlan>, usage: ShadingUsage): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) return invalid('document internals are unavailable');
-  const category = internals.objects.deref(context.resources.get(SHADING));
-  if (category?.kind !== 'dictionary') return;
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || plans.has(value.objectNumber)) continue;
+  const planReference = (value: PdfDirectObject): void => {
+    if (value.kind !== 'reference' || plans.has(value.objectNumber)) return;
     const shading = internals.objects.deref(value);
-    if (shading?.kind !== 'dictionary') continue;
+    if (shading?.kind !== 'dictionary') return;
     const planned = planShading({ ...context, intent: usage.indirect.get(value.objectNumber) }, value, shading);
     if (planned !== undefined) plans.set(value.objectNumber, planned);
+  };
+  const category = internals.objects.deref(context.resources.get(SHADING));
+  if (category?.kind === 'dictionary') for (const [, value] of category.entries.entries()) planReference(value);
+  const patterns = internals.objects.deref(context.resources.get(PATTERN));
+  if (patterns?.kind !== 'dictionary') return;
+  for (const [, value] of patterns.entries.entries()) {
+    const pattern = internals.objects.deref(value);
+    if (pattern?.kind !== 'dictionary') continue;
+    const type = pattern.entries.get(PATTERN_TYPE);
+    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    const shading = pattern.entries.get(SHADING);
+    if (shading !== undefined) planReference(shading);
   }
 };
 
