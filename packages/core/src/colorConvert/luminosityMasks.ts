@@ -28,6 +28,7 @@ import { addInlineXObjects } from './inlineResources.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { deviceRgbLuminosity, rewriteDeviceRgbLuminosity } from './luminosityContent.ts';
 import { grayInlineImage } from './luminosityInline.ts';
+import { grayFunctionShading } from './luminosityShading.ts';
 import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -43,6 +44,7 @@ interface MaskGroup {
   readonly overprintAdjustments?: number;
   readonly newInlineImages?: readonly NamedInlineImage[];
   readonly grayXObjects?: readonly GrayXObjectPlan[];
+  readonly grayShadings?: readonly GrayShadingPlan[];
 }
 
 interface GrayXObjectPlan {
@@ -50,6 +52,13 @@ interface GrayXObjectPlan {
   readonly stream: PdfStream;
   readonly resources?: PdfDictionaryEntries | undefined;
   readonly children: readonly GrayXObjectPlan[];
+  readonly shadings: readonly GrayShadingPlan[];
+}
+
+interface GrayShadingPlan {
+  readonly name: Uint8Array;
+  readonly dictionary: PdfDictionaryEntries;
+  readonly functionStream: PdfStream;
 }
 
 interface MaskResource {
@@ -99,6 +108,7 @@ const BACKDROP = pdfName('BC').bytes;
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const COLOR_SPACE_ENTRY = pdfName('ColorSpace').bytes;
+const SHADING = pdfName('Shading').bytes;
 const WIDTH = pdfName('Width').bytes;
 const HEIGHT = pdfName('Height').bytes;
 const BITS = pdfName('BitsPerComponent').bytes;
@@ -225,6 +235,36 @@ const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values
   };
 };
 
+const planGrayShadings = (
+  scan: MaskScan,
+  config: { bytes: Uint8Array; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
+): readonly GrayShadingPlan[] => {
+  const { bytes, resources, paintGray } = config;
+  const category = scan.internals.objects.deref(resources.get(SHADING));
+  const plans: GrayShadingPlan[] = [];
+  const seen = new Set<string>();
+  for (const operation of readContent(bytes, scan.internals.maxNesting)) {
+    if (operation.operator !== 'sh') continue;
+    const [operand] = operation.operands;
+    if (operand?.kind !== 'name' || category?.kind !== 'dictionary') throw new ValidationError('luminosity Shading resource is missing', 'color-space');
+    const key = [...operand.bytes].join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const shading = scan.internals.objects.deref(category.entries.get(operand.bytes));
+    if (shading?.kind !== 'dictionary') throw new UnsupportedFeatureError('luminosity mesh shading is unsupported');
+    const color = shading.entries.get(COLOR_SPACE_ENTRY);
+    if (color === undefined) throw new ValidationError('luminosity shading ColorSpace is missing', 'color-space');
+    const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
+    if (space.kind === 'gray') continue;
+    if (space.kind !== 'rgb') throw new UnsupportedFeatureError('luminosity shading colour space is unsupported');
+    const name = nameOf(scan.internals.objects.deref(color));
+    const gray = name === 'DeviceRGB' || name === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
+    const planned = grayFunctionShading(scan.internals, shading, gray);
+    plans.push({ name: Uint8Array.from(operand.bytes), ...planned });
+  }
+  return plans;
+};
+
 interface GrayWalk {
   readonly bytes: Uint8Array;
   readonly resources: PdfDictionaryEntries;
@@ -246,6 +286,7 @@ const planGrayForm = (
   if (typeof bytes === 'string') throw new ValidationError(`luminosity form cannot be read: ${bytes}`, 'color-operator');
   checkCompressedRgbImages(scan, bytes, resources);
   const children = recurse({ bytes, resources, paintGray: walk.paintGray, active: new Set([...walk.active, reference.objectNumber]) });
+  const shadings = planGrayShadings(scan, { bytes, resources, paintGray: walk.paintGray });
   const rewritten = rewriteDeviceRgbLuminosity(bytes, walk.paintGray, image => grayInlineImage(image, walk.paintGray, scan.internals.maxDecodedBytes));
   if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity form exceeds maxDecodedBytes');
   const dictionary = new Entries(form.dictionary.entries());
@@ -257,7 +298,7 @@ const planGrayForm = (
   }
   dictionary.set(FILTER, pdfName('FlateDecode'));
   dictionary.delete(DECODE_PARMS);
-  return { name, stream: { kind: 'stream', dictionary, data: deflateZlib(rewritten) }, resources, children };
+  return { name, stream: { kind: 'stream', dictionary, data: deflateZlib(rewritten) }, resources, children, shadings };
 };
 
 const planGrayImage = (
@@ -272,7 +313,7 @@ const planGrayImage = (
   if (space.kind !== 'rgb') throw new UnsupportedFeatureError('luminosity image colour space is unsupported');
   const gray = nameOf(scan.internals.objects.deref(color));
   const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-  return { name, stream: grayImage(scan, image, imageGray), children: [] };
+  return { name, stream: grayImage(scan, image, imageGray), children: [], shadings: [] };
 };
 
 const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): readonly GrayXObjectPlan[] => {
@@ -393,6 +434,7 @@ const planRgbLuminosityMask = (
     if (rgbSource.kind !== 'rgb') throw new ValidationError('DeviceRGB does not resolve to an RGB profile', 'color-space');
     const paintGray = cie ? cieLuminosity(rgbSource.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
     const grayXObjects = planGrayXObjects(scan, { bytes, resources: groupResources, paintGray, active: new Set([groupReference.objectNumber]) });
+    const grayShadings = planGrayShadings(scan, { bytes, resources: groupResources, paintGray });
     const rewritten = rewriteDeviceRgbLuminosity(bytes, paintGray, image => grayInlineImage(image, paintGray, scan.internals.maxDecodedBytes));
     if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity mask exceeds maxDecodedBytes');
     scan.groups.set(groupReference.objectNumber, {
@@ -401,8 +443,9 @@ const planRgbLuminosityMask = (
       group,
       data: deflateZlib(rewritten),
       outputSpace: 'DeviceGray',
-      resources: grayXObjects.length === 0 ? undefined : groupResources,
+      resources: grayXObjects.length === 0 && grayShadings.length === 0 ? undefined : groupResources,
       grayXObjects,
+      grayShadings,
     });
     if (cie) scan.approximated.add(groupReference.objectNumber);
   }
@@ -524,15 +567,32 @@ const scanAppearances = (scan: MaskScan, page: PdfReference, resources: PdfDicti
   }
 };
 
+const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayShadingPlan[]): PdfDictionaryEntries => {
+  const original = scan.internals.objects.deref(resources.get(SHADING));
+  if (original?.kind !== 'dictionary') throw new ValidationError('luminosity Shading resources are missing', 'color-space');
+  const shadings = new Entries(original.entries.entries());
+  for (const plan of plans) {
+    const dictionary = new Entries(plan.dictionary.entries());
+    dictionary.set(pdfName('Function').bytes, scan.document.object(plan.functionStream));
+    shadings.set(plan.name, scan.document.object(pdfDictionary(dictionary)));
+  }
+  const mapped = new Entries(resources.entries());
+  mapped.set(SHADING, pdfDictionary(shadings));
+  return mapped;
+};
+
 const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayXObjectPlan[]): PdfDictionaryEntries => {
   const original = scan.internals.objects.deref(resources.get(XOBJECT));
   if (original?.kind !== 'dictionary') throw new ValidationError('luminosity XObjects are missing', 'color-space');
   const xobjects = new Entries(original.entries.entries());
   for (const plan of plans) {
     const dictionary = new Entries(plan.stream.dictionary.entries());
-    if (plan.children.length > 0) {
+    if (plan.children.length > 0 || plan.shadings.length > 0) {
       if (plan.resources === undefined) throw new ValidationError('luminosity form resources are missing', 'color-space');
-      dictionary.set(RESOURCES, pdfDictionary(grayXObjects(scan, plan.resources, plan.children)));
+      let mapped = plan.resources;
+      if (plan.children.length > 0) mapped = grayXObjects(scan, mapped, plan.children);
+      if (plan.shadings.length > 0) mapped = grayShadings(scan, mapped, plan.shadings);
+      dictionary.set(RESOURCES, pdfDictionary(mapped));
     }
     xobjects.set(plan.name, scan.document.object({ kind: 'stream', dictionary, data: plan.stream.data }));
   }
@@ -559,7 +619,15 @@ const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
       addInlineXObjects(scan.document, resources, plan.newInlineImages ?? []);
       if (plan.grayXObjects !== undefined && plan.grayXObjects.length > 0) {
         const mapped = grayXObjects(scan, resources, plan.grayXObjects);
-        resources.set(XOBJECT, mapped.get(XOBJECT) ?? pdfDictionary(new Entries()));
+        const xobjects = mapped.get(XOBJECT);
+        if (xobjects === undefined) throw new ValidationError('luminosity XObjects are missing', 'color-space');
+        resources.set(XOBJECT, xobjects);
+      }
+      if (plan.grayShadings !== undefined && plan.grayShadings.length > 0) {
+        const mapped = grayShadings(scan, resources, plan.grayShadings);
+        const shadings = mapped.get(SHADING);
+        if (shadings === undefined) throw new ValidationError('luminosity Shading resources are missing', 'color-space');
+        resources.set(SHADING, shadings);
       }
       const oldResources = dictionary.get(RESOURCES);
       if (oldResources?.kind === 'reference') discarded.push(oldResources);

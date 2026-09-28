@@ -11,6 +11,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
+import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
@@ -201,6 +202,52 @@ const inlineImageMaskPdf = buildPdf([
     trailer: '/Root 1 0 R',
   },
 ]);
+
+const axialMaskPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>' },
+      { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+      {
+        number: 6,
+        body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</Shading<</Sh1 9 0 R>>>>', '/Sh1 sh'),
+      },
+      { number: 9, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function 10 0 R>>' },
+      { number: 10, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const maskShading = (document: ReturnType<typeof loadDocument>) => {
+  const group = document.get(pdfReference(6, 0));
+  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  const resources = group.dictionary.get(pdfName('Resources').bytes);
+  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  const shadings = resources.entries.get(pdfName('Shading').bytes);
+  if (shadings?.kind !== 'dictionary') throw new Error('mask Shading resources are missing');
+  const reference = shadings.entries.get(pdfName('Sh1').bytes);
+  if (reference?.kind !== 'reference') throw new Error('mask shading reference is missing');
+  return document.get(reference);
+};
+
+const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
+  const shading = maskShading(document);
+  if (shading.kind !== 'dictionary') throw new Error('mask shading is not a dictionary');
+  const reference = shading.entries.get(pdfName('Function').bytes);
+  if (reference?.kind !== 'reference') throw new Error('gray function is missing');
+  const functionObject = document.get(reference);
+  if (functionObject.kind !== 'stream') throw new Error('gray function is not a stream');
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('internals are unavailable');
+  const data = decodedData(internals, functionObject);
+  if (typeof data === 'string') throw new Error(data);
+  const evaluate = createPdfFunction({ kind: 'stream', dictionary: functionObject.dictionary, data });
+  return { color: shading.entries.get(pdfName('ColorSpace').bytes), start: evaluate([0])[0], end: evaluate([1])[0] };
+};
 
 const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const form = document.get(pdfReference(6, 0));
@@ -397,5 +444,14 @@ describe('transparency group conversion', () => {
     convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(luminosityContent(document)).toContain('/CS /G');
     expect(maskInline(document)).toStrictEqual(Uint8Array.of(77));
+  });
+
+  it('converts an axial RGB shading in a luminosity group to a gray function', () => {
+    const document = loadDocument(axialMaskPdf.bytes);
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    const values = maskShadingValues(document);
+    expect(values.color).toStrictEqual(pdfName('DeviceGray'));
+    expect(values.start).toBeCloseTo(0.3, 3);
+    expect(values.end).toBeCloseTo(0.11, 3);
   });
 });

@@ -90,7 +90,7 @@ const rewriteOperation = (
     return rewriteSample(operation, state, rgbToGray);
   }
   if (operator === 'BI') return rewriteInline(operation, state, config.inline);
-  if (operator === 'k' || operator === 'K' || operator === 'sh') {
+  if (operator === 'k' || operator === 'K') {
     throw new UnsupportedFeatureError('luminosity mask contains unsupported coloured content');
   }
   return { state, replacement: undefined };
