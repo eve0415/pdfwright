@@ -164,6 +164,7 @@ describe('embedded TrueType cmap tables', () => {
       11,
       undefined,
     ]);
+    expect([cmap.characters(2), cmap.characters(9), cmap.characters(10)]).toStrictEqual([[0x41], [0x3000], []]);
   });
 
   it('prefers a (3, 10) format 12 subtable, which reaches beyond the Basic Multilingual Plane', () => {
@@ -184,6 +185,7 @@ describe('embedded TrueType cmap tables', () => {
     ]);
     const cmap = cmapOf(readTrueTypeCmap(input));
     expect([cmap.format, cmap.glyph(0x41), cmap.glyph(0x20bb8), cmap.glyph(0x20bb9)]).toStrictEqual([12, 7, 101, undefined]);
+    expect([cmap.characters(7), cmap.characters(101), cmap.characters(102)]).toStrictEqual([[0x41], [0x20bb8], []]);
   });
 
   it('reads format 14 variation sequences as default or as a glyph of their own', () => {

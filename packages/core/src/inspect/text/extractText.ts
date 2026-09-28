@@ -124,6 +124,8 @@ export interface PageGlyph {
 export interface TextFont {
   /** The font's key, as `listFonts` reports it. */
   readonly key: string;
+  /** Whether this is a simple TrueType font with character names from its Encoding. */
+  readonly simpleTrueType: boolean;
   /**
    * The Unicode cmap of the font's embedded TrueType program (FontFile2, ISO 32000-1:2008, Table 122), for a Type 0 font with a CIDFontType2 descendant, whose glyph indexes are known from CIDToGIDMap (Table 117).
    * Undefined for other fonts, and when the program has no readable Unicode cmap.
@@ -353,7 +355,7 @@ class TextCollector {
   fonts(): TextFont[] {
     return [...this.fontModels.values()].map(font => {
       const { cmap, cmapMissing } = embeddedCmapOf(font);
-      return { key: font.key, cmap, cmapMissing };
+      return { key: font.key, cmap, cmapMissing, simpleTrueType: font.subtype === 'TrueType' };
     });
   }
 

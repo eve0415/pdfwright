@@ -1,7 +1,7 @@
 import type { TrueTypeCmap } from '../../font/trueType/cmapTable.ts';
 
 /** The Unicode `cmap` subtable of a font's embedded TrueType program: the glyph index it maps a code point to, and for a variation sequence its format 14 entry (the OpenType specification's `cmap` chapter). */
-export type EmbeddedCmap = Pick<TrueTypeCmap, 'glyph' | 'variant'>;
+export type EmbeddedCmap = Pick<TrueTypeCmap, 'glyph' | 'characters' | 'variant'>;
 
 /** What an embedded cmap says about a drawn glyph: it maps the glyph's text to that glyph, it maps it to another glyph, or it says nothing. */
 export type CmapEvidence = { readonly kind: 'confirmed' } | { readonly kind: 'silent' } | { readonly kind: 'disagrees'; readonly expected: number };

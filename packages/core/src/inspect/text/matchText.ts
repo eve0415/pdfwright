@@ -62,6 +62,8 @@ export type TextDifference =
     }
   /** An intended variation selector that only an ActualText span, not the glyph's own text, carries. */
   | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
+  /** ToUnicode disagrees with the character named by a simple TrueType font's encoding. */
+  | { readonly kind: 'encoding-disagrees'; readonly toUnicode: string; readonly encodingText: string; readonly glyphs: readonly number[] }
   /**
    * A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn, `expectedGid`.
    * `expectedGid` is undefined when the cmap does not list the glyph's folded text but maps its own text, before folds, to the glyph drawn: the font tells the two characters apart.
@@ -103,7 +105,7 @@ export interface DuplicateRuns {
 export interface TextMatch {
   /**
    * `match` when every compared glyph is a real, painting glyph of its font whose text, after the folds listed, equals the intended text in the chosen order.
-   * `mismatch` when a glyph is missing or unmapped or the texts differ; `unverified` when they agree only through ActualText a glyph does not confirm, with glyphs a clip or rectangle hides in part, or on a page whose content could not all be read, which a person must check.
+   * `mismatch` when a glyph is missing or unmapped, the texts differ, or font evidence contradicts a glyph's text; `unverified` when they agree only through ActualText a glyph does not confirm, with glyphs a clip or rectangle hides in part, or on a page whose content could not all be read, which a person must check.
    */
   readonly status: 'match' | 'mismatch' | 'unverified';
   readonly intended: string;
@@ -116,7 +118,7 @@ export interface TextMatch {
   readonly fonts: readonly string[];
   /** The compared glyphs in the order compared. */
   readonly glyphs: readonly number[];
-  /** `glyph-checked` when the embedded cmap of every compared glyph's font maps the glyph's text to the glyph drawn; `glyph-text-only` when some glyph was checked by its text alone, as a Type 3 glyph or a simple font's always is. */
+  /** `glyph-checked` when the embedded cmap of every compared glyph's font maps the glyph's text to the glyph drawn; `glyph-text-only` when some glyph was checked by its text alone, as a Type 3 or simple font's is. */
   readonly evidence: 'glyph-checked' | 'glyph-text-only';
 }
 
@@ -237,6 +239,7 @@ interface Settings {
   readonly equivalents: ReadonlyMap<string, string>;
   readonly selectors: 'require-glyph-evidence' | 'ignore';
   readonly cmaps: ReadonlyMap<string, EmbeddedCmap>;
+  readonly simpleTrueType: ReadonlySet<string>;
   /** The keys of fonts whose embedded program has no usable cmap. */
   readonly uncheckable: ReadonlySet<string>;
   /** The compared glyphs set upright in a vertical column. */
@@ -302,6 +305,9 @@ class FoundText {
    * A single character the cmap does not list, other than one with vertical alternates, is checked by `unlisted`.
    */
   private check(glyph: PageGlyph, text: string): void {
+    if (this.settings.simpleTrueType.has(glyph.font) && glyph.toUnicode !== null && glyph.encodingText !== null && glyph.toUnicode !== glyph.encodingText) {
+      this.notes.push({ kind: 'encoding-disagrees', toUnicode: glyph.toUnicode, encodingText: glyph.encodingText, glyphs: [glyph.index] });
+    }
     if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
       const glyphs = this.unchecked.get(glyph.font);
       if (glyphs === undefined) this.unchecked.set(glyph.font, [glyph.index]);
@@ -329,7 +335,7 @@ class FoundText {
   private unlisted(glyph: PageGlyph, { text, cmap, character }: { text: string; cmap: EmbeddedCmap; character: number }): void {
     if (glyph.gid === undefined) return;
     const own = glyph.text !== null && glyph.text !== text && cmapEvidence(cmap, glyph.gid, glyph.text).kind === 'confirmed';
-    if (own || (halfWidthOfWide(glyph) && !this.settings.proportional.has(glyph.font))) {
+    if (own || cmap.characters(glyph.gid).length > 0 || (halfWidthOfWide(glyph) && !this.settings.proportional.has(glyph.font))) {
       this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: own ? undefined : cmap.glyph(character), drawnGid: glyph.gid, glyphs: [glyph.index] });
     }
   }
@@ -562,7 +568,7 @@ const partlyHidden = (selected: readonly PageGlyph[]): TextDifference[] => {
   return runs.map(glyphs => ({ kind: 'partly-hidden', glyphs }));
 };
 
-const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped', 'substituted', 'missing', 'extra']);
+const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped', 'substituted', 'missing', 'extra', 'glyph-disagrees', 'encoding-disagrees']);
 
 /** A glyph compared on its own, or the compared glyphs of an ActualText span, or a span none of whose glyphs is compared. */
 type Unit =
@@ -635,6 +641,7 @@ const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   equivalents: new Map(options.equivalents),
   selectors: choice('variationSelectors', options.variationSelectors, ['require-glyph-evidence', 'ignore']),
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
+  simpleTrueType: new Set(page.fonts.filter(font => font.simpleTrueType).map(font => font.key)),
   uncheckable: new Set(page.fonts.filter(font => font.cmapMissing).map(font => font.key)),
   upright: new Set(),
   proportional: proportionalFonts(page.glyphs),
@@ -683,7 +690,7 @@ const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): vo
   }
 };
 
-// 'mismatch' for any difference in the printed text, 'unverified' for agreement that rests on ActualText, on text a glyph's font program contradicts, on glyphs partly hidden, or on a page not wholly read.
+// Font evidence that contradicts the text is a mismatch; incomplete evidence leaves an otherwise agreeing result unverified.
 const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
   if (differences.some(difference => MISMATCHES.has(difference.kind))) return 'mismatch';
   return differences.length > 0 ? 'unverified' : 'match';
@@ -699,7 +706,7 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
  * - Glyphs are measured by boxes, not outlines, tested at a 5 × 5 grid of points: a clip or rectangle that hides ink only between the points, or outside the core box of a glyph whose font gives no ink box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
  * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
  * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
- * - A glyph whose ToUnicode claims another character than the one it shows, without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too; only a half-width form of a full-width or wide character is caught then, by its width, and not in a font that shows such characters at proportional widths.
+ * - A glyph whose ToUnicode claims another character than the one it shows may pass when the embedded cmap lists neither the claimed character nor any character for that glyph index; vertical alternates and subsets can have this shape.
  * - Optional content is not evaluated: text and covering fills in an optional content group count as printed whether the group is on or off.
  * - Annotations drawn over the text count only when the page was extracted with `annotations: 'printable'`, which a caller checking a print proof passes to `extractText`; with the default `'none'` they are not read.
  * - Alpha is tested only for 0: text at an alpha near zero counts as visible. `PageGlyph.fillAlpha` and `strokeAlpha` give the alpha of each glyph for a caller to set its own bound.

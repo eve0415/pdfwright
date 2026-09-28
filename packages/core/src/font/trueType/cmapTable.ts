@@ -15,6 +15,8 @@ export interface TrueTypeCmap {
   readonly format: 4 | 12;
   /** The glyph index the subtable maps a Unicode code point to, or undefined when it maps it to nothing or to glyph 0. */
   readonly glyph: (codePoint: number) => number | undefined;
+  /** Unicode code points in the chosen subtable that map to a glyph index. */
+  readonly characters: (glyphIndex: number) => readonly number[];
   /** For a variation sequence of format 14: `default` when the base character's own glyph is used, the glyph index of a non-default variant, or undefined when the sequence is not listed. */
   readonly variant: (codePoint: number, selector: number) => number | 'default' | undefined;
 }
@@ -112,6 +114,18 @@ const format12 = (table: Uint8Array): ((codePoint: number) => number | undefined
   };
 };
 
+const format12Characters = (table: Uint8Array, glyphIndex: number): number[] => {
+  const read = sfntReader(table);
+  const found: number[] = [];
+  for (let index = 0; index < read.u32(12); index++) {
+    const at = 16 + 12 * index;
+    const start = read.u32(at);
+    const character = start + glyphIndex - read.u32(at + 8);
+    if (character >= start && character <= read.u32(at + 4)) found.push(character);
+  }
+  return found;
+};
+
 interface Selector {
   readonly selector: number;
   readonly defaults: readonly { readonly start: number; readonly end: number }[];
@@ -189,6 +203,20 @@ const buildCmap = (table: Uint8Array): CmapReading => {
   if (chosen === undefined) return { kind: 'absent' };
   const body = table.subarray(chosen.offset);
   const glyph = chosen.format === 12 ? format12(body) : format4(body);
+  const reverse = new Map<number, readonly number[]>();
+  const characters = (glyphIndex: number): readonly number[] => {
+    const cached = reverse.get(glyphIndex);
+    if (cached !== undefined) return cached;
+    const found: number[] = [];
+    if (chosen.format === 12) found.push(...format12Characters(body, glyphIndex));
+    else {
+      for (let codePoint = 0; codePoint < 65_536; codePoint++) {
+        if (glyph(codePoint) === glyphIndex) found.push(codePoint);
+      }
+    }
+    reverse.set(glyphIndex, found);
+    return found;
+  };
   const variations = subtables.find(subtable => subtable.platform === 0 && subtable.encoding === 5 && subtable.format === 14);
   const selectors = variations === undefined ? [] : format14(table.subarray(variations.offset));
   return {
@@ -198,6 +226,7 @@ const buildCmap = (table: Uint8Array): CmapReading => {
       encoding: chosen.encoding,
       format: chosen.format === 12 ? 12 : 4,
       glyph,
+      characters,
       variant: (codePoint: number, selector: number): number | 'default' | undefined => {
         const record = selectors.find(item => item.selector === selector);
         if (record === undefined) return undefined;

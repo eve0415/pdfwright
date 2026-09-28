@@ -516,16 +516,40 @@ describe('text matching', () => {
       });
     const plain = program();
 
+    it('rejects a subset glyph whose ToUnicode character is absent from its cmap', () => {
+      const result = match({ texts: ['B'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(1)} ET` }, 'B');
+      expect([result.status, result.differences.map(difference => difference.kind)]).toStrictEqual(['mismatch', ['glyph-disagrees']]);
+    });
+
+    it('rejects a simple TrueType glyph when ToUnicode disagrees with its standard encoding name', () => {
+      const simpleProgram = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x41, 1]] });
+      const objects: readonly TestObject[] = [
+        {
+          number: 120,
+          body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 65/LastChar 65/Widths[1000]/Encoding<</Differences[65/A]>>/FontDescriptor 122 0 R/ToUnicode 121 0 R>>',
+        },
+        { number: 121, body: streamBody('', 'begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <0042> endbfchar endcmap') },
+        {
+          number: 122,
+          body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontBBox[0 0 1000 1000]/ItalicAngle 0/Ascent 800/Descent 0/CapHeight 700/StemV 80/FontFile2 123 0 R>>',
+        },
+        { number: 123, body: streamBody('', latin1Text(simpleProgram)) },
+      ];
+      const bytes = textPdfBytes({ pages: [{ content: 'BT /S 10 Tf 100 700 Td (A) Tj ET', resources: '/Font<</S 120 0 R>>' }], objects });
+      const result = matchText(extractText(loadDocument(bytes), 0), 'B');
+      expect([result.status, result.differences.map(difference => difference.kind)]).toStrictEqual(['mismatch', ['encoding-disagrees']]);
+    });
+
     it('confirms glyphs the embedded cmap maps their text to', () => {
       const result = match({ texts: ['Ａ', null, '侭'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(1, 3)} ET` }, 'Ａ侭');
       expect([result.status, result.evidence]).toStrictEqual(['match', 'glyph-checked']);
     });
 
-    it('leaves a glyph the cmap maps its text away from unverified, as Chromium prints hwid', () => {
+    it('reports a mismatch when the cmap maps text to another glyph', () => {
       // font-feature-settings "hwid" draws half-width Ａ glyphs whose ToUnicode still says U+FF21, with no span; the subset's cmap maps U+FF21 to the full-width glyph.
       const result = match({ texts: ['Ａ', 'Ａ'], program: plain, content: `BT /T 10 Tf 100 700 Td ${show(2)} ET` }, 'Ａ');
       expect([...summary(result), result.evidence]).toStrictEqual([
-        'unverified',
+        'mismatch',
         'Ａ',
         [{ kind: 'glyph-disagrees', text: 'Ａ', expectedGid: 1, drawnGid: 2, glyphs: [0] }],
         'glyph-text-only',
@@ -556,7 +580,7 @@ describe('text matching', () => {
       const texts = ['山', 'Ａ', 'A', 'Ｂ'];
       const proof = { texts, program: unlisted, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 3)} ET`, widths: '/W[2[500]3[500]]' };
       expect(summaryOf(proof, '山ＡA')).toStrictEqual([
-        'unverified',
+        'mismatch',
         '山ＡA',
         [{ kind: 'glyph-disagrees', text: 'Ａ', expectedGid: undefined, drawnGid: 2, glyphs: [1] }],
       ]);
@@ -568,7 +592,7 @@ describe('text matching', () => {
       // Chromium's subset cmap lists every code point of a retained glyph, so a font that maps U+2F2D but not U+5C71 to the glyph draws the radical, not 山.
       const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f2d, 1]] });
       expect(summaryOf({ texts: ['⼭'], program: radical, content: line(1) }, '山')).toStrictEqual([
-        'unverified',
+        'mismatch',
         '山',
         [{ kind: 'glyph-disagrees', text: '山', expectedGid: undefined, drawnGid: 1, glyphs: [0] }],
       ]);
