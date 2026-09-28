@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest';
 
 import { runTool } from '../../../../../scripts/readerOracle.ts';
 import { loadDocument } from '../../document/loadDocument.ts';
-import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { readTrueTypeCmap } from '../../font/trueType/cmapTable.ts';
+import { buildPdf, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
@@ -250,6 +251,68 @@ const inkInsideBox = async (content: string): Promise<{ readonly inside: boolean
   return { inside, ink, box };
 };
 
+const hexCid = (value: number): string => value.toString(16).padStart(4, '0').toUpperCase();
+
+const realVerticalCids = (program: Uint8Array): readonly [number, number] => {
+  const reading = readTrueTypeCmap(program);
+  if (reading.kind !== 'cmap') throw new Error('IPAGothic has no readable Unicode cmap');
+  const first = reading.cmap.glyph(0x4e00);
+  const second = reading.cmap.glyph(0x4e8c);
+  if (first === undefined || second === undefined) throw new Error('IPAGothic lacks the test glyphs');
+  return [first, second];
+};
+
+const realVerticalPdf = (program: Uint8Array, cids: readonly [number, number], content: string): Uint8Array => {
+  const [first, second] = cids;
+  const unicode = `begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <${hexCid(first)}> <4E00> <${hexCid(second)}> <4E8C> endbfchar endcmap`;
+  return buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 600 800]/Resources<</Font<</V 5 0 R>>>>/Contents 4 0 R>>' },
+        { number: 4, body: streamBody('', content) },
+        { number: 5, body: '<</Type/Font/Subtype/Type0/BaseFont/IPAGothic/Encoding/Identity-V/DescendantFonts[6 0 R]/ToUnicode 7 0 R>>' },
+        {
+          number: 6,
+          body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/IPAGothic/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/CIDToGIDMap/Identity/DW 1000/DW2[880 -1000]/W2[${String(first)}[-900 500 900]]/FontDescriptor 8 0 R>>`,
+        },
+        { number: 7, body: streamBody('', unicode) },
+        {
+          number: 8,
+          body: '<</Type/FontDescriptor/FontName/IPAGothic/Flags 4/FontBBox[-1000 -1000 2000 2000]/ItalicAngle 0/Ascent 880/Descent -120/CapHeight 700/StemV 80/FontFile2 9 0 R>>',
+        },
+        { number: 9, body: streamBody('', latin1Text(program)) },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+};
+
+const realVerticalInk = async (
+  program: Uint8Array,
+  cids: readonly [number, number],
+  cid: number,
+): Promise<{ readonly text: string | null; readonly inside: boolean }> => {
+  const single = realVerticalPdf(program, cids, `BT /V 20 Tf 300 400 Td <${hexCid(cid)}> Tj ET`);
+  const [glyph] = extractText(loadDocument(single), 0).glyphs;
+  if (glyph === undefined) throw new Error('vertical glyph was not extracted');
+  const ink = await withFile(single, inkBounds);
+  const box = [
+    Math.min(...xs(glyph)),
+    Math.min(glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]),
+    Math.max(...xs(glyph)),
+    Math.max(glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]),
+  ];
+  const [left = Number.NaN, bottom = Number.NaN, right = Number.NaN, top = Number.NaN] = ink;
+  const [boxLeft = 0, boxBottom = 0, boxRight = 0, boxTop = 0] = box;
+  return {
+    text: glyph.text,
+    inside: left >= boxLeft - INK_TOLERANCE && right <= boxRight + INK_TOLERANCE && bottom >= boxBottom - INK_TOLERANCE && top <= boxTop + INK_TOLERANCE,
+  };
+};
+
 /** Corpus files expected to fail loading, as `set/name`. */
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
@@ -291,6 +354,22 @@ const extractionFailures = async (set: string, directory: string): Promise<strin
 };
 
 describe('glyph positions against MuPDF and poppler', () => {
+  it('places Identity-V glyphs from an embedded IPAGothic TrueType font with W2 and DW2', async () => {
+    const program = new Uint8Array(await readFile('/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf'));
+    const cids = realVerticalCids(program);
+    const bytes = realVerticalPdf(program, cids, `BT /V 20 Tf 300 400 Td <${cids.map(cid => hexCid(cid)).join('')}> Tj ET`);
+    const { glyphs } = extractText(loadDocument(bytes), 0);
+    expect(glyphs.map(glyph => [glyph.text, glyph.writingMode, glyph.origin, glyph.advance])).toStrictEqual([
+      ['一', 1, [300, 400], [0, -18]],
+      ['二', 1, [300, 382], [0, -20]],
+    ]);
+    const ink = await Promise.all(cids.map(async cid => realVerticalInk(program, cids, cid)));
+    expect(ink).toStrictEqual([
+      { text: '一', inside: true },
+      { text: '二', inside: true },
+    ]);
+  });
+
   it('places glyphs of upright horizontal text where MuPDF and poppler do', async () => {
     const bytes = textPdfBytes({ pages: [UPRIGHT], objects: FONTS });
     const { glyphs } = extractText(loadDocument(bytes), 0);
