@@ -135,7 +135,7 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# Claude Code local state
+# Local editor state
 .claude/settings.local.json
 .claude/worktrees/
 
