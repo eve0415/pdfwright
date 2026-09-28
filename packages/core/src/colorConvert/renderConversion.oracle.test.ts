@@ -1,3 +1,5 @@
+import type { PdfDifference } from '../compare/pdfDifference.ts';
+
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -13,11 +15,19 @@ import { createColorTransform } from '../color/createColorTransform.ts';
 import { deltaE2000 } from '../color/deltaE2000.ts';
 import { xyzToLab } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
+import { compareDocuments } from '../compare/compareDocuments.ts';
+import { readContent } from '../content/contentOperations.ts';
+import { pageContent } from '../content/pageContent.ts';
+import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
+import { preparePdfX4Pages } from '../pdfx/preparePages.ts';
+import { writePdfX4Metadata } from '../pdfx/writeMetadata.ts';
+import { writeGtsPdfxOutputIntent } from '../pdfx/writeOutputIntent.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
@@ -30,6 +40,7 @@ const sourcePath = profilePath('sRGB.icm');
 const destinationPath = profilePath('fogra28l.icc');
 const source = parseIccProfile(Uint8Array.from(await readFile(sourcePath)));
 const destination = parseIccProfile(Uint8Array.from(await readFile(destinationPath)));
+const metadataDate = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
   const pcs = toPcs([...channels]);
@@ -275,13 +286,144 @@ const convertTransparency = (bytes: Uint8Array): Uint8Array => {
   return document.save().toBytes();
 };
 
+const convertTransparencyToPdfX4 = (bytes: Uint8Array): Uint8Array => {
+  const document = loadDocument(bytes);
+  rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+  convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+  writeGtsPdfxOutputIntent(document, { outputProfile: destination.bytes, outputConditionIdentifier: 'FOGRA28' });
+  preparePdfX4Pages(document);
+  writePdfX4Metadata(document, { metadataDate, trapped: 'False', documentId: 'uuid:00000000-0000-0000-0000-000000000001' });
+  return document.save().toBytes();
+};
+
+const diffLabel = (difference: PdfDifference): string => {
+  if (difference.kind === 'page-box') return `page-box:${difference.box}`;
+  if (difference.kind === 'page-content') return 'page-content';
+  if (difference.kind === 'page-attribute' || difference.kind === 'page-resources' || difference.kind === 'document-attribute') {
+    return `${difference.kind}:${difference.path.join('/')}`;
+  }
+  return `unexpected:${difference.kind}`;
+};
+
+const operations = (bytes: Uint8Array) => {
+  const document = loadDocument(bytes);
+  const internals = internalsOf(document);
+  const entry = internals?.pages[0];
+  if (internals === undefined || entry === undefined) throw new Error('page is missing');
+  const content = pageContent(internals, entry);
+  if (content.problems.length > 0) throw new Error('page content is unreadable');
+  return [...readContent(content.streams, internals.maxNesting)].map(operation => ({ operator: operation.operator, operands: operation.operands }));
+};
+const convertedOperator = (operation: ReturnType<typeof operations>[number]): string => (operation.operator === 'rg' ? 'k' : operation.operator);
+
+const pdfxOriginal = transparency('/CS/DeviceRGB').bytes;
+const pdfxConverted = convertTransparencyToPdfX4(pdfxOriginal);
+
 const convertMesh = (bytes: Uint8Array): Uint8Array => {
   const document = loadDocument(bytes);
   convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
   return document.save().toBytes();
 };
 
+const convertMeshToPdfX4 = (bytes: Uint8Array): Uint8Array => {
+  const document = loadDocument(bytes);
+  convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+  writeGtsPdfxOutputIntent(document, { outputProfile: destination.bytes, outputConditionIdentifier: 'FOGRA28' });
+  preparePdfX4Pages(document);
+  writePdfX4Metadata(document, { metadataDate, trapped: 'False', documentId: 'uuid:00000000-0000-0000-0000-000000000002' });
+  return document.save().toBytes();
+};
+
+const meshOriginal = meshPdf('DeviceRGB', mesh(rgbVertices)).bytes;
+const meshConverted = convertMeshToPdfX4(meshOriginal);
+
 describe('converted rendering', () => {
+  it('verifies a converted PDF/X-4 fixture with qpdf, the diff gate and structural checks', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-render-'));
+    try {
+      const file = path.join(directory, 'converted.pdf');
+      await writeFile(file, pdfxConverted);
+      const qpdf = spawn('qpdf', ['--check', file]);
+      const closed: readonly unknown[] = await once(qpdf, 'close');
+      expect(closed[0]).toBe(0);
+      const reloaded = loadDocument(pdfxConverted);
+      expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
+      const { differences } = compareDocuments(loadDocument(pdfxOriginal), reloaded);
+      expect(differences.map(difference => diffLabel(difference))).toStrictEqual([
+        'page-box:TrimBox',
+        'page-content',
+        'page-attribute:Group/CS',
+        'document-attribute:Root/OutputIntents',
+        'document-attribute:Root/Metadata',
+        'document-attribute:Info',
+      ]);
+      const before = operations(pdfxOriginal);
+      const after = operations(pdfxConverted);
+      expect(before.filter(operation => operation.operator !== 'rg')).toStrictEqual(after.filter(operation => operation.operator !== 'k'));
+      expect(before.map(operation => convertedOperator(operation))).toStrictEqual(after.map(operation => operation.operator));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the converted PDF/X-4 fixture within separate correctness and appearance bounds', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-render-'));
+    try {
+      const reference = await render(directory, { name: 'pdfx-reference', bytes: transparency('/CS/DeviceCMYK').bytes });
+      const input = await render(directory, { name: 'pdfx-input', bytes: pdfxOriginal });
+      const output = await render(directory, { name: 'pdfx-converted', bytes: pdfxConverted });
+      expect(measure(reference, output).max).toBeLessThanOrEqual(0.5);
+      expect(measure(input, output).max).toBeLessThanOrEqual(9.8);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('verifies a converted mesh fixture with qpdf, the diff gate and structural checks', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-mesh-'));
+    try {
+      const file = path.join(directory, 'converted.pdf');
+      await writeFile(file, meshConverted);
+      const qpdf = spawn('qpdf', ['--check', file]);
+      const closed: readonly unknown[] = await once(qpdf, 'close');
+      expect(closed[0]).toBe(0);
+      const reloaded = loadDocument(meshConverted);
+      expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
+      const { differences } = compareDocuments(loadDocument(meshOriginal), reloaded);
+      expect(differences.map(difference => diffLabel(difference))).toStrictEqual([
+        'page-box:TrimBox',
+        'page-resources:Resources/Shading/Sh1/ColorSpace',
+        'page-resources:Resources/Shading/Sh1/BitsPerCoordinate',
+        'page-resources:Resources/Shading/Sh1/BitsPerFlag',
+        'page-resources:Resources/Shading/Sh1/Decode',
+        'page-resources:Resources/Shading/Sh1',
+        'document-attribute:Root/OutputIntents',
+        'document-attribute:Root/Metadata',
+        'document-attribute:Info',
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the PDF/X-4 mesh fixture within separate correctness and appearance bounds', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-mesh-'));
+    try {
+      const { data } = convertedMeshBytes(meshConverted);
+      const reference = meshPdf('DeviceCMYK', await transiccReference(data), { coordinate: 16, flag: 8 }).bytes;
+      const oracle = await render(directory, { name: 'pdfx-mesh-reference', bytes: reference, dpi: 400 });
+      const input = await render(directory, { name: 'pdfx-mesh-input', bytes: meshOriginal, dpi: 400 });
+      const output = await render(directory, { name: 'pdfx-mesh-converted', bytes: meshConverted, dpi: 400 });
+      const correctness = measure(oracle, output, true);
+      const appearance = measure(input, output, true);
+      expect(correctness.max).toBeLessThanOrEqual(0.5);
+      expect(appearance.max).toBeLessThanOrEqual(2);
+      expect(appearance.p99).toBeLessThanOrEqual(1.2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('separates transparency correctness from the D7 appearance change', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
     try {
