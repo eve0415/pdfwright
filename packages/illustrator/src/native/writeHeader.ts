@@ -1,7 +1,7 @@
 import type { Coordinate, IllustratorDocument, Item, Paint, SpotColor } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
-import { InvalidArgumentError, formatInteger } from '@pdfwright/core';
+import { InvalidArgumentError, add, formatInteger, multiply, pt, subtract } from '@pdfwright/core';
 
 import { artBounds, integerBounds } from '../geometry/bounds.ts';
 
@@ -135,10 +135,19 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   writer.line(
     `%AI3_TemplateBox: ${formatNativeNumber(templateX)} ${formatNativeNumber(templateY)} ${formatNativeNumber(templateX)} ${formatNativeNumber(templateY)}`,
   );
-  const tileY = topLeft ? -height : 0;
-  writer.line(
-    `%AI3_TileBox: ${[width / 2 - 403, height / 2 - 279.5 + tileY, width / 2 + 380, height / 2 + 279.5 + tileY].map(value => formatNativeNumber(value)).join(' ')}`,
-  );
+  const roundedWidth = pt(Number(formatNativeNumber(document.artboard.width)));
+  const roundedHeight = pt(Number(formatNativeNumber(document.artboard.height)));
+  const halfWidth = multiply(roundedWidth, 0.5);
+  const halfHeight = multiply(roundedHeight, 0.5);
+  const tileBottom = subtract(halfHeight, pt(279.5));
+  const tileTop = add(halfHeight, pt(279.5));
+  const tile = [
+    subtract(halfWidth, pt(403)),
+    topLeft ? subtract(tileBottom, roundedHeight) : tileBottom,
+    add(halfWidth, pt(380)),
+    topLeft ? subtract(tileTop, roundedHeight) : tileTop,
+  ];
+  writer.line(`%AI3_TileBox: ${tile.map(value => formatNativeNumber(value)).join(' ')}`);
   writer.line('%AI3_DocumentPreview: None');
   writer.line('%AI5_ArtSize: 14400 14400');
   writer.line('%AI5_RulerUnits: 1');
