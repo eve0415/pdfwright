@@ -62,7 +62,7 @@ Narrow `unknown` with `typeof`, `in` and equality checks, and validate untrusted
 
 ## Specifications
 
-Code that implements behaviour a specification defines cites the clause in a comment, for example `// ISO 32000-2:2020, 7.3.4.2`. The specifications are ISO 32000-1 and ISO 32000-2 (PDF), ISO 15930-7 (PDF/X-4) and ICC.1 (ICC profiles). A citation lets a reviewer check the code against the text rather than against memory.
+Code that implements behaviour a specification defines cites the clause in a comment, for example `// ISO 32000-1:2008, 7.3.4.2`. The specifications are ISO 32000-1 and ISO 32000-2 (PDF), ISO 15930-7 (PDF/X-4) and ICC.1 (ICC profiles). A citation lets a reviewer check the code against the text rather than against memory.
 
 ## Dependencies
 
