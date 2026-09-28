@@ -121,6 +121,23 @@ const nestedFormsPdf = buildPdf([
   },
 ]);
 
+const inlineFormPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Fm Do') },
+      {
+        number: 5,
+        body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 50 25]/Resources<<>>', `BI /W 50 /H 25 /BPC 8 /CS /RGB ID\n${'\0'.repeat(3750)}\nEI`),
+      },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const formReference = (document: ReturnType<typeof loadDocument>, page: number, name = 'Fm'): ReturnType<typeof pdfReference> => {
   const resources = document.page(page).resources();
   const xobjects = resources.get(pdfName('XObject').bytes);
@@ -132,6 +149,11 @@ const formReference = (document: ReturnType<typeof loadDocument>, page: number, 
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
   if (value.kind !== 'dictionary') throw new Error('expected dictionary');
+  return value;
+};
+
+const streamValue = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
+  if (value.kind !== 'stream') throw new Error('expected stream');
   return value;
 };
 
@@ -153,6 +175,21 @@ const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const data = decodedData(internals, stream);
   if (typeof data === 'string') throw new Error(data);
   return latin1Text(data);
+};
+
+const formImageData = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): Uint8Array => {
+  const form = streamValue(document.get(reference));
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('document internals are missing');
+  const resources = internals.objects.deref(form.dictionary.get(pdfName('Resources').bytes));
+  if (resources?.kind !== 'dictionary') throw new Error('form resources are missing');
+  const xobjects = internals.objects.deref(resources.entries.get(pdfName('XObject').bytes));
+  if (xobjects?.kind !== 'dictionary') throw new Error('form images are missing');
+  const image = xobjects.entries.get(pdfName('PWIM0').bytes);
+  if (image?.kind !== 'reference') throw new Error('converted image is missing');
+  const data = decodedData(internals, streamValue(document.get(image)));
+  if (typeof data === 'string') throw new Error(data);
+  return data;
 };
 
 describe('form colour conversion', () => {
@@ -225,5 +262,13 @@ describe('form colour conversion', () => {
     const report = convertForms(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(report).toStrictEqual({ forms: 2, clones: 0 });
     expect(textOf(document, pdfReference(6, 0))).toMatch(/[\d.]+ [\d.]+ [\d.]+ [\d.]+ sc 0 0 10 10 re f/u);
+  });
+
+  it('adds an XObject for a large converted inline image in a form', () => {
+    const document = loadDocument(inlineFormPdf.bytes);
+    const report = convertForms(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.forms).toBe(1);
+    expect(formText(document)).toContain('/PWIM0 Do');
+    expect(formImageData(document, pdfReference(5, 0))).toHaveLength(5000);
   });
 });

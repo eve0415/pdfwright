@@ -1,0 +1,36 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { ConvertedInlineImage } from './convertInlineImage.ts';
+
+import { internalsOf } from '../document/documentInternals.ts';
+import { ValidationError } from '../error/validationError.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+
+export interface NamedInlineImage extends ConvertedInlineImage {
+  readonly name: string;
+}
+
+const XOBJECT = pdfName('XObject').bytes;
+
+export const addInlineXObjects = (document: LoadedDocument, resources: PdfDictionaryEntries, images: readonly NamedInlineImage[]): void => {
+  if (images.length === 0) return;
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  const category = internals.objects.deref(resources.get(XOBJECT));
+  const mapped = category?.kind === 'dictionary' ? new PdfDictionaryEntries(category.entries.entries()) : new PdfDictionaryEntries();
+  for (const image of images) {
+    const name = pdfName(image.name).bytes;
+    if (mapped.has(name)) throw new ValidationError('inline image resource name is already in use', 'color-space');
+    const dictionary = new PdfDictionaryEntries([
+      [pdfName('Type').bytes, pdfName('XObject')],
+      [pdfName('Subtype').bytes, pdfName('Image')],
+      [pdfName('Width').bytes, pdfInteger(image.width)],
+      [pdfName('Height').bytes, pdfInteger(image.height)],
+      [pdfName('BitsPerComponent').bytes, pdfInteger(image.bits)],
+      [pdfName('ColorSpace').bytes, pdfName('DeviceCMYK')],
+      [pdfName('Filter').bytes, pdfName('FlateDecode')],
+    ]);
+    mapped.set(name, document.object({ kind: 'stream', dictionary, data: image.data }));
+  }
+  resources.set(XOBJECT, pdfDictionary(mapped));
+};

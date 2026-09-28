@@ -1,10 +1,15 @@
+import type { PdfObject } from '../object/pdfObject.ts';
+
 import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
+import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { deflateZlib } from '../flate/deflate.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -98,6 +103,32 @@ const addedOverprintStates = (document: ReturnType<typeof loadDocument>): readon
   return [states.entries.has(pdfName('PWOPM0').bytes), states.entries.has(pdfName('PWOPM1').bytes)];
 };
 
+const inlineData = (bytes: Uint8Array): Uint8Array => {
+  const [operation] = readContent(bytes, 32);
+  const data = operation?.inlineImage?.data;
+  if (data === undefined) throw new Error('converted inline image is missing');
+  return data;
+};
+
+const xObjectData = (document: ReturnType<typeof loadDocument>, name: string): Uint8Array => {
+  const resources = document.page(0).resources();
+  const objects = resources.get(pdfName('XObject').bytes);
+  if (objects?.kind !== 'dictionary') throw new Error('XObject resources are missing');
+  const reference = objects.entries.get(pdfName(name).bytes);
+  if (reference?.kind !== 'reference') throw new Error('image reference is missing');
+  const stream = document.get(reference);
+  const internals = internalsOf(document);
+  if (stream.kind !== 'stream' || internals === undefined) throw new Error('image stream is missing');
+  const data = decodedData(internals, stream);
+  if (typeof data === 'string') throw new Error(data);
+  return data;
+};
+
+const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
+  if (value.kind !== 'dictionary') throw new Error('page is missing');
+  return value;
+};
+
 describe('page colour conversion', () => {
   it('rewrites RGB and calibrated gray paint while preserving untouched bytes', () => {
     const document = loadDocument(pdf());
@@ -161,6 +192,56 @@ describe('page colour conversion', () => {
     });
     expect(latin1Text(kept.bytes)).toBe(latin1Text(raw));
     expect(latin1Text(promoted.bytes)).toBe('0 0 0 0.75 k /DeviceCMYK cs 0 0 0 0.5 sc');
+  });
+
+  it('converts a small inline RGB image without applying K-only black', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes(`BI /W 1 /H 1 /BPC 8 /CS /RGB ID\n${String.fromCodePoint(0, 0, 0)}\nEI`);
+    const result = rewriteContentColors(document, input, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination },
+    });
+    const data = inlineData(result.bytes);
+    expect(result.inlineImages).toBe(1);
+    expect(inflateZlib(data).data).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
+    expect(inflateZlib(data).data).toHaveLength(4);
+  });
+
+  it('decodes a Flate inline RGB image before conversion', () => {
+    const document = loadDocument(pdf());
+    const compressed = latin1Text(deflateZlib(Uint8Array.of(255, 0, 0)));
+    const input = latin1Bytes(`BI /W 1 /H 1 /BPC 8 /CS /RGB /F /Fl ID\n${compressed}\nEI`);
+    const result = rewriteContentColors(document, input, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination },
+    });
+    expect(result.inlineImages).toBe(1);
+    expect(inflateZlib(inlineData(result.bytes)).data).toHaveLength(4);
+  });
+
+  it('moves a converted inline image above 4 KB into an XObject', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes(`BI /W 50 /H 25 /BPC 8 /CS /RGB ID\n${'\0'.repeat(3750)}\nEI`);
+    document.replaceStreamData(pdfReference(4, 0), input, { filter: 'FlateDecode' });
+    const report = rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.inlineImages).toBe(1);
+    expect(pageText(document)).toContain('/PWIM0 Do');
+    expect(xObjectData(document, 'PWIM0')).toHaveLength(5000);
+  });
+
+  it('chooses a free resource name for a moved inline image', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes(`BI /W 50 /H 25 /BPC 8 /CS /RGB ID\n${'\0'.repeat(3750)}\nEI`);
+    document.replaceStreamData(pdfReference(4, 0), input, { filter: 'FlateDecode' });
+    const page = dictionaryValue(document.get(document.page(0).reference));
+    const resources = document.page(0).resources();
+    const existing = new PdfDictionaryEntries([[pdfName('PWIM0').bytes, pdfReference(4, 0)]]);
+    resources.set(pdfName('XObject').bytes, pdfDictionary(existing));
+    page.entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
+    document.set(document.page(0).reference, page);
+    rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(pageText(document)).toContain('/PWIM1 Do');
+    expect(xObjectData(document, 'PWIM1')).toHaveLength(5000);
   });
 
   it('neutralises overprint mode around a converted path', () => {

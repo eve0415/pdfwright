@@ -5,6 +5,7 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { ConvertedInlineImage } from './convertInlineImage.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
@@ -16,6 +17,7 @@ import { ValidationError } from '../error/validationError.ts';
 import { DEFAULT_FRACTION_DIGITS, formatNumber } from '../number/formatNumber.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
+import { convertInlineImage } from './convertInlineImage.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface RewriteColorOptions {
@@ -37,6 +39,8 @@ export interface RewrittenContent {
   readonly kOnly: number;
   readonly overprintAdjustments: number;
   readonly formUses: readonly FormUse[];
+  readonly inlineImages: number;
+  readonly newInlineImages: readonly (ConvertedInlineImage & { readonly name: string })[];
 }
 
 export interface OverprintNames {
@@ -76,8 +80,10 @@ interface RewriteContext {
   readonly transforms: Map<string, ColorTransform>;
   readonly edits: ContentEdit[];
   readonly formUses: FormUse[];
+  readonly newInlineImages: (ConvertedInlineImage & { readonly name: string })[];
   readonly overprintNames: OverprintNames | undefined;
   kOnly: number;
+  inlineImages: number;
   overprintAdjustments: number;
   pathStart: number | undefined;
   state: ColorEntryState;
@@ -86,6 +92,7 @@ interface RewriteContext {
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
 const RENDERING_INTENT = pdfName('RI').bytes;
+const XOBJECT = pdfName('XObject').bytes;
 
 const invalid = (detail: string): never => {
   throw new ValidationError(detail, 'color-operator');
@@ -261,6 +268,16 @@ const directGray = (context: RewriteContext, operation: SpannedContentOperation)
   return formatted(converted, operation.operator === 'G' ? 'K' : 'k');
 };
 
+const inlineResourceName = (context: RewriteContext): string => {
+  const category = deref(context, context.resources.get(XOBJECT));
+  const entries = category?.kind === 'dictionary' ? category.entries : undefined;
+  for (let index = context.inlineImages; ; index++) {
+    const name = `PWIM${String(index)}`;
+    if (entries?.has(pdfName(name).bytes) === true || context.newInlineImages.some(image => image.name === name)) continue;
+    return name;
+  }
+};
+
 const updateGraphicsState = (context: RewriteContext, operation: SpannedContentOperation): void => {
   const { operator } = operation;
   if (operator === 'q') {
@@ -292,6 +309,30 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
   }
 };
 
+const objectOperation = (context: RewriteContext, operation: SpannedContentOperation): string | undefined => {
+  const { operator } = operation;
+  if (operator === 'Do') {
+    context.formUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), entry: context.state, start: operation.start, end: operation.end });
+    return undefined;
+  }
+  if (operator === 'BI' && operation.inlineImage !== undefined) {
+    const name = inlineResourceName(context);
+    const converted = convertInlineImage({
+      document: context.document,
+      image: operation.inlineImage,
+      resources: context.resources,
+      options: context.options,
+      intent: context.state.intent,
+      xObjectName: name,
+    });
+    if (converted === undefined) return undefined;
+    context.inlineImages++;
+    if (converted.asXObject) context.newInlineImages.push({ ...converted, name });
+    return converted.replacement;
+  }
+  return undefined;
+};
+
 const rewriteOperation = (context: RewriteContext, operation: SpannedContentOperation): string | undefined => {
   const { operator } = operation;
   if (operator === 'q' || operator === 'Q' || operator === 'ri' || operator === 'gs' || operator === 'Tr') {
@@ -306,11 +347,7 @@ const rewriteOperation = (context: RewriteContext, operation: SpannedContentOper
   }
   if (operator === 'cs' || operator === 'CS') return setColorSpace(context, operation);
   if (operator === 'sc' || operator === 'SC' || operator === 'scn' || operator === 'SCN') return setComponents(context, operation);
-  if (operator === 'Do') {
-    context.formUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), entry: context.state, start: operation.start, end: operation.end });
-    return undefined;
-  }
-  return undefined;
+  return objectOperation(context, operation);
 };
 
 const PATH_CONSTRUCTION = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
@@ -377,8 +414,10 @@ export const rewriteContentColors = (
     transforms: new Map(),
     edits: [],
     formUses: [],
+    newInlineImages: [],
     overprintNames: config.overprintNames,
     kOnly: 0,
+    inlineImages: 0,
     overprintAdjustments: 0,
     pathStart: undefined,
     state: config.initialState ?? {
@@ -403,7 +442,17 @@ export const rewriteContentColors = (
     }
     recordPaint(context, operation);
   }
-  if (context.edits.length === 0) return { bytes, operators, kOnly: context.kOnly, overprintAdjustments: 0, formUses: context.formUses };
+  if (context.edits.length === 0) {
+    return {
+      bytes,
+      operators,
+      kOnly: context.kOnly,
+      overprintAdjustments: 0,
+      formUses: context.formUses,
+      inlineImages: context.inlineImages,
+      newInlineImages: context.newInlineImages,
+    };
+  }
   const writer = new ByteWriter();
   let cursor = 0;
   for (const edit of context.edits.toSorted((left, right) => left.start - right.start || left.end - right.end)) {
@@ -413,5 +462,13 @@ export const rewriteContentColors = (
     cursor = edit.end;
   }
   writer.writeBytes(bytes.subarray(cursor));
-  return { bytes: writer.toUint8Array(), operators, kOnly: context.kOnly, overprintAdjustments: context.overprintAdjustments, formUses: context.formUses };
+  return {
+    bytes: writer.toUint8Array(),
+    operators,
+    kOnly: context.kOnly,
+    overprintAdjustments: context.overprintAdjustments,
+    formUses: context.formUses,
+    inlineImages: context.inlineImages,
+    newInlineImages: context.newInlineImages,
+  };
 };

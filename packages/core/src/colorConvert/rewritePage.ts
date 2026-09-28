@@ -1,5 +1,6 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { NamedInlineImage } from './inlineResources.ts';
 import type { OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 
 import { pageContent } from '../content/pageContent.ts';
@@ -12,6 +13,7 @@ import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded } from './discardedObjects.ts';
+import { addInlineXObjects } from './inlineResources.ts';
 import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -23,12 +25,14 @@ interface PreparedPage {
   readonly resources: PdfDictionaryEntries;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
+  readonly newInlineImages: readonly NamedInlineImage[];
 }
 
 export interface PageRewriteReport {
   readonly operators: number;
   readonly kOnly: number;
   readonly overprintAdjustments: number;
+  readonly inlineImages: number;
 }
 
 const CONTENTS = pdfName('Contents').bytes;
@@ -65,10 +69,11 @@ const applyPreparedPages = (document: LoadedDocument, prepared: readonly Prepare
     dictionary.delete(LENGTH);
     const reference = document.object({ kind: 'stream', dictionary, data: item.encoded });
     page.entries.set(CONTENTS, reference);
-    if (item.overprintAdjustments > 0) {
+    if (item.overprintAdjustments > 0 || item.newInlineImages.length > 0) {
       const oldResources = page.entries.get(RESOURCES);
       if (oldResources?.kind === 'reference') discarded.push(oldResources);
-      addOverprintStates(document, item.resources, item.overprintNames);
+      if (item.overprintAdjustments > 0) addOverprintStates(document, item.resources, item.overprintNames);
+      addInlineXObjects(document, item.resources, item.newInlineImages);
       page.entries.set(RESOURCES, pdfDictionary(item.resources));
     }
     document.set(item.reference, page);
@@ -89,6 +94,7 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
   let operators = 0;
   let kOnly = 0;
   let overprintAdjustments = 0;
+  let inlineImages = 0;
   for (let index = 0; index < document.pageCount; index++) {
     const entry = internals.pages[index];
     if (entry === undefined) throw new ValidationError('page entry is missing');
@@ -111,12 +117,14 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
       resources,
       overprintNames: names,
       overprintAdjustments: rewritten.overprintAdjustments,
+      newInlineImages: rewritten.newInlineImages,
     });
     operators += rewritten.operators;
     kOnly += rewritten.kOnly;
     overprintAdjustments += rewritten.overprintAdjustments;
+    inlineImages += rewritten.inlineImages;
   }
-  if (prepared.length === 0) return { operators, kOnly, overprintAdjustments };
+  if (prepared.length === 0) return { operators, kOnly, overprintAdjustments, inlineImages };
   applyPreparedPages(document, prepared);
-  return { operators, kOnly, overprintAdjustments };
+  return { operators, kOnly, overprintAdjustments, inlineImages };
 };

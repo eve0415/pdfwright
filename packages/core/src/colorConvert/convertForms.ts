@@ -2,6 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfReference } from '../object/pdfObject.ts';
+import type { NamedInlineImage } from './inlineResources.ts';
 import type { ColorEntryState, FormUse, OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
@@ -17,6 +18,7 @@ import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded } from './discardedObjects.ts';
+import { addInlineXObjects } from './inlineResources.ts';
 import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -55,6 +57,7 @@ interface FormPlan extends Scope {
   readonly entry: ColorEntryState;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
+  readonly newInlineImages: readonly NamedInlineImage[];
   readonly clone: boolean;
   output?: PdfReference;
 }
@@ -104,7 +107,18 @@ const outputReference = (plan: FormPlan): PdfReference => {
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length === right.length && left.every((byte, index) => byte === right[index]);
 
 const samePlan = (left: FormPlan, right: FormPlan): boolean => {
-  if (!sameBytes(left.data, right.data) || left.assignments.size !== right.assignments.size || left.nameEdits.length !== right.nameEdits.length) return false;
+  if (
+    !sameBytes(left.data, right.data) ||
+    left.assignments.size !== right.assignments.size ||
+    left.nameEdits.length !== right.nameEdits.length ||
+    left.newInlineImages.length !== right.newInlineImages.length
+  ) {
+    return false;
+  }
+  for (const [index, image] of left.newInlineImages.entries()) {
+    const other = right.newInlineImages[index];
+    if (other?.name !== image.name || !sameBytes(other.data, image.data)) return false;
+  }
   for (const [key, assignment] of left.assignments) if (right.assignments.get(key)?.plan !== assignment.plan) return false;
   for (const [index, edit] of left.nameEdits.entries()) {
     const other = right.nameEdits[index];
@@ -194,6 +208,7 @@ class FormPlanner {
       entry,
       overprintNames: names,
       overprintAdjustments: rewritten.overprintAdjustments,
+      newInlineImages: rewritten.newInlineImages,
       clone,
       assignments: new Map(),
       nameEdits: [],
@@ -295,11 +310,12 @@ class FormPlanner {
     const dictionary = new PdfDictionaryEntries(plan.stream.dictionary.entries());
     const mapped = this.mappedResources(plan);
     let discarded: PdfReference | undefined = undefined;
-    if (mapped !== undefined || plan.overprintAdjustments > 0) {
+    if (mapped !== undefined || plan.overprintAdjustments > 0 || plan.newInlineImages.length > 0) {
       const old = dictionary.get(RESOURCES);
       if (old?.kind === 'reference') discarded = old;
       const resources = new PdfDictionaryEntries((mapped ?? plan.resources).entries());
       if (plan.overprintAdjustments > 0) addOverprintStates(this.document, resources, plan.overprintNames);
+      addInlineXObjects(this.document, resources, plan.newInlineImages);
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
     dictionary.set(FILTER, pdfName('FlateDecode'));
