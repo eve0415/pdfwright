@@ -21,8 +21,10 @@ import { pageContent } from '../content/pageContent.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
+import { checkPdfX4 as checkPublicPdfX4, convertToCmyk } from '../index.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { preparePdfX4Pages } from '../pdfx/preparePages.ts';
@@ -100,6 +102,43 @@ const meshPdf = (colorSpace: 'DeviceRGB' | 'DeviceCMYK', data: Uint8Array, bits?
       trailer: '/Root 1 0 R',
     },
   ]);
+
+const publicConversionInput = (): Uint8Array => {
+  const image = latin1Text(deflateZlib(Uint8Array.of(255, 0, 0, 0, 0, 255)));
+  return buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        {
+          number: 3,
+          body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</Font<</F1 6 0 R>>/XObject<</Im 7 0 R/Fm 10 0 R>>/Shading<</Sh 8 0 R>>>>/Contents 4 0 R>>',
+        },
+        {
+          number: 4,
+          body: streamBody(
+            '',
+            'q 0 g BT /F1 10 Tf 5 80 Td (K) Tj ET Q q 0.2 0.4 0.6 rg 5 55 25 12 re f Q q 25 0 0 12 5 35 cm /Im Do Q q 5 10 25 15 re W n /Sh sh Q q 1 0 0 1 50 45 cm /Fm Do Q',
+          ),
+        },
+        { number: 6, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+        { number: 7, body: streamBody('/Type/XObject/Subtype/Image/Width 2/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/FlateDecode', image) },
+        { number: 8, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[5 0 30 0]/Function 9 0 R/Extend[true true]>>' },
+        { number: 9, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+        {
+          number: 10,
+          body: streamBody(
+            '/Type/XObject/Subtype/Form/BBox[0 0 40 40]/Group<</S/Transparency/CS/DeviceRGB/I true>>/Resources<</ExtGState<</GS 11 0 R>>>>',
+            '0.8 0.2 0.1 rg 0 0 30 30 re f /GS gs 0.1 0.5 0.9 rg 10 10 30 30 re f',
+          ),
+        },
+        { number: 11, body: '<</Type/ExtGState/ca 0.65/BM/Multiply>>' },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+};
 
 const rgbVertices = [
   [255, 0, 0],
@@ -279,6 +318,28 @@ const measure = (before: Raster, after: Raster, interior = false) => {
   };
 };
 
+const measureRegion = (before: Raster, after: Raster, box: readonly [number, number, number, number]) => {
+  expect([before.width, before.height]).toStrictEqual([after.width, after.height]);
+  const [left, bottom, right, top] = box;
+  let pixels = 0;
+  let maximum = 0;
+  for (let row = 0; row < before.height; row++) {
+    const y = 100 - ((row + 0.5) * 100) / before.height;
+    if (y < bottom || y > top) continue;
+    for (let column = 0; column < before.width; column++) {
+      const x = ((column + 0.5) * 100) / before.width;
+      if (x < left || x > right) continue;
+      const offset = (row * before.width + column) * 4;
+      const first = [...before.samples.subarray(offset, offset + 4)].map(value => value / 255);
+      const second = [...after.samples.subarray(offset, offset + 4)].map(value => value / 255);
+      if (first.every(value => value === 0) && second.every(value => value === 0)) continue;
+      pixels++;
+      maximum = Math.max(maximum, deltaE2000(lab(first), lab(second)));
+    }
+  }
+  return { pixels, maximum };
+};
+
 const convertTransparency = (bytes: Uint8Array): Uint8Array => {
   const document = loadDocument(bytes);
   rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
@@ -338,6 +399,42 @@ const meshOriginal = meshPdf('DeviceRGB', mesh(rgbVertices)).bytes;
 const meshConverted = convertMeshToPdfX4(meshOriginal);
 
 describe('converted rendering', () => {
+  it('converts a mixed page through the public PDF/X-4 API and compares each rendered region', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-public-pdfx-'));
+    try {
+      const input = publicConversionInput();
+      const document = loadDocument(input);
+      convertToCmyk(document, {
+        sourceRgbProfile: source.bytes,
+        outputProfile: destination.bytes,
+        outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+        pdfx: { trapped: 'False', metadataDate, documentId: 'uuid:00000000-0000-0000-0000-000000000003' },
+      });
+      const output = document.save().toBytes();
+      const file = path.join(directory, 'converted.pdf');
+      await writeFile(file, output);
+      const qpdf = spawn('qpdf', ['--check', file]);
+      const closed: readonly unknown[] = await once(qpdf, 'close');
+      expect(closed[0]).toBe(0);
+      expect(checkPublicPdfX4(loadDocument(output)).summary).toBe('no-violation-found-by-these-rules');
+      const before = await render(directory, { name: 'mixed-before', bytes: input });
+      const after = await render(directory, { name: 'mixed-after', bytes: output });
+      // K-only text changes by up to 4.1 ΔE2000 under the output profile, and the explicit RGB group changes its blending space by up to 9.8; the other regions stay within 1.
+      const regions = [
+        { name: 'K-only text', box: [5, 79, 15, 90], bound: 4.1 },
+        { name: 'RGB vector', box: [7, 57, 28, 65], bound: 0.5 },
+        { name: 'Flate image', box: [7, 37, 28, 45], bound: 0.5 },
+        { name: 'axial shading', box: [7, 12, 28, 23], bound: 1 },
+        { name: 'RGB group', box: [52, 47, 88, 83], bound: 9.8 },
+      ] as const;
+      const differences = regions.map(region => ({ name: region.name, bound: region.bound, result: measureRegion(before, after, region.box) }));
+      expect(differences.map(({ result }) => result.pixels > 0)).toStrictEqual([true, true, true, true, true]);
+      for (const difference of differences) expect(difference.result.maximum).toBeLessThanOrEqual(difference.bound);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('verifies a converted PDF/X-4 fixture with qpdf, the diff gate and structural checks', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-render-'));
     try {
