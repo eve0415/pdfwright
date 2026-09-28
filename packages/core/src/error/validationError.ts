@@ -12,7 +12,8 @@ export type ValidationReason =
   | 'default-gray'
   | 'default-cmyk-conflict'
   | 'unreadable-resource'
-  | 'color-space';
+  | 'color-space'
+  | 'color-operator';
 
 export class ValidationError extends PdfwrightError {
   override readonly code = 'validation' as const;

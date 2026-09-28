@@ -1,0 +1,136 @@
+import { readFile } from 'node:fs/promises';
+
+import { describe, expect, it } from 'vitest';
+
+import { internalsOf } from '../document/documentInternals.ts';
+import { loadDocument } from '../document/loadDocument.ts';
+import { ValidationError } from '../error/validationError.ts';
+import { decodedData } from '../font/fontValues.ts';
+import { parseIccProfile } from '../icc/iccProfile.ts';
+import { pdfName } from '../object/pdfObject.ts';
+import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
+
+import { rewriteContentColors } from './rewriteContent.ts';
+import { rewritePageColors } from './rewritePage.ts';
+
+const fixture = async (name: string): Promise<Uint8Array> =>
+  Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
+const source = parseIccProfile(await fixture('sRGB.icm'));
+const destination = parseIccProfile(await fixture('fogra28l.icc'));
+const content =
+  '% preserve this comment\n0 0 0 rg 0 0 10 10 re f\n0.2 0.3 0.4 rg 20 0 10 10 re f\n0.7 g 40 0 10 10 re f\n/CS1 cs 0 sc 60 0 10 10 re f\n/CS2 cs 0.5 sc 80 0 10 10 re f\n';
+
+const pdf = (pieceInfo = false): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        {
+          number: 3,
+          body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ColorSpace<</CS1[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]/CS2[/Separation /#82b#82t#82s /DeviceCMYK<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 0 0 1]/N 1>>]>>>>${pieceInfo ? '/PieceInfo<</App<<>>>>' : ''}>>`,
+        },
+        { number: 4, body: streamBody('', content) },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+const pageText = (document: ReturnType<typeof loadDocument>): string => {
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('missing internals');
+  const page = document.get(document.page(0).reference);
+  if (page.kind !== 'dictionary') throw new Error('missing page');
+  const stream = internals.objects.deref(page.entries.get(pdfName('Contents').bytes));
+  if (stream?.kind !== 'stream') throw new Error('missing content stream');
+  const data = decodedData(internals, stream);
+  if (typeof data === 'string') throw new Error(data);
+  return latin1Text(data);
+};
+
+const spotName = (document: ReturnType<typeof loadDocument>): Uint8Array => {
+  const resources = document.page(0).resources();
+  const spaces = resources.get(pdfName('ColorSpace').bytes);
+  if (spaces?.kind !== 'dictionary') throw new Error('missing ColorSpace');
+  const separation = spaces.entries.get(pdfName('CS2').bytes);
+  if (separation?.kind !== 'array') throw new Error('missing Separation');
+  const [, name] = separation.items;
+  if (name?.kind !== 'name') throw new Error('missing colorant name');
+  return name.bytes;
+};
+
+describe('page colour conversion', () => {
+  it('rewrites RGB and calibrated gray paint while preserving untouched bytes', () => {
+    const document = loadDocument(pdf());
+    const report = rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    const text = pageText(document);
+    expect(report).toMatchObject({ operators: 4, kOnly: 2 });
+    expect(text).toContain('% preserve this comment\n0 0 0 1 k 0 0 10 10 re f');
+    expect(text).toContain('0.7 g 40 0 10 10 re f');
+    expect(text).toContain('/DeviceCMYK cs 0 0 0 1 sc');
+    expect(text).toContain('/CS2 cs 0.5 sc 80 0 10 10 re f');
+  });
+
+  it('keeps Shift_JIS Separation name bytes through conversion and save', () => {
+    const document = loadDocument(pdf());
+    const original = spotName(document);
+    rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    const saved = loadDocument(document.save().toBytes());
+    expect(document.save().mode).toBe('full');
+    expect(spotName(saved)).toStrictEqual(original);
+    expect(spotName(saved)).toStrictEqual(Uint8Array.of(0x82, 0x62, 0x82, 0x74, 0x82, 0x73));
+  });
+
+  it('respects intent state and exact-zero black for strokes', () => {
+    const document = loadDocument(pdf());
+    const raw = latin1Bytes('q /Perceptual ri 0.2 0.3 0.4 rg Q 0.2 0.3 0.4 rg 0 0 0 RG 0.004 0.004 0.004 rg');
+    const result = rewriteContentColors(document, raw, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination },
+    });
+    const text = latin1Text(result.bytes);
+    const converted = [...text.matchAll(/([\d.]+ [\d.]+ [\d.]+ [\d.]+) k/gu)].map(match => match[1]);
+    expect(converted).toHaveLength(3);
+    expect(converted[0]).not.toBe(converted[1]);
+    expect(text).toContain('0 0 0 1 K');
+    expect(text).not.toContain('0 0 0 1 k');
+    expect(result.kOnly).toBe(1);
+  });
+
+  it('sets the converted initial colour when black preservation is disabled', () => {
+    const document = loadDocument(pdf());
+    const result = rewriteContentColors(document, latin1Bytes('/CS1 cs 0 0 10 10 re f'), {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination, pureBlack: 'convert' },
+    });
+    const text = latin1Text(result.bytes);
+    expect(text).toContain('/DeviceCMYK cs');
+    expect(text).toMatch(/\/DeviceCMYK cs\s+[\d.]+ [\d.]+ [\d.]+ [\d.]+ sc/u);
+    expect(text).not.toContain('0 0 0 1 sc');
+  });
+
+  it('promotes DeviceGray only when selected', () => {
+    const document = loadDocument(pdf());
+    const raw = latin1Bytes('0.25 g /DeviceGray cs 0.5 sc');
+    const kept = rewriteContentColors(document, raw, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination },
+    });
+    const promoted = rewriteContentColors(document, raw, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination, deviceGray: 'promote-to-cmyk' },
+    });
+    expect(latin1Text(kept.bytes)).toBe(latin1Text(raw));
+    expect(latin1Text(promoted.bytes)).toBe('0 0 0 0.75 k /DeviceCMYK cs 0 0 0 0.5 sc');
+  });
+
+  it('refuses PieceInfo before writing a replacement stream', () => {
+    const document = loadDocument(pdf(true));
+    const original = pageText(document);
+    expect(() => {
+      rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'application-data' }));
+    expect(pageText(document)).toBe(original);
+  });
+});

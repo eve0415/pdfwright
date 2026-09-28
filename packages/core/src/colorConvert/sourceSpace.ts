@@ -16,6 +16,7 @@ import { pdfName } from '../object/pdfObject.ts';
 export type SourceSpace =
   | { readonly kind: 'rgb'; readonly source: ColorSource }
   | { readonly kind: 'gray'; readonly source: ColorSource }
+  | { readonly kind: 'deviceGray' }
   | { readonly kind: 'indexed'; readonly base: SourceSpace; readonly hival: number; readonly lookup: Uint8Array }
   | { readonly kind: 'separation' | 'deviceN'; readonly names: readonly Uint8Array[]; readonly alternate: SourceSpace; readonly tint: PdfObject }
   | { readonly kind: 'pattern'; readonly underlying?: SourceSpace }
@@ -132,7 +133,8 @@ const named = (context: ResolveContext, name: Uint8Array, visitSpace: Resolver):
     if (replacement !== undefined) return visitSpace(child(context, false), replacement);
     return { kind: 'rgb', source: { kind: 'icc', profile: context.fallback } };
   }
-  if (text === 'DeviceGray' || text === 'G' || text === 'DeviceCMYK' || text === 'CMYK' || text === 'Lab') return { kind: 'untouched' };
+  if (text === 'DeviceGray' || text === 'G') return { kind: 'deviceGray' };
+  if (text === 'DeviceCMYK' || text === 'CMYK' || text === 'Lab') return { kind: 'untouched' };
   if (text === 'Pattern') return { kind: 'pattern' };
   const resources = dictionary(context, context.resources.get(COLOR_SPACE));
   const value = resources?.get(name);
