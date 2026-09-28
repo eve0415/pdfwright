@@ -23,14 +23,14 @@ const parametric = (curve: Extract<Curve, { kind: 'parametric' }>, input: number
 
 export const evaluateCurve = (curve: Curve, input: number): number => {
   if (curve.kind === 'identity') return input;
-  if (curve.kind === 'gamma') return deterministicPow(input, curve.gamma);
+  if (curve.kind === 'gamma') return deterministicPow(clip(input), curve.gamma);
   if (curve.kind === 'table') return table(curve.values, input);
-  return clip(parametric(curve, input));
+  return clip(parametric(curve, clip(input)));
 };
 
 export const invertCurve = (curve: Curve, output: number): number => {
   if (curve.kind === 'identity') return output;
-  if (curve.kind === 'gamma') return deterministicPow(output, 1 / curve.gamma);
+  if (curve.kind === 'gamma') return deterministicPow(clip(output), 1 / curve.gamma);
   let low = 0;
   let high = 1;
   for (let index = 0; index < 40; index++) {
