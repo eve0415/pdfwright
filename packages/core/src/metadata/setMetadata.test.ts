@@ -559,6 +559,13 @@ describe('setting document metadata', () => {
     expect([plain[0] === plain[1], again[1] === plain[1], extra[0] === extra[1], extra[1] === plain[1]]).toStrictEqual([true, true, false, false]);
   });
 
+  it('keeps a caller-supplied InstanceID through later edits and saves', () => {
+    const document = load('');
+    const change = setMetadata(document, INPUT, { instanceId: 'uuid:given-instance' });
+    document.object(pdfInteger(1));
+    expect([change.instanceId, instanceIdOf(saved(document))]).toStrictEqual(['uuid:given-instance', 'uuid:given-instance']);
+  });
+
   it('derives different InstanceIDs for edits that set different values', () => {
     const ids = [
       editedInstanceId({ modificationDate: MODIFIED, title: 'A' }),

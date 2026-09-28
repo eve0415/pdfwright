@@ -33,6 +33,8 @@ import { xmpDateString } from './xmp/xmpDate.ts';
 export interface SetMetadataOptions extends ReadMetadataOptions {
   /** 'keep' (the default) keeps the packet's xmpMM:DocumentID, else derives it from the first file identifier; a value is written as given. */
   documentId?: 'keep' | { readonly value: string };
+  /** The xmpMM:InstanceID to write; by default the next save derives it deterministically. */
+  instanceId?: string;
   /** 'remove' (the default) requires the next save to rewrite the file, so that it holds one document packet; 'keep' allows an incremental update that leaves earlier packets in earlier revisions. */
   revisions?: 'remove' | 'keep';
   /** 'refuse' (the default) throws for a packet that cannot be read or edited; 'replace' writes a new packet and discards the old content. */
@@ -46,7 +48,7 @@ export interface MetadataChange {
   /** Metadata objects nothing reachable from the trailer referenced, which were deleted. */
   readonly deletedOrphans: readonly PdfReference[];
   readonly documentId: string;
-  /** The xmpMM:InstanceID a save of the document as it is now writes; an edit made before saving, or a catalog Version the save raises, changes what the save writes. */
+  /** The xmpMM:InstanceID a save of the document as it is now writes; when derived, an edit made before saving or a catalog Version the save raises changes it. */
   readonly instanceId: string;
   readonly saveMode: 'full-required' | 'incremental-required' | 'any';
   /** With revisions 'keep', how many packets an incremental update leaves in earlier revisions or in deleted objects; undefined when a full rewrite removes them. */
@@ -262,7 +264,7 @@ const prepare = (document: DocumentInternals, input: MetadataInput, options: Set
   const renditionClass = packetText(packet, 'RenditionClass');
   const documentId = documentIdOf(document, packet, options.documentId);
   const write = packetWriter(state.xmp, options, {
-    sample: managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID, versionId, renditionClass }),
+    sample: managedValues(resolved, input, { documentId, instanceId: options.instanceId ?? SAMPLE_INSTANCE_ID, versionId, renditionClass }),
     kept: resolved.kept,
   });
   const info = infoDictionary(state.info?.entries, resolved, input);
@@ -274,7 +276,7 @@ const prepare = (document: DocumentInternals, input: MetadataInput, options: Set
 
 /**
  * Sets the document information dictionary and the document's XMP packet from one input, so that they agree (XMP Part 3 Table 20), and deletes orphaned metadata streams.
- * The packet replaces the catalog's metadata stream in place, splicing the managed properties into it and keeping every other byte; xmpMM:DocumentID is kept, and xmpMM:InstanceID is derived when the document is saved from the DocumentID, the metadata date, the previous InstanceID and everything else the save writes.
+ * The packet replaces the catalog's metadata stream in place, splicing the managed properties into it and keeping every other byte; xmpMM:DocumentID is kept, and xmpMM:InstanceID is caller-set or derived when the document is saved from the DocumentID, the metadata date, the previous InstanceID and everything else the save writes.
  * By default the next save must rewrite the file, so that it holds exactly one document packet; documents whose signatures a rewrite could invalidate are then refused (ValidationError signed-document).
  * Everything is validated before anything changes. The reachability walk parses every object reachable from the trailer, and a rewrite unpacks any object stream holding a changed object, such as a compressed catalog.
  */
@@ -293,17 +295,20 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   else if (signatureProtection(internals) !== undefined) objects.requireIncrementalSave();
   const excluded = new Set([placement.packet.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
-  // The digest covers every other object the save writes, the Info dictionary included, and the packet as written with a placeholder of the InstanceID's fixed width, so that edits setting different values get different InstanceIDs.
+  // When the InstanceID is derived, the digest covers every other object the save writes, the Info dictionary included, and the packet with a fixed-width placeholder.
   const produce = (changes: ReadonlyMap<number, ObjectChange>, fractionDigits: number): ProducedPacket => {
     const serializeOptions = { store: objects.store, maxNesting: internals.maxNesting, fractionDigits };
     const serialize = ({ objectNumber, value }: { readonly objectNumber: number; readonly value: PdfObject }): Uint8Array =>
       changedObjectBytes(objectNumber, value, serializeOptions);
-    const draft = write(managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID, versionId, renditionClass }));
-    const digest = createMd5()
-      .update(changesDigest(changes, excluded, serialize))
-      .update(draft.bytes)
-      .digest();
-    const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: digest });
+    let { instanceId } = options;
+    if (instanceId === undefined) {
+      const draft = write(managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID, versionId, renditionClass }));
+      const digest = createMd5()
+        .update(changesDigest(changes, excluded, serialize))
+        .update(draft.bytes)
+        .digest();
+      instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: digest });
+    }
     const written = write(managedValues(resolved, input, { documentId, instanceId, versionId, renditionClass }));
     return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, written };
   };

@@ -78,4 +78,8 @@ describe('metadata in created documents', () => {
       packetText(bytes({ info: INFO, fileIdentifier: other, metadata: { xmp: true } }), 'DocumentID'),
     ]).toStrictEqual(['uuid:given', formatUuid(sixteen[0]), formatUuid(md5(other[0]))]);
   });
+
+  it('writes a caller-supplied InstanceID', () => {
+    expect(packetText(bytes({ info: INFO, metadata: { xmp: true, instanceId: 'uuid:given-instance' } }), 'InstanceID')).toBe('uuid:given-instance');
+  });
 });

@@ -18,6 +18,8 @@ export interface CreatedMetadataOptions {
   xmp: true;
   /** The xmpMM:DocumentID to write; by default it is derived from the first file identifier. */
   documentId?: string;
+  /** The xmpMM:InstanceID to write; by default it is derived deterministically from the document bytes. */
+  instanceId?: string;
 }
 
 const requireMetadataDate = (info: DocumentInfo | undefined): PdfDate => {
@@ -55,7 +57,7 @@ const SAMPLE_ID = 'uuid:00000000-0000-0000-0000-000000000000';
  */
 export const validateCreatedMetadata = (info: DocumentInfo | undefined, options: CreatedMetadataOptions): void => {
   const modified = xmpDateString(requireMetadataDate(info));
-  checkRepresentable(managedValues(info ?? {}, modified, { documentId: options.documentId ?? SAMPLE_ID, instanceId: SAMPLE_ID }));
+  checkRepresentable(managedValues(info ?? {}, modified, { documentId: options.documentId ?? SAMPLE_ID, instanceId: options.instanceId ?? SAMPLE_ID }));
 };
 
 const ENCODER = new TextEncoder();
@@ -89,7 +91,7 @@ export interface CreatedPacketInput {
 
 /**
  * The packet of a created document and the file identifier it is derived from: the caller's pair, or the MD5 of every other object and the trailer as both strings.
- * xmpMM:DocumentID is the first string formatted as a GUID (or its MD5 when it is not 16 bytes) unless the caller supplies one; xmpMM:InstanceID digests the same body in place of an edit's changes.
+ * xmpMM:DocumentID is the first string formatted as a GUID (or its MD5 when it is not 16 bytes) unless the caller supplies one; xmpMM:InstanceID uses the caller's value or digests the same body in place of an edit's changes.
  */
 export const createdPacket = (input: CreatedPacketInput): CreatedPacket => {
   const { info } = input;
@@ -97,7 +99,7 @@ export const createdPacket = (input: CreatedPacketInput): CreatedPacket => {
   const digest = bodyDigest(input.objects, input.trailer, input.fractionDigits);
   const fileIdentifier = input.fileIdentifier ?? [digest, digest];
   const documentId = resolveDocumentId({ existing: undefined, fileIdentifier: fileIdentifier[0], supplied: input.options.documentId });
-  const instanceId = deriveInstanceId({ documentId, metadataDate: modified, previous: undefined, changes: digest });
+  const instanceId = input.options.instanceId ?? deriveInstanceId({ documentId, metadataDate: modified, previous: undefined, changes: digest });
   const data = newPacket(managedValues(info, modified, { documentId, instanceId }));
   // ISO 32000-1:2008, Table 315: Type "shall be Metadata for a metadata stream", and Subtype "shall be XML"; the packet is left unfiltered, so that it stays visible to tools that do not parse PDF (14.3.2, NOTE 2).
   const dictionary = new PdfDictionaryEntries([
