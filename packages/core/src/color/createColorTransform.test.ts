@@ -8,7 +8,7 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { md5 } from '../hash/md5.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
-import { sourceEvaluator } from './profilePipeline.ts';
+import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
 
 const D50 = { x: 0.9642, y: 1, z: 0.8249 };
 const identity = { kind: 'identity' } as const;
@@ -79,6 +79,16 @@ describe('icc colour transforms', () => {
     const value = sourceEvaluator(gray, 'relativeColorimetric', 'icc')(Float64Array.of(0.5));
     expect(value.space).toBe('XYZ');
     expect(value.values).toStrictEqual([D50.x * 0.5, D50.y * 0.5, D50.z * 0.5]);
+  });
+
+  it('inverts gray Lab curves with L star rather than luminance', () => {
+    const gray: IccProfile = {
+      ...source(),
+      header: { ...source().header, colorSpace: 'Gray', pcs: 'Lab' },
+      colorants: undefined,
+      trc: { gray: identity },
+    };
+    expect(destinationEvaluator(gray, 'relativeColorimetric', 'icc')({ space: 'Lab', values: [50, 0, 0] })).toStrictEqual([0.5]);
   });
 
   it('selects the ICC lut8 Lab encoding by default and permits the alternate midpoint', () => {

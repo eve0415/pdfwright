@@ -125,8 +125,9 @@ export const destinationEvaluator = (profile: IccProfile, intent: RenderingInten
     const { trc } = profile;
     if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
     return input => {
-      const xyz = input.space === 'XYZ' ? input.values : labToXyz(input.values);
-      return [invertCurve(trc.gray, (xyz[1] ?? 0) / D50.y)];
+      // ICC.1:2022, F.2 uses the normalized achromatic PCS channel for the inverse gray TRC.
+      if (input.space === 'Lab') return [invertCurve(trc.gray, (input.values[0] ?? 0) / 100)];
+      return [invertCurve(trc.gray, (input.values[1] ?? 0) / D50.y)];
     };
   }
   return missing(`ICC ${String(colorSpaceChannels(profile.header.colorSpace))}-channel PCS-to-device direction is missing`);
