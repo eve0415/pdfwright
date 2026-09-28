@@ -18,10 +18,12 @@ This example writes a 100 × 60 mm page with bleed and trim boxes, a White spot 
 ```ts
 import type { SavedPdf } from '@pdfwright/core';
 
-import { cmyk, createDocument, mm, rect } from '@pdfwright/core';
+import { cmyk, createDocument, mm, pdfDate, rect } from '@pdfwright/core';
 
 export const writePrintPage = (): SavedPdf => {
-  const document = createDocument({ info: { title: 'White ink proof' } });
+  const document = createDocument({
+    info: { title: 'White ink proof', modificationDate: pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: 'Z' }) },
+  });
   const white = document.separation({ name: 'White', alternate: cmyk(0, 0, 0, 0.1) });
   const cut = document.separation({ name: 'Cut', alternate: cmyk(0, 0, 0, 0.5) });
   const page = document.addPage({
@@ -220,7 +222,7 @@ XMP reading accepts `readMetadata(document, { maxXmpTokens })`, and metadata edi
 
 The returned `MetadataChange` lists the values the edit discarded (`reconciled`), and its `findings` say what else a caller may need to know: a direct Info dictionary made indirect (`info-not-indirect`), a packet re-encoded as UTF-8 (`xmp-transcoded`), and values left as they were stored (`info-value-kept`, `xmp-value-kept`, `opaque-property-kept`).
 The edit walks every object reachable from the trailer and reads every other object in use to find orphaned metadata; parsed objects are cached up to `parsedObjectCacheBytes`, so objects that do not fit are parsed again on each pass. A rewrite unpacks any object stream that holds a changed object.
-`createDocument({ info, metadata: { xmp: true } })` writes a packet that agrees with Info in a new file; it requires `info.modificationDate` (`ValidationError` `metadata-date-required`) and derives the DocumentID from the first file identifier unless `metadata.documentId` gives one.
+`createDocument({ info })` writes an agreeing XMP packet by default; it requires `info.modificationDate` (`ValidationError` `metadata-date-required`) and derives the DocumentID from the first file identifier unless `metadata.documentId` gives one. Pass `metadata: { xmp: false }` to write Info without XMP.
 
 ## Colour conversion and PDF/X-4 checks
 

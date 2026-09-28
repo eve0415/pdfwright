@@ -37,9 +37,7 @@ const firstId = (data: Uint8Array): Uint8Array => {
 
 describe('metadata in created documents', () => {
   it('requires a modification date for XMP', () => {
-    expect(() => createDocument({ info: { title: 'T' }, metadata: { xmp: true } })).toThrow(
-      expect.objectContaining({ constructor: ValidationError, reason: 'metadata-date-required' }),
-    );
+    expect(() => createDocument({ info: { title: 'T' } })).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'metadata-date-required' }));
   });
 
   it('refuses values XMP cannot carry when the document is created', () => {
@@ -52,7 +50,7 @@ describe('metadata in created documents', () => {
   });
 
   it('writes a packet that agrees with Info, whose DocumentID is the first file identifier', () => {
-    const data = bytes({ info: INFO, metadata: { xmp: true } });
+    const data = bytes({ info: INFO });
     const metadata = readMetadata(loadDocument(data));
     expect([
       metadata.authority,
@@ -64,11 +62,11 @@ describe('metadata in created documents', () => {
     ]).toStrictEqual(['xmp', [], { document: 1, components: 0, orphans: 0, superseded: 0, insideOtherStreams: 0 }, [], true, true]);
   });
 
-  it('writes identical bytes for identical documents and none of it without the option', () => {
-    const plain = latin1Text(bytes({ info: INFO }));
-    const first = latin1Text(bytes({ info: INFO, metadata: { xmp: true } }));
-    const second = latin1Text(bytes({ info: INFO, metadata: { xmp: true } }));
-    expect([first === second, plain.includes('/Metadata')]).toStrictEqual([true, false]);
+  it('writes identical bytes by default and omits the packet with an explicit opt-out', () => {
+    const plain = latin1Text(bytes({ info: INFO, metadata: { xmp: false } }));
+    const first = latin1Text(bytes({ info: INFO }));
+    const second = latin1Text(bytes({ info: INFO }));
+    expect([first === second, first.includes('/Metadata'), plain.includes('/Metadata')]).toStrictEqual([true, true, false]);
   });
 
   it('uses a supplied DocumentID, or derives it from a supplied file identifier', () => {

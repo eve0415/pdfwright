@@ -39,8 +39,8 @@ export interface DocumentOptions {
   colorantPolicy?: { asciiOnly?: boolean };
   /** Information dictionary values for the new PDF. */
   info?: DocumentInfo;
-  /** Write an XMP packet that agrees with Info; info.modificationDate is then required. */
-  metadata?: CreatedMetadataOptions;
+  /** Info writes an agreeing XMP packet by default; { xmp: false } opts out. An XMP packet requires info.modificationDate. */
+  metadata?: CreatedMetadataOptions | { xmp: false };
 }
 
 export interface PageOptions {
@@ -182,7 +182,8 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
 
 /** Creates a new PDF document with pages and resources supplied by the caller. */
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
-  if (options.metadata !== undefined) validateCreatedMetadata(options.info, options.metadata);
+  const metadata = options.metadata ?? (options.info === undefined ? undefined : ({ xmp: true } as const));
+  if (metadata?.xmp === true) validateCreatedMetadata(options.info, metadata);
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined = undefined;
@@ -299,8 +300,8 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           trailer.set(pdfName('Info').bytes, pdfReference(number, 0));
         }
       }
-      const { metadata, info } = options;
-      if (metadata === undefined || info === undefined) return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
+      const { info } = options;
+      if (metadata?.xmp !== true || info === undefined) return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
       // ISO 32000-1:2008, Table 28, Metadata: the catalog names the document packet, the last object.
       const packetNumber = objects.length + 1;
       catalog.set(pdfName('Metadata').bytes, pdfReference(packetNumber, 0));

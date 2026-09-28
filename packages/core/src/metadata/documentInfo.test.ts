@@ -44,7 +44,7 @@ describe('document information', () => {
 
   it('uses PDFDocEncoding only for code points it maps to themselves', () => {
     const pdf = ascii(
-      createDocument({ info: { title: 'a\u0018b', author: '\u007F', subject: 'tab\there\r\n', keywords: '\u0001' } })
+      createDocument({ info: { title: 'a\u0018b', author: '\u007F', subject: 'tab\there\r\n', keywords: '\u0001' }, metadata: { xmp: false } })
         .save()
         .toBytes(),
     );
@@ -54,7 +54,13 @@ describe('document information', () => {
   });
 
   it('writes Trapped as a name', () => {
-    const texts = (['True', 'False', 'Unknown'] as const).map(trapped => ascii(createDocument({ info: { trapped } }).save().toBytes()));
+    const texts = (['True', 'False', 'Unknown'] as const).map(trapped =>
+      ascii(
+        createDocument({ info: { trapped }, metadata: { xmp: false } })
+          .save()
+          .toBytes(),
+      ),
+    );
     expect(texts.map(text => /\/Trapped\/(\w+)/u.exec(text)?.[1])).toStrictEqual(['True', 'False', 'Unknown']);
   });
 
@@ -68,12 +74,12 @@ describe('document information', () => {
 
   it('encodes supplementary Unicode with its surrogate pair and rejects malformed text', () => {
     const pdf = ascii(
-      createDocument({ info: { title: '😀' } })
+      createDocument({ info: { title: '😀' }, metadata: { xmp: false } })
         .save()
         .toBytes(),
     );
     expect(pdf).toContain('/Title<FEFFD83DDE00>');
-    expect(() => createDocument({ info: { title: '\uD800' } }).save()).toThrow(ValidationError);
+    expect(() => createDocument({ info: { title: '\uD800' }, metadata: { xmp: false } }).save()).toThrow(ValidationError);
   });
 });
 

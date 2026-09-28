@@ -1,9 +1,11 @@
 import type { SavedPdf } from '@pdfwright/core';
 
-import { cmyk, createDocument, mm, rect } from '@pdfwright/core';
+import { cmyk, createDocument, mm, pdfDate, rect } from '@pdfwright/core';
 
 export const writePrintPage = (): SavedPdf => {
-  const document = createDocument({ info: { title: 'White ink proof' } });
+  const document = createDocument({
+    info: { title: 'White ink proof', modificationDate: pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: 'Z' }) },
+  });
   const white = document.separation({ name: 'White', alternate: cmyk(0, 0, 0, 0.1) });
   const cut = document.separation({ name: 'Cut', alternate: cmyk(0, 0, 0, 0.5) });
   const page = document.addPage({
