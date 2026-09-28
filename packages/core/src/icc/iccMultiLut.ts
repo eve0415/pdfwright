@@ -55,8 +55,11 @@ const curves = (bytes: Uint8Array, config: { start: number; relative: number; co
   for (let index = 0; index < config.count; index++) {
     const item = readCurve(bytes, cursor, config.end);
     result.push(item.curve);
-    cursor += Math.ceil(item.consumed / 4) * 4;
-    if (cursor > config.end) fail(cursor);
+    // ICC.1:2022, 10.12.2 pads between embedded curves, not after the final curve.
+    if (index + 1 < config.count) {
+      cursor += Math.ceil(item.consumed / 4) * 4;
+      if (cursor > config.end) fail(cursor);
+    }
   }
   return result;
 };

@@ -22,6 +22,21 @@ describe('icc multi-process lut tags', () => {
     expect(lut.clut).toBeUndefined();
   });
 
+  it('accepts an unpadded final curve', () => {
+    const bytes = new Uint8Array(70);
+    bytes.set(new TextEncoder().encode('mAB '));
+    bytes[8] = 3;
+    bytes[9] = 3;
+    const view = new DataView(bytes.buffer);
+    view.setUint32(12, 32);
+    identityCurve(bytes, 32);
+    identityCurve(bytes, 44);
+    identityCurve(bytes, 56);
+    view.setUint32(64, 1);
+    view.setUint16(68, 256);
+    expect(readMultiLut(bytes, 0, bytes.length).b).toHaveLength(3);
+  });
+
   it('reads per-axis CLUT grid points in mBA and rejects invalid precision', () => {
     const bytes = new Uint8Array(168);
     const view = new DataView(bytes.buffer);
