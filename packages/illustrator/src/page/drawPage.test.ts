@@ -72,4 +72,26 @@ describe('visible Illustrator page', () => {
     expect(pdf).toContain('/Separation /White');
     expect(pdf).toContain('/Separation /Primer');
   });
+
+  it('draws layer and isolated group opacity outside their forms', () => {
+    const model: IllustratorDocument = {
+      artboard: { width: 50, height: 40 },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Primer',
+          opacity: 0.3,
+          items: [{ kind: 'group', opacity: 0.5, isolated: true, items: [path] }],
+        },
+      ],
+    };
+    const document = createDocument();
+    drawPage(document, model);
+    const pdf = new TextDecoder('latin1').decode(document.save().toBytes());
+    expect(pdf.match(/\/Subtype\/Form/gu)).toHaveLength(2);
+    expect(pdf).toContain('/I true');
+    expect(pdf).toContain('/I false');
+    expect(pdf).toContain('/ca 0.3');
+    expect(pdf).toContain('/ca 0.5');
+  });
 });

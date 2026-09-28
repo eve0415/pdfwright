@@ -1,8 +1,8 @@
 import type { Artboard, Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, RasterItem, SpotColor } from '../model/illustratorDocument.ts';
 import type { ImageRegistry } from './imageRegistry.ts';
-import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfImage, PdfPage, Separation } from '@pdfwright/core';
+import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfImage, PdfPage, PdfRect, Separation } from '@pdfwright/core';
 
-import { UnsupportedFeatureError, add, cmyk, pt, rect } from '@pdfwright/core';
+import { UnsupportedFeatureError, add, cmyk, negate, pt, rect } from '@pdfwright/core';
 
 import { artBounds } from '../geometry/bounds.ts';
 import { validateDocument } from '../model/validateDocument.ts';
@@ -13,6 +13,7 @@ interface PageResources {
   readonly document: PdfDocument;
   readonly separation: (spot: SpotColor) => Separation;
   readonly images: ImageRegistry;
+  readonly bbox: PdfRect;
 }
 
 const length = (value: Coordinate) => (typeof value === 'number' ? pt(value) : value);
@@ -110,7 +111,18 @@ const drawItem = (content: ContentBuilder, item: Item, resources: PageResources)
       break;
     }
     case 'group': {
-      throw new UnsupportedFeatureError('visible transparency-group drawing is not available yet');
+      const isolated = item.isolated === true;
+      const options = isolated
+        ? { bbox: resources.bbox, isolated: true, knockout: false, colorSpace: 'DeviceCMYK' as const }
+        : { bbox: resources.bbox, isolated: false, knockout: false };
+      const group = resources.document.group(options, groupContent => {
+        for (const child of item.items) drawItem(groupContent, child, resources);
+      });
+      content.save();
+      content.graphicsState({ fillAlpha: item.opacity ?? 1, strokeAlpha: item.opacity ?? 1 });
+      content.group(group, [1, 0, 0, 1, 0, 0]);
+      content.restore();
+      break;
     }
     default: {
       throw new UnsupportedFeatureError('unknown Illustrator item kind');
@@ -152,12 +164,23 @@ export const drawPage = (document: PdfDocument, model: IllustratorDocument): Pdf
     }
     return value;
   };
-  const resources: PageResources = { document, separation, images: createImageRegistry(document) };
+  const bbox = rect(negate(length(left)), negate(length(bottom)), add(width, length(right)), add(height, length(top)));
+  const resources: PageResources = { document, separation, images: createImageRegistry(document), bbox };
   page.draw(content => {
     content.transform(1, 0, 0, 1, left, bottom);
     for (const layer of model.layers) {
       if (layer.visible === false) continue;
-      for (const item of layer.items) drawItem(content, item, resources);
+      if (layer.opacity === undefined || layer.opacity === 1) {
+        for (const item of layer.items) drawItem(content, item, resources);
+      } else {
+        const group = document.group({ bbox, isolated: false, knockout: false }, groupContent => {
+          for (const item of layer.items) drawItem(groupContent, item, resources);
+        });
+        content.save();
+        content.graphicsState({ fillAlpha: layer.opacity, strokeAlpha: layer.opacity });
+        content.group(group, [1, 0, 0, 1, 0, 0]);
+        content.restore();
+      }
     }
   });
   return page;
