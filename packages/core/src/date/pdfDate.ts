@@ -3,6 +3,7 @@ import type { PdfDirectObject } from '../object/pdfObject.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pdfString } from '../object/pdfObject.ts';
 
+/** Calendar fields for `pdfDate`: year 0–9999, month 1–12, valid day, 24-hour clock, and a UTC offset up to 23:59; invalid fields raise ValidationError without a reason under ISO 32000-1:2008, 7.9.4. */
 export interface PdfDateComponents {
   readonly year: number;
   readonly month: number;
@@ -13,6 +14,7 @@ export interface PdfDateComponents {
   readonly offset: 'Z' | { readonly sign: '+' | '-'; readonly hours: number; readonly minutes: number };
 }
 
+/** A validated immutable PDF date created by `pdfDate`; all fields are required and ISO 32000-1:2008, 7.9.4 supplies the serialized form. */
 export interface PdfDate extends PdfDateComponents {
   readonly kind: 'pdfDate';
 }
@@ -76,8 +78,10 @@ export const pdfDateFromDate = (date: Date, offsetMinutes: number): PdfDate => {
   });
 };
 
+/** The last clock field present in a parsed date, from year through second; omitted fields take the defaults described by ISO 32000-1:2008, 7.9.4. */
 export type PdfDatePrecision = 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second';
 
+/** A parsed PDF date with its supplied precision and whether a zone was explicit; missing month and day become 01, time fields become zero, and the zone becomes Z under ISO 32000-1:2008, 7.9.4. */
 export interface ParsedPdfDate {
   /** The date with omitted fields at their defaults: month and day 01, the rest zero, and Z when no offset is given. */
   readonly date: PdfDate;

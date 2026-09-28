@@ -1,5 +1,6 @@
 import { ValidationError } from '../error/validationError.ts';
 
+/** A DeviceGray, DeviceRGB, or DeviceCMYK colour whose components are in 0–1; the constructors raise ValidationError without a reason outside that range under ISO 32000-1:2008, 8.6.8, Table 74. */
 export type DeviceColor =
   | { readonly kind: 'DeviceCMYK'; readonly components: readonly [number, number, number, number] }
   | { readonly kind: 'DeviceRGB'; readonly components: readonly [number, number, number] }

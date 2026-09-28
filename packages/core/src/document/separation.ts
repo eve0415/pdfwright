@@ -7,6 +7,7 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfNameFromBytes, pdfReal
 
 import { cmyk, gray, rgb } from './color.ts';
 
+/** A colorant name in text or raw bytes and its alternate colour; `All` and `None` require matching `allow` or raise ValidationError reason `reserved-colorant`, and optional ASCII policy raises `colorant-ascii-only` under ISO 32000-1:2008, 8.6.6.4. */
 export interface SeparationOptions {
   /** Colorant name as text or encoded PDF name bytes. */
   name: string | Uint8Array;

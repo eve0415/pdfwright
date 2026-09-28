@@ -30,6 +30,7 @@ import { pieceInfoRecord } from './pieceInfo.ts';
 import { rect } from './rect.ts';
 import { createContentHooks, createResourceRecord, resourceDictionary } from './resourceRecord.ts';
 
+/** Settings for a new PDF: five fractional digits by default, XMP with Info by default, and no ASCII-only colourant policy unless selected; XMP without modificationDate raises ValidationError reason `metadata-date-required` under ISO 32000-1:2008, 14.3–14.4. */
 export interface DocumentOptions {
   /** Decimal places for newly written reals; defaults to five. */
   fractionDigits?: number;
@@ -43,6 +44,7 @@ export interface DocumentOptions {
   metadata?: CreatedMetadataOptions | { xmp: false };
 }
 
+/** Defines required MediaBox and optional CropBox, BleedBox, TrimBox, ArtBox, and transparency group; each box must have nonzero area within MediaBox or raises ValidationError under ISO 32000-1:2008, 7.7.3.3, Table 30. */
 export interface PageOptions {
   /** Required page boundary rectangle. */
   mediaBox: PdfRect;
@@ -58,6 +60,7 @@ export interface PageOptions {
   group?: { colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' };
 }
 
+/** Creates pages, plates, images, groups, objects, and page-piece data, then saves buffered bytes; invalid page or colour inputs raise ValidationError, and ISO 32000-1:2008, 7.7–8.9 and 14.5 define the written structures. */
 export interface PdfDocument {
   addPage: (options: PageOptions) => PdfPage;
   separation: (options: SeparationOptions) => Separation;
@@ -68,6 +71,7 @@ export interface PdfDocument {
   save: () => BufferedSavedPdf;
 }
 
+/** Draws content and writes page-piece data on a new page; content uses the page coordinates and `PieceInfoInput` requires a caller date under ISO 32000-1:2008, 7.7.3.3 and 14.5. */
 export interface PdfPage {
   draw: (render: (content: ContentBuilder) => void) => void;
   pieceInfo: (input: PieceInfoInput) => void;

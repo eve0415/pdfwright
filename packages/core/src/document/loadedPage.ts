@@ -20,8 +20,10 @@ import { appendPageContent } from './appendContent.ts';
 import { addPageResource } from './pageResources.ts';
 import { rect } from './rect.ts';
 
+/** One of the five page boundaries defined by ISO 32000-1:2008, 7.7.3.3, Table 30. */
 export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox';
 
+/** A normalized page boundary with its explicit or inherited origin; inherited CropBox, BleedBox, TrimBox, and ArtBox values use ISO 32000-1:2008, 7.7.3.3, Table 30 defaults. */
 export interface EffectiveBox {
   /** Normalised to lower-left and upper-right corners. */
   readonly rect: readonly [number, number, number, number];
@@ -31,8 +33,10 @@ export interface EffectiveBox {
   readonly inheritedFrom?: PdfReference;
 }
 
+/** The five effective page boxes plus rotation and user-unit scaling after inheritance and defaults under ISO 32000-1:2008, 7.7.3.3–7.7.3.4. */
 export type EffectiveBoxes = Readonly<Record<BoxName, EffectiveBox>> & { readonly rotate: number; readonly userUnit: number };
 
+/** Reads effective page boxes and resources and edits boxes, content, date, and page-piece data; boxes must have nonzero area inside MediaBox and invalid edits raise ValidationError under ISO 32000-1:2008, 7.7.3.3, Table 30. */
 export interface LoadedPage {
   readonly index: number;
   readonly reference: PdfReference;

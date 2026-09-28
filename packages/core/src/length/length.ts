@@ -1,5 +1,6 @@
 import { decimalRational, formatRational } from '../number/decimal.ts';
 
+/** An exact rational distance in PDF points, with numerator and positive denominator; `pt`, `inch`, and `mm` construct it without rounding, and ISO 32000-1:2008, 8.3.2.3 defines 72 points per inch. */
 export interface Length {
   readonly numerator: bigint;
   readonly denominator: bigint;

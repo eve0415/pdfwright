@@ -2,6 +2,7 @@ import type { Length } from '../length/length.ts';
 
 import { compare } from '../length/length.ts';
 
+/** Four exact lengths for opposite corners of a PDF rectangle, normalized by `rect` under ISO 32000-1:2008, 7.9.5. */
 export type PdfRect = [Length, Length, Length, Length];
 
 // ISO 32000-1:2008, 7.9.5 accepts any two diagonally opposite corners of a rectangle.

@@ -13,6 +13,7 @@ export interface BufferedSavedPdf {
   toStream: () => ReadableStream<Uint8Array>;
 }
 
+/** A repeatable full save whose Flate image bytes are generated while `toStream` is read; `toBytes` and `chunks` materialize output, while no fixed output-size limit is imposed by this type under ISO 32000-1:2008, 7.5. */
 export interface StreamedSavedPdf extends SaveDetails {
   readonly kind: 'streamed';
   /** Generates the whole output again on every read, as one array of chunks. */
@@ -23,6 +24,7 @@ export interface StreamedSavedPdf extends SaveDetails {
   readonly measureByteLength: () => number;
 }
 
+/** Either buffered chunks or a repeatable streamed save, with mode and warnings; `toStream` reads the result and `toBytes` joins it under ISO 32000-1:2008, 7.5. */
 export type SavedPdf = BufferedSavedPdf | StreamedSavedPdf;
 
 export interface SaveDetails {

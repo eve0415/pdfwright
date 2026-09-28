@@ -8,8 +8,10 @@ import { pdfArray, pdfInteger, pdfName, pdfReference } from '../object/pdfObject
 
 import { separationObject } from './separation.ts';
 
+/** A device colour space or document-owned Separation for an image XObject under ISO 32000-1:2008, 8.9.5.1, Table 89. */
 export type ImageColorSpace = 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | Separation;
 
+/** Pixel dimensions and samples for a new image: ordinary images use 8-bit components, stencils use packed 1-bit rows, and an optional gray soft mask matches its dimensions; invalid sizes raise ValidationError without a reason under ISO 32000-1:2008, 8.9.5.1 and 11.6.5. */
 export type ImageOptions = {
   /** Image width in pixels. */
   width: number;

@@ -11,6 +11,7 @@ import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.t
 
 import { rect } from './rect.ts';
 
+/** Defines a transparency form bounding box and optional isolation, knockout, and compositing space; booleans default to false, and a colour space requires isolation or raises ValidationError without a reason under ISO 32000-1:2008, 11.6.6, Table 147. */
 export interface GroupOptions {
   /** Bounding box of the transparency group form. */
   bbox: PdfRect;

@@ -36,6 +36,7 @@ import { LoadLog } from './loadLog.ts';
 import { enumeratePages } from './pageTree.ts';
 import { readFromChain, reconstruct, versionNumber } from './readStructure.ts';
 
+/** Controls parsing and recovery: defaults are 16 MiB per decoded stream, nesting 256, page-tree depth 256, one million object-stream members, and an 8 MiB parsed-object cache; malformed input raises ParseError, limits raise ResourceLimitError, and ISO 32000-1:2008, 7.5 and 7.7 define the structures. */
 export interface LoadOptions {
   /** Largest decoded size of one stream, in bytes; default 16 MiB. */
   maxDecodedBytes?: number;
@@ -57,6 +58,7 @@ export interface LoadOptions {
   colorantPolicy?: { asciiOnly?: boolean };
 }
 
+/** Selects auto, incremental, or full save, defaulting to auto and five real fraction digits; table gaps are limited to 100,000 entries and generated cross-reference entries to ten million, with ResourceLimitError for overflow and InvalidArgumentError reason `signed-document` or `color-conversion` for forbidden rewrites under ISO 32000-1:2008, 7.5.6–7.5.8. */
 export interface SaveOptions {
   /** 'auto' (the default) appends an update to an intact file and rewrites any other or any whose edits require it; 'incremental' and 'full' choose one. */
   mode?: 'auto' | 'incremental' | 'full';
@@ -72,6 +74,7 @@ export interface SaveOptions {
   maxGeneratedXrefEntries?: number;
 }
 
+/** Reads and edits pages and indirect objects, then saves incrementally or in full; `page` is zero-based, decoded streams default to a 16 MiB cap, invalid calls raise InvalidArgumentError, and ISO 32000-1:2008, 7.3, 7.5, and 7.7 define its PDF objects. */
 export interface LoadedDocument {
   /** A copy of the structure, so that changing it cannot change what a save writes. */
   readonly structure: DocumentStructure;

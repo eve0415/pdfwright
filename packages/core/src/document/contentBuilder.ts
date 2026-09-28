@@ -8,8 +8,10 @@ import { ValidationError } from '../error/validationError.ts';
 import { formatLength } from '../length/length.ts';
 import { formatNumber } from '../number/formatNumber.ts';
 
+/** A PDF content operand expressed as a JavaScript number or exact `Length`; ISO 32000-1:2008, 8.3 defines the current user-space units. */
 export type ContentNumber = number | Length;
 
+/** Optional graphics-state changes for opacity, blend mode, overprint, and soft mask; omitted entries keep their current values, alpha is bounded to 0–1, and ISO 32000-1:2008, 8.4.5 and 11.6 define their effects. */
 export interface GraphicsStateOptions {
   /** Fill opacity from 0 to 1. */
   fillAlpha?: number;
@@ -50,6 +52,7 @@ export interface WhiteRequirement {
   readonly space: WhiteCondition;
 }
 
+/** Acknowledgment for paint that may disappear under white overprint; omission is false, and unacknowledged cases raise ValidationError with reason `invisible-overprint` under ISO 32000-1:2008, 8.6.7. */
 export interface PaintOptions {
   /** Allows painting that overprint settings may make invisible. */
   acknowledgeInvisibleOverprint?: boolean;
@@ -76,6 +79,7 @@ export interface ContentHooks {
   maxDepth?: number;
 }
 
+/** Adds move, line, cubic curve, rectangle, and close operators to a path using `ContentNumber` coordinates under ISO 32000-1:2008, 8.5.2. */
 export interface PathBuilder {
   moveTo: (...coordinates: [ContentNumber, ContentNumber]) => PathBuilder;
   lineTo: (...coordinates: [ContentNumber, ContentNumber]) => PathBuilder;
@@ -84,6 +88,7 @@ export interface PathBuilder {
   close: () => PathBuilder;
 }
 
+/** Writes page or form graphics operators, including paths, colour, images, and groups; invalid numeric or paint states raise ValidationError, including reason `invisible-overprint`, under ISO 32000-1:2008, 8.4–8.7. */
 export interface ContentBuilder {
   save: () => void;
   restore: () => void;

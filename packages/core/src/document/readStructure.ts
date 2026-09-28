@@ -26,6 +26,7 @@ import { ObjectStore } from './objectStore.ts';
  */
 export type StructureStatus = 'intact' | 'tolerated' | 'reconstructed';
 
+/** A copy of the parsed header, cross-reference sections, effective trailer, and structural status; reconstructed files have no section list under ISO 32000-1:2008, 7.5.4–7.5.8. */
 export interface DocumentStructure {
   readonly status: StructureStatus;
   readonly headerOffset: number;
