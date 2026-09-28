@@ -103,6 +103,9 @@ const checkResources = (document: LoadedDocument, destination: IccProfile, polic
 
 /** Checks conversion refusals without changing the document. */
 export const checkConversionRefusals = (document: LoadedDocument, destination: IccProfile, policy: ConversionPreflightPolicy = {}): void => {
+  if (destination.header.profileClass !== 'output' || destination.header.colorSpace !== 'CMYK') {
+    throw new ValidationError('colour conversion requires an output-class CMYK profile', 'color-space');
+  }
   checkApplicationData(document, policy);
   checkOutputIntents(document, destination, policy);
   checkResources(document, destination, policy);

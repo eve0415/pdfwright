@@ -28,6 +28,7 @@ const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
 const output = parseIccProfile(await fixture('fogra28l.icc'));
 const other = parseIccProfile(await fixture('synthetic-cmyk.icc'));
+const rgb = parseIccProfile(await fixture('sRGB.icm'));
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
   if (value.kind !== 'dictionary') throw new Error('expected dictionary');
@@ -74,6 +75,12 @@ const withDefault = (name: 'DefaultGray' | 'DefaultCMYK', profile?: Uint8Array):
 };
 
 describe('colour conversion preflight', () => {
+  it('requires an output-class CMYK destination', () => {
+    expect(() => {
+      checkConversionRefusals(loadDocument(base.bytes), rgb);
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+  });
+
   it.each(['catalog', 'page'] as const)('refuses %s PieceInfo before editing', owner => {
     const document = documentWith(owner, 'PieceInfo');
     expect(() => {
