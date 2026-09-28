@@ -3,9 +3,14 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
+import { samples } from '../../../../tests/fixtures/icc/samples.ts';
+import srgbV4Bytes from '../../../../tests/fixtures/icc/sRGB-v4.icc?icc-bytes';
+import syntheticBytes from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { md5 } from '../hash/md5.ts';
+import { parseIccProfile } from '../icc/iccProfile.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
@@ -161,6 +166,45 @@ describe('icc colour transforms', () => {
     }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('cacc8d97316e725b4d13f347e0acdae6');
+  });
+
+  it('keeps real profile transforms identical across runtimes over the full sample set', () => {
+    const fogra = parseIccProfile(fograBytes);
+    const synthetic = parseIccProfile(syntheticBytes);
+    const rgb = parseIccProfile(srgbV4Bytes);
+    const gamma: IccProfile = {
+      ...rgb,
+      trc: { red: { kind: 'gamma', gamma: 2.2 }, green: { kind: 'gamma', gamma: 2.1 }, blue: { kind: 'gamma', gamma: 2.4 } },
+    };
+    expect(rgb.trc).toMatchObject({ red: { kind: 'parametric' } });
+    expect(gamma.trc).toMatchObject({ red: { kind: 'gamma' } });
+    expect(fogra.deviceToPcs[1]?.kind).toBe('lut16');
+    const options = { intent: 'relativeColorimetric' as const, blackPointCompensation: true };
+    const parametricTransform = createColorTransform({ kind: 'icc', profile: rgb }, fogra, options);
+    const gammaTransform = createColorTransform({ kind: 'icc', profile: gamma }, synthetic, options);
+    const cmykTransform = createColorTransform({ kind: 'icc', profile: fogra }, synthetic, options);
+    const points = samples();
+    expect(points).toHaveLength(6189);
+    const bytes = new Uint8Array(points.length * 3 * 4 * 8);
+    const view = new DataView(bytes.buffer);
+    const output = new Float64Array(4);
+    for (const [index, [red, green, blue]] of points.entries()) {
+      const rgbInput = Float64Array.of(red / 255, green / 255, blue / 255);
+      const cmykInput = Float64Array.of((255 - red) / 255, (255 - green) / 255, (255 - blue) / 255, ((red * 3 + green * 5 + blue * 7) % 256) / 255);
+      const cases = [
+        { transform: parametricTransform, input: rgbInput },
+        { transform: gammaTransform, input: rgbInput },
+        { transform: cmykTransform, input: cmykInput },
+      ];
+      for (const [caseIndex, item] of cases.entries()) {
+        item.transform.convert(item.input, output);
+        for (let channel = 0; channel < 4; channel++) {
+          view.setFloat64(((index * cases.length + caseIndex) * 4 + channel) * 8, Number(output[channel]), true);
+        }
+      }
+    }
+    const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    expect(digest).toBe('7c57bd50c747a7f39716aaa9e1e56d7b');
   });
 
   it('converts 8 and 16 bit rows like scalar calls across cache collisions', () => {

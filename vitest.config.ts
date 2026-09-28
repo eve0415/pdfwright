@@ -1,6 +1,8 @@
 import type { Runtime } from './tests/providedContext.ts';
 import type { TestProjectInlineConfiguration } from 'vitest/config';
 
+import { readFile } from 'node:fs/promises';
+
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
@@ -33,6 +35,17 @@ const projects = (): TestProjectInlineConfiguration[] => {
 };
 
 export default defineConfig({
+  plugins: [
+    {
+      name: 'icc-fixture-bytes',
+      async load(id: string): Promise<string | undefined> {
+        const suffix = '?icc-bytes';
+        if (!id.endsWith(suffix)) return undefined;
+        const bytes = await readFile(id.slice(0, -suffix.length));
+        return `export default Uint8Array.from(atob('${bytes.toString('base64')}'), character => character.charCodeAt(0));`;
+      },
+    },
+  ],
   test: {
     restoreMocks: true,
     unstubEnvs: true,

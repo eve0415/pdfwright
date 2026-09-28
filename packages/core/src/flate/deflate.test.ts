@@ -152,7 +152,7 @@ describe('incremental deflate output', () => {
         offset += part.length;
       }
       expect(result).toStrictEqual(deflateZlib(input, { level }));
-      expect(Math.max(...parts.map(part => part.length))).toBeLessThan(1_100_000);
+      expect(Math.max(...parts.map(part => part.length))).toBeLessThanOrEqual(1024 * 1024 + 64);
     }
   });
 });
