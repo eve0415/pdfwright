@@ -9,10 +9,12 @@ import { readLut } from './iccLut.ts';
 import { readMultiLut } from './iccMultiLut.ts';
 import { parseIccStructure } from './iccStructure.ts';
 import { readCurve, readSf32, readXyz } from './iccTags.ts';
+import { readIccText } from './iccText.ts';
 
 export interface IccProfile {
   readonly header: IccHeader;
   readonly description: string | undefined;
+  readonly copyright: string | undefined;
   readonly mediaWhitePoint: Xyz | undefined;
   readonly mediaBlackPoint: Xyz | undefined;
   readonly chromaticAdaptation: Matrix3 | undefined;
@@ -44,6 +46,10 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
   const curve = (name: string): Curve | undefined => {
     const tag = tags.get(name);
     return tag === undefined ? undefined : readCurve(structure.bytes, tag.offset, tag.offset + tag.size).curve;
+  };
+  const text = (name: string): string | undefined => {
+    const tag = tags.get(name);
+    return tag === undefined ? undefined : readIccText(structure.bytes, tag.offset, tag.offset + tag.size);
   };
   const red = xyz('rXYZ');
   const green = xyz('gXYZ');
@@ -82,7 +88,8 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
   };
   return {
     header: structure.header,
-    description: undefined,
+    description: text('desc'),
+    copyright: text('cprt'),
     mediaWhitePoint: xyz('wtpt'),
     mediaBlackPoint: xyz('bkpt'),
     chromaticAdaptation: chad === undefined ? undefined : readSf32(structure.bytes, chad.offset, chad.offset + chad.size),
