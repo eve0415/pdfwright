@@ -1,5 +1,6 @@
 import type { IccProfile } from '../icc/iccProfile.ts';
 
+import { cmyk } from '../document/color.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { createDocument } from '../document/pdfDocument.ts';
 import { rect } from '../document/rect.ts';
@@ -23,9 +24,13 @@ export const imageConversionFixture = (): Uint8Array => {
   }
   const document = createDocument();
   const image = document.image({ width: WIDTH, height: HEIGHT, colorSpace: 'DeviceRGB', bitsPerComponent: 8, samples });
+  const plate = document.separation({ name: 'Varnish', alternate: cmyk(0, 0, 0, 0.2) });
   const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(600), pt(300)) });
   page.draw(content => {
     content.image(image, [600, 0, 0, 300, 0, 0]);
+    content.fillColor(plate, 1);
+    content.path(path => path.rect(20, 20, 100, 100));
+    content.fill('nonzero');
   });
   return document.save().toBytes();
 };

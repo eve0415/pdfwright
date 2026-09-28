@@ -59,6 +59,7 @@ interface ImageScan {
   readonly plans: ImagePlan[];
   readonly seen: Map<number, string>;
   readonly uses: Map<number, RenderingIntent>;
+  readonly transforms: Map<string, ColorTransform>;
   readonly activeForms: Set<number>;
 }
 
@@ -164,11 +165,16 @@ const transformFor = (scan: ImageScan, image: PdfStream, selection: { source: Co
     scan.options.intent === undefined || scan.options.intent === 'document'
       ? (intentName(deref(scan, image.dictionary.get(INTENT))) ?? scan.uses.get(selection.reference.objectNumber) ?? 'relativeColorimetric')
       : scan.options.intent;
-  return createColorTransform(selection.source, scan.options.outputProfile, {
+  const key = `${intent}:${selection.source.kind === 'icc' ? [...selection.source.profile.identity].join(',') : JSON.stringify(selection.source)}`;
+  const cached = scan.transforms.get(key);
+  if (cached !== undefined) return cached;
+  const transform = createColorTransform(selection.source, scan.options.outputProfile, {
     intent,
     blackPointCompensation: scan.options.blackPointCompensation !== false,
     lut8LabEncoding: scan.options.lut8LabEncoding ?? 'icc',
   });
+  scan.transforms.set(key, transform);
+  return transform;
 };
 
 const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): number[] | undefined => {
@@ -576,7 +582,7 @@ export const convertImages = (document: LoadedDocument, options: RewriteColorOpt
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const scan: ImageScan = { document, internals, options, plans: [], seen: new Map(), uses: new Map(), activeForms: new Set() };
+  const scan: ImageScan = { document, internals, options, plans: [], seen: new Map(), uses: new Map(), transforms: new Map(), activeForms: new Set() };
   if (options.intent === undefined || options.intent === 'document') {
     for (let page = 0; page < document.pageCount; page++) scanPageUses(scan, page);
   }
@@ -592,5 +598,7 @@ export const convertImages = (document: LoadedDocument, options: RewriteColorOpt
     });
     if (unreadable.length > 0) throw new ValidationError('image resources cannot be read', 'unreadable-resource');
   }
-  return applyPlans(scan);
+  const report = applyPlans(scan);
+  scan.plans.length = 0;
+  return report;
 };
