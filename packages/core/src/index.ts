@@ -36,6 +36,8 @@ export { writeGtsPdfxOutputIntent } from './pdfx/writeOutputIntent.ts';
 export type { OutputIntentChange, OutputIntentOptions } from './pdfx/writeOutputIntent.ts';
 export { writePdfX4Metadata } from './pdfx/writeMetadata.ts';
 export type { PdfX4MetadataOptions } from './pdfx/writeMetadata.ts';
+export { preparePdfX4Pages } from './pdfx/preparePages.ts';
+export type { PdfX4PageChange, PdfX4PageOptions } from './pdfx/preparePages.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
