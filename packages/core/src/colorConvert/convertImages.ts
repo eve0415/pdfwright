@@ -380,7 +380,8 @@ const transcodeJpegImage = (
   // ISO 32000-1:2008, 7.4.8, Table 13: DecodeParms ColorTransform applies only when Adobe APP14 does not override it.
   const maxRowBytes = Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES);
   const colorTransform = jpegColorTransform(scan, image);
-  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes } : { maxRowBytes, colorTransform });
+  const { maxDecodedBytes } = scan.internals;
+  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes, maxDecodedBytes } : { maxRowBytes, maxDecodedBytes, colorTransform });
   if (jpeg.components !== 3 || jpeg.width !== geometry.width || jpeg.height !== geometry.height) {
     return invalid('JPEG frame geometry differs from the image dictionary');
   }

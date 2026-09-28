@@ -13,6 +13,7 @@ import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
@@ -46,6 +47,31 @@ const jpegFixture = async (): Promise<Uint8Array> => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+};
+
+const jpegSegment = (marker: number, payload: readonly number[]): number[] => [
+  255,
+  marker,
+  Math.floor((payload.length + 2) / 256),
+  (payload.length + 2) % 256,
+  ...payload,
+];
+
+const largeZeroJpeg = (): Uint8Array => {
+  const huffman = (selector: number): number[] => jpegSegment(0xc4, [selector, 1, ...Array.from({ length: 15 }, () => 0), 0]);
+  const entropy = new Uint8Array(49_152);
+  return Uint8Array.from([
+    255,
+    0xd8,
+    ...jpegSegment(0xdb, [0, ...Array.from({ length: 64 }, () => 1)]),
+    ...huffman(0),
+    ...huffman(0x10),
+    ...jpegSegment(0xc0, [8, 4, 0, 32, 0, 3, 1, 0x22, 0, 2, 0x11, 0, 3, 0x11, 0]),
+    ...jpegSegment(0xda, [3, 1, 0, 2, 0, 3, 0, 0, 63, 0]),
+    ...entropy,
+    255,
+    0xd9,
+  ]);
 };
 
 const streamed = (saved: SavedPdf): StreamedSavedPdf => {
@@ -448,6 +474,23 @@ describe('image colour conversion', () => {
     const image = namedImage(loadDocument(chunks), 'PWIM0');
     expect(image.dictionary.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
     expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('FlateDecode'));
+  });
+
+  it('limits total decoded JPEG bytes in XObject and inline transcode', () => {
+    const jpeg = largeZeroJpeg();
+    expect(jpeg).toHaveLength(49_302);
+    expect(() => decodeJpeg(jpeg, { maxDecodedBytes: 1_048_576 })).toThrow(ResourceLimitError);
+    const xobject = loadDocument(imagePdf('DCTDecode', jpeg, { width: 8192, height: 1024 }), { maxDecodedBytes: 1_048_576 });
+    expect(() => convertImages(xobject, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
+      ResourceLimitError,
+    );
+
+    const inline = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels)), { maxDecodedBytes: 1_048_576 });
+    const content = joined([new TextEncoder().encode('BI /W 8192 /H 1024 /BPC 8 /CS /RGB /F /DCT ID\n'), jpeg, new TextEncoder().encode('\nEI')]);
+    inline.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
+    expect(() => rewritePageColors(inline, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
+      ResourceLimitError,
+    );
   });
 
   it('honours DCT DecodeParms ColorTransform without Adobe APP14', async () => {

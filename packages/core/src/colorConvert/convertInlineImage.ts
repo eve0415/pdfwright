@@ -154,7 +154,8 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
   const maxRowBytes = Math.min(internals.maxDecodedBytes, 4 * 1024 * 1024);
   const colorTransform = inlineColorTransform(values);
   // ISO 32000-1:2008, 7.4.8, Table 13: APP14 overrides an inline image's DecodeParms ColorTransform.
-  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes } : { maxRowBytes, colorTransform });
+  const { maxDecodedBytes } = internals;
+  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes, maxDecodedBytes } : { maxRowBytes, maxDecodedBytes, colorTransform });
   if (jpeg.components !== 3 || jpeg.width !== width || jpeg.height !== height) return invalid('inline JPEG frame geometry differs from its dictionary');
   for (const row of jpeg.rows()) void row;
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
