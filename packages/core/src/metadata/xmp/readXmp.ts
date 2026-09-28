@@ -29,7 +29,7 @@ export interface XmpProperty {
   readonly value: XmpValue;
 }
 
-export type XmpFindingCode = 'xmp-not-utf8' | 'rdf-about-unprefixed' | 'rdf-about-mismatch' | 'duplicate-property';
+export type XmpFindingCode = 'xmp-not-utf8' | 'rdf-about-unprefixed' | 'rdf-about-mismatch' | 'duplicate-property' | 'extra-xmp-packet';
 
 export interface XmpFinding {
   readonly code: XmpFindingCode;
@@ -55,6 +55,8 @@ export interface ReadProperty extends XmpProperty {
 /** A packet as read, with what an edit of it needs: the decoded text and where the rdf:RDF element ends. */
 export interface ReadPacket extends XmpPacket {
   readonly text: string;
+  /** Text offset just after the first xpacket trailer, when one is present. */
+  readonly packetEnd: number | undefined;
   readonly properties: readonly ReadProperty[];
   /** Offset of the rdf:RDF end tag in the text, or of the "/>" that closes it when it is an empty-element tag. */
   readonly rdfEnd: number;
@@ -189,6 +191,7 @@ const collectArrayItem = (parent: XmlElement | undefined, item: XmlElement): voi
 interface BuiltTree {
   readonly rdfs: readonly XmlElement[];
   readonly instructions: readonly string[];
+  readonly packetEnd: () => number | undefined;
   readonly accept: (token: XmlToken) => void;
 }
 
@@ -196,6 +199,7 @@ interface BuiltTree {
 const createTreeBuilder = (): BuiltTree => {
   const rdfs: XmlElement[] = [];
   const instructions: string[] = [];
+  let packetEnd: number | undefined = undefined;
   const stack: OpenElement[] = [];
   const accept = (token: XmlToken): void => {
     const parent = stack.at(-1);
@@ -210,9 +214,12 @@ const createTreeBuilder = (): BuiltTree => {
       stack.pop();
       collectArrayItem(stack.at(-1)?.element, parent.element);
     } else if ((token.kind === 'text' || token.kind === 'cdata') && parent !== undefined) parent.element.text.push(token.text);
-    else if (token.kind === 'pi' && token.target === 'xpacket') instructions.push(token.content);
+    else if (token.kind === 'pi' && token.target === 'xpacket') {
+      instructions.push(token.content);
+      if (token.content.startsWith('end=')) packetEnd = token.span.end;
+    }
   };
-  return { rdfs, instructions, accept };
+  return { rdfs, instructions, packetEnd: () => packetEnd, accept };
 };
 
 const isRdf = (element: XmlElement, localName: string): boolean => element.namespace === RDF_NAMESPACE && element.localName === localName;
@@ -346,13 +353,19 @@ const readTree = (text: string, encoding: XmlEncoding, tree: BuiltTree): ReadPac
   for (const { namespace, localName, form, textSpan, value } of found) {
     properties.push({ namespace, localName, form, textSpan, value, span: { start: offsets.get(textSpan.start) ?? 0, end: offsets.get(textSpan.end) ?? 0 } });
   }
+  const packetEnd = tree.packetEnd();
+  const findings = findingsOf(encoding, subjects, properties);
+  if (packetEnd !== undefined && text.slice(packetEnd).includes('<?xpacket begin=')) {
+    findings.push({ code: 'extra-xmp-packet', detail: 'another XMP packet follows the document packet trailer' });
+  }
   return {
     encoding,
     wrapper: wrapper(tree.instructions),
     subject: subjects.values.find(value => value !== '') ?? '',
     properties,
-    findings: findingsOf(encoding, subjects, properties),
+    findings,
     text,
+    packetEnd,
     rdfEnd: rdf.selfClosing ? rdf.span.end - 2 : rdf.endTagStart,
     rdfEmptyTag: rdf.selfClosing ? rdf.name : undefined,
     rdfLanguage: rdf.language,

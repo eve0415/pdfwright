@@ -51,6 +51,11 @@ const unreadable = (metadata: DocumentMetadata): string | undefined =>
 const codes = (metadata: DocumentMetadata): readonly string[] => metadata.findings.map(finding => finding.code);
 
 describe('reading document metadata', () => {
+  it('reports an extra packet inside the catalog metadata stream', () => {
+    const metadata = read('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', `${PRODUCER}${PRODUCER}`) }], '');
+    expect(codes(metadata)).toContain('extra-xmp-packet');
+  });
+
   it('finds a component packet inside a direct dictionary in the catalog', () => {
     const metadata = read('/Metadata 4 0 R/Extra<</Metadata 4 0 R>>', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', PRODUCER) }], '');
     expect(metadata.packets.components).toStrictEqual([

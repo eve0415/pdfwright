@@ -14,6 +14,7 @@ export type MetadataFindingCode =
   | 'xmp-unreadable'
   | 'xmp-doctype'
   | 'xmp-not-utf8'
+  | 'extra-xmp-packet'
   | 'rdf-about-unprefixed'
   | 'rdf-about-mismatch'
   | 'trapped-not-name'

@@ -121,7 +121,10 @@ export const splicePacket = (
       return (expected.has(name) && !keptNames.has(name)) || LEGACY.has(name);
     })
     .toSorted((left, right) => left.textSpan.start - right.textSpan.start);
-  const { text } = packet;
+  const text =
+    packet.packetEnd !== undefined && packet.findings.some(finding => finding.code === 'extra-xmp-packet')
+      ? packet.text.slice(0, packet.packetEnd)
+      : packet.text;
   let result = '';
   let from = 0;
   for (const property of removed) {

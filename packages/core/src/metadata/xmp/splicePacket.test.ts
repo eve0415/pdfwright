@@ -58,6 +58,14 @@ const KEPT_END = '\n</rdf:Description>\n';
 const TRAILER = `</rdf:RDF>\n</x:xmpmeta>\n${' '.repeat(100)}\n<?xpacket end="w"?>`;
 
 describe('splicing managed properties into an existing packet', () => {
+  it('discards a second packet after the first packet trailer', () => {
+    const first = `${KEPT_START}${KEPT_MIDDLE}${KEPT_END}${TRAILER}`;
+    const second = `${KEPT_START}${KEPT_MIDDLE}${KEPT_END}${TRAILER}`;
+    const result = new TextDecoder().decode(splice(`${first}${second}`)?.bytes);
+    expect(result.split('<?xpacket begin=').length - 1).toBe(1);
+    expect(result.slice(-TRAILER.length)).toBe(TRAILER);
+  });
+
   it('removes managed and legacy properties, inserts one rdf:Description, and copies every other byte', () => {
     const source = KEPT_START + REMOVED_ATTRIBUTE + KEPT_MIDDLE + REMOVED_LEGACY + KEPT_HISTORY + REMOVED_TITLE + KEPT_END + TRAILER;
     const description = managedDescription(VALUES, { about: 'uuid:subject', declareRdf: true, resetLanguage: true });

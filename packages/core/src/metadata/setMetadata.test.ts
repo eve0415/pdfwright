@@ -175,6 +175,19 @@ const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
 
 describe('setting document metadata', () => {
+  it('keeps one packet after editing a metadata stream with two concatenated packets', () => {
+    const document = load('/Metadata 4 0 R', [
+      {
+        number: 4,
+        body: streamBody('/Type/Metadata/Subtype/XML', `${packet('<pdf:Producer>old</pdf:Producer>')}${packet('<pdf:Producer>stale</pdf:Producer>')}`),
+      },
+    ]);
+    expect(codes(document)).toContain('extra-xmp-packet');
+    setMetadata(document, INPUT);
+    const reloaded = saved(document);
+    expect([packetCount(document), codes(reloaded), agreements(reloaded)['Producer']]).toStrictEqual([1, [], 'agree']);
+  });
+
   it('reports the rewrite requirement retained from an earlier metadata edit', () => {
     const document = load('');
     setMetadata(document, INPUT);

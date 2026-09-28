@@ -139,6 +139,11 @@ describe('reading XMP packets', () => {
     ]);
   });
 
+  it('finds a second packet after the first packet trailer', () => {
+    const first = packet('<rdf:Description rdf:about=""/>');
+    expect(findings(`${first}${packet('<rdf:Description rdf:about=""/>')}`)).toStrictEqual(['extra-xmp-packet']);
+  });
+
   it('accepts a missing, empty, unprefixed or mixed about and reports the subject', () => {
     expect([
       subject(descriptions('')),
