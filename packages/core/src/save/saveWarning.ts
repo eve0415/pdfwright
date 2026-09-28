@@ -1,4 +1,10 @@
-export type SaveWarningCode = 'duplicate-key-resolved' | 'linearization-invalidated' | 'linearization-removed' | 'version-raised' | 'junk-dropped';
+export type SaveWarningCode =
+  | 'duplicate-key-resolved'
+  | 'linearization-invalidated'
+  | 'linearization-removed'
+  | 'version-raised'
+  | 'version-lowered'
+  | 'junk-dropped';
 
 export interface SaveWarning {
   readonly code: SaveWarningCode;

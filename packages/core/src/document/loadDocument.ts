@@ -141,6 +141,8 @@ class LoadedPdf implements LoadedDocument {
   private readonly base: SaveBase | undefined;
   private readonly maxNesting: number;
   private readonly maxDecodedBytes: number;
+  private pdfx4Version = false;
+  private pdfx4CatalogLowered = false;
 
   constructor(parts: LoadedParts) {
     this.base = parts.read.base;
@@ -157,6 +159,10 @@ class LoadedPdf implements LoadedDocument {
       base: this.base,
       maxDecodedBytes: parts.maxDecodedBytes,
       maxNesting: parts.maxNesting,
+      lowerPdfX4Version: catalogLowered => {
+        this.pdfx4Version = true;
+        this.pdfx4CatalogLowered ||= catalogLowered;
+      },
     });
   }
 
@@ -272,6 +278,8 @@ class LoadedPdf implements LoadedDocument {
     }
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = [];
+    const lowerVersion = this.pdfx4Version && versionNumber(this.read.headerVersion) > 16;
+    if (lowerVersion || this.pdfx4CatalogLowered) warnings.push({ code: 'version-lowered', detail: 'the PDF version was lowered to 1.6 for PDF/X-4 output' });
     this.versionChange(changes, warnings);
     const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
     this.objects.saveHook?.(changes, { fractionDigits });
@@ -282,7 +290,7 @@ class LoadedPdf implements LoadedDocument {
       trailerChanges: this.objects.trailerChanges,
       size: this.objects.size + produced.size,
       produced,
-      structure: this.read,
+      structure: lowerVersion ? { ...this.read, headerVersion: '1.6' } : this.read,
       base: this.base,
       fractionDigits,
       maxNesting: this.maxNesting,

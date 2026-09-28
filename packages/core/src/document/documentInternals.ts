@@ -12,6 +12,8 @@ export interface DocumentInternals {
   readonly base: SaveBase | undefined;
   readonly maxDecodedBytes: number;
   readonly maxNesting: number;
+  /** Selects a PDF 1.6 header for a full rewrite when the source declares a later version. */
+  readonly lowerPdfX4Version: (catalogLowered: boolean) => void;
 }
 
 const internals = new WeakMap<LoadedDocument, DocumentInternals>();

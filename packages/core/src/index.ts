@@ -32,6 +32,8 @@ export { createColorTransform } from './color/createColorTransform.ts';
 export type { ColorSource, ColorTransform, ColorTransformOptions } from './color/createColorTransform.ts';
 export { registeredPrintingConditions } from './pdfx/printingConditions.ts';
 export type { PrintingCondition } from './pdfx/printingConditions.ts';
+export { writeGtsPdfxOutputIntent } from './pdfx/writeOutputIntent.ts';
+export type { OutputIntentChange, OutputIntentOptions } from './pdfx/writeOutputIntent.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
