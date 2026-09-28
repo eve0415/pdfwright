@@ -133,6 +133,7 @@ const meshParameters = (config: {
     outputComponentBits: Math.max(componentBits, 8),
     flagBits,
     channels,
+    outputChannels: 4,
     decode: arrayNumbers(shading.dictionary.get(DECODE), 4 + channels * 2),
     transform,
     maxBytes,

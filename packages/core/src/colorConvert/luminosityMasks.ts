@@ -59,7 +59,8 @@ interface GrayXObjectPlan {
 interface GrayShadingPlan {
   readonly name: Uint8Array;
   readonly dictionary: PdfDictionaryEntries;
-  readonly functionPlan: GrayFunctionPlan;
+  readonly functionPlan: GrayFunctionPlan | undefined;
+  readonly data: Uint8Array | undefined;
 }
 
 interface MaskResource {
@@ -252,8 +253,9 @@ const planGrayShadings = (
     if (seen.has(key)) continue;
     seen.add(key);
     const shading = scan.internals.objects.deref(category.entries.get(operand.bytes));
-    if (shading?.kind !== 'dictionary') throw new UnsupportedFeatureError('luminosity mesh shading is unsupported');
-    const color = shading.entries.get(COLOR_SPACE_ENTRY);
+    if (shading?.kind !== 'dictionary' && shading?.kind !== 'stream') throw new ValidationError('luminosity shading is missing', 'color-space');
+    const shadingEntries = shading.kind === 'dictionary' ? shading.entries : shading.dictionary;
+    const color = shadingEntries.get(COLOR_SPACE_ENTRY);
     if (color === undefined) throw new ValidationError('luminosity shading ColorSpace is missing', 'color-space');
     const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (space.kind === 'gray') continue;
@@ -582,8 +584,9 @@ const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: re
   const shadings = new Entries(original.entries.entries());
   for (const plan of plans) {
     const dictionary = new Entries(plan.dictionary.entries());
-    dictionary.set(pdfName('Function').bytes, writeGrayFunction(scan, plan.functionPlan));
-    shadings.set(plan.name, scan.document.object(pdfDictionary(dictionary)));
+    if (plan.functionPlan !== undefined) dictionary.set(pdfName('Function').bytes, writeGrayFunction(scan, plan.functionPlan));
+    const object = plan.data === undefined ? pdfDictionary(dictionary) : { kind: 'stream' as const, dictionary, data: plan.data };
+    shadings.set(plan.name, scan.document.object(object));
   }
   const mapped = new Entries(resources.entries());
   mapped.set(SHADING, pdfDictionary(shadings));

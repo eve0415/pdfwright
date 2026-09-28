@@ -13,15 +13,24 @@ import { createPdfFunction } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
 
+import { convertMeshSamples } from './meshSamples.ts';
+
 const FUNCTION = pdfName('Function').bytes;
 const DOMAIN = pdfName('Domain').bytes;
 const SHADING_TYPE = pdfName('ShadingType').bytes;
 const COLOR_SPACE = pdfName('ColorSpace').bytes;
 const BACKGROUND = pdfName('Background').bytes;
+const BITS_PER_COORDINATE = pdfName('BitsPerCoordinate').bytes;
+const BITS_PER_COMPONENT = pdfName('BitsPerComponent').bytes;
+const BITS_PER_FLAG = pdfName('BitsPerFlag').bytes;
+const DECODE = pdfName('Decode').bytes;
+const FILTER = pdfName('Filter').bytes;
+const DECODE_PARMS = pdfName('DecodeParms').bytes;
 
 export interface GrayFunctionShading {
   readonly dictionary: PdfDictionaryEntries;
-  readonly functionPlan: GrayFunctionPlan;
+  readonly functionPlan: GrayFunctionPlan | undefined;
+  readonly data: Uint8Array | undefined;
 }
 
 export type GrayFunctionPlan =
@@ -32,6 +41,18 @@ const numeric = (value: PdfDirectObject): number => {
   if (value.kind === 'integer') return value.value;
   if (value.kind === 'real' && typeof value.value === 'number') return value.value;
   throw new ValidationError('luminosity shading number is invalid', 'color-space');
+};
+
+const integer = (dictionary: PdfDictionaryEntries, key: Uint8Array): number => {
+  const value = dictionary.get(key);
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value)) throw new ValidationError('luminosity mesh bit width is invalid', 'color-space');
+  return value.value;
+};
+
+const decodeArray = (dictionary: PdfDictionaryEntries, count: number): number[] => {
+  const value = dictionary.get(DECODE);
+  if (value?.kind !== 'array' || value.items.length !== count) throw new ValidationError('luminosity mesh Decode is invalid', 'color-space');
+  return value.items.map(item => numeric(item));
 };
 
 const domain = (dictionary: PdfDictionaryEntries, dimensions: number): number[] => {
@@ -129,15 +150,69 @@ const grayFunction = (
   };
 };
 
+const grayMesh = (
+  internals: DocumentInternals,
+  config: { shading: PdfStream; dictionary: PdfDictionaryEntries; gray: (values: readonly number[]) => number; type: 4 | 5 | 6 | 7 },
+): GrayFunctionShading => {
+  const { shading, dictionary, gray, type } = config;
+  const functionValue = dictionary.get(FUNCTION);
+  dictionary.set(COLOR_SPACE, pdfName('DeviceGray'));
+  if (functionValue !== undefined) {
+    const decode = decodeArray(dictionary, 6);
+    const functionPlan = grayFunction(internals, { value: functionValue, dimensions: 1, domain: decode.slice(4, 6), gray, depth: 0 });
+    return { dictionary, functionPlan, data: shading.data };
+  }
+  // ISO 32000-1:2008, 8.7.4.5.5 Table 82: mesh Decode starts with two coordinate pairs, followed by one pair per colour component.
+  const coordinateBits = integer(dictionary, BITS_PER_COORDINATE);
+  const componentBits = integer(dictionary, BITS_PER_COMPONENT);
+  const flagBits = type === 5 ? 0 : integer(dictionary, BITS_PER_FLAG);
+  if (
+    ![1, 2, 4, 8, 12, 16, 24, 32].includes(coordinateBits) ||
+    ![1, 2, 4, 8, 12, 16].includes(componentBits) ||
+    (type !== 5 && ![2, 4, 8].includes(flagBits))
+  ) {
+    throw new ValidationError('luminosity mesh bit widths are invalid', 'color-space');
+  }
+  const decode = decodeArray(dictionary, 10);
+  const data = decodedData(internals, shading);
+  if (typeof data === 'string') throw new ValidationError(`luminosity mesh cannot be decoded: ${data}`, 'color-space');
+  const outputBits = Math.max(8, componentBits);
+  const converted = convertMeshSamples(data, {
+    type,
+    coordinateBits,
+    componentBits,
+    outputComponentBits: outputBits,
+    flagBits,
+    channels: 3,
+    outputChannels: 1,
+    decode,
+    transform: {
+      convert: (input, output) => {
+        output[0] = gray([...input]);
+      },
+    },
+    maxBytes: internals.maxDecodedBytes,
+  });
+  dictionary.set(DECODE, pdfArray([...decode.slice(0, 4), 0, 1].map(value => pdfReal(value))));
+  dictionary.set(BITS_PER_COMPONENT, pdfInteger(outputBits));
+  dictionary.set(FILTER, pdfName('FlateDecode'));
+  dictionary.delete(DECODE_PARMS);
+  return { dictionary, functionPlan: undefined, data: deflateZlib(converted.data) };
+};
+
+const meshKind = (value: number): 4 | 5 | 6 | 7 => {
+  if (value === 4) return 4;
+  if (value === 5) return 5;
+  if (value === 6) return 6;
+  return 7;
+};
+
 export const grayFunctionShading = (internals: DocumentInternals, shading: PdfObject, gray: (values: readonly number[]) => number): GrayFunctionShading => {
-  if (shading.kind !== 'dictionary') throw new UnsupportedFeatureError('luminosity mesh shading is unsupported');
-  const type = shading.entries.get(SHADING_TYPE);
-  if (type?.kind !== 'integer' || type.value < 1 || type.value > 3) throw new UnsupportedFeatureError('luminosity shading type is unsupported');
-  const functionValue = shading.entries.get(FUNCTION);
-  if (functionValue === undefined) throw new ValidationError('luminosity shading Function is missing', 'color-space');
-  const dimensions = type.value === 1 ? 2 : 1;
-  const functionPlan = grayFunction(internals, { value: functionValue, dimensions, domain: domain(shading.entries, dimensions), gray, depth: 0 });
-  const dictionary = new PdfDictionaryEntries(shading.entries.entries());
+  const entries = entriesOf(shading);
+  if (entries === undefined) throw new ValidationError('luminosity shading is invalid', 'color-space');
+  const type = entries.get(SHADING_TYPE);
+  if (type?.kind !== 'integer' || type.value < 1 || type.value > 7) throw new UnsupportedFeatureError('luminosity shading type is unsupported');
+  const dictionary = new PdfDictionaryEntries(entries.entries());
   dictionary.set(COLOR_SPACE, pdfName('DeviceGray'));
   const background = dictionary.get(BACKGROUND);
   if (background !== undefined) {
@@ -146,5 +221,14 @@ export const grayFunctionShading = (internals: DocumentInternals, shading: PdfOb
     const luminance = gray(components);
     dictionary.set(BACKGROUND, pdfArray([pdfReal(luminance)]));
   }
-  return { dictionary, functionPlan };
+  if (type.value >= 4) {
+    if (shading.kind !== 'stream') throw new ValidationError('luminosity mesh shading is not a stream', 'color-space');
+    return grayMesh(internals, { shading, dictionary, gray, type: meshKind(type.value) });
+  }
+  if (shading.kind !== 'dictionary') throw new ValidationError('luminosity function shading is not a dictionary', 'color-space');
+  const functionValue = dictionary.get(FUNCTION);
+  if (functionValue === undefined) throw new ValidationError('luminosity shading Function is missing', 'color-space');
+  const dimensions = type.value === 1 ? 2 : 1;
+  const functionPlan = grayFunction(internals, { value: functionValue, dimensions, domain: domain(dictionary, dimensions), gray, depth: 0 });
+  return { dictionary, functionPlan, data: undefined };
 };

@@ -17,6 +17,8 @@ import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
+import { MeshBitReader } from './meshBits.ts';
+import { MeshBitWriter } from './meshBitWriter.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
@@ -243,6 +245,45 @@ const stitchedMaskPdf = buildPdf([
   },
 ]);
 
+const meshMaskPdf = (): Uint8Array => {
+  const writer = new MeshBitWriter();
+  for (const [x, y] of [
+    [0, 0],
+    [10, 0],
+    [0, 10],
+  ]) {
+    writer.write(2, 0);
+    writer.write(8, x ?? 0);
+    writer.write(8, y ?? 0);
+    for (const sample of [255, 0, 0]) writer.write(8, sample);
+    writer.alignByte();
+  }
+  const meshBytes = latin1Text(writer.finish(1024));
+  return buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        {
+          number: 3,
+          body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>',
+        },
+        { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+        {
+          number: 6,
+          body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</Shading<</Sh1 9 0 R>>>>', '/Sh1 sh'),
+        },
+        {
+          number: 9,
+          body: streamBody('/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 10 0 10 0 1 0 1 0 1]', meshBytes),
+        },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+};
+
 const maskShading = (document: ReturnType<typeof loadDocument>) => {
   const group = document.get(pdfReference(6, 0));
   if (group.kind !== 'stream') throw new Error('mask group is missing');
@@ -253,6 +294,20 @@ const maskShading = (document: ReturnType<typeof loadDocument>) => {
   const reference = shadings.entries.get(pdfName('Sh1').bytes);
   if (reference?.kind !== 'reference') throw new Error('mask shading reference is missing');
   return document.get(reference);
+};
+
+const meshMaskSample = (document: ReturnType<typeof loadDocument>) => {
+  const shading = maskShading(document);
+  if (shading.kind !== 'stream') throw new Error('mesh shading is not a stream');
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('internals are unavailable');
+  const data = decodedData(internals, shading);
+  if (typeof data === 'string') throw new Error(data);
+  const reader = new MeshBitReader(data);
+  reader.read(2);
+  reader.read(8);
+  reader.read(8);
+  return { color: shading.dictionary.get(pdfName('ColorSpace').bytes), sample: reader.read(8) };
 };
 
 const maskFunction = (document: ReturnType<typeof loadDocument>) => {
@@ -505,5 +560,13 @@ describe('transparency group conversion', () => {
     expect(result.root.kind).toBe('dictionary');
     expect(result.evaluate([0.499])[0]).toBeCloseTo(0.3, 3);
     expect(result.evaluate([0.501])[0]).toBeCloseTo(0.11, 3);
+  });
+
+  it('converts a mesh shading in a luminosity group to gray vertices', () => {
+    const document = loadDocument(meshMaskPdf());
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    const result = meshMaskSample(document);
+    expect(result.color).toStrictEqual(pdfName('DeviceGray'));
+    expect(result.sample).toBe(77);
   });
 });

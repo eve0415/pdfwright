@@ -18,8 +18,9 @@ export interface MeshSampleOptions {
   readonly outputComponentBits: number;
   readonly flagBits: number;
   readonly channels: number;
+  readonly outputChannels: number;
   readonly decode: readonly number[];
-  readonly transform: ColorTransform;
+  readonly transform: Pick<ColorTransform, 'convert'>;
   readonly maxBytes: number;
 }
 
@@ -32,7 +33,7 @@ const writeColor = (reader: MeshBitReader, writer: MeshBitWriter, options: MeshS
     const raw = reader.read(options.componentBits);
     input[channel] = sampleValue(raw, options.componentBits, { low: options.decode[4 + channel * 2] ?? 0, high: options.decode[5 + channel * 2] ?? 1 });
   }
-  const output = new Float64Array(4);
+  const output = new Float64Array(options.outputChannels);
   options.transform.convert(input, output);
   for (const value of output) writer.write(options.outputComponentBits, Math.round(value * (2 ** options.outputComponentBits - 1)));
 };
