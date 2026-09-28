@@ -52,6 +52,6 @@ describe('print file memory', () => {
     expect(measured.pages).toBe(10);
     expect([measured.inputBytes > 80_000_000, measured.inputBytes < 90_000_000]).toStrictEqual([true, true]);
     expect([measured.fullBytes > 0, measured.streamedBytes > 0]).toStrictEqual([true, true]);
-    expect(measured.peakBytes).toBeLessThanOrEqual(120 * 1024 * 1024);
+    expect(measured.peakBytes).toBeLessThanOrEqual(120_000_000);
   }, 120_000);
 });
