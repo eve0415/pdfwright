@@ -19,7 +19,7 @@ import { FontCache, fontKey, pageResourcesOwner } from '../../font/loadFont.ts';
 import { STANDARD_14 } from '../../font/standard14.ts';
 import { md5 } from '../../hash/md5.ts';
 import { pdfName } from '../../object/pdfObject.ts';
-import { walkResources } from '../../resourceGraph/walkResources.ts';
+import { walkAcroFormResources, walkResources } from '../../resourceGraph/walkResources.ts';
 
 import { readType3Glyphs } from './type3Glyphs.ts';
 
@@ -392,6 +392,22 @@ const walkPage = (listing: Listing, index: number, page: PageEntry): void => {
   for (const object of unread) problems.push({ page: index, reason: object.reason });
 };
 
+const walkAcroForm = (listing: Listing): void => {
+  const unread = walkAcroFormResources(listing.document, {
+    resources: undefined,
+    font: visit => {
+      const key = fontKey(visit.value, visit.owner, visit.name);
+      try {
+        reach(listing, 0, listing.fonts.font(visit.value, key));
+      } catch (error: unknown) {
+        if (!unreadable(error)) throw error;
+        listing.problems.push({ page: -1, reason: `font ${key} cannot be read: ${error.message}` });
+      }
+    },
+  });
+  for (const object of unread) listing.problems.push({ page: -1, reason: object.reason });
+};
+
 // Text of the page, of its printable annotations' appearances, and text a Type 3 glyph procedure shows, which paints the glyph.
 const showPage = (listing: Listing, index: number): void => {
   const shown = (font: FontModel | undefined): void => {
@@ -430,6 +446,7 @@ export const listFonts = (document: LoadedDocument, options: ListFontsOptions = 
     problems: [],
   };
   for (const [index, page] of parts.pages.entries()) walkPage(listing, index, page);
+  walkAcroForm(listing);
   if (options.shownOn !== false) for (const index of parts.pages.keys()) showPage(listing, index);
   const built: Built[] = [];
   for (const font of listing.found.values()) {

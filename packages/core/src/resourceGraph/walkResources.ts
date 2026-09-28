@@ -23,6 +23,9 @@ const APPEARANCE_STATE = pdfName('AS').bytes;
 const FLAGS = pdfName('F').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const TYPE3 = pdfName('Type3').bytes;
+const ROOT = pdfName('Root').bytes;
+const ACRO_FORM = pdfName('AcroForm').bytes;
+const DEFAULT_RESOURCES = pdfName('DR').bytes;
 const APPEARANCES = [
   ['N', pdfName('N').bytes],
   ['R', pdfName('R').bytes],
@@ -42,7 +45,7 @@ const referenceOf = (value: PdfDirectObject | undefined): PdfReference | undefin
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length === right.length && left.every((byte, index) => byte === right[index]);
 
 /** The page entry a walk reached an object from. */
-export type WalkEntry = 'Resources' | 'Annots';
+export type WalkEntry = 'Resources' | 'Annots' | 'AcroForm';
 
 /** An object a walk could not parse, and the page entry it was reached from. */
 export interface UnreadableObject {
@@ -56,6 +59,7 @@ export interface UnreadableObject {
  */
 export type ResourceOrigin =
   | { readonly kind: 'page' }
+  | { readonly kind: 'acroform' }
   | { readonly kind: 'form'; readonly reference: PdfReference | undefined }
   | { readonly kind: 'tiling-pattern'; readonly reference: PdfReference | undefined }
   | { readonly kind: 'type3'; readonly font: PdfReference | undefined; readonly inheritsPageResources: boolean }
@@ -119,6 +123,7 @@ const ownerKey = (value: PdfReference | undefined): string => referenceKey(value
 
 const originKey = (origin: ResourceOrigin): string => {
   if (origin.kind === 'page') return 'page';
+  if (origin.kind === 'acroform') return 'acroform';
   if (origin.kind === 'form' || origin.kind === 'tiling-pattern') return `${origin.kind} ${ownerKey(origin.reference)}`;
   if (origin.kind === 'soft-mask') return `soft-mask ${ownerKey(origin.group)}`;
   if (origin.kind === 'type3') return `type3 ${ownerKey(origin.font)} ${String(origin.inheritsPageResources)}`;
@@ -188,6 +193,17 @@ class Walk {
       from: 'Resources',
       owner: this.handlers.owner ?? 'page',
     });
+  }
+
+  acroForm(): void {
+    this.from = 'AcroForm';
+    const trailer = this.document.objects.trailer(this.document.structure.trailer);
+    const catalog = dictionaryOf(this.read(trailer.get(ROOT)));
+    const form = dictionaryOf(this.read(catalog?.get(ACRO_FORM)));
+    const resources = form?.get(DEFAULT_RESOURCES);
+    if (resources === undefined) return;
+    const key = referenceKey(resources) ?? 'AcroForm/DR';
+    this.visits.push({ kind: 'resources', key, value: resources, origin: { kind: 'acroform' }, from: 'AcroForm', owner: key });
   }
 
   annotations(page: PageEntry): void {
@@ -364,11 +380,18 @@ class Walk {
 
 /**
  * Walks the resources a page reaches through its Resources and its annotations' appearances and reports each resource dictionary once, with every origin it was reached through.
- * Objects that cannot be parsed are returned, never skipped silently. AcroForm default resources are not on any page and are not walked.
+ * Objects that cannot be parsed are returned, never skipped silently.
  */
 export const walkResources = (document: DocumentInternals, page: PageEntry, handlers: ResourceWalk): readonly UnreadableObject[] => {
   const walk = new Walk(document, handlers);
   walk.page(handlers.resources);
   walk.annotations(page);
+  return walk.run();
+};
+
+/** Walks AcroForm default resources, which ISO 32000-1:2008, 12.7.2 assigns to variable text field appearances independently of page resources. */
+export const walkAcroFormResources = (document: DocumentInternals, handlers: ResourceWalk): readonly UnreadableObject[] => {
+  const walk = new Walk(document, handlers);
+  walk.acroForm();
   return walk.run();
 };

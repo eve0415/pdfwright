@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
 import { pdfReference } from '../../object/pdfObject.ts';
-import { latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
@@ -60,6 +60,25 @@ const helvetica = (number: number): TestObject => ({ number, body: '<</Type/Font
 const codes = (entry: FontEntry): string[] => entry.problems.map(problem => problem.code);
 
 describe('font inventory', () => {
+  it('lists a font only named by AcroForm default resources', () => {
+    const { bytes } = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R/AcroForm 4 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+          { number: 4, body: '<</DR 5 0 R/Fields[]>>' },
+          { number: 5, body: '<</Font<</F1 6 0 R>>>>' },
+          helvetica(6),
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const result = listFonts(loadDocument(bytes));
+    expect(result.fonts.map(font => [text(font.name), font.pages, font.shownOn])).toStrictEqual([['Helvetica', [], []]]);
+  });
+
   it('reports a standard 14 font without a descriptor or Widths as not embedded and without problems', () => {
     const font = onPage('/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>');
     expect([font.key, font.subtype, text(font.name), font.embedding, font.subset, font.encoding, font.toUnicode, font.problems]).toStrictEqual([
