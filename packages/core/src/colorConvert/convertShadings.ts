@@ -67,6 +67,11 @@ interface FormShadingPlan {
   readonly shading: ShadingPlan;
 }
 
+interface PatternShadingPlan {
+  readonly pattern: PdfReference;
+  readonly shading: ShadingPlan;
+}
+
 const SHADING = pdfName('Shading').bytes;
 const PATTERN = pdfName('Pattern').bytes;
 const PATTERN_TYPE = pdfName('PatternType').bytes;
@@ -344,6 +349,24 @@ const scanResources = (context: ShadingContext, plans: Map<number, ShadingPlan>,
   }
 };
 
+const directPatternPlans = (context: ShadingContext, plans: Map<number, PatternShadingPlan>): void => {
+  const internals = internalsOf(context.document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  const category = internals.objects.deref(context.resources.get(PATTERN));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    if (value.kind !== 'reference' || plans.has(value.objectNumber)) continue;
+    const pattern = internals.objects.deref(value);
+    if (pattern?.kind !== 'dictionary') continue;
+    const type = pattern.entries.get(PATTERN_TYPE);
+    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    const direct = pattern.entries.get(SHADING);
+    if (direct?.kind !== 'dictionary') continue;
+    const shading = planShading(context, undefined, direct);
+    if (shading !== undefined) plans.set(value.objectNumber, { pattern: value, shading });
+  }
+};
+
 const directPagePlans = (context: ShadingContext, page: PdfReference, usage: ShadingUsage): DirectShadingPlan[] => {
   const internals = internalsOf(context.document);
   if (internals === undefined) return invalid('document internals are unavailable');
@@ -478,6 +501,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
   if (internals === undefined) return invalid('document internals are unavailable');
   const usage = collectUsage(document, options);
   const plans = new Map<number, ShadingPlan>();
+  const patternPlans = new Map<number, PatternShadingPlan>();
   const direct: DirectShadingPlan[] = [];
   const formDirect: FormShadingPlan[] = [];
   const seenForms = new Set<number>();
@@ -492,6 +516,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
       resources,
       visit: visit => {
         scanResources({ document, resources: visit.resources, options }, plans, usage);
+        directPatternPlans({ document, resources: visit.resources, options }, patternPlans);
       },
     });
     if (unreadable.length > 0) throw new ValidationError('shading resources cannot be read', 'unreadable-resource');
@@ -502,12 +527,25 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     document.set(plan.reference, { kind: 'dictionary', entries: convertedDictionary(document, plan) });
     discarded.push(...plan.discarded);
   }
+  for (const plan of patternPlans.values()) {
+    const pattern = document.get(plan.pattern);
+    if (pattern.kind !== 'dictionary') return invalid('shading pattern is missing');
+    const dictionary = new PdfDictionaryEntries(pattern.entries.entries());
+    dictionary.set(SHADING, pdfDictionary(convertedDictionary(document, plan.shading)));
+    document.set(plan.pattern, pdfDictionary(dictionary));
+    discarded.push(...plan.shading.discarded);
+  }
   discarded.push(...applyDirectPages(document, direct), ...applyDirectForms(document, formDirect));
-  if (plans.size > 0 || direct.length > 0 || formDirect.length > 0) {
+  if (plans.size > 0 || patternPlans.size > 0 || direct.length > 0 || formDirect.length > 0) {
     deleteDiscarded(document, internals, discarded);
     internals.objects.requireFullRewrite('color-conversion');
   }
-  const all = [...plans.values(), ...direct.map(item => item.shading), ...formDirect.map(item => item.shading)];
+  const all = [
+    ...plans.values(),
+    ...[...patternPlans.values()].map(item => item.shading),
+    ...direct.map(item => item.shading),
+    ...formDirect.map(item => item.shading),
+  ];
   const approximations = all.flatMap(plan => {
     const functions = plan.sampled.kind === 'sampled' ? [plan.sampled] : plan.sampled.functions;
     return functions.filter(item => item.maxDeltaE2000 > 0.1).map(item => ({ maxDeltaE2000: item.maxDeltaE2000 }));

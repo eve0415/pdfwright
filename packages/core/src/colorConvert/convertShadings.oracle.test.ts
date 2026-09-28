@@ -54,6 +54,29 @@ const shadingPatternPdf = buildPdf([
   },
 ]);
 
+const directShadingPatternPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Pattern<</P 7 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Pattern cs /P scn 0 0 100 100 re f') },
+      { number: 6, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+      { number: 7, body: '<</Type/Pattern/PatternType 2/Shading<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const directPatternColor = (document: ReturnType<typeof loadDocument>): PdfObject | undefined => {
+  const pattern = document.get(pdfReference(7, 0));
+  if (pattern.kind !== 'dictionary') throw new Error('shading pattern is missing');
+  const shading = pattern.entries.get(pdfName('Shading').bytes);
+  if (shading?.kind !== 'dictionary') throw new Error('direct shading is missing');
+  return shading.entries.get(pdfName('ColorSpace').bytes);
+};
+
 const functionPdf = buildPdf([
   {
     xref: 'classic',
@@ -254,6 +277,13 @@ describe('function shading conversion', () => {
     const document = loadDocument(shadingPatternPdf.bytes);
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(patternShadingColor(document)).toStrictEqual(pdfName('DeviceCMYK'));
+    expect(report.shadings).toBe(1);
+  });
+
+  it('converts a direct axial shading inside a shading pattern', () => {
+    const document = loadDocument(directShadingPatternPdf.bytes);
+    const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(directPatternColor(document)).toStrictEqual(pdfName('DeviceCMYK'));
     expect(report.shadings).toBe(1);
   });
 
