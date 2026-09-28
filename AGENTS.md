@@ -66,6 +66,8 @@ Code that implements behaviour a specification defines cites the clause in a com
 
 ## Dependencies
 
+Publish packages with pnpm. npm ignores `publishConfig.exports` and would package source export paths that are absent from the tarball.
+
 - **Pin exact versions** with `pnpm add -E` (`saveExact` is on). A loose range lets a compromised release in on the next install.
 - **Commit `pnpm-lock.yaml` in the same commit as the manifest change**, or the commit does not install as it was tested.
 - **A version written by hand must be one pnpm's `minimumReleaseAge` accepts** (1440 minutes by default). Never add `minimumReleaseAgeExclude`.
