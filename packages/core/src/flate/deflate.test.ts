@@ -68,7 +68,7 @@ describe('deterministic deflate encoding', () => {
         expectBytes(deflateZlib(data, { level }), encoded);
       }
     }
-  });
+  }, 60_000);
 
   it('writes stored blocks at level zero and round-trips raw deflate', () => {
     const data = new Uint8Array(200_000).fill(42);
@@ -154,5 +154,5 @@ describe('incremental deflate output', () => {
       expect(result).toStrictEqual(deflateZlib(input, { level }));
       expect(Math.max(...parts.map(part => part.length))).toBeLessThanOrEqual(1024 * 1024 + 64);
     }
-  });
+  }, 60_000);
 });

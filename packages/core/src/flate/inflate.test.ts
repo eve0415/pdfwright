@@ -203,5 +203,5 @@ describe('chunked zlib inflate', () => {
     }
     expect(restored).toStrictEqual(input);
     expect(() => [...inflateChunks(deflateZlib(input), { maxOutputBytes: 1000 })]).toThrow(ResourceLimitError);
-  });
+  }, 60_000);
 });

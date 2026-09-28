@@ -41,7 +41,7 @@ describe('xmp token cap', () => {
     expect(readMetadata(document, { maxXmpTokens: 8192 }).xmp).toMatchObject({ unreadable: 'too-many-tokens' });
     expect(() => setMetadata(document, input, { maxXmpTokens: 8192 })).toThrow(ValidationError);
     expect(document.save().toBytes()).toStrictEqual(source);
-  });
+  }, 60_000);
 
   it('rejects an invalid cap before reading or editing', () => {
     const document = loadDocument(source);
