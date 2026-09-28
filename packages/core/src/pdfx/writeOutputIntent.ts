@@ -24,6 +24,8 @@ export interface OutputIntentOptions {
   readonly outputCondition?: string;
   readonly registryName?: string;
   readonly existing?: 'refuse' | 'replace';
+  /** Whether to lower a later PDF version for PDF/X-4; defaults to true. */
+  readonly pdfx?: boolean;
 }
 
 export interface OutputIntentChange {
@@ -147,7 +149,7 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   }
   catalog.set(key('OutputIntents'), pdfArray(items));
   const catalogVersion = nameOf(catalog.get(key('Version')));
-  const catalogLowered = catalogVersion !== undefined && versionNumber(catalogVersion) > 16;
+  const catalogLowered = options.pdfx !== false && catalogVersion !== undefined && versionNumber(catalogVersion) > 16;
   if (catalogLowered) catalog.set(key('Version'), pdfName('1.6'));
   document.set(root, pdfDictionary(catalog));
   for (const intent of existing) {
@@ -187,7 +189,7 @@ export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: Outp
   const catalogLowered = place({ document, prepared, sameGts, profile, options });
   const removed = existing.filter(intent => !intent.matches);
   internals.objects.requireFullRewrite('color-conversion');
-  internals.lowerPdfX4Version(catalogLowered);
+  if (options.pdfx !== false) internals.lowerPdfX4Version(catalogLowered);
   let action: OutputIntentChange['action'] = 'updated';
   if (removed.length > 0) action = 'replaced';
   else if (sameGts === undefined) action = 'added';
