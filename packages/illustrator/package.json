@@ -1,7 +1,7 @@
 {
   "name": "@pdfwright/illustrator",
   "version": "0.0.0",
-  "description": "A pdfwright package that currently has no public API.",
+  "description": "Write Illustrator-layered PDFs from print-production artwork.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",

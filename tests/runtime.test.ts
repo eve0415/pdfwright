@@ -3,7 +3,7 @@ import type { Runtime } from './providedContext.ts';
 import { describe, expect, inject, it } from 'vitest';
 
 import { PdfwrightError } from '../packages/core/src/index.ts';
-import { placeholder as illustratorPlaceholder } from '../packages/illustrator/src/index.ts';
+import { writeIllustratorPdf } from '../packages/illustrator/src/index.ts';
 
 /** The runtime this module is evaluated in, read from globals only that runtime defines. */
 const detectRuntime = (): Runtime => {
@@ -21,6 +21,6 @@ describe('runtime', () => {
   });
 
   it('loads every package entry', () => {
-    expect([typeof PdfwrightError, illustratorPlaceholder]).toStrictEqual(['function', true]);
+    expect([typeof PdfwrightError, typeof writeIllustratorPdf]).toStrictEqual(['function', 'function']);
   });
 });
