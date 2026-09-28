@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 
 import { parseIccStructure } from './iccStructure.ts';
 
@@ -57,5 +58,22 @@ describe('icc structure', () => {
     const short = profile();
     new DataView(short.buffer).setUint32(152, 100);
     expect(() => parseIccStructure(short)).toThrow(InvalidProfileError);
+  });
+
+  it('bounds the tag table before comparing shared ranges', () => {
+    const count = 8193;
+    const offset = 132 + count * 12;
+    const bytes = new Uint8Array(offset + 8);
+    bytes.set(profile().subarray(0, 128));
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, bytes.length);
+    view.setUint32(128, count);
+    for (let index = 0; index < count; index++) {
+      const record = 132 + index * 12;
+      view.setUint32(record, index);
+      view.setUint32(record + 4, offset);
+      view.setUint32(record + 8, 8);
+    }
+    expect(() => parseIccStructure(bytes)).toThrow(ResourceLimitError);
   });
 });

@@ -1,4 +1,5 @@
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { iccIdentity } from './iccIdentity.ts';
@@ -118,6 +119,7 @@ const readHeader = (bytes: Uint8Array, view: DataView): IccHeader => {
 const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): IccTagRecord[] => {
   // ICC.1:2022, 7.3.1 Table 24 gives 12-byte records; 7.3.1 permits complete sharing but forbids partial overlap and duplicate signatures.
   const count = view.getUint32(128);
+  if (count > 8192) throw new ResourceLimitError('ICC tag count exceeds 8192');
   if (count > Math.floor((bytes.length - 132) / 12)) {
     throw new InvalidProfileError('ICC tag table exceeds profile size', 'tag-table-out-of-bounds', { offset: 128 });
   }
@@ -136,12 +138,19 @@ const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): Ic
     }
     // ICC.1:2022, 7.3.4 requires four-byte alignment; misaligned tags are kept with a warning for interoperability.
     if (offset % 4 !== 0) warnings.push({ code: 'tag-misaligned', offset: record + 4 });
-    for (const earlier of tags) {
-      if (offset < earlier.offset + earlier.size && earlier.offset < offset + size && (offset !== earlier.offset || size !== earlier.size)) {
-        throw new InvalidProfileError('ICC tags overlap', 'tag-overlap', { offset: record + 4, tag: name });
-      }
-    }
     tags.push({ signature: name, offset, size });
+  }
+  const byOffset = tags.map((tag, index) => ({ tag, record: 132 + index * 12 })).toSorted((a, b) => a.tag.offset - b.tag.offset || a.tag.size - b.tag.size);
+  for (let index = 1; index < byOffset.length; index++) {
+    const previous = byOffset[index - 1];
+    const current = byOffset[index];
+    if (previous === undefined || current === undefined) continue;
+    if (
+      current.tag.offset < previous.tag.offset + previous.tag.size &&
+      (current.tag.offset !== previous.tag.offset || current.tag.size !== previous.tag.size)
+    ) {
+      throw new InvalidProfileError('ICC tags overlap', 'tag-overlap', { offset: current.record + 4, tag: current.tag.signature });
+    }
   }
   return tags;
 };
