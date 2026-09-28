@@ -37,6 +37,11 @@ describe('native data assembly', () => {
     expect(text).toContain('U\r0 0.5 1 0 0 Xy\r0 0 Xd\r6 () XW\r0 0.3 0 2 0 Xy\r0 0 Xd\r7 () XW\r');
   });
 
+  it('writes the active artboard index immediately after the artboard array', () => {
+    const text = new TextDecoder().decode(writeNative(document).bytes);
+    expect(text).toContain('%_; (ArtboardArray) ,\r%_0 /Int (CropAreaActive) ,\r');
+  });
+
   it('is deterministic and changes its artboard UUID with layer content', () => {
     const first = writeNative(document);
     const second = writeNative(document);

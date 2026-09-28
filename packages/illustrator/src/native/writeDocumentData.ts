@@ -51,6 +51,7 @@ export const writeDocumentData = (writer: NativeWriter, document: IllustratorDoc
   data.asciiString('ArtboardUUID', options.artboardUuid);
   data.close('');
   data.close('ArtboardArray');
+  data.int('CropAreaActive', 0);
   const bleed = bleedSides(document);
   if ([bleed.left, bleed.right, bleed.top, bleed.bottom].some(side => number(side) !== 0)) {
     data.real('BleedLeftValue', bleed.left);
