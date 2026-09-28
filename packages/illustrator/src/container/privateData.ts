@@ -3,7 +3,7 @@ import type { PdfDate, PdfDocument, PdfPage } from '@pdfwright/core';
 
 import { InvalidArgumentError, PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName } from '@pdfwright/core';
 
-import { encodeRawFrame, normalizeZstandardFrame } from '../zstd/frame.ts';
+import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from '../zstd/frame.ts';
 
 export interface NativeData {
   readonly bytes: Uint8Array;
@@ -28,6 +28,11 @@ export interface PrivateDataLayout {
 
 const WRAPPER = new TextEncoder().encode('%AI24_ZStandard_Data');
 const CHUNK_SIZE = 65536;
+const compress = (bytes: Uint8Array, compression: NativeCompression): Uint8Array => {
+  if (compression === 'zstandard') return encodeZstandardFrame(bytes);
+  if (compression === 'zstandard-raw-blocks') return encodeRawFrame(bytes);
+  return normalizeZstandardFrame(compression.zstandard(bytes));
+};
 
 /** Adds Illustrator page-piece data, including one unfiltered metadata stream and 65536-byte private chunks. */
 export const attachPrivateData = (document: PdfDocument, page: PdfPage, input: PrivateDataInput): PrivateDataLayout => {
@@ -35,7 +40,7 @@ export const attachPrivateData = (document: PdfDocument, page: PdfPage, input: P
   if (!Number.isInteger(native.metaDataLength) || native.metaDataLength < 0 || native.metaDataLength > native.bytes.length) {
     throw new InvalidArgumentError('metadata length must be within native data');
   }
-  const frame = typeof options.compression === 'string' ? encodeRawFrame(native.bytes) : normalizeZstandardFrame(options.compression.zstandard(native.bytes));
+  const frame = compress(native.bytes, options.compression);
   const wrapped = new Uint8Array(WRAPPER.length + frame.length);
   wrapped.set(WRAPPER);
   wrapped.set(frame, WRAPPER.length);

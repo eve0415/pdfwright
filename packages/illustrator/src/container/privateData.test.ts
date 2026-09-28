@@ -75,4 +75,12 @@ describe('illustrator private-data container', () => {
     expect(streamData(loaded, entries, 'AIPDFPrivateData1')).toHaveLength(65536);
     expect(streamData(loaded, entries, 'AIPDFPrivateData2')).toHaveLength(4493);
   });
+
+  it('uses compressed blocks for the default native compression', () => {
+    const bytes = new TextEncoder().encode('%!PS-Adobe-3.0\r'.repeat(5000));
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
+    const layout = attachPrivateData(document, page, { native: { bytes, metaDataLength: 16 }, lastModified: date, options: { compression: 'zstandard' } });
+    expect(layout.blockLengths[0]).toBeLessThan(bytes.length / 4);
+  });
 });

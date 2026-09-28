@@ -5,7 +5,7 @@ import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
 import { encodeCompressedBlock } from './compressBlock.ts';
-import { encodeRawFrame, normalizeZstandardFrame } from './frame.ts';
+import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from './frame.ts';
 import { createMatchFinder } from './matchFinder.ts';
 
 const decodeWithLibzstd = promisify(zstdDecompress);
@@ -46,4 +46,19 @@ describe('zstandard decoder agreement', () => {
     expect(decoded.compare(input)).toBe(0);
     expect(Buffer.from(decompress(frame)).compare(input)).toBe(0);
   });
+
+  it('round-trips a 10 MB mixed raster payload with both decoders', async () => {
+    const input = new Uint8Array(10_000_000);
+    let state = 123456789;
+    for (let index = 0; index < 3_000_000; index++) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      input[index] = state >>> 24;
+    }
+    input.fill(255, 3_000_000, 6_000_000);
+    const frame = encodeZstandardFrame(input);
+    const decoded = await decodeWithLibzstd(frame);
+    expect(frame.length).toBeLessThan(4_000_000);
+    expect(decoded.compare(input)).toBe(0);
+    expect(Buffer.from(decompress(frame)).compare(input)).toBe(0);
+  }, 60_000);
 });

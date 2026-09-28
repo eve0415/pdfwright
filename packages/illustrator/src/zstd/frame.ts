@@ -1,5 +1,8 @@
 import { InvalidArgumentError, UnsupportedFeatureError } from '@pdfwright/core';
 
+import { encodeCompressedBlock } from './compressBlock.ts';
+import { createMatchFinder } from './matchFinder.ts';
+
 const BLOCK_SIZE = 128 * 1024;
 
 export type ZstandardCompressor = (data: Uint8Array) => Uint8Array;
@@ -106,6 +109,31 @@ export const encodeRawFrame = (input: Uint8Array): Uint8Array => {
     position += 3;
     output.set(input.subarray(start, start + size), position);
     position += size;
+  }
+  return output;
+};
+
+/** Encodes one frame using predefined-table compressed blocks when smaller, raw blocks otherwise. */
+export const encodeZstandardFrame = (input: Uint8Array): Uint8Array => {
+  const finder = createMatchFinder(input);
+  const parts: Uint8Array[] = [Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0, 0x58)];
+  const blocks = Math.max(1, Math.ceil(input.length / BLOCK_SIZE));
+  for (let index = 0; index < blocks; index++) {
+    const start = index * BLOCK_SIZE;
+    const end = Math.min(input.length, start + BLOCK_SIZE);
+    const parsed = finder.parseBlock(start, end);
+    const compressed = encodeCompressedBlock(parsed);
+    const useCompressed = compressed.length < end - start;
+    const body = useCompressed ? compressed : input.subarray(start, end);
+    // RFC 8878, 3.1.1.2: block type 2 is compressed; type 0 is raw, and bit 0 marks the final block.
+    const header = (body.length << 3) | (useCompressed ? 4 : 0) | (index === blocks - 1 ? 1 : 0);
+    parts.push(Uint8Array.of(header & 255, (header >>> 8) & 255, (header >>> 16) & 255), body);
+  }
+  const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
   }
   return output;
 };

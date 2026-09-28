@@ -1,7 +1,7 @@
 import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
-import { encodeRawFrame, normalizeZstandardFrame } from './frame.ts';
+import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from './frame.ts';
 
 const samples = (length: number): Uint8Array => {
   const output = new Uint8Array(length);
@@ -63,5 +63,15 @@ describe('raw Zstandard frames', () => {
     expect(() => normalizeZstandardFrame(skippable)).toThrow('ordinary Zstandard frame');
     expect(() => normalizeZstandardFrame(dictionary)).toThrow('dictionaries are unsupported');
     expect(() => normalizeZstandardFrame(trailing)).toThrow('trailing or missing bytes');
+  });
+
+  it('compresses repeated native text and preserves random bytes', () => {
+    const repeated = new TextEncoder().encode('0 1 0 0 0 Xy\r'.repeat(5000));
+    const compressed = encodeZstandardFrame(repeated);
+    expect(compressed.length).toBeLessThan(repeated.length / 4);
+    expect(decompress(compressed)).toStrictEqual(repeated);
+    expect(encodeZstandardFrame(repeated)).toStrictEqual(compressed);
+    const random = samples(30000);
+    expect(decompress(encodeZstandardFrame(random))).toStrictEqual(random);
   });
 });
