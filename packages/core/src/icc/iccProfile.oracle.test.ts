@@ -12,7 +12,7 @@ const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
 
 describe('committed ICC fixtures', () => {
-  it.each(['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc', 'sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc'])(
+  it.each(['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc', 'sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'])(
     'parses %s and keeps its profile bytes',
     async name => {
       const bytes = await fixture(name);
@@ -60,6 +60,18 @@ const localProfiles = async (): Promise<Uint8Array[]> => {
   return Promise.all(names.map(async name => Uint8Array.from(await readFile(path.join(localDirectory, name)))));
 };
 
+const localFile = async (name: string): Promise<Uint8Array> => Uint8Array.from(await readFile(path.join(localDirectory ?? '', name)));
+
+const oracleRows = (text: string): number[][] =>
+  text
+    .trim()
+    .split(/\r?\n/u)
+    .map(line => {
+      const values = line.trim().split(/\s+/u).map(Number);
+      if (values.length !== 7 || values.some(value => !Number.isFinite(value))) throw new Error('Acrobat oracle rows need RGB bytes and four CMYK percentages');
+      return values;
+    });
+
 describe('local ICC profiles', () => {
   it.skipIf(localDirectory === undefined)('not run when PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset', async () => {
     const files = await localProfiles();
@@ -68,5 +80,32 @@ describe('local ICC profiles', () => {
       const profile = parseIccProfile(bytes);
       expect(profile.identity).toHaveLength(16);
     }
+  });
+
+  it.skipIf(localDirectory === undefined)('acrobat lut8 Lab oracle not run when PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset', async () => {
+    const source = parseIccProfile(await fixture('sRGB.icm'));
+    const destination = parseIccProfile(await localFile('acrobat-lut8-destination.icc'));
+    const expected = oracleRows(new TextDecoder().decode(await localFile('acrobat-lut8-expected.tsv')));
+    const standard = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: false });
+    const alternate = createColorTransform({ kind: 'icc', profile: source }, destination, {
+      intent: 'relativeColorimetric',
+      blackPointCompensation: false,
+      lut8LabEncoding: 'adobe',
+    });
+    const standardOutput = new Float64Array(4);
+    const alternateOutput = new Float64Array(4);
+    let standardError = 0;
+    let alternateError = 0;
+    for (const row of expected) {
+      const input = Float64Array.of(Number(row[0]) / 255, Number(row[1]) / 255, Number(row[2]) / 255);
+      standard.convert(input, standardOutput);
+      alternate.convert(input, alternateOutput);
+      for (let channel = 0; channel < 4; channel++) {
+        standardError += Math.abs(Number(standardOutput[channel]) * 100 - Number(row[channel + 3]));
+        alternateError += Math.abs(Number(alternateOutput[channel]) * 100 - Number(row[channel + 3]));
+      }
+    }
+    expect(expected.length).toBeGreaterThan(0);
+    expect(alternateError).toBeLessThan(standardError);
   });
 });

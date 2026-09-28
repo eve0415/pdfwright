@@ -3,9 +3,9 @@ import type { RenderingIntent, Xyz } from '../icc/iccStructure.ts';
 import type { PcsValue } from './profilePipeline.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { colorSpaceChannels } from '../icc/iccStructure.ts';
 
+import { blackPointCompensation } from './blackPoint.ts';
 import { D50, labToXyz } from './pcs.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
 
@@ -44,7 +44,6 @@ const absolute = (input: PcsValue, sourceWhite: Xyz, destinationWhite: Xyz): Pcs
 };
 
 export const createColorTransform = (source: ColorSource, destination: IccProfile, options: ColorTransformOptions): ColorTransform => {
-  if (options.blackPointCompensation) throw new UnsupportedFeatureError('black-point compensation is not available for this transform');
   const encoding = options.lut8LabEncoding ?? 'icc';
   const inputChannels = colorSpaceChannels(source.profile.header.colorSpace);
   const outputChannels = colorSpaceChannels(destination.header.colorSpace);
@@ -52,6 +51,11 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
   const toDevice = destinationEvaluator(destination, options.intent, encoding);
   const sourceWhite = mediaWhite(source.profile);
   const destinationWhite = mediaWhite(destination);
+  const compensate = blackPointCompensation(source.profile, destination, {
+    intent: options.intent,
+    requested: options.blackPointCompensation,
+    option: encoding,
+  });
   return {
     inputChannels,
     outputChannels,
@@ -61,7 +65,8 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
       }
       for (const value of input) if (!Number.isFinite(value)) throw new InvalidArgumentError('colour components must be finite');
       const pcsValue = fromDevice(input);
-      const connected = options.intent === 'absoluteColorimetric' ? absolute(pcsValue, sourceWhite, destinationWhite) : pcsValue;
+      const corrected = compensate === undefined ? pcsValue : compensate(pcsValue);
+      const connected = options.intent === 'absoluteColorimetric' ? absolute(corrected, sourceWhite, destinationWhite) : corrected;
       const values = toDevice(connected);
       for (let index = 0; index < outputChannels; index++) output[index] = Math.min(1, Math.max(0, values[index] ?? 0));
     },

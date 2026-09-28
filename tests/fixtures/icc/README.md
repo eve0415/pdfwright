@@ -12,4 +12,6 @@
 
 `sRGB-v4.icc` and `DisplayP3-v4.icc` come from [Compact ICC Profiles](https://github.com/saucecontrol/Compact-ICC-Profiles) at commit `bdd84663061bc4ae95ca70decff54f581e27f702` under [CC0 1.0](https://github.com/saucecontrol/Compact-ICC-Profiles/blob/bdd84663061bc4ae95ca70decff54f581e27f702/license). Their SHA-256 values are `c56e1685d888f5edb92fe07f2750f387f8fe8e91b32ff8fb0b56bfbbb9458353` and `cb51de38e482ee974c0c76b9689e16aad04bad16e226fed2f30c842d15ff3a3d` respectively.
 
+`Rec2020-v4.icc` and `ProPhoto-v4.icc` come from the same CC0 source at that commit. Their SHA-256 values are `135ebd418b668c0ca56a8dea6d262c4deccae8166e0ca8264b7d7f35863ccb4b` and `090daf740c136b4a63bf979d64f034b4a65aa5abbb04a0917729222afe2bb5c2` respectively.
+
 `lcmsOracle.c` compares float64 RGB to CMYK conversion with LittleCMS 2.16 and measures each output in Lab through the destination profile. It is source code in this repository under MIT OR Apache-2.0.

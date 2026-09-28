@@ -74,7 +74,12 @@ const samples = (): Rgb[] => {
   return result;
 };
 
-const intentName = (value: number): 'relativeColorimetric' | 'absoluteColorimetric' => (value === 1 ? 'relativeColorimetric' : 'absoluteColorimetric');
+const intentName = (value: number): 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric' => {
+  if (value === 0) return 'perceptual';
+  if (value === 1) return 'relativeColorimetric';
+  if (value === 2) return 'saturation';
+  return 'absoluteColorimetric';
+};
 
 const execute = async (file: string, args: readonly string[], input = ''): Promise<string> => {
   const child = spawn(file, [...args]);
@@ -84,22 +89,22 @@ const execute = async (file: string, args: readonly string[], input = ''): Promi
   return stdout;
 };
 
-const runOracle = async (config: { source: string; destination: string; intent: number; rows: readonly string[] }): Promise<number[]> => {
+const runOracle = async (config: { source: string; destination: string; intent: number; bpc: number; rows: readonly string[] }): Promise<number[]> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-lcms-'));
   try {
     const executable = path.join(directory, 'lcmsOracle');
     const input = path.join(directory, 'samples.txt');
     await writeFile(input, `${config.rows.join('\n')}\n`);
     await execute('cc', ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', fixturePath('lcmsOracle.c'), '-llcms2', '-lm', '-o', executable]);
-    const stdout = await execute(executable, [fixturePath(config.source), fixturePath(config.destination), String(config.intent), '0', input]);
+    const stdout = await execute(executable, [fixturePath(config.source), fixturePath(config.destination), String(config.intent), String(config.bpc), input]);
     return stdout.trim().split(/\s+/u).map(Number);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 };
 
-const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc'].flatMap(source =>
-  ['fogra28l.icc', 'fogra28l-v4.icc'].flatMap(destination => [1, 3].map(intent => ({ source, destination, intent }))),
+const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'].flatMap(source =>
+  ['fogra28l.icc', 'fogra28l-v4.icc'].flatMap(destination => [0, 1, 2, 3].flatMap(intent => [0, 1].map(bpc => ({ source, destination, intent, bpc })))),
 );
 
 describe('littlecms double transform comparison', () => {
@@ -109,20 +114,20 @@ describe('littlecms double transform comparison', () => {
   });
 
   it.each(cases)(
-    '$source → $destination intent $intent',
-    async ({ source, destination, intent }) => {
+    '$source → $destination intent $intent bpc $bpc',
+    async ({ source, destination, intent, bpc }) => {
       const rgb = parseIccProfile(await readFile(fixturePath(source)));
       const cmyk = parseIccProfile(await readFile(fixturePath(destination)));
       const renderingIntent = intentName(intent);
-      const transform = createColorTransform({ kind: 'icc', profile: rgb }, cmyk, { intent: renderingIntent, blackPointCompensation: false });
+      const transform = createColorTransform({ kind: 'icc', profile: rgb }, cmyk, { intent: renderingIntent, blackPointCompensation: bpc === 1 });
       const output = new Float64Array(4);
       const rows = samples().map(([red, green, blue]) => {
         transform.convert(Float64Array.of(red / 255, green / 255, blue / 255), output);
         return [red / 255, green / 255, blue / 255, ...output.map(value => value * 100)].map(value => value.toPrecision(17)).join(' ');
       });
-      const [count, maximum, mean, channelMaximum] = await runOracle({ source, destination, intent, rows });
+      const [count, maximum, mean, channelMaximum] = await runOracle({ source, destination, intent, bpc, rows });
       process.stdout.write(
-        `${source} ${destination} intent=${String(intent)} bpc=0 n=${String(count)} max=${String(maximum)} mean=${String(mean)} channel=${String(channelMaximum)}\n`,
+        `${source} ${destination} intent=${String(intent)} bpc=${String(bpc)} n=${String(count)} max=${String(maximum)} mean=${String(mean)} channel=${String(channelMaximum)}\n`,
       );
       expect(count).toBe(6189);
       expect(maximum).toBeLessThanOrEqual(0.05);
