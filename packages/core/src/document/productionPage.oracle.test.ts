@@ -8,10 +8,16 @@ import { text } from 'node:stream/consumers';
 import { describe, expect, it } from 'vitest';
 
 import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
+import { pdfDate } from '../date/pdfDate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
-import { formatLength, mm } from '../length/length.ts';
+import { formatLength, mm, pt } from '../length/length.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { pdfReal } from '../object/pdfObject.ts';
 
+import { cmyk, gray, rgb } from './color.ts';
+import { createDocument } from './pdfDocument.ts';
 import { createProductionPage } from './productionPageFixture.ts';
+import { rect } from './rect.ts';
 
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 const key = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -61,10 +67,9 @@ const scanNumbers = (bytes: Uint8Array): string[] => {
     nonstream += pdf.slice(cursor, start);
     const objectMarker = pdf.lastIndexOf(' obj\n', marker);
     const dictionary = pdf.slice(objectMarker + 5, marker);
-    if (/\/Filter\/FlateDecode/u.test(dictionary) && !/\/Subtype\/Image/u.test(dictionary)) {
-      const compressed = bytes.subarray(start, end);
-      const content = inflateZlib(compressed).data;
-      contents.push(ascii(content));
+    if (!/\/Subtype\/(?:Image|XML)/u.test(dictionary)) {
+      const stream = bytes.subarray(start, end);
+      contents.push(ascii(/\/Filter\/FlateDecode/u.test(dictionary) ? inflateZlib(stream).data : stream));
     }
     cursor = end;
     marker = pdf.indexOf('\nstream\n', cursor);
@@ -177,5 +182,59 @@ describe('production page oracle', () => {
   it('uses no exponent-form number tokens outside streams or in content streams', () => {
     const bytes = createProductionPage().saved.toBytes();
     expect(scanNumbers(bytes)).toStrictEqual([]);
+  });
+
+  it('writes tiny and huge values across page, resource, object and drawing APIs without exponent tokens', () => {
+    const tiny = 1e-7;
+    const huge = 1e21;
+    const lastModified = pdfDate({ year: 2024, month: 3, day: 2, hour: 1, minute: 4, second: 5, offset: 'Z' });
+    const document = createDocument({ fractionDigits: 10, info: { title: 'Number forms', modificationDate: lastModified } });
+    const spot = document.separation({ name: 'Spot', alternate: cmyk(tiny, 0, 0, 0) });
+    const image = document.image({ width: 1, height: 1, colorSpace: 'DeviceGray', bitsPerComponent: 8, samples: new Uint8Array([128]) });
+    const group = document.group({ bbox: rect(pt(0), pt(0), pt(10), pt(10)), isolated: true, colorSpace: 'DeviceRGB' }, content => {
+      content.fillColor(rgb(tiny, 0, 0));
+      content.path(draw => draw.rect(tiny, tiny, 1, 1));
+      content.fill('nonzero');
+    });
+    const privateData = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries(),
+      data: new TextEncoder().encode('0.0000001 1000000000000000000000'),
+    });
+    document.object(pdfReal(huge));
+    const page = document.addPage({
+      mediaBox: rect(pt(0), pt(0), pt(huge), pt(huge)),
+      cropBox: rect(pt(tiny), pt(tiny), pt(100), pt(100)),
+      bleedBox: rect(pt(tiny), pt(tiny), pt(90), pt(90)),
+      trimBox: rect(pt(tiny), pt(tiny), pt(80), pt(80)),
+      artBox: rect(pt(tiny), pt(tiny), pt(70), pt(70)),
+      group: { colorSpace: 'DeviceRGB' },
+    });
+    page.pieceInfo({ lastModified, data: { Illustrator: { private: privateData } } });
+    page.draw(content => {
+      content.save();
+      content.transform(huge, 0, 0, tiny, tiny, huge);
+      content.lineWidth(tiny);
+      content.lineJoin('round');
+      content.lineCap('square');
+      content.miterLimit(huge);
+      content.dash([tiny, huge], tiny);
+      content.graphicsState({ fillAlpha: tiny, strokeAlpha: tiny, blendMode: 'Multiply' });
+      content.fillColor(spot, tiny);
+      content.strokeColor(gray(tiny));
+      content.path(draw => draw.moveTo(tiny, huge).lineTo(huge, tiny).curveTo(tiny, huge, huge, tiny, tiny, huge).close());
+      content.fillAndStroke('evenodd');
+      content.path(draw => draw.rect(tiny, tiny, huge, huge));
+      content.clip('nonzero');
+      content.image(image, [tiny, 0, 0, huge, tiny, huge]);
+      content.group(group, [huge, 0, 0, tiny, tiny, huge]);
+      content.restore();
+    });
+    const bytes = document.save().toBytes();
+    expect(ascii(bytes)).toContain('1000000000000000000000');
+    expect(ascii(bytes)).toContain('0.0000001');
+    expect(scanNumbers(bytes)).toStrictEqual([]);
+    const unfiltered = new TextEncoder().encode('1 0 obj\n<</Length 4>>\nstream\n1e-7\nendstream\nendobj');
+    expect(scanNumbers(unfiltered)).toStrictEqual(['1e-7']);
   });
 });
