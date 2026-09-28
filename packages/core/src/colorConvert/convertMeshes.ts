@@ -44,6 +44,7 @@ interface MeshPlan {
   readonly background: PdfDirectObject | undefined;
   readonly discarded: readonly PdfReference[];
   readonly function: ConvertedCmykFunction | undefined;
+  readonly outputComponentBits: number | undefined;
 }
 
 const SHADING = pdfName('Shading').bytes;
@@ -129,6 +130,7 @@ const meshParameters = (config: {
     type,
     coordinateBits,
     componentBits,
+    outputComponentBits: Math.max(componentBits, 8),
     flagBits,
     channels,
     decode: arrayNumbers(shading.dictionary.get(DECODE), 4 + channels * 2),
@@ -222,7 +224,7 @@ const functionMesh = (
   }
   const originalDecode = shading.dictionary.get(DECODE);
   if (originalDecode === undefined) return invalid('function-driven mesh Decode is missing');
-  return { reference, shading, data: shading.data, decode: originalDecode, background, discarded, function: sampled };
+  return { reference, shading, data: shading.data, decode: originalDecode, background, discarded, function: sampled, outputComponentBits: undefined };
 };
 
 const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: PdfStream }, resources: PdfDictionaryEntries): MeshPlan | undefined => {
@@ -245,10 +247,8 @@ const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: Pd
   if (internals === undefined) return invalid('document internals are unavailable');
   const data = decodedData(internals, shading);
   if (typeof data === 'string') return invalid(`mesh stream cannot be decoded: ${data}`);
-  const converted = convertMeshSamples(
-    data,
-    meshParameters({ shading, type, channels, transform, maxBytes: Math.min(internals.maxDecodedBytes, MAX_MESH_WORKING_BYTES) }),
-  );
+  const parameters = meshParameters({ shading, type, channels, transform, maxBytes: Math.min(internals.maxDecodedBytes, MAX_MESH_WORKING_BYTES) });
+  const converted = convertMeshSamples(data, parameters);
   if (type === 5) {
     const vertices = integer(shading.dictionary.get(VERTICES_PER_ROW), 'VerticesPerRow');
     if (vertices < 2 || converted.records % vertices !== 0) return invalid('lattice mesh vertex rows are incomplete');
@@ -261,6 +261,7 @@ const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: Pd
     background,
     discarded: color.kind === 'reference' ? [color] : [],
     function: undefined,
+    outputComponentBits: parameters.outputComponentBits,
   };
 };
 
@@ -312,6 +313,7 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
     dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
     if (plan.function === undefined) {
       dictionary.set(DECODE, plan.decode);
+      if (plan.outputComponentBits !== undefined) dictionary.set(BITS_PER_COMPONENT, { kind: 'integer', value: plan.outputComponentBits });
       dictionary.set(FILTER, pdfName('FlateDecode'));
       dictionary.delete(DECODE_PARMS);
     } else dictionary.set(FUNCTION, writeCmykFunction(document, plan.function));

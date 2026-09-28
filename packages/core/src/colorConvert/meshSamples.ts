@@ -15,6 +15,7 @@ export interface MeshSampleOptions {
   readonly type: 4 | 5 | 6 | 7;
   readonly coordinateBits: number;
   readonly componentBits: number;
+  readonly outputComponentBits: number;
   readonly flagBits: number;
   readonly channels: number;
   readonly decode: readonly number[];
@@ -33,7 +34,7 @@ const writeColor = (reader: MeshBitReader, writer: MeshBitWriter, options: MeshS
   }
   const output = new Float64Array(4);
   options.transform.convert(input, output);
-  for (const value of output) writer.write(options.componentBits, Math.round(value * (2 ** options.componentBits - 1)));
+  for (const value of output) writer.write(options.outputComponentBits, Math.round(value * (2 ** options.outputComponentBits - 1)));
 };
 
 const copyCoordinates = (reader: MeshBitReader, writer: MeshBitWriter, config: { pairs: number; bits: number }): void => {

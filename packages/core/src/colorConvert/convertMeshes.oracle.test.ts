@@ -3,10 +3,15 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { text as streamText } from 'node:stream/consumers';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 import { createColorTransform } from '../color/createColorTransform.ts';
+import { deltaE2000 } from '../color/deltaE2000.ts';
+import { xyzToLab } from '../color/pcs.ts';
+import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -23,6 +28,60 @@ const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
 const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
+const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
+
+const lab = (channels: readonly number[]): readonly number[] => {
+  const pcs = toPcs(channels);
+  return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
+};
+
+const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => {
+  const writer = new MeshBitWriter();
+  for (const [x, y] of [
+    [0, 0],
+    [100, 0],
+    [0, 100],
+  ]) {
+    writer.write(2, 0);
+    writer.write(8, x ?? 0);
+    writer.write(8, y ?? 0);
+    for (const value of color) writer.write(bits, value);
+    writer.alignByte();
+  }
+  const meshBytes = latin1Text(writer.finish(1024));
+  return buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>>>>>' },
+        { number: 4, body: streamBody('', '/Sh1 sh') },
+        {
+          number: 5,
+          body: streamBody(
+            `/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent ${String(bits)}/BitsPerFlag 2/Decode[0 100 0 100 0 1 0 1 0 1]`,
+            meshBytes,
+          ),
+        },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+};
+
+const transicc = async (rgb: readonly number[]): Promise<number[]> => {
+  const sourcePath = fileURLToPath(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url));
+  const destinationPath = fileURLToPath(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url));
+  const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
+  child.stdin.end(`${rgb.map(value => value * 255).join(' ')}\n`);
+  const [output, closed] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
+  expect(closed[0]).toBe(0);
+  return output
+    .trim()
+    .split(/\s+/u)
+    .map(value => Number(value) / 100);
+};
 
 const triangle = (): Uint8Array => {
   const writer = new MeshBitWriter();
@@ -220,6 +279,7 @@ interface MeshInfo {
   readonly data: Uint8Array;
   readonly colorSpace: string;
   readonly decodeLength: number;
+  readonly componentBits: number;
 }
 
 const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
@@ -229,8 +289,11 @@ const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
   const data = decodedData(internals, shading);
   const color = shading.dictionary.get(pdfName('ColorSpace').bytes);
   const decode = shading.dictionary.get(pdfName('Decode').bytes);
-  if (typeof data === 'string' || color?.kind !== 'name' || decode?.kind !== 'array') throw new Error('converted mesh is invalid');
-  return { data, colorSpace: new TextDecoder('latin1').decode(color.bytes), decodeLength: decode.items.length };
+  const componentBits = shading.dictionary.get(pdfName('BitsPerComponent').bytes);
+  if (typeof data === 'string' || color?.kind !== 'name' || decode?.kind !== 'array' || componentBits?.kind !== 'integer') {
+    throw new Error('converted mesh is invalid');
+  }
+  return { data, colorSpace: new TextDecoder('latin1').decode(color.bytes), decodeLength: decode.items.length, componentBits: componentBits.value };
 };
 
 const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
@@ -264,6 +327,24 @@ const meshStop = (document: ReturnType<typeof loadDocument>): number => {
 };
 
 describe('mesh shading conversion', () => {
+  it.each([
+    { bits: 1, color: [0, 1, 1] },
+    { bits: 2, color: [2, 1, 0] },
+    { bits: 4, color: [12, 3, 2] },
+  ] as const)('promotes $bits-bit converted vertex colours to eight bits', async ({ bits, color }) => {
+    const document = loadDocument(lowDepthMesh(bits, color));
+    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const converted = mesh(document);
+    expect(converted.componentBits).toBe(8);
+    const reader = new MeshBitReader(converted.data);
+    reader.read(2);
+    reader.read(8);
+    reader.read(8);
+    const actual = Array.from({ length: 4 }, () => reader.read(8) / 255);
+    const expected = await transicc(color.map(value => value / (2 ** bits - 1)));
+    expect(deltaE2000(lab(actual), lab(expected))).toBeLessThanOrEqual(0.5);
+  });
+
   it('converts a mesh named by a shading pattern', () => {
     const document = loadDocument(meshPatternPdf.bytes);
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
