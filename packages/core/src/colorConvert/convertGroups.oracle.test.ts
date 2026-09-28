@@ -55,7 +55,7 @@ const formPdf = buildPdf([
   },
 ]);
 
-const luminosityPdf = (color: string) =>
+const luminosityPdf = (color: string, subtype = 'Luminosity') =>
   buildPdf([
     {
       xref: 'classic',
@@ -64,7 +64,7 @@ const luminosityPdf = (color: string) =>
         { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
         {
           number: 3,
-          body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R/BC[0 0 0]>>>>>>>>>>',
+          body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/${subtype}/G 6 0 R/BC[0 0 0]>>>>>>>>>>`,
         },
         { number: 4, body: streamBody('', '/GS gs 0.25 0.5 0.75 rg 0 0 10 10 re f') },
         {
@@ -153,11 +153,28 @@ describe('transparency group conversion', () => {
     expect(luminosityContent(document)).toContain('1 0 0 rg');
   });
 
+  it('converts a CalRGB luminosity group only when gray is requested', () => {
+    const document = loadDocument(luminosityPdf('[/CalRGB<</WhitePoint[0.95047 1 1.08883]>>]').bytes);
+    const report = convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination, luminosityGroups: 'gray' });
+    expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceGray');
+    expect(backdrop(document)).toHaveLength(1);
+    expect(report.groups).toBe(1);
+    expect(report.approximateLuminosityGroups).toBe(1);
+  });
+
   it('refuses a DeviceRGB luminosity group when blending changes are refused', () => {
     const document = loadDocument(luminosityPdf('/DeviceRGB').bytes);
     expect(() => convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination, blendingSpace: 'refuse' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'blend-space-change' }),
     );
     expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceRGB');
+  });
+
+  it('converts an alpha soft-mask group and its painted colours', () => {
+    const document = loadDocument(luminosityPdf('/DeviceRGB', 'Alpha').bytes);
+    const report = convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceCMYK');
+    expect(luminosityContent(document)).toMatch(/\bk\b/u);
+    expect(report.groups).toBe(1);
   });
 });

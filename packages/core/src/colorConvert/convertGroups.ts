@@ -20,6 +20,7 @@ export interface GroupConversionReport {
   readonly groups: number;
   readonly blendingSpaceChanges: Readonly<Record<'blendMode' | 'alpha' | 'softMask', number>>;
   readonly keptLuminosityGroups: number;
+  readonly approximateLuminosityGroups: number;
 }
 
 interface Compositing {
@@ -186,5 +187,6 @@ export const convertTransparencyGroups = (document: LoadedDocument, options: Rew
       softMask: scan.plans.filter(plan => plan.flags.softMask).length + masks.changed,
     },
     keptLuminosityGroups: masks.kept,
+    approximateLuminosityGroups: masks.approximated,
   };
 };

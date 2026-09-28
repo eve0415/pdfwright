@@ -47,20 +47,20 @@ const rewriteNamedSpace = (operation: SpannedContentOperation, state: ColourStat
   throw new UnsupportedFeatureError('luminosity mask contains another colour space');
 };
 
-const rewriteSample = (operation: SpannedContentOperation, state: ColourState): OperationRewrite => {
+const rewriteSample = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: readonly number[]) => number): OperationRewrite => {
   const { operator } = operation;
   const selected = operator === operator.toUpperCase() ? state.strokeRgb : state.fillRgb;
   const grayOperator = operator === operator.toUpperCase() ? 'G' : 'g';
   return {
     state,
-    replacement: selected ? `${formatNumber(deviceRgbLuminosity(rgb(operation.operands)), DEFAULT_FRACTION_DIGITS)} ${grayOperator}` : undefined,
+    replacement: selected ? `${formatNumber(rgbToGray(rgb(operation.operands)), DEFAULT_FRACTION_DIGITS)} ${grayOperator}` : undefined,
   };
 };
 
-const rewriteOperation = (operation: SpannedContentOperation, state: ColourState): OperationRewrite => {
+const rewriteOperation = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: readonly number[]) => number): OperationRewrite => {
   const { operator } = operation;
   if (operator === 'rg' || operator === 'RG') {
-    const gray = deviceRgbLuminosity(rgb(operation.operands));
+    const gray = rgbToGray(rgb(operation.operands));
     const stroke = operator === 'RG';
     return {
       state: stroke ? { ...state, strokeRgb: true } : { ...state, fillRgb: true },
@@ -72,7 +72,7 @@ const rewriteOperation = (operation: SpannedContentOperation, state: ColourState
   }
   if (operator === 'cs' || operator === 'CS') return rewriteNamedSpace(operation, state);
   if (operator === 'sc' || operator === 'scn' || operator === 'SC' || operator === 'SCN') {
-    return rewriteSample(operation, state);
+    return rewriteSample(operation, state, rgbToGray);
   }
   if (operator === 'k' || operator === 'K' || operator === 'sh' || operator === 'Do' || operator === 'BI') {
     throw new UnsupportedFeatureError('luminosity mask contains unsupported coloured content');
@@ -81,7 +81,7 @@ const rewriteOperation = (operation: SpannedContentOperation, state: ColourState
 };
 
 /** Rewrites a DeviceRGB luminosity group's colour operators to DeviceGray without changing its geometry. */
-export const rewriteDeviceRgbLuminosity = (bytes: Uint8Array): Uint8Array => {
+export const rewriteDeviceRgbLuminosity = (bytes: Uint8Array, rgbToGray: (values: readonly number[]) => number = deviceRgbLuminosity): Uint8Array => {
   let state: ColourState = { fillRgb: false, strokeRgb: false };
   const stack: ColourState[] = [];
   const edits: { start: number; end: number; text: string }[] = [];
@@ -96,7 +96,7 @@ export const rewriteDeviceRgbLuminosity = (bytes: Uint8Array): Uint8Array => {
       state = restored;
       continue;
     }
-    const rewritten = rewriteOperation(operation, state);
+    const rewritten = rewriteOperation(operation, state, rgbToGray);
     ({ state } = rewritten);
     if (rewritten.replacement !== undefined) edits.push({ start: operation.start, end: operation.end, text: rewritten.replacement });
   }
