@@ -81,7 +81,7 @@ Layers are supplied in paint order, bottom first; the Layers panel shows the rev
 
 ## Checked structure
 
-The reference structure was recorded from PDFs saved by Illustrator 30.8.2 with “Preserve Illustrator Editing Capabilities” at Acrobat 4 and Acrobat 8 compatibility. Local structural comparisons cover private-data key sets and versions, 65,536-byte chunking, equal page and application dates, the Zstandard frame header and window, cropmarks, layer and raster counts, and path and group operator counts. Package-generated PDFs are checked for those container fields, artboard declarations, native layer/path/clip/raster round trips, fixed-point numbers without exponent form, and visible separations rendered at 72 dpi. A 10 MB mixed raster payload was decoded byte-for-byte by two independent Zstandard decoders.
+The reference structure was recorded from PDFs saved by Illustrator 30.8.2 with “Preserve Illustrator Editing Capabilities” at Acrobat 4 and Acrobat 8 compatibility. Local structural comparisons cover private-data key sets and versions, 65,536-byte chunking, equal page and application dates, the Zstandard frame header and window, cropmarks, layer and raster counts, and path and group operator counts. The local reader also reconstructs supported layer artwork from three 30.8.2 saves; writing and reading that artwork again preserves its normalized structure and raster color and alpha bytes. Package-generated PDFs are checked for those container fields, artboard declarations, native layer/path/clip/raster round trips, fixed-point numbers without exponent form, and visible separations rendered at 72 dpi. A 10 MB mixed raster payload was decoded byte-for-byte by two independent Zstandard decoders.
 
 ## Supported features and limits
 
