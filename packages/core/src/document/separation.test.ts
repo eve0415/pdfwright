@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { compareDocuments } from '../compare/compareDocuments.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { listColorants } from '../inspect/colorants/listColorants.ts';
 import { pt } from '../length/length.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
@@ -12,6 +14,27 @@ import { rect } from './rect.ts';
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
 describe('separation colour spaces', () => {
+  it('keeps a Shift_JIS colorant name through write, read, edit and save', () => {
+    const legacyName = new Uint8Array([0x82, 0x62, 0x82, 0x74, 0x82, 0x73]);
+    const document = createDocument();
+    const spot = document.separation({ name: legacyName, alternate: cmyk(0, 0, 0, 0.5) });
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(40), pt(40)) });
+    page.draw(content => {
+      content.fillColor(spot, 1);
+      content.path(draw => draw.rect(5, 5, 20, 20));
+      content.fill('nonzero');
+    });
+    const written = document.save().toBytes();
+    for (const mode of ['incremental', 'full'] as const) {
+      const loaded = loadDocument(written);
+      expect(listColorants(loaded)[0]?.colorants[0]?.name).toStrictEqual(legacyName);
+      loaded.page(0).setBox('TrimBox', rect(pt(1), pt(1), pt(39), pt(39)));
+      const saved = loadDocument(loaded.save({ mode }).toBytes());
+      expect(listColorants(saved)[0]?.colorants[0]?.name).toStrictEqual(legacyName);
+      expect(compareDocuments(loadDocument(written), saved).differences.map(difference => difference.kind)).toStrictEqual(['page-box']);
+    }
+  });
+
   it('encodes UTF-8 names and preserves caller-supplied bytes', () => {
     const document = createDocument();
     const japanese = document.separation({ name: '白', alternate: cmyk(0, 0, 0, 0.2) });
