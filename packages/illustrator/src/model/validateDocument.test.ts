@@ -68,4 +68,13 @@ describe('illustrator document validation', () => {
     const second: PathItem = { ...path, fill: { paint: { kind: 'spot', spot: different } } };
     expect(validates({ ...document, layers: [{ name: 'A', items: [path, second] }] })).toThrow(ValidationError);
   });
+
+  it('rejects unsupported artwork fields with a typed feature error', () => {
+    const rgbDocument = { ...document, colorSpace: 'RGB' };
+    const openPath = { ...path, open: true };
+    const gradientPath = { ...path, gradient: { kind: 'linear' } };
+    expect(validates(rgbDocument)).toThrow(UnsupportedFeatureError);
+    expect(validates({ ...document, layers: [{ name: 'A', items: [openPath] }] })).toThrow(UnsupportedFeatureError);
+    expect(validates({ ...document, layers: [{ name: 'A', items: [gradientPath] }] })).toThrow(UnsupportedFeatureError);
+  });
 });

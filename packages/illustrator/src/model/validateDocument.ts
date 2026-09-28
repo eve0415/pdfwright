@@ -22,8 +22,18 @@ const nativeName = (value: string, name: string): void => {
 };
 
 const spotKey = (spot: SpotColor): string => [...(spot.nameBytes ?? new TextEncoder().encode(spot.name))].join(',');
+const knownFields = (value: unknown, names: readonly string[], context: string): void => {
+  if (typeof value !== 'object' || value === null) throw new ValidationError(`${context} must be an object`);
+  for (const name of Object.keys(value)) {
+    if (!names.includes(name)) throw new UnsupportedFeatureError(`${context} field ${name} is unsupported`);
+  }
+};
+const knownVariant = (kind: string, names: readonly string[], context: string): void => {
+  if (!names.includes(kind)) throw new UnsupportedFeatureError(`${context} kind is unsupported`);
+};
 
 const validateHeader = (document: IllustratorDocument): void => {
+  knownFields(document.artboard, ['width', 'height', 'bleed', 'name'], 'artboard');
   if (document.artboard.name !== undefined) nativeName(document.artboard.name, 'artboard name');
   if (document.title !== undefined) {
     for (const character of document.title) {
@@ -34,6 +44,7 @@ const validateHeader = (document: IllustratorDocument): void => {
   const { bleed } = document.artboard;
   if (bleed !== undefined) {
     const sides = typeof bleed === 'number' || 'numerator' in bleed ? [bleed] : [bleed.top, bleed.right, bleed.bottom, bleed.left];
+    if (typeof bleed === 'object' && !('numerator' in bleed)) knownFields(bleed, ['top', 'right', 'bottom', 'left'], 'bleed');
     for (const side of sides) {
       if (coordinate(side) < 0) throw new ValidationError('bleed cannot be negative');
     }
@@ -42,6 +53,7 @@ const validateHeader = (document: IllustratorDocument): void => {
 
 /** Validates every model value before any output is emitted. */
 export const validateDocument = (document: IllustratorDocument): void => {
+  knownFields(document, ['artboard', 'layers', 'lastModified', 'title'], 'document');
   const width = coordinate(document.artboard.width);
   const height = coordinate(document.artboard.height);
   if (width <= 0 || height <= 0 || width > 16383 || height > 16383) throw new ValidationError('artboard dimensions must be in (0, 16383] points');
@@ -63,6 +75,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
   };
   const spots = new Map<string, SpotColor>();
   const checkSpot = (spot: SpotColor): void => {
+    knownFields(spot, ['name', 'nameBytes', 'alternate'], 'spot');
     nativeName(spot.name, 'spot name');
     if (spot.nameBytes?.length === 0) throw new ValidationError('spot name bytes cannot be empty');
     for (const component of spot.alternate) unitInterval(component, 'spot alternate');
@@ -74,33 +87,46 @@ export const validateDocument = (document: IllustratorDocument): void => {
     spots.set(key, spot);
   };
   const checkPaint = (paint: Paint): void => {
+    knownVariant(paint.kind, ['process', 'spot'], 'paint');
     if (paint.kind === 'process') {
+      knownFields(paint, ['kind', 'cmyk'], 'process paint');
       for (const component of paint.cmyk) unitInterval(component, 'CMYK component');
     } else {
+      knownFields(paint, ['kind', 'spot', 'tint'], 'spot paint');
       checkSpot(paint.spot);
       if (paint.tint !== undefined) unitInterval(paint.tint, 'spot tint');
     }
   };
   const geometry = (value: PathGeometry): void => {
+    knownFields(value, ['start', 'segments'], 'path geometry');
     point(value.start);
     for (const segment of value.segments) {
+      knownVariant(segment.kind, ['line', 'curve'], 'path segment');
       point(segment.to);
       if (segment.kind === 'curve') {
+        knownFields(segment, ['kind', 'control1', 'control2', 'to', 'anchor'], 'curve segment');
         point(segment.control1);
         point(segment.control2);
-      }
+      } else knownFields(segment, ['kind', 'to', 'anchor'], 'line segment');
     }
   };
   const checkPath = (item: PathItem): void => {
+    knownFields(item, ['kind', 'geometry', 'fill', 'stroke'], 'path');
     geometry(item.geometry);
     if (item.fill === undefined && item.stroke === undefined) throw new ValidationError('path requires a fill or stroke');
-    if (item.fill !== undefined) checkPaint(item.fill.paint);
+    if (item.fill !== undefined) {
+      knownFields(item.fill, ['paint', 'overprint'], 'fill');
+      checkPaint(item.fill.paint);
+    }
     if (item.stroke !== undefined) {
+      knownFields(item.stroke, ['paint', 'width', 'overprint'], 'stroke');
       checkPaint(item.stroke.paint);
       positive(item.stroke.width, 'stroke width');
     }
   };
   const checkRaster = (item: RasterItem): void => {
+    knownFields(item, ['kind', 'width', 'height', 'bounds', 'color', 'alpha'], 'raster');
+    knownFields(item.bounds, ['x', 'y', 'width', 'height'], 'raster bounds');
     if (!Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height) || item.width <= 0 || item.height <= 0) {
       throw new ValidationError('raster dimensions must be positive integers');
     }
@@ -114,9 +140,12 @@ export const validateDocument = (document: IllustratorDocument): void => {
     point([x, y]);
     point([x + rasterWidth, y + rasterHeight]);
     if (item.alpha.length !== pixels) throw new ValidationError('raster alpha length does not match dimensions');
+    knownVariant(item.color.space, ['cmyk', 'spot'], 'raster color space');
     if (item.color.space === 'cmyk') {
+      knownFields(item.color, ['space', 'samples'], 'CMYK raster');
       if (item.color.samples.length !== pixels * 4) throw new ValidationError('CMYK sample length does not match dimensions');
     } else {
+      knownFields(item.color, ['space', 'spot', 'samples'], 'spot raster');
       checkSpot(item.color.spot);
       if (item.color.samples !== undefined && item.color.samples.length !== pixels) {
         throw new ValidationError('spot sample length does not match dimensions');
@@ -135,19 +164,21 @@ export const validateDocument = (document: IllustratorDocument): void => {
           break;
         }
         case 'clipGroup': {
+          knownFields(item, ['kind', 'clip', 'items'], 'clip group');
           if (item.items.length === 0) throw new ValidationError('clip group cannot be empty');
           geometry(item.clip);
           items(item.items);
           break;
         }
         case 'group': {
+          knownFields(item, ['kind', 'opacity', 'isolated', 'items'], 'group');
           if (item.items.length === 0) throw new ValidationError('group cannot be empty');
           if (item.opacity !== undefined) unitInterval(item.opacity, 'group opacity');
           items(item.items);
           break;
         }
         default: {
-          throw new ValidationError('unknown item kind');
+          throw new UnsupportedFeatureError('item kind is unsupported');
         }
       }
     }
@@ -155,6 +186,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
 
   const layerNames = new Set<string>();
   for (const layer of document.layers) {
+    knownFields(layer, ['name', 'visible', 'locked', 'opacity', 'color', 'items'], 'layer');
     nativeName(layer.name, 'layer name');
     if (layerNames.has(layer.name)) throw new ValidationError('layer names must be unique');
     layerNames.add(layer.name);
