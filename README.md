@@ -4,12 +4,12 @@ pdfwright is a TypeScript PDF library for print production. This repository is t
 
 ## Packages
 
-| Package                                          | Role                                           |
-| ------------------------------------------------ | ---------------------------------------------- |
-| [`@pdfwright/core`](packages/core)               | The core package                               |
-| [`@pdfwright/illustrator`](packages/illustrator) | The Adobe Illustrator interoperability package |
+| Package                                          | Role                                       |
+| ------------------------------------------------ | ------------------------------------------ |
+| [`@pdfwright/core`](packages/core)               | The core package                           |
+| [`@pdfwright/illustrator`](packages/illustrator) | A package that currently has no public API |
 
-`@pdfwright/illustrator` is an independent implementation for interoperability with Adobe Illustrator. Adobe and Illustrator are either registered trademarks or trademarks of Adobe in the United States and/or other countries. pdfwright is not affiliated with, endorsed by or sponsored by Adobe.
+Adobe and Illustrator are either registered trademarks or trademarks of Adobe in the United States and/or other countries. pdfwright is not affiliated with, endorsed by or sponsored by Adobe.
 
 ## Writing a print page
 

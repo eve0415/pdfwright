@@ -5,7 +5,7 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 ## Layout
 
 - `packages/core` is `@pdfwright/core`, the core package.
-- `packages/illustrator` is `@pdfwright/illustrator`, the Adobe Illustrator interoperability package.
+- `packages/illustrator` is `@pdfwright/illustrator`, a package that currently has no public API.
 - `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names and that every package entry loads there.
 - `scripts/` holds repository scripts, which run on Node.
 - `tools/oxlint/anti-slop` is a git submodule, the [anti-slop](https://github.com/dmmulroy/anti-slop) oxlint plugin (MIT), loaded as a JS plugin.

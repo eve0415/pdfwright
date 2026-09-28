@@ -1,7 +1,7 @@
 {
   "name": "@pdfwright/illustrator",
   "version": "0.0.0",
-  "description": "The Adobe Illustrator interoperability package of pdfwright, a TypeScript PDF library for print production.",
+  "description": "A pdfwright package that currently has no public API.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
