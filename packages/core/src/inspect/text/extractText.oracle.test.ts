@@ -307,7 +307,7 @@ describe('glyph positions against MuPDF and poppler', () => {
     expect(mupdfDifferences(glyphs, mupdfChars(stext.output, 0), false)).toStrictEqual([]);
   });
 
-  // The readers disagree with each other and with ISO 32000-1:2008, 9.2.4 and 9.7.4.3 in writing mode 1, so vertical boxes are checked against the ink Ghostscript renders for each glyph alone.
+  // MuPDF and poppler disagree with each other and with ISO 32000-1:2008, 9.2.4 and 9.7.4.3 in writing mode 1, so vertical boxes are checked against the ink Ghostscript renders for each glyph alone.
   it.each([
     ['the default DW2', 'BT /V 20 Tf 300 400 Td <0001> Tj ET'],
     ['the default DW2 and a glyph below the baseline', 'BT /V 20 Tf 300 400 Td <0002> Tj ET'],

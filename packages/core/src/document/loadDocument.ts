@@ -350,7 +350,7 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     try {
       read = readFromChain(session, header);
     } catch (error: unknown) {
-      // Only damage leads to a reconstruction; encryption, resource limits, unsupported features and references readers disagree about propagate.
+      // Only damage leads to a reconstruction; pdfwright propagates encryption, resource limits, unsupported features and generation mismatches.
       if (!(error instanceof ParseError) || error instanceof GenerationMismatchError) throw error;
       reason = error.message;
     }

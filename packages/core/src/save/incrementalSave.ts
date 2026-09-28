@@ -212,7 +212,7 @@ const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: Sect
 
 /**
  * Appends the changes to the source as an incremental update in the format of the section startxref names: after a classic section a classic section and trailer, after a cross-reference stream a cross-reference stream.
- * Readers were seen to repair or misread files whose Prev entries link sections of different formats, so the format is never mixed.
+ * pdfwright writes the same section format as the newest section, keeping the Prev chain's format consistent.
  * ISO 32000-1:2008, 7.5.6: "changes shall be appended to the end of the file, leaving its original contents intact."
  */
 export const incrementalSave = (input: SaveInput): SavedPdf => {
@@ -220,7 +220,7 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
   const [newest] = structure.sections;
   if (newest === undefined || structure.status === 'reconstructed') {
     throw new InvalidArgumentError(
-      'the cross-reference data of this file was reconstructed; an incremental update would inherit sections that readers disagree about',
+      'the cross-reference data of this file was reconstructed; an incremental update would inherit sections that pdfwright could not verify',
     );
   }
   const warnings: SaveWarning[] = [...input.warnings];

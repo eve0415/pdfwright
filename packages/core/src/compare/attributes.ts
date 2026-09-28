@@ -118,7 +118,7 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
 };
 
 /**
- * Reports a key that one document's dictionary holds more than once and the other's does not: readers disagree about which value such a key has, so an edit that settled it changed what some readers show.
+ * Reports a key that one document's dictionary holds more than once and the other's does not: pdfwright reads the last value, so settling the duplicate may change the value it reads.
  * ISO 32000-1:2008, 7.3.7: "Multiple entries in the same dictionary shall not have the same key."
  */
 export const compareDuplicateKeys = (

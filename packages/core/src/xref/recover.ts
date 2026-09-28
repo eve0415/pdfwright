@@ -263,7 +263,7 @@ const reportExtendsCycles = (streams: readonly DecodedObjectStream[], context: O
 
 /**
  * Rebuilds the cross-reference information by scanning the file for "n g obj" headers, trailers and object streams.
- * A later copy of an object outranks an earlier one; copies whose bytes differ are reported as ambiguous, since readers disagree about which one to use.
+ * A later copy of an object outranks an earlier one; pdfwright reports differing copies as ambiguous and uses the latest only when recovery: 'latest' is selected.
  */
 export const reconstructIndex = (input: ByteSource, context: ObjectStreamContext): Reconstruction => {
   const scanner = new Scanner(input, context);

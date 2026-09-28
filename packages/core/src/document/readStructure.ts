@@ -228,7 +228,7 @@ export const reconstruct = (session: LoadSession, reason: string, header: Header
     const list = reconstruction.ambiguous.join(', ');
     if (session.options.recovery === 'refuse-ambiguous') {
       throw new ParseError(
-        `the reconstructed file holds differing or unreadable copies of objects ${list}, and readers disagree about which to use; pass recovery: 'latest' to use the latest readable copies`,
+        `the reconstructed file holds differing or unreadable copies of objects ${list}, so pdfwright cannot choose one automatically; pass recovery: 'latest' to use the latest readable copies`,
         0,
       );
     }

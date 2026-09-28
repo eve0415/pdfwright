@@ -199,7 +199,7 @@ export class ObjectStore {
 
   /**
    * Resolves `objectNumber generation R`. ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
-   * A reference whose generation differs from the in-use entry's throws ParseError unless generationMismatch is 'null', because readers disagree about it.
+   * pdfwright throws ParseError for a reference whose generation differs from the in-use entry's unless generationMismatch is 'null'.
    */
   resolve(objectNumber: number, generation: number): PdfObject {
     const entry = this.index.get(objectNumber);
