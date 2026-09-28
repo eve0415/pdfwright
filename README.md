@@ -224,6 +224,38 @@ The returned `MetadataChange` lists the values the edit discarded (`reconciled`)
 The edit parses every object reachable from the trailer once, and a rewrite unpacks any object stream that holds a changed object.
 `createDocument({ info, metadata: { xmp: true } })` writes a packet that agrees with Info in a new file; it requires `info.modificationDate` (`ValidationError` `metadata-date-required`) and derives the DocumentID from the first file identifier unless `metadata.documentId` gives one.
 
+## Colour conversion and PDF/X-4 checks
+
+`convertToCmyk` takes a caller-supplied RGB source ICC profile and a caller-supplied CMYK output ICC profile; no profile is bundled or assumed for DeviceRGB. It converts reachable RGB and calibrated paints in page content, forms, images, patterns, shadings, transparency groups and annotation appearances, and its report separates those changes. Exact RGB black in text and vector art becomes K-only by default. RGB `DCTDecode` and `JPXDecode` images are kept encoded and ICC-tagged by default, and `images.keptRgbImages` lists them; their final conversion depends on the receiving renderer. Converted Flate images are generated as the save stream is read, so `toBytes()` materializes output that `toStream()` can deliver in bounded memory.
+
+The `outputIntent` identifier names the intended printing condition, independently of the profile bytes. The [ICC CMYK Characterization Data registry](https://registry.color.org/cmyk-registry/) supplies display defaults for registered identifiers; a custom identifier needs `info`. An existing intent for a different profile is refused unless `existing: 'replace'` is selected, and an identical indirect profile object is reused. This follows the output-intent entry types in [ISO 32000-1:2008, 14.11.5, Table 365](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf).
+
+With `pdfx`, the pass writes Info `/GTS_PDFXVersion` and XMP `pdfxid:GTS_PDFXVersion`, preserves an existing XMP `DocumentID` and `RenditionClass`, and derives `InstanceID` deterministically from the edit. `metadataDate` and `trapped` are required because neither can be inferred from page colours. It lowers a PDF version above 1.6 and reports `version-lowered`. On a page with neither TrimBox nor ArtBox, the default adds TrimBox equal to MediaBox and reports its page index; an existing ArtBox is kept. Pages whose content invokes transparency gain an isolated DeviceCMYK page group when they have no group already. Page boxes and transparency group entries follow [ISO 32000-1:2008, Table 30 and 14.11.2, and 11.4.7, Table 147](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf).
+
+```ts
+import type { PdfDate } from '@pdfwright/core';
+
+import { checkPdfX4, convertToCmyk, loadDocument } from '@pdfwright/core';
+
+export const preparePrintPdf = (input: Uint8Array, sourceRgbProfile: Uint8Array, outputProfile: Uint8Array, metadataDate: PdfDate) => {
+  const document = loadDocument(input);
+  const conversion = convertToCmyk(document, {
+    sourceRgbProfile,
+    outputProfile,
+    outputIntent: { outputConditionIdentifier: 'FOGRA39' },
+    pdfx: { trapped: 'False', metadataDate },
+  });
+  const structure = checkPdfX4(document);
+  return { conversion, structure, saved: document.save() };
+};
+```
+
+`checkPdfX4` reports `passed`, `violation` or `not-checked` for each rule, with its source and authority. On readable objects it checks for a GTS_PDFX output intent and required entries, an embedded parsable output profile, PDF/X-4 XMP identification, the XMP document and rendition IDs, matching Info and XMP trapping values, one print-area box per page and its bounds, and the absence of JavaScript, form fields, LZW, embedded files and external image references. `loadDocument` refuses encrypted input before the checker runs. These checks use [ISO 32000-1:2008, 14.3.2, Table 315, and 14.11.5, Table 365](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf) for PDF structure.
+
+The checker reports `not-checked` for the PDF/X-4 version limit, PDF 1.7-only keys, ICC version limit, annotation placement, transfer functions, font embedding, spot alternates, PostScript XObjects, `BX`/`EX`, rendering intents, architectural limits, transparency details and optional-content configurations. Their exact PDF/X-4 requirements need the unavailable clauses of ISO 15930-7:2010; the available preview covers its scope and definitions. A `no-violation-found-by-these-rules` summary means only that the implemented checks found no violation. Nothing here certifies PDF/X-4.
+
+The checker labels [“PDF/X in a Nutshell” (PDF Association, 2017)](https://pdfa.org/wp-content/uploads/2017/05/PDFX-in-a-Nutshell.pdf) as an industry explainer, [CGATS, “Application Notes for PDF/X Standards,” Version 4 (2006)](https://printtechnologies.org/standards/files/pdf-x-application-notes_v4-sep06.pdf) as predecessor guidance for PDF/X-1a/2/3, and [GWG 2015](https://gwg.org/technical-specifications/gwg-2015-specifications/) and [GWG 2022](https://gwg.org/technical-specifications/gwg-2022-specifications/) as industry specifications for their own workflows. Those sources inform provisional checks and policies; they do not replace ISO 15930-7.
+
 ## Development
 
 See the contributor guide's [Setup](AGENTS.md#setup) and [The gate](AGENTS.md#the-gate) sections for development instructions.
