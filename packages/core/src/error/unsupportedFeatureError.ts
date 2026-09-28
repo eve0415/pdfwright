@@ -1,6 +1,6 @@
 import { PdfwrightError } from './pdfwrightError.ts';
 
-export type UnsupportedFeatureReason = 'icc-version-5' | 'icc-mpet' | 'compressed-rgb-image' | 'jpx-color-space';
+export type UnsupportedFeatureReason = 'icc-version-5' | 'icc-mpet' | 'compressed-rgb-image' | 'jpx-color-space' | 'device-n-components' | 'nchannel-process';
 
 export class UnsupportedFeatureError extends PdfwrightError {
   override readonly code = 'unsupported-feature' as const;
