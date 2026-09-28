@@ -1,4 +1,5 @@
 import type { IllustratorDocument, Item, Paint, SpotColor } from '../model/illustratorDocument.ts';
+import type { PreparedDocument } from '../model/prepareDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
 import { InvalidArgumentError, add, formatInteger, multiply, pt, subtract } from '@pdfwright/core';
@@ -12,6 +13,7 @@ import { escapeNativeString } from './nativeString.ts';
 export interface HeaderOptions {
   readonly creator?: string;
   readonly convention?: 'bottom-left' | 'top-left';
+  readonly prepared?: PreparedDocument;
 }
 
 export interface DocumentColors {
@@ -96,8 +98,12 @@ const writeSpotComments = (writer: NativeWriter, spots: readonly SpotColor[]): v
 
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
 
+const headerData = (document: IllustratorDocument, prepared: PreparedDocument | undefined): PreparedDocument =>
+  prepared ?? { bounds: artBounds(document), colors: documentColors(document) };
+
 /** Writes the native header through `%%EndComments` and returns its byte length for `/AIMetaData`. */
 export const writeHeader = (writer: NativeWriter, document: IllustratorDocument, options: HeaderOptions = {}): number => {
+  const { bounds: art, colors } = headerData(document, options.prepared);
   const width = number(document.artboard.width);
   const height = number(document.artboard.height);
   const creator = options.creator ?? '@pdfwright/illustrator';
@@ -108,7 +114,6 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   const topLeft = options.convention === 'top-left';
   const rulerX = topLeft ? 8191.5 - width / 2 : Math.floor(8191.5 - width / 2);
   const rulerY = topLeft ? 8191.5 + height / 2 : Math.floor(8191.5 - height / 2);
-  const art = artBounds(document);
   const shifted = topLeft ? { minX: art.minX, minY: art.minY - height, maxX: art.maxX, maxY: art.maxY - height } : art;
   const [minX, minY, maxX, maxY] = integerBounds(shifted);
   writer.line('%!PS-Adobe-3.0 ');
@@ -123,7 +128,7 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   writer.line('%%Canvassize: 16383');
   writer.line(`%%BoundingBox: ${String(minX)} ${String(minY)} ${String(maxX)} ${String(maxY)}`);
   writer.line(`%%HiResBoundingBox: ${[shifted.minX, shifted.minY, shifted.maxX, shifted.maxY].map(value => formatNativeNumber(value)).join(' ')}`);
-  const { spots, process } = documentColors(document);
+  const { spots, process } = colors;
   if (process.length > 0) writer.line(`%%DocumentProcessColors: ${process.join(' ')}`);
   writer.line('%AI5_FileFormat 14.0');
   writer.line('%AI12_BuildNumber: 7');

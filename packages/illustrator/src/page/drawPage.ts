@@ -1,4 +1,5 @@
 import type { Artboard, Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, RasterItem, SpotColor } from '../model/illustratorDocument.ts';
+import type { PreparedDocument } from '../model/prepareDocument.ts';
 import type { ImageRegistry } from './imageRegistry.ts';
 import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfImage, PdfPage, PdfRect, Separation } from '@pdfwright/core';
 
@@ -132,15 +133,15 @@ const drawItem = (content: ContentBuilder, item: Item, resources: PageResources)
 };
 
 /** Draws visible paths and clipping groups into a PDF 1.7 CMYK page. */
-export const drawPage = (document: PdfDocument, model: IllustratorDocument): PdfPage => {
-  validateDocument(model);
+export const drawPage = (document: PdfDocument, model: IllustratorDocument, prepared?: PreparedDocument): PdfPage => {
+  if (prepared === undefined) validateDocument(model);
   const { left, right, top, bottom } = bleedSides(model.artboard);
   const width = length(model.artboard.width);
   const height = length(model.artboard.height);
   const mediaWidth = add(add(length(left), width), length(right));
   const mediaHeight = add(add(length(bottom), height), length(top));
   const mediaBox = rect(pt(0), pt(0), mediaWidth, mediaHeight);
-  const art = artBounds(model);
+  const art = prepared?.bounds ?? artBounds(model);
   const x0 = Math.max(0, number(left) + art.minX);
   const y0 = Math.max(0, number(bottom) + art.minY);
   const x1 = Math.min(number(mediaWidth), number(left) + art.maxX);

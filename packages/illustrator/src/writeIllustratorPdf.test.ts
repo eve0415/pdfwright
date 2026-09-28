@@ -56,4 +56,21 @@ describe('illustrator PDF writer', () => {
     expect(pdf).toContain('/Separation /Primer');
     expect(pdf).toContain('/ImageMask true');
   });
+
+  it('scans model colors once across the native and visible page writers', () => {
+    let reads = 0;
+    const process = {
+      kind: 'process' as const,
+      get cmyk(): readonly [number, number, number, number] {
+        reads++;
+        return [0, 0, 0, 1];
+      },
+    };
+    const counted: IllustratorDocument = {
+      ...model,
+      layers: [{ name: 'Ink', items: [{ kind: 'path', geometry: { start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }, fill: { paint: process } }] }],
+    };
+    writeIllustratorPdf(counted);
+    expect(reads).toBe(4);
+  });
 });

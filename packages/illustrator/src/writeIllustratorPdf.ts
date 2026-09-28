@@ -4,6 +4,7 @@ import type { NativeCompression } from './zstd/frame.ts';
 import { ValidationError, createDocument } from '@pdfwright/core';
 
 import { attachPrivateData } from './container/privateData.ts';
+import { prepareDocument } from './model/prepareDocument.ts';
 import { writeNative } from './native/writeNative.ts';
 import { drawPage } from './page/drawPage.ts';
 
@@ -26,9 +27,10 @@ export const writeIllustratorPdf = (model: IllustratorDocument, options: WriteIl
   ) {
     throw new ValidationError('compression must be a supported mode or a Zstandard encoder', 'illustrator-model');
   }
-  const native = writeNative(model, options.creator === undefined ? {} : { creator: options.creator });
+  const prepared = prepareDocument(model);
+  const native = writeNative(model, options.creator === undefined ? {} : { creator: options.creator }, prepared);
   const document = createDocument();
-  const page = drawPage(document, model);
+  const page = drawPage(document, model, prepared);
   attachPrivateData(document, page, { native, lastModified: model.lastModified, options: { compression: options.compression ?? 'zstandard' } });
   return document.save().toBytes();
 };

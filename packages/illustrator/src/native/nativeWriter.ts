@@ -25,7 +25,7 @@ export const createNativeWriter = (): NativeWriter => {
   const chunks: Uint8Array[] = [];
   let offset = 0;
   const raw = (bytes: Uint8Array): void => {
-    chunks.push(new Uint8Array(bytes));
+    chunks.push(bytes);
     offset += bytes.length;
   };
   const line = (...tokens: readonly NativeToken[]): void => {
