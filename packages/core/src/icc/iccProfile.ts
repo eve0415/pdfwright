@@ -8,7 +8,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { readLut } from './iccLut.ts';
 import { readMultiLut } from './iccMultiLut.ts';
-import { parseIccStructure } from './iccStructure.ts';
+import { colorSpaceChannels, parseIccStructure } from './iccStructure.ts';
 import { readCurve, readSf32, readXyz } from './iccTags.ts';
 import { readIccText } from './iccText.ts';
 
@@ -29,13 +29,6 @@ export interface IccProfile {
 }
 
 export type LutTag = TableLut | MultiLut;
-
-const channels = (space: IccHeader['colorSpace']): number => {
-  if (typeof space === 'object') return space.colorants;
-  if (space === 'Gray') return 1;
-  if (space === 'CMYK') return 4;
-  return 3;
-};
 
 export const parseIccProfile = (source: Uint8Array): IccProfile => {
   const structure = parseIccStructure(source);
@@ -79,8 +72,8 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
         type === 'mAB ' || type === 'mBA '
           ? readMultiLut(structure.bytes, tag.offset, tag.offset + tag.size)
           : readLut(structure.bytes, tag.offset, tag.offset + tag.size);
-      const input = prefix === 'A2B' ? channels(structure.header.colorSpace) : channels(structure.header.pcs);
-      const output = prefix === 'A2B' ? channels(structure.header.pcs) : channels(structure.header.colorSpace);
+      const input = prefix === 'A2B' ? colorSpaceChannels(structure.header.colorSpace) : colorSpaceChannels(structure.header.pcs);
+      const output = prefix === 'A2B' ? colorSpaceChannels(structure.header.pcs) : colorSpaceChannels(structure.header.colorSpace);
       if (structure.bytes[tag.offset + 8] !== input || structure.bytes[tag.offset + 9] !== output) {
         throw new InvalidProfileError('ICC LUT channel count disagrees with header', 'channel-mismatch', { offset: tag.offset, tag: tag.signature });
       }

@@ -28,6 +28,8 @@ export type { Curve, Matrix3 } from './icc/iccTags.ts';
 export type { Clut, TableLut } from './icc/iccLut.ts';
 export type { MultiLut } from './icc/iccMultiLut.ts';
 export type { DataColorSpace, IccHeader, IccWarning, ProfileClass, RenderingIntent, Xyz } from './icc/iccStructure.ts';
+export { createColorTransform } from './color/createColorTransform.ts';
+export type { ColorSource, ColorTransform, ColorTransformOptions } from './color/createColorTransform.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,

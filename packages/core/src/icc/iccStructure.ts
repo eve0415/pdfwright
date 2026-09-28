@@ -42,6 +42,13 @@ export interface IccStructure {
   readonly warnings: readonly IccWarning[];
 }
 
+export const colorSpaceChannels = (space: DataColorSpace): number => {
+  if (typeof space === 'object') return space.colorants;
+  if (space === 'Gray') return 1;
+  if (space === 'CMYK') return 4;
+  return 3;
+};
+
 const classes = new Map<string, ProfileClass>([
   ['scnr', 'input'],
   ['mntr', 'display'],
