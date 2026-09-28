@@ -24,7 +24,30 @@ const unsupportedReason = (bytes: Uint8Array): string | undefined => {
 
 const coefficients = (): Int32Array => Int32Array.from(Array.from({ length: 64 }, (_, index) => (index === 0 ? 128 : ((index * 37) % 23) - 11)));
 
+const jpegSegment = (marker: number, payload: readonly number[]): number[] => [255, marker, 0, payload.length + 2, ...payload];
+
+const grayJpeg = (entropy: readonly number[]): Uint8Array =>
+  Uint8Array.from([
+    255,
+    0xd8,
+    ...jpegSegment(0xdb, [0, ...Array.from({ length: 64 }, () => 1)]),
+    ...jpegSegment(0xc4, [0, 1, ...Array.from({ length: 15 }, () => 0), 0]),
+    ...jpegSegment(0xc4, [0x10, 1, ...Array.from({ length: 15 }, () => 0), 0]),
+    ...jpegSegment(0xc0, [8, 0, 8, 0, 8, 1, 1, 0x11, 0]),
+    ...jpegSegment(0xda, [1, 1, 0, 0, 63, 0]),
+    ...entropy,
+    255,
+    0xd9,
+  ]);
+
 describe('jpeg input validation', () => {
+  it('rejects data and restart markers after the final MCU', () => {
+    expect([...decodeJpeg(grayJpeg([0x3f])).rows()]).toHaveLength(8);
+    for (const entropy of [[0x3f, 1, 2, 3], [0x3f, 255, 0xd0], [0x3e]]) {
+      expect(() => [...decodeJpeg(grayJpeg(entropy)).rows()]).toThrow(ParseError);
+    }
+  });
+
   it('pins the inverse DCT output across runtimes', () => {
     const digest = [...md5(inverseDct(coefficients()))].map(value => value.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('114740e0166b329fff476c007e2d1a59');

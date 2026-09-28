@@ -368,6 +368,13 @@ class EntropyReader {
     while (this.position < this.end && this.data[this.position] === 0xff) this.position++;
     if (byte(this.data, this.position++) !== 0xd0 + number) return invalid(this.position, 'restart marker sequence is invalid');
   }
+
+  finish(): void {
+    // ITU-T T.81 (1992), B.1.1.5: unused Huffman bits at the end of a segment are all 1.
+    if (this.position !== this.end || this.bits % 2 ** this.count !== 2 ** this.count - 1) {
+      invalid(this.position, 'trailing entropy data or invalid pad bits');
+    }
+  }
 }
 
 const cosine = (position: number, frequency: number): number => {
@@ -515,6 +522,7 @@ const rows = function* (scan: Scan, maxRowBytes: number): Generator<Uint8Array> 
       decodeMcu({ scan, reader, predictors, planes, mcuColumn });
       decodedMcus++;
     }
+    if (mcuRow === mcuRows - 1) reader.finish();
     for (let localY = 0; localY < frame.maxVertical * 8 && mcuRow * frame.maxVertical * 8 + localY < frame.height; localY++) {
       yield renderRow(scan, planes, localY);
     }
