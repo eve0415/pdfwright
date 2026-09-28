@@ -13,6 +13,7 @@ import { deriveInstanceId, resolveDocumentId } from './identifiers.ts';
 import { checkRepresentable, newPacket } from './xmp/writeXmp.ts';
 import { xmpDateString } from './xmp/xmpDate.ts';
 
+/** Requests an agreeing XMP packet for new Info metadata; xmp is true, DocumentID comes from the first file identifier and InstanceID from document bytes unless supplied, while missing modificationDate raises ValidationError reason `metadata-date-required` under ISO 32000-1:2008, 14.3–14.4 and XMP Part 3, Table 20. */
 export interface CreatedMetadataOptions {
   /** Write an XMP packet that agrees with Info; info.modificationDate is then required. */
   xmp: true;

@@ -1,3 +1,4 @@
+/** Typed codes for unreadable, inconsistent, duplicate, orphaned, or legacy metadata; `readMetadata` reports these findings rather than throwing for each packet defect under ISO 32000-1:2008, 14.3. */
 export type MetadataFindingCode =
   | 'info-xmp-mismatch'
   | 'info-xmp-indeterminate'

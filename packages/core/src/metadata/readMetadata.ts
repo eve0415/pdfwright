@@ -23,6 +23,7 @@ import { scanPackets } from './packetScan.ts';
 import { readXmp } from './xmp/readXmp.ts';
 import { DEFAULT_XML_LIMITS } from './xmp/xmlTokenizer.ts';
 
+/** Limits XML parsing to 160,000 XMP tokens by default; a larger packet is reported unreadable and an invalid limit raises InvalidArgumentError without a reason under XMP Part 1, 7.4. */
 export interface ReadMetadataOptions {
   /** Most XML tokens in one XMP packet; default 160,000. A packet above the cap is reported as unreadable and its bytes are left intact. */
   readonly maxXmpTokens?: number;
@@ -41,6 +42,7 @@ export interface ComponentPacket {
   readonly reference: PdfReference;
 }
 
+/** The Info dictionary, catalog XMP packet, mapped properties, authority, component and orphan packets, and findings read under ISO 32000-1:2008, 14.3 and XMP Part 3, Table 20. */
 export interface DocumentMetadata {
   /** The document information dictionary: its reference when it is an indirect object, and its values by key. */
   readonly info: { readonly reference: PdfReference | undefined; readonly values: ReadonlyMap<string, InfoValue> } | undefined;

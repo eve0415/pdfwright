@@ -19,6 +19,7 @@ export type XmpValue =
   | { readonly kind: 'array'; readonly type: 'Alt' | 'Seq' | 'Bag'; readonly items: readonly XmpArrayItem[] }
   | { readonly kind: 'opaque' };
 
+/** A namespace-qualified XMP element or attribute with its source span and interpreted or opaque value under XMP Part 1, 7.9. */
 export interface XmpProperty {
   readonly namespace: string;
   readonly localName: string;
@@ -29,13 +30,16 @@ export interface XmpProperty {
   readonly value: XmpValue;
 }
 
+/** Typed packet findings for encoding, rdf:about, duplicates, and extra packets under XMP Part 1, 7.3–7.4; these are reported values, not thrown errors. */
 export type XmpFindingCode = 'xmp-not-utf8' | 'rdf-about-unprefixed' | 'rdf-about-mismatch' | 'duplicate-property' | 'extra-xmp-packet';
 
+/** A typed XMP packet finding with a human-readable detail under XMP Part 1, 7.3–7.4. */
 export interface XmpFinding {
   readonly code: XmpFindingCode;
   readonly detail: string;
 }
 
+/** The XMP encoding, packet wrapper, RDF subject, ordered properties, and findings; absent wrapper fields remain undefined under XMP Part 1, 7.3–7.4. */
 export interface XmpPacket {
   readonly encoding: XmlEncoding;
   /** Whether the packet has the header and which trailer it has (XMP Part 1 7.3.2). */

@@ -295,6 +295,7 @@ export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_XML_LIMITS
   return result.ok ? { ok: true, tokens } : result;
 };
 
+/** One supported UTF-8, UTF-16, or UTF-32 byte ordering for an XMP packet; XML 1.0 encoding detection selects it before token limits are applied. */
 export type XmlEncoding = 'utf8' | 'utf-16be' | 'utf-16le' | 'utf-32be' | 'utf-32le';
 
 export type DecodedXml = { readonly ok: true; readonly text: string; readonly encoding: XmlEncoding } | { readonly ok: false; readonly reason: 'undecodable' };

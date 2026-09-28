@@ -17,14 +17,17 @@ export const PDFX_ID_NAMESPACE = 'http://www.npes.org/pdfx/ns/id/';
 /** The document information keys XMP Part 3 Table 20 maps to XMP properties. */
 export type MappedKey = 'Title' | 'Author' | 'Subject' | 'Keywords' | 'Creator' | 'Producer' | 'CreationDate' | 'ModDate' | 'Trapped';
 
+/** Whether corresponding Info and XMP values agree, differ, cannot be compared, or appear on one or neither side under XMP Part 3, Table 20. */
 export type Agreement = 'agree' | 'differ' | 'indeterminate' | 'info-only' | 'xmp-only' | 'absent';
 
+/** An older XMP property and value retained for reporting when it overlaps the current mapping in XMP Part 3, Table 20. */
 export interface LegacyValue {
   /** The legacy property, as its conventional prefix and name. */
   readonly property: string;
   readonly value: XmpValue;
 }
 
+/** One Info-to-XMP key mapping with both values, legacy values, and their agreement under XMP Part 3, Table 20 and ISO 32000-1:2008, 14.3.2. */
 export interface MappedProperty {
   readonly key: MappedKey;
   /** The XMP property XMP Specification Part 3, Table 20 maps the key to, as its conventional prefix and name. */

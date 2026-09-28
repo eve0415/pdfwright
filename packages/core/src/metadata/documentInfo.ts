@@ -7,6 +7,7 @@ import { pdfDocEncodingUnicode } from '../font/encoding/simpleEncodings.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName, pdfString } from '../object/pdfObject.ts';
 
+/** Optional trailer Info values for title, creators, dates, and Trapped; absent keys are omitted, text follows ISO 32000-1:2008, 7.9.2.2, and Trapped is a name from Table 317. */
 export interface DocumentInfo {
   title?: string;
   author?: string;
@@ -70,6 +71,7 @@ export const documentInfoDictionary = (info: DocumentInfo): PdfDictionaryEntries
   return entries;
 };
 
+/** Decoded PDFDocEncoding or UTF-16BE text with language tags and replacement count; malformed units become U+FFFD under ISO 32000-1:2008, 7.9.2.2 and Annex D, Table D.2. */
 export interface TextString {
   readonly text: string;
   readonly encoding: 'pdfdoc' | 'utf-16be';

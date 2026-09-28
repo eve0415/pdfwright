@@ -14,6 +14,7 @@ import { pdfTextString } from './documentInfo.ts';
 import { MAPPED_ROWS, comparableText } from './mapping.ts';
 import { finerThan, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmp/xmpDate.ts';
 
+/** Values to reconcile across Info and XMP: modificationDate is required, omitted optional values keep stored data, and null or empty text removes it under ISO 32000-1:2008, 14.3.2 and XMP Part 3, Table 20. */
 export interface MetadataInput {
   /** Info Title and dc:title; left out, the document's value is kept, taken from the authoritative side where Info and XMP disagree; null or an empty string removes it. */
   title?: string | null;

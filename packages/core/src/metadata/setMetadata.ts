@@ -30,6 +30,7 @@ import { splicePacket } from './xmp/splicePacket.ts';
 import { newPacket } from './xmp/writeXmp.ts';
 import { xmpDateString } from './xmp/xmpDate.ts';
 
+/** Controls XMP identifiers and history: DocumentID is kept, InstanceID derived, revisions removed, and unreadable XMP refused by default; `xmp-unreadable` and `signed-document` are ValidationError reasons, with 160,000 tokens as the default read cap under XMP Part 1, 7.3 and ISO 32000-1:2008, 14.3. */
 export interface SetMetadataOptions extends ReadMetadataOptions {
   /** 'keep' (the default) keeps the packet's xmpMM:DocumentID, else derives it from the first file identifier; a value is written as given. */
   documentId?: 'keep' | { readonly value: string };
@@ -41,6 +42,7 @@ export interface SetMetadataOptions extends ReadMetadataOptions {
   unreadableXmp?: 'refuse' | 'replace';
 }
 
+/** Reports reconciled values, removed legacy properties and orphans, identifiers, save mode, and findings after a metadata edit under ISO 32000-1:2008, 14.3.2 and XMP Part 3, Table 20. */
 export interface MetadataChange {
   readonly reconciled: readonly ReconciledValue[];
   /** Legacy properties removed from the packet, as their conventional prefix and name. */
