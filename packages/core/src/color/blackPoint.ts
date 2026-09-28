@@ -2,13 +2,12 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent, Xyz } from '../icc/iccStructure.ts';
 import type { PcsValue } from './profilePipeline.ts';
 
-import { D50, labToXyz, xyzToLab } from './pcs.ts';
-import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
+import { D50, XYZ_SCALE, labToXyz, xyzToLab } from './pcs.ts';
+import { destinationEvaluator, intentIndex, sourceEvaluator } from './profilePipeline.ts';
 
 // ICC.1:2022, 6.3.3.2 Table 16 gives the perceptual reference black. LittleCMS 2.16 uses these rounded XYZ constants.
 const PERCEPTUAL_BLACK: Xyz = { x: 0.00336, y: 0.0034731, z: 0.00287 };
 const ZERO: Xyz = { x: 0, y: 0, z: 0 };
-const XYZ_SCALE = 1 + 32767 / 32768;
 
 interface BlackPointAdjustment {
   readonly values: number[];
@@ -48,13 +47,15 @@ const usesMatrixTrc = (profile: IccProfile): boolean => {
 const forcedV4 = (profile: IccProfile, intent: RenderingIntent): boolean =>
   profile.header.version.major >= 4 && (intent === 'perceptual' || intent === 'saturation');
 
-const roundtrip = (profile: IccProfile, inputLab: readonly number[], config: { intent: RenderingIntent; option: 'icc' | 'adobe' }): number[] => {
+const roundtrip = (profile: IccProfile, config: { intent: RenderingIntent; option: 'icc' | 'adobe' }): ((inputLab: readonly number[]) => number[]) => {
   const { intent, option } = config;
   const toDevice = destinationEvaluator(profile, intent, option);
   const fromDevice = sourceEvaluator(profile, 'relativeColorimetric', option);
-  let input: PcsValue = { space: 'Lab', values: inputLab };
-  if (forcedV4(profile, intent)) input = { space: 'XYZ', values: scale(labToXyz(inputLab), ZERO, PERCEPTUAL_BLACK).values };
-  return toLab(fromDevice(toDevice(input)));
+  return inputLab => {
+    let input: PcsValue = { space: 'Lab', values: inputLab };
+    if (forcedV4(profile, intent)) input = { space: 'XYZ', values: scale(labToXyz(inputLab), ZERO, PERCEPTUAL_BLACK).values };
+    return toLab(fromDevice(toDevice(input)));
+  };
 };
 
 const darkerColorant = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): Xyz => {
@@ -70,7 +71,7 @@ const sourceBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc'
   // LittleCMS 2.16 cmssamp.c:191–274: v4 perceptual/saturation has a reference black except for matrix-shaper profiles.
   if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) return PERCEPTUAL_BLACK;
   if (intent === 'relativeColorimetric' && profile.header.profileClass === 'output' && profile.header.colorSpace === 'CMYK') {
-    const lightness = roundtrip(profile, [0, 0, 0], { intent: 'perceptual', option })[0] ?? 0;
+    const lightness = roundtrip(profile, { intent: 'perceptual', option })([0, 0, 0])[0] ?? 0;
     return neutral(Math.min(50, lightness));
   }
   return darkerColorant(profile, forcedV4(profile, intent) ? 'relativeColorimetric' : intent, option);
@@ -158,10 +159,11 @@ const sampleRamp = (profile: IccProfile, config: { intent: RenderingIntent; opti
   const outputRamp: number[] = [];
   const chromaA = Math.max(-50, Math.min(50, initialLab[1] ?? 0));
   const chromaB = Math.max(-50, Math.min(50, initialLab[2] ?? 0));
+  const evaluate = roundtrip(profile, { intent, option });
   for (let index = 0; index < 256; index++) {
     const lightness = (index * 100) / 255;
     inputRamp.push(lightness);
-    const returned = roundtrip(profile, [lightness, chromaA, chromaB], { intent, option });
+    const returned = evaluate([lightness, chromaA, chromaB]);
     outputRamp.push(returned[0] ?? 0);
   }
   for (let index = 254; index > 0; index--) outputRamp[index] = Math.min(outputRamp[index] ?? 0, outputRamp[index + 1] ?? 0);
@@ -196,10 +198,7 @@ const fittedBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc'
 const destinationBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): Xyz => {
   // LittleCMS 2.16 cmssamp.c:352–552: v4 perceptual is fixed; LUT destinations use a 256-step roundtrip and a shadow fit.
   if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) return PERCEPTUAL_BLACK;
-  let index: 0 | 1 | 2 = 1;
-  if (intent === 'perceptual') index = 0;
-  else if (intent === 'saturation') index = 2;
-  const tag = profile.pcsToDevice[index] ?? profile.pcsToDevice[0];
+  const tag = profile.pcsToDevice[intentIndex(intent)] ?? profile.pcsToDevice[0];
   if (tag === undefined || ('clut' in tag && tag.clut === undefined)) return sourceBlack(profile, intent, option);
   return fittedBlack(profile, intent, option);
 };

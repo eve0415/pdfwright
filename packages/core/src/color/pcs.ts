@@ -4,7 +4,7 @@ import type { Xyz } from '../icc/iccStructure.ts';
 import { deterministicCbrt } from './ieeeMath.ts';
 
 export const D50: Xyz = { x: 0.9642, y: 1, z: 0.8249 };
-const XYZ_SCALE = 1 + 32767 / 32768;
+export const XYZ_SCALE = 1 + 32767 / 32768;
 const DELTA = 6 / 29;
 const CUBE_THRESHOLD = DELTA * DELTA * DELTA;
 const LINEAR_DIVISOR = 3 * DELTA * DELTA;

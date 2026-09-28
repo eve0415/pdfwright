@@ -6,7 +6,7 @@ export class ChunkedInflateOutput {
   private chunk = new Uint8Array(65536);
   private used = 0;
   private total = 0;
-  private ready: Uint8Array[] = [];
+  private readonly ready: Uint8Array[] = [];
   private readonly limit: number;
 
   constructor(limit: number) {
@@ -30,10 +30,8 @@ export class ChunkedInflateOutput {
     for (let index = 0; index < length; index++) this.push(this.window[(this.total - distance) & 32767] ?? 0);
   }
 
-  drain(): Uint8Array[] {
-    const result = this.ready;
-    this.ready = [];
-    return result;
+  take(): Uint8Array | undefined {
+    return this.ready.shift();
   }
 
   finish(): Uint8Array {

@@ -3,6 +3,8 @@ import type { Curve, Matrix3 } from './iccTags.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 
+import { iccSignature } from './iccSignature.ts';
+
 export interface Clut {
   readonly gridPoints: readonly number[];
   readonly inputChannels: number;
@@ -17,9 +19,6 @@ export interface TableLut {
   readonly clut: Clut;
   readonly output: readonly Curve[];
 }
-
-const signature = (bytes: Uint8Array, offset: number): string =>
-  String.fromCodePoint(bytes[offset] ?? 0, bytes[offset + 1] ?? 0, bytes[offset + 2] ?? 0, bytes[offset + 3] ?? 0);
 
 const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Curve[] => {
   const result: Curve[] = [];
@@ -56,7 +55,7 @@ const dimensions = (view: DataView, offset: number, width: 1 | 2) => {
 
 export const readLut = (bytes: Uint8Array, offset: number, limit: number): TableLut => {
   // ICC.1:2022, 10.10 Table 40 and 10.11 Table 44 specify the mft2 and mft1 layouts and matrix → input → CLUT → output order.
-  const name = signature(bytes, offset);
+  const name = iccSignature(bytes, offset);
   if (name !== 'mft1' && name !== 'mft2') throw new InvalidProfileError('ICC tag must be lut8Type or lut16Type', 'tag-type-mismatch', { offset });
   const width = name === 'mft1' ? 1 : 2;
   const headerSize = width === 1 ? 48 : 52;

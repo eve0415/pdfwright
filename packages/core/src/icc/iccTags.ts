@@ -2,6 +2,8 @@ import type { Xyz } from './iccStructure.ts';
 
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 
+import { iccSignature } from './iccSignature.ts';
+
 export type Matrix3 = readonly [number, number, number, number, number, number, number, number, number];
 
 export type Curve =
@@ -15,8 +17,6 @@ export interface ReadCurve {
   readonly consumed: number;
 }
 
-const signature = (bytes: Uint8Array, offset: number): string =>
-  String.fromCodePoint(bytes[offset] ?? 0, bytes[offset + 1] ?? 0, bytes[offset + 2] ?? 0, bytes[offset + 3] ?? 0);
 const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65536;
 
 const check = (bytes: Uint8Array, offset: number, span: { limit: number; required: number }): void => {
@@ -55,7 +55,7 @@ const readParametricCurve = (view: DataView, offset: number, limit: number): Rea
 export const readCurve = (bytes: Uint8Array, offset: number, limit: number): ReadCurve => {
   check(bytes, offset, { limit, required: 8 });
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const kind = signature(bytes, offset);
+  const kind = iccSignature(bytes, offset);
   if (kind === 'curv') return readSampledCurve(view, offset, limit);
   if (kind === 'para') return readParametricCurve(view, offset, limit);
   throw new InvalidProfileError('ICC tag must be a curve', 'tag-type-mismatch', { offset });
@@ -64,7 +64,7 @@ export const readCurve = (bytes: Uint8Array, offset: number, limit: number): Rea
 export const readXyz = (bytes: Uint8Array, offset: number, limit: number): Xyz => {
   // ICC.1:2022, 10.31 Table 85: XYZType stores signed s15Fixed16 XYZ values after the eight-byte type header.
   check(bytes, offset, { limit, required: 20 });
-  if (signature(bytes, offset) !== 'XYZ ') throw new InvalidProfileError('ICC tag must be XYZType', 'tag-type-mismatch', { offset });
+  if (iccSignature(bytes, offset) !== 'XYZ ') throw new InvalidProfileError('ICC tag must be XYZType', 'tag-type-mismatch', { offset });
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return { x: fixed(view, offset + 8), y: fixed(view, offset + 12), z: fixed(view, offset + 16) };
 };
@@ -72,7 +72,7 @@ export const readXyz = (bytes: Uint8Array, offset: number, limit: number): Xyz =
 export const readSf32 = (bytes: Uint8Array, offset: number, limit: number): Matrix3 => {
   // ICC.1:2022, 10.22 Table 76: s15Fixed16ArrayType stores signed four-byte values after the type header.
   check(bytes, offset, { limit, required: 44 });
-  if (signature(bytes, offset) !== 'sf32') throw new InvalidProfileError('ICC tag must be s15Fixed16ArrayType', 'tag-type-mismatch', { offset });
+  if (iccSignature(bytes, offset) !== 'sf32') throw new InvalidProfileError('ICC tag must be s15Fixed16ArrayType', 'tag-type-mismatch', { offset });
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return [
     fixed(view, offset + 8),

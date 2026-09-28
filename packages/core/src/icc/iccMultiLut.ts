@@ -4,6 +4,7 @@ import type { Curve, Matrix3 } from './iccTags.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 
+import { iccSignature } from './iccSignature.ts';
 import { readCurve } from './iccTags.ts';
 
 export interface MultiLut {
@@ -23,8 +24,6 @@ interface Parts {
   readonly a: number;
 }
 
-const signature = (bytes: Uint8Array, offset: number): string =>
-  String.fromCodePoint(bytes[offset] ?? 0, bytes[offset + 1] ?? 0, bytes[offset + 2] ?? 0, bytes[offset + 3] ?? 0);
 const fail = (offset: number): never => {
   throw new InvalidProfileError('invalid ICC multi-process LUT', 'bad-tag-data', { offset });
 };
@@ -102,7 +101,7 @@ const clutPart = (
 export const readMultiLut = (bytes: Uint8Array, start: number, end: number): MultiLut => {
   // ICC.1:2022, 10.12.1 Table 45 and 10.13.1 Table 47: offsets are relative to the tag and zero omits an element.
   if (start < 0 || end > bytes.length || end - start < 32) fail(start);
-  const name = signature(bytes, start);
+  const name = iccSignature(bytes, start);
   if (name !== 'mAB ' && name !== 'mBA ') throw new InvalidProfileError('ICC tag must be lutAToBType or lutBToAType', 'tag-type-mismatch', { offset: start });
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const inputChannels = view.getUint8(start + 8);

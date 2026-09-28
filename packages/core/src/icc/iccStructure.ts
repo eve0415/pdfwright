@@ -3,6 +3,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { iccIdentity } from './iccIdentity.ts';
+import { iccSignature } from './iccSignature.ts';
 
 export type ProfileClass = 'input' | 'display' | 'output' | 'deviceLink' | 'colorSpace' | 'abstract' | 'namedColor';
 export type DataColorSpace = 'XYZ' | 'Lab' | 'Gray' | 'RGB' | 'CMYK' | 'CMY' | 'Luv' | 'YCbCr' | 'Yxy' | 'HSV' | 'HLS' | { readonly colorants: number };
@@ -74,9 +75,6 @@ const spaces = new Map<string, DataColorSpace>([
 ]);
 const intents: readonly RenderingIntent[] = ['perceptual', 'relativeColorimetric', 'saturation', 'absoluteColorimetric'];
 
-const signature = (bytes: Uint8Array, offset: number): string =>
-  String.fromCodePoint(bytes[offset] ?? 0, bytes[offset + 1] ?? 0, bytes[offset + 2] ?? 0, bytes[offset + 3] ?? 0);
-
 const space = (text: string, offset: number): DataColorSpace => {
   const known = spaces.get(text);
   if (known !== undefined) return known;
@@ -93,14 +91,14 @@ const readHeader = (bytes: Uint8Array, view: DataView): IccHeader => {
   // ICC.1:2022, 7.2.1 Table 17 fixes all header field positions and the 128-byte header length.
   const size = view.getUint32(0);
   if (size < 132 || size > bytes.length) throw new InvalidProfileError('ICC profile size exceeds supplied bytes', 'size-mismatch', { offset: 0 });
-  if (signature(bytes, 36) !== 'acsp') throw new InvalidProfileError('missing ICC acsp signature', 'bad-signature', { offset: 36 });
+  if (iccSignature(bytes, 36) !== 'acsp') throw new InvalidProfileError('missing ICC acsp signature', 'bad-signature', { offset: 36 });
   const major = bytes[8] ?? 0;
   if (major === 5) throw new UnsupportedFeatureError('ICC version 5 is unsupported', 'icc-version-5');
   if (major !== 2 && major !== 4) throw new InvalidProfileError('unsupported ICC version', 'unsupported-version', { offset: 8 });
-  const profileClass = classes.get(signature(bytes, 12));
+  const profileClass = classes.get(iccSignature(bytes, 12));
   if (profileClass === undefined) throw new InvalidProfileError('unknown ICC profile class', 'unknown-class', { offset: 12 });
-  const colorSpace = space(signature(bytes, 16), 16);
-  const pcs = space(signature(bytes, 20), 20);
+  const colorSpace = space(iccSignature(bytes, 16), 16);
+  const pcs = space(iccSignature(bytes, 20), 20);
   if (profileClass !== 'deviceLink' && pcs !== 'XYZ' && pcs !== 'Lab') throw new InvalidProfileError('invalid ICC PCS', 'unknown-color-space', { offset: 20 });
   const renderingIntent = intents[view.getUint32(64)];
   if (renderingIntent === undefined) throw new InvalidProfileError('invalid ICC rendering intent', 'bad-tag-data', { offset: 64 });
@@ -128,7 +126,7 @@ const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): Ic
   const seen = new Set<string>();
   for (let index = 0; index < count; index++) {
     const record = 132 + index * 12;
-    const name = signature(bytes, record);
+    const name = iccSignature(bytes, record);
     const offset = view.getUint32(record + 4);
     const size = view.getUint32(record + 8);
     if (seen.has(name)) throw new InvalidProfileError('duplicate ICC tag', 'duplicate-tag', { offset: record, tag: name });

@@ -201,7 +201,8 @@ const decodeCompressedChunks = function* (reader: BitReader, output: ChunkedInfl
       if (distanceBase === undefined) throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
       output.copy(distanceBase + reader.readBits(DISTANCE_EXTRA[distanceCode] ?? 0), length, Math.ceil(reader.bitPosition / 8));
     }
-    yield* output.drain();
+    const chunk = output.take();
+    if (chunk !== undefined) yield chunk;
   }
 };
 
@@ -235,9 +236,11 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
       const complement = reader.readBits(16);
       if (((length ^ complement) & 0xffff) !== 0xffff) throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
       for (let index = 0; index < length; index++) output.push(reader.readBits(8));
-      for (const chunk of output.drain()) {
+      let chunk = output.take();
+      while (chunk !== undefined) {
         checksum = updateAdler32(checksum, chunk);
         yield chunk;
+        chunk = output.take();
       }
     } else if (blockType === 1 || blockType === 2) {
       const trees = blockType === 1 ? FIXED : dynamicTrees(reader);

@@ -1,7 +1,7 @@
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 
-const signature = (bytes: Uint8Array, offset: number): string =>
-  String.fromCodePoint(bytes[offset] ?? 0, bytes[offset + 1] ?? 0, bytes[offset + 2] ?? 0, bytes[offset + 3] ?? 0);
+import { iccSignature } from './iccSignature.ts';
+
 const invalid = (offset: number): never => {
   throw new InvalidProfileError('invalid ICC text tag', 'bad-tag-data', { offset });
 };
@@ -58,7 +58,7 @@ const localized = (bytes: Uint8Array, view: DataView, range: { start: number; en
 
 export const readIccText = (bytes: Uint8Array, start: number, end: number): string => {
   if (start < 0 || end > bytes.length || end - start < 8) invalid(start);
-  const type = signature(bytes, start);
+  const type = iccSignature(bytes, start);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (type === 'desc') return description(bytes, view, { start, end });
   if (type === 'text') return plainText(bytes, start, end);

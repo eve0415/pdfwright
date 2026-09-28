@@ -6,7 +6,7 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { colorSpaceChannels } from '../icc/iccStructure.ts';
 
 import { evaluateCurve, invertCurve } from './curve.ts';
-import { evaluateLut } from './lutPipeline.ts';
+import { applyMatrix, evaluateLut } from './lutPipeline.ts';
 import { D50, decodePcs, encodePcs, labToXyz, xyzToLab } from './pcs.ts';
 
 export interface PcsValue {
@@ -23,7 +23,7 @@ const pcs = (profile: IccProfile): 'XYZ' | 'Lab' => {
   return missing('ICC profile PCS must be XYZ or Lab for this transform');
 };
 
-const intentIndex = (intent: RenderingIntent): 0 | 1 | 2 => {
+export const intentIndex = (intent: RenderingIntent): 0 | 1 | 2 => {
   if (intent === 'perceptual') return 0;
   if (intent === 'saturation') return 2;
   return 1;
@@ -39,12 +39,6 @@ const colorantsMatrix = (profile: IccProfile): Matrix3 => {
   if (colors === undefined) return missing('ICC RGB colorants are missing');
   return [colors.red.x, colors.green.x, colors.blue.x, colors.red.y, colors.green.y, colors.blue.y, colors.red.z, colors.green.z, colors.blue.z];
 };
-
-const multiply = (matrix: Matrix3, values: readonly number[]): number[] => [
-  matrix[0] * (values[0] ?? 0) + matrix[1] * (values[1] ?? 0) + matrix[2] * (values[2] ?? 0),
-  matrix[3] * (values[0] ?? 0) + matrix[4] * (values[1] ?? 0) + matrix[5] * (values[2] ?? 0),
-  matrix[6] * (values[0] ?? 0) + matrix[7] * (values[1] ?? 0) + matrix[8] * (values[2] ?? 0),
-];
 
 export const invertMatrix3 = (matrix: Matrix3): Matrix3 => {
   const [a, b, c, d, e, f, g, h, i] = matrix;
@@ -88,7 +82,7 @@ export const sourceEvaluator = (
     const matrix = colorantsMatrix(profile);
     return input => ({
       space: 'XYZ',
-      values: multiply(matrix, [evaluateCurve(trc.red, input[0] ?? 0), evaluateCurve(trc.green, input[1] ?? 0), evaluateCurve(trc.blue, input[2] ?? 0)]),
+      values: applyMatrix([evaluateCurve(trc.red, input[0] ?? 0), evaluateCurve(trc.green, input[1] ?? 0), evaluateCurve(trc.blue, input[2] ?? 0)], matrix),
     });
   }
   if (profile.header.colorSpace === 'Gray') {
@@ -117,7 +111,7 @@ export const destinationEvaluator = (profile: IccProfile, intent: RenderingInten
     const matrix = invertMatrix3(colorantsMatrix(profile));
     return input => {
       const xyz = input.space === 'XYZ' ? input.values : labToXyz(input.values);
-      const channels = multiply(matrix, xyz);
+      const channels = applyMatrix(xyz, matrix);
       return [invertCurve(trc.red, channels[0] ?? 0), invertCurve(trc.green, channels[1] ?? 0), invertCurve(trc.blue, channels[2] ?? 0)];
     };
   }
