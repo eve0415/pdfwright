@@ -182,6 +182,8 @@ export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'i
 export interface PaintEvent {
   readonly kind: PaintKind;
   readonly colorSpaces: readonly ColorSpaceUse[];
+  /** Resources active in the content stream, including Default* device-colour replacements. */
+  readonly resources: PdfDictionaryEntries | undefined;
   /** For each of `colorSpaces`, the index of the operation's own space it belongs to: its own index for the fill, stroke, image or shading space, the index of the Pattern space for a space a pattern paints in. */
   readonly spaceOf: readonly number[];
   /** The graphics state the paint happened in. */
@@ -601,6 +603,7 @@ class Interpreter {
     this.handlers.paint?.({
       kind,
       colorSpaces,
+      resources: scope.resources,
       spaceOf,
       state: this.state,
       context: scope.context,

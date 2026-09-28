@@ -27,6 +27,11 @@ const PATTERN = pdfName('Pattern').bytes;
 const PATTERN_TYPE = pdfName('PatternType').bytes;
 const SEPARATION_INFO = pdfName('SeparationInfo').bytes;
 const DEVICE_COLORANT = pdfName('DeviceColorant').bytes;
+const DEFAULT_SPACES: ReadonlyMap<string, Uint8Array> = new Map([
+  ['DeviceGray', pdfName('DefaultGray').bytes],
+  ['DeviceRGB', pdfName('DefaultRGB').bytes],
+  ['DeviceCMYK', pdfName('DefaultCMYK').bytes],
+]);
 
 /** How a painting operation reached a colorant: the operation, and whether it happened in a pattern, a Type 3 glyph procedure or a printable annotation appearance. */
 export type PaintedBy = 'fill' | 'stroke' | 'text' | 'image' | 'image-mask' | 'inline-image' | 'shading' | 'pattern' | 'type3-glyph' | 'annotation';
@@ -254,6 +259,15 @@ class PageScan {
     });
   }
 
+  // ISO 32000-1:2008, 8.6.5.6 substitutes a Default* colour space from the current resources when a device-colour operator paints.
+  private paintedSpace(space: PdfObject | undefined, resources: PdfDictionaryEntries | undefined): PdfObject | undefined {
+    if (space?.kind !== 'name') return space;
+    const key = DEFAULT_SPACES.get(latin1(space.bytes));
+    if (key === undefined) return space;
+    const spaces = dictionaryOf(this.read(resources?.get(COLOR_SPACE)));
+    return this.read(spaces?.get(key)) ?? space;
+  }
+
   paint(event: PaintEvent): void {
     const place = placeOf(event.context);
     const painters = contextPainters(event.context);
@@ -263,7 +277,7 @@ class PageScan {
     for (const [index, space] of event.colorSpaces.entries()) {
       // A path that only clips paints nothing; the base of a Pattern space it was built in is read with the space.
       if (event.kind === 'clip') {
-        this.placed(place, space.space, use => {
+        this.placed(place, this.paintedSpace(space.space, event.resources), use => {
           use.selected.add('clip-only');
         });
         continue;
@@ -272,13 +286,13 @@ class PageScan {
       const owner = event.spaceOf[index] ?? index;
       const operation = operationAt(event, owner);
       if (glyph && (strokesAt(event, owner) ? strokeAlpha : fillAlpha) * group.alpha === 0) {
-        this.placed(place, space.space, use => {
+        this.placed(place, this.paintedSpace(space.space, event.resources), use => {
           use.selected.add('invisible-text');
         });
         continue;
       }
       const by: PaintedBy[] = owner === index ? [operation, ...painters] : [operation, 'pattern', ...painters];
-      this.placed(place, space.space, use => {
+      this.placed(place, this.paintedSpace(space.space, event.resources), use => {
         for (const painter of by) use.painted.add(painter);
       });
     }

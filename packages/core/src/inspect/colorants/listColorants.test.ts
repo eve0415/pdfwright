@@ -52,6 +52,15 @@ const appearance = (number: number, space: string): TestObject => ({
 });
 
 describe('painted colorants', () => {
+  it('counts a DeviceN DefaultCMYK colorant painted with the k operator', () => {
+    const [page] = pagesOf(
+      [{ content: '0 0 0 1 k 0 0 10 10 re f', resources: '/ColorSpace<</DefaultCMYK[/DeviceN[/Cyan/Magenta/Yellow/Spot]/DeviceCMYK 120 0 R]>>' }],
+      [{ number: 120, body: streamBody('/FunctionType 4/Domain[0 1 0 1 0 1 0 1]/Range[0 1 0 1 0 1 0 1]', '') }],
+    );
+    const spot = page?.colorants.find(use => latin1Text(use.name) === 'Spot');
+    expect(spot).toMatchObject({ painted: ['fill'], declared: [] });
+  });
+
   it('reports fills, strokes and text by the operation that paints them', () => {
     expect([
       colorants('/CS1 cs 1 scn 0 0 10 10 re f'),
