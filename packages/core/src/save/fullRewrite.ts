@@ -14,6 +14,7 @@ import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { isWhitespace } from '../parse/characterClass.ts';
 import { savedPdf, streamedPdf } from '../write/savedPdf.ts';
+import { locateStartxref, locatedEofEnd } from '../xref/locate.ts';
 import { COMPRESSED, FREE, IN_FILE } from '../xref/objectIndex.ts';
 
 import { PdfEmitter, emittedChunks } from './emitter.ts';
@@ -28,7 +29,6 @@ const LINEARIZED = pdfName('Linearized').bytes;
 const H = pdfName('H').bytes;
 const N = pdfName('N').bytes;
 const FILTER = pdfName('Filter').bytes;
-const EOF_MARKER = [0x25, 0x25, 0x45, 0x4f, 0x46];
 // The longest gap between two unchanged objects that is checked for white space and comments, so that they can be copied as one run.
 const MAX_GAP = 4096;
 
@@ -115,14 +115,16 @@ class FullRewriter {
 
   private reportJunk(): void {
     const { source } = this.input.store;
-    const tail = source.copy(source.length - 1024, source.length).bytes;
-    let eof = -1;
-    for (let position = tail.length - EOF_MARKER.length; position >= 0 && eof < 0; position--) {
-      if (EOF_MARKER.every((byte, index) => tail[position + index] === byte)) eof = position + EOF_MARKER.length;
-    }
-    const trailing = eof >= 0 && tail.subarray(eof).some(byte => !isWhitespace(byte));
+    const startxref = locateStartxref(source);
+    const eof = startxref === undefined ? undefined : locatedEofEnd(source, startxref.keyword);
+    const trailing = eof === undefined ? false : source.views(eof, source.length).some(view => view.some(byte => !isWhitespace(byte)));
     if (this.input.structure.headerOffset > 0 || trailing) {
-      this.warn({ code: 'junk-dropped', detail: 'bytes before the header or after the last %%EOF are left out' });
+      this.warn({
+        code: 'junk-dropped',
+        detail: trailing
+          ? `${String(source.length - (eof ?? source.length))} bytes after the located %%EOF are left out, including any incomplete update or objects there`
+          : 'bytes before the header are left out',
+      });
     }
   }
 

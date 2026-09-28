@@ -1,6 +1,8 @@
 export type LoadWarningCode =
   | 'junk-before-header'
   | 'startxref-corrected'
+  | 'trailing-data-after-eof'
+  | 'missing-eof'
   | 'xref-entry-length'
   | 'trailer-size-too-small'
   | 'prev-cycle'

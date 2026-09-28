@@ -10,8 +10,9 @@ import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
+import { isWhitespace } from '../parse/characterClass.ts';
 import { refuseEncryption } from '../xref/encryption.ts';
-import { locateStartxref } from '../xref/locate.ts';
+import { locateStartxref, locatedEofEnd } from '../xref/locate.ts';
 import { COMPRESSED, IN_FILE, ObjectIndex, validateHeaders } from '../xref/objectIndex.ts';
 import { reconstructIndex } from '../xref/recover.ts';
 import { readSectionChain, searchOrder } from '../xref/sectionChain.ts';
@@ -198,10 +199,17 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
 export const readFromChain = (session: LoadSession, header: HeaderLocation): ReadStructure => {
   const startxref = locateStartxref(session.source);
   if (startxref === undefined) throw new ParseError('no startxref', session.source.length);
+  const eofEnd = locatedEofEnd(session.source, startxref.keyword);
   const shifts = header.offset > 0 ? [header.offset, 0] : [0];
   for (const [position, shift] of shifts.entries()) {
     try {
-      return session.log.attempt(warn => readWithShift(session, { header, startxref: startxref.offset, shift }, warn));
+      const read = session.log.attempt(warn => readWithShift(session, { header, startxref: startxref.offset, shift }, warn));
+      if (eofEnd === undefined) {
+        session.log.warn({ code: 'missing-eof', detail: 'the located startxref has no %%EOF marker', offset: startxref.keyword });
+      } else if (session.source.views(eofEnd, session.source.length).some(view => view.some(byte => !isWhitespace(byte)))) {
+        session.log.warn({ code: 'trailing-data-after-eof', detail: 'non-whitespace bytes follow the located %%EOF marker', offset: eofEnd });
+      }
+      return read;
     } catch (error: unknown) {
       if (!(error instanceof ParseError) || error instanceof GenerationMismatchError || position === shifts.length - 1) throw error;
     }

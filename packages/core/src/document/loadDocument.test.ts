@@ -46,6 +46,22 @@ describe('loading documents', () => {
     expect([document.catalog().get(pdfName('Pages').bytes), document.get(pdfReference(9, 0))]).toStrictEqual([pdfReference(2, 0), { kind: 'null' }]);
   });
 
+  it('reports a generated file cut to 90 percent and names bytes lost by a full save', () => {
+    const clean = buildPdf([
+      { xref: 'classic', objects: [catalog, pages], trailer: '/Root 1 0 R' },
+      {
+        xref: 'classic',
+        objects: [{ number: 3, body: `(${'.'.repeat(1000)})` }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const truncated = clean.bytes.slice(0, Math.floor(clean.bytes.length * 0.9));
+    const document = loadDocument(truncated);
+    expect(document.structure.status).not.toBe('intact');
+    expect(document.warnings.map(warning => warning.code)).toContain('trailing-data-after-eof');
+    expect(document.save({ mode: 'full' }).warnings.find(warning => warning.code === 'junk-dropped')?.detail).toContain('after the located %%EOF');
+  });
+
   it('keeps 19-byte entries intact and tolerates entries of other lengths', () => {
     const short = base.text.replaceAll(' \n', '\n');
     const long = base.text.replaceAll(' f \n', ' f \r\n');

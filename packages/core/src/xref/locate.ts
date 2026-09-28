@@ -27,6 +27,7 @@ export interface SectionStart {
 
 const HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d];
 const STARTXREF = [0x73, 0x74, 0x61, 0x72, 0x74, 0x78, 0x72, 0x65, 0x66];
+const EOF = [0x25, 0x25, 0x45, 0x4f, 0x46];
 const XREF = [0x78, 0x72, 0x65, 0x66];
 const XREF_NAME = [0x58, 0x52, 0x65, 0x66];
 const HEADER_SEARCH = 1024;
@@ -106,6 +107,13 @@ export const locateStartxref = (source: ByteSource): StartxrefLocation | undefin
   }
   if (position < 0) return undefined;
   return readStartxref(source, base + position);
+};
+
+/** End of the %%EOF marker belonging to the located startxref, if present. */
+export const locatedEofEnd = (source: ByteSource, keyword: number): number | undefined => {
+  const { bytes, base } = source.copy(keyword, keyword + 256);
+  const position = indexOf(bytes, EOF, 0);
+  return position < 0 ? undefined : base + position + EOF.length;
 };
 
 const TYPE = pdfName('Type').bytes;
