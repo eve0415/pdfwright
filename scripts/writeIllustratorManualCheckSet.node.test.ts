@@ -7,10 +7,13 @@ import { describe, expect, it } from 'vitest';
 
 import { readIllustratorContainer } from '../packages/illustrator/src/testing/readIllustratorPdf.ts';
 
+import { readIllustratorExportManifest } from './illustratorExports.ts';
 import { writeDiagnosticLadder, writeManualCheckSet } from './writeIllustratorManualCheckSet.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
 if (exportsDirectory === undefined) stdout.write('Local Illustrator transplant ladder not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
+const ladderSource = manifest?.samples[manifest.ladderSample]?.file ?? '';
 
 describe('illustrator manual-check file set', () => {
   it('writes six PDFs and a checklist outside the repository', async () => {
@@ -57,7 +60,7 @@ describe('illustrator manual-check file set', () => {
   it.skipIf(exportsDirectory === undefined)('writes diagnostic transplants to an external directory', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-ladder-'));
     try {
-      const files = await writeDiagnosticLadder(directory, 'A-illustrator/A3-resave-probe-ai-pdf17.pdf');
+      const files = await writeDiagnosticLadder(directory, ladderSource);
       expect(files).toHaveLength(9);
       await expect(readdir(directory)).resolves.toContain('diagnostic-09-indirect-dictionary.pdf');
     } finally {

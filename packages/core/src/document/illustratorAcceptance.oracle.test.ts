@@ -11,6 +11,7 @@ import { inflate, zstdDecompress } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
 
+import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
 import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
 import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
@@ -253,22 +254,15 @@ const localSource = async (file: string): Promise<Uint8Array> => {
   return readFile(path.join(realExports, file));
 };
 
-const localFiles = [
-  { label: 'CMYK PDF 1.7', file: 'A-illustrator/A1-ref-cmyk-pdf17.pdf' },
-  { label: 'CMYK PDF 1.3', file: 'A-illustrator/A1-ref-cmyk-pdf13.pdf' },
-  { label: 'CMYK AI', file: 'A-illustrator/A1-ref-cmyk.ai' },
-  { label: 'CMYK layers', file: 'A-illustrator/A1-ref-cmyk-pdf17-acrobat-layers.pdf' },
-  { label: 'RGB PDF 1.7', file: 'A-illustrator/A2-ref-rgb-pdf17.pdf' },
-  { label: 'RGB PDF 1.3', file: 'A-illustrator/A2-ref-rgb-pdf13.pdf' },
-  { label: 'RGB AI', file: 'A-illustrator/A2-ref-rgb.ai' },
-  { label: 'swatches', file: 'A-illustrator/A3-resave-probe-ai-pdf17.pdf' },
-  { label: 'Illustrator rewrite', file: 'B-corpus/B2-illustrator-resave.pdf' },
-  { label: 'Object stream', file: 'B-corpus/B3-acrobat-incremental.pdf' },
-  { label: 'PDF/X-4', file: 'B-corpus/B4-acrobat-pdfx4-jc2001.pdf' },
-];
+const localManifest = realExports === undefined ? undefined : await readIllustratorExportManifest(realExports);
+const localFiles = localManifest?.acceptance ?? [];
 const localCases = localFiles.flatMap(({ label, file }) => modes.flatMap(mode => [false, true].map(updateDate => ({ label, file, mode, updateDate }))));
 
 describe('local Adobe export acceptance', () => {
+  it.skipIf(realExports === undefined)('selects local acceptance exports', () => {
+    expect(localFiles.length).toBeGreaterThan(0);
+  });
+
   it.skipIf(realExports === undefined).each(localCases)(
     '$label: $mode save with updateDate=$updateDate preserves native data',
     async ({ file, mode, updateDate }) => {

@@ -8,6 +8,7 @@ import { env, stdout } from 'node:process';
 import { mm } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
 import { tokenizeNative } from './nativeTokenizer.ts';
@@ -17,20 +18,8 @@ import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorP
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
 if (exportsDirectory === undefined) stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
 
-const samples = [
-  { file: 'A-illustrator/A1-ref-cmyk-pdf17.pdf', blocks: 8, lastLength: 1527, layers: 5, rasters: 6, widthMm: 100, heightMm: 70, paint: [211, 33, 1, 5, 31] },
-  { file: 'A-illustrator/A1-ref-cmyk-pdf13.pdf', blocks: 8, lastLength: 1913, layers: 5, rasters: 6, widthMm: 100, heightMm: 70, paint: [211, 33, 1, 5, 31] },
-  {
-    file: 'A-illustrator/A3-resave-probe-ai-pdf17.pdf',
-    blocks: 1,
-    lastLength: 32539,
-    layers: 1,
-    rasters: 2,
-    widthMm: 80,
-    heightMm: 50,
-    paint: [2, 3, 0, 5, 1],
-  },
-] as const;
+const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
+const samples = manifest?.samples ?? [];
 
 const localSource = async (file: string): Promise<Uint8Array> => {
   if (exportsDirectory === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
@@ -51,6 +40,10 @@ const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: numb
 };
 
 describe('local Illustrator structure comparison', () => {
+  it.skipIf(exportsDirectory === undefined)('selects local structure samples', () => {
+    expect(samples.length).toBeGreaterThan(0);
+  });
+
   it.skipIf(exportsDirectory === undefined).each(samples)('$file keeps the observed native container and layer framing', async sample => {
     const facts = readIllustratorContainer(await localSource(sample.file));
     const records = tokenizeNative(facts.native);
