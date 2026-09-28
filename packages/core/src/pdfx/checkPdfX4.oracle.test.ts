@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { pdfDate } from '../date/pdfDate.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { pt } from '../length/length.ts';
-import { PdfDictionaryEntries, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
 import { checkPdfX4, pdfX4Rules } from './checkPdfX4.ts';
@@ -94,5 +94,15 @@ describe('pdfx structural checker', () => {
     attach(document, 'Extra', stream);
     const finding = checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW');
     expect(finding?.status).toBe('violation');
+  });
+
+  it('finds an indirect LZW filter inside an indirect filter array', () => {
+    const document = prepared();
+    const filter = document.object(pdfName('LZWDecode'));
+    const filters = document.object(pdfArray([pdfName('ASCII85Decode'), filter]));
+    const dictionary = new PdfDictionaryEntries([[pdfName('Filter').bytes, filters]]);
+    const stream = document.object({ kind: 'stream', dictionary, data: Uint8Array.of(0) });
+    attach(document, 'Extra', stream);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
   });
 });

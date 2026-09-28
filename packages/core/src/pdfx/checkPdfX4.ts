@@ -170,9 +170,10 @@ const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean,
   return visitAll(context, forbidden) ? violation(`${what} was found`) : passed(`no ${what} was found in reachable objects`);
 };
 
-const hasName = (value: PdfDirectObject | undefined, expected: string): boolean => {
-  if (value?.kind === 'array') return value.items.some(item => nameOf(item) === expected);
-  return nameOf(value) === expected;
+const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string): boolean => {
+  const resolved = context.internals.objects.deref(value);
+  if (resolved?.kind === 'array') return resolved.items.some(item => nameOf(context.internals.objects.deref(item)) === expected);
+  return nameOf(resolved) === expected;
 };
 
 const javascript: Check = context => {
@@ -232,7 +233,8 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-FORMS': forms,
   'X4-ANNOTS': () => needsClause('6.17; printable annotation types and placement'),
   'X4-TRANSFER': () => needsClause('6.13; transfer-function restrictions'),
-  'X4-LZW': context => globalCheck(context, value => value.kind === 'stream' && hasName(value.dictionary.get(key('Filter')), 'LZWDecode'), 'LZWDecode filter'),
+  'X4-LZW': context =>
+    globalCheck(context, value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'), 'LZWDecode filter'),
   'X4-EMBEDDED': context =>
     globalCheck(
       context,
