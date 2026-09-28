@@ -1,10 +1,11 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { ConvertedInlineImage } from './convertInlineImage.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
 
 export interface NamedInlineImage extends ConvertedInlineImage {
   readonly name: string;
@@ -21,14 +22,20 @@ export const addInlineXObjects = (document: LoadedDocument, resources: PdfDictio
   for (const image of images) {
     const name = pdfName(image.name).bytes;
     if (mapped.has(name)) throw new ValidationError('inline image resource name is already in use', 'color-space');
+    let colorSpace: PdfDirectObject = pdfName('DeviceCMYK');
+    if (image.keptProfile !== undefined) {
+      const profileDictionary = new PdfDictionaryEntries([[pdfName('N').bytes, pdfInteger(3)]]);
+      const profile = document.object({ kind: 'stream', dictionary: profileDictionary, data: image.keptProfile });
+      colorSpace = pdfArray([pdfName('ICCBased'), profile]);
+    }
     const dictionary = new PdfDictionaryEntries([
       [pdfName('Type').bytes, pdfName('XObject')],
       [pdfName('Subtype').bytes, pdfName('Image')],
       [pdfName('Width').bytes, pdfInteger(image.width)],
       [pdfName('Height').bytes, pdfInteger(image.height)],
       [pdfName('BitsPerComponent').bytes, pdfInteger(image.bits)],
-      [pdfName('ColorSpace').bytes, pdfName('DeviceCMYK')],
-      [pdfName('Filter').bytes, pdfName('FlateDecode')],
+      [pdfName('ColorSpace').bytes, colorSpace],
+      [pdfName('Filter').bytes, pdfName(image.keptFilter ?? 'FlateDecode')],
     ]);
     mapped.set(name, document.object({ kind: 'stream', dictionary, data: image.data }));
   }

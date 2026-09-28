@@ -86,6 +86,16 @@ const pageText = (document: ReturnType<typeof loadDocument>): string => {
   return latin1Text(data);
 };
 
+const namedImage = (document: ReturnType<typeof loadDocument>, name: string): Extract<PdfObject, { kind: 'stream' }> => {
+  const xobjects = document.page(0).resources().get(pdfName('XObject').bytes);
+  if (xobjects?.kind !== 'dictionary') throw new Error('missing XObjects');
+  const reference = xobjects.entries.get(pdfName(name).bytes);
+  if (reference?.kind !== 'reference') throw new Error('missing image');
+  const image = document.get(reference);
+  if (image.kind !== 'stream') throw new Error('missing image stream');
+  return image;
+};
+
 const spotName = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const resources = document.page(0).resources();
   const spaces = resources.get(pdfName('ColorSpace').bytes);
@@ -230,6 +240,19 @@ describe('page colour conversion', () => {
     });
     expect(result.inlineImages).toBe(1);
     expect(inflateZlib(inlineData(result.bytes)).data).toHaveLength(4);
+  });
+
+  it('keeps a DCT inline RGB image as an ICC-tagged image XObject', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes('BI /W 1 /H 1 /BPC 8 /CS /RGB /F /DCT ID\nJPEG\nEI');
+    document.replaceStreamData(pdfReference(4, 0), input, { filter: 'FlateDecode' });
+    const report = rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.inlineImages).toBe(1);
+    expect(pageText(document)).toContain('/PWIM0 Do');
+    const image = namedImage(document, 'PWIM0');
+    expect(image.data).toStrictEqual(latin1Bytes('JPEG'));
+    expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('DCTDecode'));
+    expect(image.dictionary.get(pdfName('ColorSpace').bytes)?.kind).toBe('array');
   });
 
   it('converts an inline Indexed lookup and preserves the index bytes', () => {

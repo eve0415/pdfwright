@@ -8,6 +8,7 @@ import { ByteWriter } from '../bytes/byteWriter.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -26,6 +27,8 @@ export interface ConvertedInlineImage {
   readonly bits: number;
   readonly data: Uint8Array;
   readonly asXObject: boolean;
+  readonly keptProfile?: Uint8Array;
+  readonly keptFilter?: 'DCTDecode' | 'JPXDecode';
 }
 
 interface InlineConfig {
@@ -124,15 +127,50 @@ const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirec
   return { replacement: `BI ${tokens.join(' ')} ID\n${latin1(config.image.data)}\nEI`, width, height, bits, data: config.image.data, asXObject: false };
 };
 
+const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>): ConvertedInlineImage | undefined => {
+  const { document, image, resources, options } = config;
+  const filter = values.get('F') ?? values.get('Filter');
+  let filters: readonly PdfDirectObject[] = [];
+  if (filter?.kind === 'array') filters = filter.items;
+  else if (filter !== undefined) filters = [filter];
+  const compressed = filters.find(item => item.kind === 'name' && ['DCT', 'DCTDecode', 'JPXDecode'].includes(latin1(item.bytes)));
+  if (compressed?.kind !== 'name') return undefined;
+  if (options.compressedRgbImages === 'refuse' || options.compressedRgbImages === 'transcode') {
+    throw new UnsupportedFeatureError('compressed RGB inline image conversion is unavailable', 'compressed-rgb-image');
+  }
+  const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
+  if (space.kind !== 'rgb' || space.source.kind !== 'icc') {
+    throw new UnsupportedFeatureError('compressed RGB inline image has no ICC profile to keep', 'compressed-rgb-image');
+  }
+  const width = number(values.get('W') ?? values.get('Width'), 'Width');
+  const height = number(values.get('H') ?? values.get('Height'), 'Height');
+  const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
+  const filterName = latin1(compressed.bytes);
+  const keptFilter = filterName === 'JPXDecode' ? 'JPXDecode' : 'DCTDecode';
+  return {
+    replacement: `/${config.xObjectName} Do`,
+    width,
+    height,
+    bits,
+    data: image.data,
+    asXObject: true,
+    keptProfile: space.source.profile.bytes,
+    keptFilter,
+  };
+};
+
 /** Converts an inline image using its current graphics-state intent and the same row evaluator as image XObjects. */
 export const convertInlineImage = (config: InlineConfig): ConvertedInlineImage | undefined => {
   const { document, image, resources, options } = config;
   const values = parameters(image);
   const color = values.get('CS') ?? values.get('ColorSpace');
   if (color?.kind === 'array') return indexedImage(config, values, color);
-  if (color?.kind !== 'name') return color === undefined ? invalid('inline image ColorSpace is missing') : undefined;
+  if (color === undefined) return invalid('inline image ColorSpace is missing');
+  if (color.kind !== 'name') return undefined;
   const family = new TextDecoder('latin1').decode(color.bytes);
   if (family !== 'RGB' && family !== 'DeviceRGB') return undefined;
+  const kept = compressedImage(config, values);
+  if (kept !== undefined) return kept;
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
   const ceiling = Math.min(internals.maxDecodedBytes, 4 * 1024 * 1024);
