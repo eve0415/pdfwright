@@ -232,6 +232,10 @@ importers:
         version: 0.23.0(typescript@7.0.2)
 
   packages/illustrator:
+    dependencies:
+      '@pdfwright/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       tsdown:
         specifier: 'catalog:'
