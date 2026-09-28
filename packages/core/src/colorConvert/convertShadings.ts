@@ -238,7 +238,7 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
       transform.convert(Float64Array.from(fn(input)), output);
       return output;
     };
-    return sampleCmykFunction({ dimensions: 1, domain, evaluate, destination: context.options.outputProfile });
+    return sampleCmykFunction({ dimensions: 1, domain, evaluate, destination: context.options.outputProfile, minimumGrid: 2, midpointTolerance: 0.5 });
   });
 
 const sampledShading = (config: {
@@ -262,7 +262,7 @@ const sampledShading = (config: {
     transform.convert(Float64Array.from(fn(values)), output);
     return output;
   };
-  return sampleCmykFunction({ dimensions, domain, evaluate, destination: context.options.outputProfile, grid: 65 });
+  return sampleCmykFunction({ dimensions, domain, evaluate, destination: context.options.outputProfile, grid: 65, minimumGrid: 2, midpointTolerance: 0.5 });
 };
 
 const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): PdfReference[] => {
@@ -548,7 +548,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
   ];
   const approximations = all.flatMap(plan => {
     const functions = plan.sampled.kind === 'sampled' ? [plan.sampled] : plan.sampled.functions;
-    return functions.filter(item => item.maxDeltaE2000 > 0.1).map(item => ({ maxDeltaE2000: item.maxDeltaE2000 }));
+    return functions.filter(item => item.maxDeltaE2000 > 0.5).map(item => ({ maxDeltaE2000: item.maxDeltaE2000 }));
   });
   return { shadings: all.length, approximations };
 };

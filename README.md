@@ -59,6 +59,7 @@ Image conversion limits three input rows plus one CMYK output row and, when need
 The converted image's total decoded size has no separate 4 MiB ceiling, and `measureByteLength()` regenerates the encoded stream to count it without retaining it.
 Colour conversion refuses RGB DCTDecode or JPXDecode images inside luminosity masks with reason `luminosity-compressed-rgb-image`.
 RGB shading meshes of Types 4–7 become adaptively refined DeviceCMYK triangles; each source triangle stops after six splits, unresolved colour error is reported in `approximations`, and the decoded output stream is limited to 4 MiB.
+Axial and radial RGB shadings use sampled CMYK functions with 2–4096 samples per segment; Type 3 stitching functions retain their boundaries, and each segment is sampled until its midpoint error is at most 0.5 ΔE2000 or the sample cap is reached.
 
 ```ts
 import type { PdfDifference, SavedPdf } from '@pdfwright/core';

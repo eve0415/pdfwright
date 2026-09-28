@@ -1,14 +1,18 @@
-import type { PdfObject } from '../object/pdfObject.ts';
+import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { stdout } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
 import { createColorTransform } from '../color/createColorTransform.ts';
+import { deltaE2000 } from '../color/deltaE2000.ts';
+import { xyzToLab } from '../color/pcs.ts';
+import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -23,6 +27,12 @@ const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
 const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
+const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
+
+const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+  const pcs = toPcs([...channels]);
+  return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
+};
 const pdf = buildPdf([
   {
     xref: 'classic',
@@ -135,6 +145,23 @@ const stitchedPdf = buildPdf([
   },
 ]);
 
+const radialStitchedPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Sh1 sh') },
+      { number: 5, body: '<</ShadingType 3/ColorSpace/DeviceRGB/Coords[0 0 0 50 50 75]/Function 6 0 R>>' },
+      { number: 6, body: '<</FunctionType 3/Domain[0 1]/Functions[7 0 R 8 0 R]/Bounds[0.5]/Encode[0 1 0 1]>>' },
+      { number: 7, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[1 0 0]/N 1>>' },
+      { number: 8, body: '<</FunctionType 2/Domain[0 1]/C0[0 0 1]/C1[0 0 1]/N 1>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const directShadingPdf = buildPdf([
   {
     xref: 'classic',
@@ -199,6 +226,38 @@ const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: re
   const bytes = decodedData(internals, functionStream);
   if (typeof bytes === 'string') throw new Error(bytes);
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data: bytes });
+};
+
+const sampledGrid = (document: ReturnType<typeof loadDocument>, reference: PdfReference): number => {
+  const object = document.get(reference);
+  if (object.kind !== 'stream') throw new Error('sampled function is missing');
+  const size = object.dictionary.get(pdfName('Size').bytes);
+  const first = size?.kind === 'array' ? size.items[0] : undefined;
+  if (first?.kind !== 'integer') throw new Error('sample grid is missing');
+  return first.value;
+};
+
+const shadingGrid = (document: ReturnType<typeof loadDocument>): number => {
+  const shading = document.get(pdfReference(5, 0));
+  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  const functionValue = shading.entries.get(pdfName('Function').bytes);
+  if (functionValue?.kind !== 'reference') throw new Error('function is missing');
+  return sampledGrid(document, functionValue);
+};
+
+const stitchedGrids = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+  const shading = document.get(pdfReference(5, 0));
+  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  const functionReference = shading.entries.get(pdfName('Function').bytes);
+  if (functionReference?.kind !== 'reference') throw new Error('stitched function is missing');
+  const stitched = document.get(functionReference);
+  if (stitched.kind !== 'dictionary') throw new Error('stitched function is invalid');
+  const children = stitched.entries.get(pdfName('Functions').bytes);
+  if (children?.kind !== 'array') throw new Error('stitched children are missing');
+  return children.items.map(child => {
+    if (child.kind !== 'reference') throw new Error('stitched child reference is missing');
+    return sampledGrid(document, child);
+  });
 };
 
 const shadingStop = (document: ReturnType<typeof loadDocument>): number => {
@@ -297,7 +356,31 @@ describe('function shading conversion', () => {
     expect(report.shadings).toBe(1);
     expect(shading.space).toBe('DeviceCMYK');
     expect(shading.background).toHaveLength(4);
-    expect(closeChannels(shading.evaluate(0.5), expected)).toStrictEqual([true, true, true, true]);
+    const difference = deltaE2000(lab(shading.evaluate(0.5)), lab(expected));
+    expect(difference).toBeLessThanOrEqual(0.5);
+  });
+
+  it.each([
+    { name: 'axial', bytes: pdf.bytes },
+    { name: 'radial', bytes: radialPdf.bytes },
+  ])('refines a saturated Type 2 $name function by its CMYK midpoint error', ({ name, bytes }) => {
+    const document = loadDocument(bytes);
+    convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const grid = shadingGrid(document);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    const sampled = shadingFunction(document);
+    let maximum = 0;
+    for (let index = 0; index < grid - 1; index++) {
+      const t = (index + 0.5) / (grid - 1);
+      const exact = new Float64Array(4);
+      transform.convert(Float64Array.of(1 - t, 0, t), exact);
+      const difference = deltaE2000(lab(exact), lab(sampled([t])));
+      maximum = Math.max(maximum, difference);
+    }
+    expect(grid).toBeGreaterThan(2);
+    expect(grid).toBeLessThan(256);
+    expect(maximum).toBeLessThanOrEqual(0.5);
+    stdout.write(`${name} Type 2 grid: ${String(grid)}, midpoint max: ${String(maximum)}\n`);
   });
 
   it('samples a two-input function shading on a 65 by 65 grid', () => {
@@ -317,16 +400,23 @@ describe('function shading conversion', () => {
     const expected = new Float64Array(4);
     transform.convert(Float64Array.of(0.5, 0, 0.5), expected);
     expect(report.shadings).toBe(1);
-    expect(closeChannels(shadingFunction(document)([0.5]), expected)).toStrictEqual([true, true, true, true]);
+    const sampled = shadingFunction(document);
+    const difference = deltaE2000(lab(sampled([0.5])), lab(expected));
+    expect(difference).toBeLessThanOrEqual(0.5);
     expect(shadingCoordsKind(document)).toBe('array');
   });
 
-  it('preserves a Type 3 shading function boundary', () => {
-    const document = loadDocument(stitchedPdf.bytes);
+  it.each([
+    { name: 'axial', bytes: stitchedPdf.bytes },
+    { name: 'radial', bytes: radialStitchedPdf.bytes },
+  ])('preserves a Type 3 $name shading function boundary', ({ name, bytes }) => {
+    const document = loadDocument(bytes);
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(report.shadings).toBe(1);
     expect(shadingStop(document)).toBe(0.5);
+    expect(stitchedGrids(document)).toStrictEqual([2, 2]);
     expect([document.get(pdfReference(7, 0)).kind, document.get(pdfReference(8, 0)).kind]).toStrictEqual(['null', 'null']);
+    stdout.write(`${name} Type 3 child grids: 2, 2\n`);
   });
 
   it('converts a direct shading resource without losing its name', () => {

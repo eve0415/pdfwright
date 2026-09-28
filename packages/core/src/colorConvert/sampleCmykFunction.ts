@@ -22,6 +22,8 @@ export interface CmykFunctionConfig {
   readonly evaluate: (values: readonly number[]) => Float64Array;
   readonly destination: IccProfile;
   readonly grid?: number;
+  readonly minimumGrid?: number;
+  readonly midpointTolerance?: number;
 }
 
 interface TintSamples {
@@ -68,10 +70,10 @@ const samples = (config: CmykFunctionConfig): TintSamples => {
     const grid = config.grid ?? 17;
     return { grid, values: gridValues(config, grid), maxDeltaE2000: 0 };
   }
-  for (let grid = 256; ; grid *= 2) {
+  for (let grid = config.minimumGrid ?? 256; ; grid *= 2) {
     const values = gridValues(config, grid);
     const maxDeltaE2000 = midpointError(config, values, grid);
-    if (maxDeltaE2000 <= 0.1 || grid >= 4096) return { grid, values, maxDeltaE2000 };
+    if (maxDeltaE2000 <= (config.midpointTolerance ?? 0.1) || grid >= 4096) return { grid, values, maxDeltaE2000 };
   }
 };
 
