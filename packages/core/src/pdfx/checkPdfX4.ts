@@ -5,6 +5,8 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { PdfX4RuleId, RuleAuthority } from './pdfX4Rules.ts';
 
+import { readContent } from '../content/contentOperations.ts';
+import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -176,6 +178,53 @@ const hasName = (context: Context, value: PdfDirectObject | undefined, expected:
   return nameOf(resolved) === expected;
 };
 
+const inlineLzw = (context: Context, bytes: Uint8Array | readonly Uint8Array[]): boolean => {
+  for (const operation of readContent(bytes, context.internals.maxNesting)) {
+    if (operation.inlineImage === undefined) continue;
+    const { parameters } = operation.inlineImage;
+    for (let index = 0; index + 1 < parameters.length; index += 2) {
+      const parameter = parameters[index];
+      const value = parameters[index + 1];
+      if (parameter?.kind !== 'name' || value?.kind === 'stray-delimiter') continue;
+      const name = nameOf(parameter);
+      if (name !== 'F' && name !== 'Filter') continue;
+      if (hasName(context, value, 'LZW') || hasName(context, value, 'LZWDecode')) return true;
+    }
+  }
+  return false;
+};
+
+const lzw: Check = context => {
+  const streams = globalCheck(
+    context,
+    value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'),
+    'LZWDecode filter',
+  );
+  if (streams.status !== 'passed') return streams;
+  try {
+    for (const page of context.internals.pages) {
+      const content = pageContent(context.internals, page);
+      if (content.problems.length > 0) return unchecked('page content could not be read for inline-image LZW filters');
+      if (inlineLzw(context, content.streams)) return violation('LZW filter was found in an inline image');
+    }
+    for (const [number, generation] of context.reachable) {
+      const object = context.internals.objects.resolve(number, generation);
+      if (object.kind !== 'stream') continue;
+      const subtypeValue = context.internals.objects.deref(object.dictionary.get(key('Subtype')));
+      const subtype = nameOf(subtypeValue);
+      const patternType = context.internals.objects.deref(object.dictionary.get(key('PatternType')));
+      if (subtype !== 'Form' && (patternType?.kind !== 'integer' || patternType.value !== 1)) continue;
+      const bytes = decodedData(context.internals, object);
+      if (typeof bytes === 'string') return unchecked('form or pattern content could not be read for inline-image LZW filters');
+      if (inlineLzw(context, bytes)) return violation('LZW filter was found in an inline image');
+    }
+  } catch (error: unknown) {
+    if (error instanceof PdfwrightError) return unchecked(`content could not be parsed for inline-image LZW filters: ${error.message}`);
+    throw error;
+  }
+  return passed('no LZW filter was found in reachable stream or inline-image dictionaries');
+};
+
 const javascript: Check = context => {
   const names = entriesOf(context, context.catalog.get(key('Names')));
   if (names?.has(key('JavaScript')) === true) return violation('the JavaScript name tree is present');
@@ -233,8 +282,7 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-FORMS': forms,
   'X4-ANNOTS': () => needsClause('6.17; printable annotation types and placement'),
   'X4-TRANSFER': () => needsClause('6.13; transfer-function restrictions'),
-  'X4-LZW': context =>
-    globalCheck(context, value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'), 'LZWDecode filter'),
+  'X4-LZW': lzw,
   'X4-EMBEDDED': context =>
     globalCheck(
       context,

@@ -44,6 +44,13 @@ const attach = (document: ReturnType<typeof loadDocument>, name: string, referen
   document.set(catalogReference, catalog);
 };
 
+const attachContent = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): void => {
+  const page = document.get(document.page(0).reference);
+  if (page.kind !== 'dictionary') throw new Error('page is not a dictionary');
+  page.entries.set(pdfName('Contents').bytes, reference);
+  document.set(document.page(0).reference, page);
+};
+
 describe('pdfx structural checker', () => {
   it('gives every listed rule one source, authority and non-conformance status', () => {
     const report = checkPdfX4(prepared());
@@ -123,5 +130,16 @@ describe('pdfx structural checker', () => {
     const file = document.object({ kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('EF').bytes, pdfName('SomeData')]]) });
     attach(document, 'Extra', file);
     expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe('violation');
+  });
+
+  it('finds LZW in an inline image dictionary', () => {
+    const document = prepared();
+    const content = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries(),
+      data: new TextEncoder().encode('BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW ID\nX\nEI'),
+    });
+    attachContent(document, content);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
   });
 });
