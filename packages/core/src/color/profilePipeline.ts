@@ -95,8 +95,8 @@ export const sourceEvaluator = (
     const { trc } = profile;
     if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
     if (pcs(profile) === 'Lab') return input => ({ space: 'Lab', values: [evaluateCurve(trc.gray, input[0] ?? 0) * 100, 0, 0] });
-    const white = profile.mediaWhitePoint ?? D50;
-    return input => ({ space: 'XYZ', values: [white.x, white.y, white.z].map(value => value * evaluateCurve(trc.gray, input[0] ?? 0)) });
+    // ICC.1:2022, 6.3.1: the media-relative PCS uses D50, independently of the media white point.
+    return input => ({ space: 'XYZ', values: [D50.x, D50.y, D50.z].map(value => value * evaluateCurve(trc.gray, input[0] ?? 0)) });
   }
   return missing('ICC device-to-PCS direction is missing');
 };

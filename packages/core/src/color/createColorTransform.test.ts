@@ -8,6 +8,7 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { md5 } from '../hash/md5.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
+import { sourceEvaluator } from './profilePipeline.ts';
 
 const D50 = { x: 0.9642, y: 1, z: 0.8249 };
 const identity = { kind: 'identity' } as const;
@@ -67,6 +68,19 @@ const destination = (): IccProfile => {
 };
 
 describe('icc colour transforms', () => {
+  it('maps gray XYZ through D50 regardless of the media white point', () => {
+    const gray: IccProfile = {
+      ...source(),
+      header: { ...source().header, colorSpace: 'Gray' },
+      colorants: undefined,
+      trc: { gray: identity },
+      mediaWhitePoint: { x: 0.8, y: 0.9, z: 0.7 },
+    };
+    const value = sourceEvaluator(gray, 'relativeColorimetric', 'icc')(Float64Array.of(0.5));
+    expect(value.space).toBe('XYZ');
+    expect(value.values).toStrictEqual([D50.x * 0.5, D50.y * 0.5, D50.z * 0.5]);
+  });
+
   it('selects the ICC lut8 Lab encoding by default and permits the alternate midpoint', () => {
     const src = { kind: 'icc' as const, profile: source() };
     const dst = destination();
