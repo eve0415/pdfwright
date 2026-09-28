@@ -68,6 +68,9 @@ describe('malformed icc profiles', () => {
   });
 
   it('classifies unknown ICC header values', () => {
+    const version = base();
+    version[8] = 3;
+    expect(reason(version)).toBe('unsupported-version');
     const profileClass = base();
     profileClass[12] = 0;
     expect(reason(profileClass)).toBe('unknown-class');

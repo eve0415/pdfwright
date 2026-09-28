@@ -116,6 +116,13 @@ describe('icc colour transforms', () => {
     );
   });
 
+  it('reports a missing PCS-to-device tag when a CMYK destination has no table', () => {
+    const target: IccProfile = { ...destination(), pcsToDevice: {} };
+    expect(() => createColorTransform({ kind: 'icc', profile: source() }, target, { intent: 'relativeColorimetric', blackPointCompensation: false })).toThrow(
+      'PCS-to-device direction is missing',
+    );
+  });
+
   it('keeps the complete pipeline digest identical across runtimes', () => {
     const transform = createColorTransform({ kind: 'icc', profile: source() }, destination(), {
       intent: 'relativeColorimetric',
