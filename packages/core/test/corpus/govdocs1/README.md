@@ -5,4 +5,4 @@ The files are not committed.
 Digital Corpora describes the corpus as "a corpus of 1 million documents that are freely available for research and may be (to the best of our knowledge) freely redistributed."
 
 `node scripts/fetchCorpus.ts` downloads the zip, checks it against the manifest, and extracts the listed files into `.cache/files/`, where the corpus test finds them; without them that part of the test has nothing to check.
-File 000146.pdf is an Adobe Illustrator CS3 file with page-piece data.
+File 000146.pdf carries page-piece data (`/PieceInfo`).
