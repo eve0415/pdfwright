@@ -47,8 +47,27 @@ describe('icc profile basic tags', () => {
     bytes[154] = 2;
     view.setUint16(192, 2);
     view.setUint16(194, 2);
-    expect(parseIccProfile(bytes).deviceToPcs[0]?.clut.outputChannels).toBe(3);
+    expect(parseIccProfile(bytes).deviceToPcs[0]?.clut?.outputChannels).toBe(3);
     bytes.set(new TextEncoder().encode('RGB '), 16);
     expect(() => parseIccProfile(bytes)).toThrow('channel count disagrees');
+  });
+
+  it('attaches an mAB pipeline to a v4 profile', () => {
+    const bytes = new Uint8Array(212);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, bytes.length);
+    bytes[8] = 4;
+    bytes.set(new TextEncoder().encode('mntrRGB Lab '), 12);
+    bytes.set(new TextEncoder().encode('acsp'), 36);
+    view.setUint32(128, 1);
+    bytes.set(new TextEncoder().encode('A2B0'), 132);
+    view.setUint32(136, 144);
+    view.setUint32(140, 68);
+    bytes.set(new TextEncoder().encode('mAB '), 144);
+    bytes[152] = 3;
+    bytes[153] = 3;
+    view.setUint32(156, 32);
+    for (let index = 0; index < 3; index++) bytes.set(new TextEncoder().encode('curv'), 176 + index * 12);
+    expect(parseIccProfile(bytes).deviceToPcs[0]?.kind).toBe('lutAtoB');
   });
 });

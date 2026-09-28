@@ -1,10 +1,12 @@
 import type { TableLut } from './iccLut.ts';
+import type { MultiLut } from './iccMultiLut.ts';
 import type { IccHeader, IccTagRecord, IccWarning, Xyz } from './iccStructure.ts';
 import type { Curve, Matrix3 } from './iccTags.ts';
 
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 
 import { readLut } from './iccLut.ts';
+import { readMultiLut } from './iccMultiLut.ts';
 import { parseIccStructure } from './iccStructure.ts';
 import { readCurve, readSf32, readXyz } from './iccTags.ts';
 
@@ -16,12 +18,14 @@ export interface IccProfile {
   readonly chromaticAdaptation: Matrix3 | undefined;
   readonly colorants: { readonly red: Xyz; readonly green: Xyz; readonly blue: Xyz } | undefined;
   readonly trc: { readonly red: Curve; readonly green: Curve; readonly blue: Curve } | { readonly gray: Curve } | undefined;
-  readonly deviceToPcs: Readonly<Partial<Record<0 | 1 | 2, TableLut>>>;
-  readonly pcsToDevice: Readonly<Partial<Record<0 | 1 | 2, TableLut>>>;
+  readonly deviceToPcs: Readonly<Partial<Record<0 | 1 | 2, LutTag>>>;
+  readonly pcsToDevice: Readonly<Partial<Record<0 | 1 | 2, LutTag>>>;
   readonly identity: Uint8Array;
   readonly bytes: Uint8Array;
   readonly warnings: readonly IccWarning[];
 }
+
+export type LutTag = TableLut | MultiLut;
 
 const channels = (space: IccHeader['colorSpace']): number => {
   if (typeof space === 'object') return space.colorants;
@@ -49,17 +53,22 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
   const blueTrc = curve('bTRC');
   const grayTrc = curve('kTRC');
   const chad = tags.get('chad');
-  const readDirection = (prefix: 'A2B' | 'B2A'): Partial<Record<0 | 1 | 2, TableLut>> => {
-    const result: Partial<Record<0 | 1 | 2, TableLut>> = {};
+  const readDirection = (prefix: 'A2B' | 'B2A'): Partial<Record<0 | 1 | 2, LutTag>> => {
+    const result: Partial<Record<0 | 1 | 2, LutTag>> = {};
     for (const intent of [0, 1, 2] as const) {
       const tag = tags.get(`${prefix}${String(intent)}`);
       if (tag === undefined) continue;
       const type = new TextDecoder('ascii').decode(structure.bytes.subarray(tag.offset, tag.offset + 4));
-      if (type === 'mAB ' || type === 'mBA ') continue;
-      const lut = readLut(structure.bytes, tag.offset, tag.offset + tag.size);
+      if ((type === 'mAB ' && prefix === 'B2A') || (type === 'mBA ' && prefix === 'A2B')) {
+        throw new InvalidProfileError('ICC LUT type disagrees with direction', 'tag-type-mismatch', { offset: tag.offset, tag: tag.signature });
+      }
+      const lut =
+        type === 'mAB ' || type === 'mBA '
+          ? readMultiLut(structure.bytes, tag.offset, tag.offset + tag.size)
+          : readLut(structure.bytes, tag.offset, tag.offset + tag.size);
       const input = prefix === 'A2B' ? channels(structure.header.colorSpace) : channels(structure.header.pcs);
       const output = prefix === 'A2B' ? channels(structure.header.pcs) : channels(structure.header.colorSpace);
-      if (lut.clut.inputChannels !== input || lut.clut.outputChannels !== output) {
+      if (structure.bytes[tag.offset + 8] !== input || structure.bytes[tag.offset + 9] !== output) {
         throw new InvalidProfileError('ICC LUT channel count disagrees with header', 'channel-mismatch', { offset: tag.offset, tag: tag.signature });
       }
       result[intent] = lut;
