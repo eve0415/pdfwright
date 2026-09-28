@@ -9,6 +9,7 @@ import { parseIccProfile } from '../icc/iccProfile.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
+import { convertForms } from './convertForms.ts';
 import { convertOtherCarriers } from './convertOtherCarriers.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
@@ -35,6 +36,29 @@ const pdf = buildPdf([
       { number: 7, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/C[0 0 0]/IC[1 0 0]/AP<</N 10 0 R>>/MK<</BG[0 1 0]/BC[0 0 1]>>>>' },
       { number: 9, body: streamBody('', '1000 0 d0 0 1 0 rg 0 0 500 500 re f') },
       { number: 10, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0 0 1 rg 0 0 10 10 re f') },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const nestedCarrierPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Annots[7 0 R]/Resources<</Pattern<</P 5 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Pattern cs /P scn 0 0 100 100 re f') },
+      {
+        number: 5,
+        body: streamBody(
+          '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10/Resources<</XObject<</Fm 11 0 R>>>>',
+          '/Fm Do',
+        ),
+      },
+      { number: 7, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 10 0 R>>>>' },
+      { number: 10, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</XObject<</Fm 11 0 R>>>>', '/Fm Do') },
+      { number: 11, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]', '1 0 0 rg 0 0 10 10 re f') },
     ],
     trailer: '/Root 1 0 R',
   },
@@ -73,6 +97,14 @@ const widgetColor = (document: ReturnType<typeof loadDocument>, key: string) => 
 };
 
 describe('other painted colour carriers', () => {
+  it('converts forms reached only through appearances and tiling patterns', () => {
+    const document = loadDocument(nestedCarrierPdf.bytes);
+    const report = convertForms(document, { sourceRgbProfile: source, outputProfile: destination });
+    convertOtherCarriers(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.forms).toBe(1);
+    expect(content(document, 11)).toMatch(/\bk\b/u);
+  });
+
   it('converts annotation and widget colour arrays', () => {
     const document = loadDocument(pdf.bytes);
     const report = convertOtherCarriers(document, { sourceRgbProfile: source, outputProfile: destination });

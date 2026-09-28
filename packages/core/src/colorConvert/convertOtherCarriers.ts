@@ -9,7 +9,6 @@ import { createColorTransform } from '../color/createColorTransform.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
-import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -92,7 +91,6 @@ const planStream = (scan: Scan, input: { reference: PdfReference; resources: Pdf
   if (typeof bytes === 'string') throw new ValidationError(`${kind} content cannot be read: ${bytes}`, 'color-operator');
   const names = chooseOverprintNames(scan.document, effective);
   const rewritten = rewriteContentColors(scan.document, bytes, { resources: effective, options: scan.options, overprintNames: names });
-  if (rewritten.formUses.length > 0) throw new UnsupportedFeatureError(`${kind} contains a nested form`);
   if (rewritten.bytes.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError(`converted ${kind} exceeds maxDecodedBytes`);
   if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) return;
   scan.streams.set(reference.objectNumber, {
