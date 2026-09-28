@@ -31,6 +31,8 @@ export interface RewriteColorOptions {
   readonly lut8LabEncoding?: 'icc' | 'adobe';
   readonly overprintMode?: 'preserve-appearance' | 'refuse';
   readonly compressedRgbImages?: 'keep-icc-tagged' | 'refuse' | 'transcode';
+  readonly blendingSpace?: 'cmyk' | 'refuse';
+  readonly luminosityGroups?: 'keep' | 'gray';
 }
 
 export interface RewrittenContent {

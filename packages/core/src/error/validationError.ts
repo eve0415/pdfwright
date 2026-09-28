@@ -14,7 +14,8 @@ export type ValidationReason =
   | 'unreadable-resource'
   | 'color-space'
   | 'color-operator'
-  | 'overprint-mode-change';
+  | 'overprint-mode-change'
+  | 'blend-space-change';
 
 export class ValidationError extends PdfwrightError {
   override readonly code = 'validation' as const;
