@@ -13,7 +13,7 @@ import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { pdfArray, pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { convertIndexedColorSpace } from './convertIndexed.ts';
@@ -28,7 +28,8 @@ export interface ConvertedInlineImage {
   readonly data: Uint8Array;
   readonly asXObject: boolean;
   readonly keptProfile?: Uint8Array;
-  readonly keptFilter?: 'DCTDecode' | 'JPXDecode';
+  readonly keptFilter?: PdfDirectObject | undefined;
+  readonly keptDecodeParms?: PdfDirectObject | undefined;
 }
 
 interface InlineConfig {
@@ -145,8 +146,21 @@ const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDi
   const width = number(values.get('W') ?? values.get('Width'), 'Width');
   const height = number(values.get('H') ?? values.get('Height'), 'Height');
   const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
-  const filterName = latin1(compressed.bytes);
-  const keptFilter = filterName === 'JPXDecode' ? 'JPXDecode' : 'DCTDecode';
+  const aliases = new Map([
+    ['AHx', 'ASCIIHexDecode'],
+    ['A85', 'ASCII85Decode'],
+    ['LZW', 'LZWDecode'],
+    ['Fl', 'FlateDecode'],
+    ['RL', 'RunLengthDecode'],
+    ['CCF', 'CCITTFaxDecode'],
+    ['DCT', 'DCTDecode'],
+  ]);
+  const expanded = filters.map(item => {
+    if (item.kind !== 'name') return invalid('compressed inline image Filter must contain names');
+    const name = latin1(item.bytes);
+    return pdfName(aliases.get(name) ?? name);
+  });
+  const keptFilter = expanded.length === 1 ? expanded[0] : pdfArray(expanded);
   return {
     replacement: `/${config.xObjectName} Do`,
     width,
@@ -156,6 +170,7 @@ const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDi
     asXObject: true,
     keptProfile: space.source.profile.bytes,
     keptFilter,
+    keptDecodeParms: values.get('DP') ?? values.get('DecodeParms'),
   };
 };
 

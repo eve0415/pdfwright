@@ -13,7 +13,7 @@ import { deflateZlib } from '../flate/deflate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -253,6 +253,16 @@ describe('page colour conversion', () => {
     expect(image.data).toStrictEqual(latin1Bytes('JPEG'));
     expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('DCTDecode'));
     expect(image.dictionary.get(pdfName('ColorSpace').bytes)?.kind).toBe('array');
+  });
+
+  it('keeps a compressed inline image filter chain and decode parameters', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes('BI /W 1 /H 1 /BPC 8 /CS /RGB /F [/A85 /DCT] /DP [null <</ColorTransform 0>>] ID\nJPEG\nEI');
+    document.replaceStreamData(pdfReference(4, 0), input, { filter: 'FlateDecode' });
+    rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    const image = namedImage(document, 'PWIM0');
+    expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfArray([pdfName('ASCII85Decode'), pdfName('DCTDecode')]));
+    expect(image.dictionary.get(pdfName('DecodeParms').bytes)?.kind).toBe('array');
   });
 
   it('converts an inline Indexed lookup and preserves the index bytes', () => {
