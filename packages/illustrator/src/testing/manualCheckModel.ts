@@ -103,12 +103,13 @@ export const manualCheckModel = (): IllustratorDocument => {
   const clip = roundedDie();
   const rasterWidth = 30;
   const rasterHeight = 20;
-  const alpha = new Uint8Array(rasterWidth * rasterHeight).fill(255);
+  const alpha = new Uint8Array(rasterWidth * rasterHeight);
   const cmyk = new Uint8Array(rasterWidth * rasterHeight * 4);
   for (let y = 0; y < rasterHeight; y++) {
     for (let x = 0; x < rasterWidth; x++) {
       const index = y * rasterWidth + x;
-      if (x >= 12 && x < 18 && y >= 8 && y < 12) alpha[index] = 0;
+      const radius = Math.hypot((x + 0.5 - rasterWidth / 2) / 13, (y + 0.5 - rasterHeight / 2) / 8);
+      alpha[index] = Math.round(255 * Math.max(0, Math.min(1, (1 - radius) / 0.35)));
       cmyk[index * 4] = Math.floor((x / rasterWidth) * 255);
       cmyk[index * 4 + 1] = Math.floor((y / rasterHeight) * 255);
       cmyk[index * 4 + 2] = 32;
@@ -116,6 +117,15 @@ export const manualCheckModel = (): IllustratorDocument => {
     }
   }
   const bounds = { x: mm(20), y: mm(15), width: mm(60), height: mm(40) };
+  const rampWidth = 16;
+  const rampAlpha = new Uint8Array(rampWidth * 2);
+  const rampCmyk = new Uint8Array(rampWidth * 2 * 4);
+  for (let y = 0; y < 2; y++) {
+    for (let x = 0; x < rampWidth; x++) {
+      rampAlpha[y * rampWidth + x] = x * 17;
+      rampCmyk[(y * rampWidth + x) * 4 + 1] = 255;
+    }
+  }
   return {
     artboard: { width: mm(100), height: mm(70), bleed: mm(3) },
     layers: [
@@ -130,7 +140,17 @@ export const manualCheckModel = (): IllustratorDocument => {
           {
             kind: 'clipGroup',
             clip,
-            items: [{ kind: 'raster', width: rasterWidth, height: rasterHeight, bounds, color: { space: 'cmyk', samples: cmyk }, alpha }],
+            items: [
+              { kind: 'raster', width: rasterWidth, height: rasterHeight, bounds, color: { space: 'cmyk', samples: cmyk }, alpha },
+              {
+                kind: 'raster',
+                width: rampWidth,
+                height: 2,
+                bounds: { x: mm(42), y: mm(8), width: mm(16), height: mm(4) },
+                color: { space: 'cmyk', samples: rampCmyk },
+                alpha: rampAlpha,
+              },
+            ],
           },
         ],
       },
