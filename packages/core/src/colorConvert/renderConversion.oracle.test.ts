@@ -424,7 +424,7 @@ describe('converted rendering', () => {
     }
   });
 
-  it('separates transparency correctness from the D7 appearance change', async () => {
+  it('checks CMYK group blending and measures the change from RGB blending', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
     try {
       const original = transparency('/CS/DeviceRGB').bytes;
@@ -434,7 +434,7 @@ describe('converted rendering', () => {
       const correctness = measure(reference, converted);
       const policyAppearance = measure(appearance, converted);
       stdout.write(`transparency correctness: ${JSON.stringify(correctness)}\n`);
-      stdout.write(`transparency D7 appearance: ${JSON.stringify(policyAppearance)}\n`);
+      stdout.write(`transparency RGB-to-CMYK appearance: ${JSON.stringify(policyAppearance)}\n`);
       expect(correctness.max).toBeLessThanOrEqual(0.5);
       expect(policyAppearance.max).toBeLessThanOrEqual(9.8);
       expect(policyAppearance.p99).toBeLessThanOrEqual(9.8);
