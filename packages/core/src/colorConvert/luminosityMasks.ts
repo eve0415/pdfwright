@@ -19,10 +19,11 @@ import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.ts';
-import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.ts';
+import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
+import { readImageSample } from './imageRows.ts';
 import { addInlineXObjects } from './inlineResources.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { deviceRgbLuminosity, rewriteDeviceRgbLuminosity } from './luminosityContent.ts';
@@ -36,10 +37,11 @@ interface MaskGroup {
   readonly group: PdfDictionaryEntries;
   readonly data: Uint8Array;
   readonly outputSpace: 'DeviceGray' | 'DeviceCMYK';
-  readonly resources?: PdfDictionaryEntries;
+  readonly resources?: PdfDictionaryEntries | undefined;
   readonly overprintNames?: OverprintNames;
   readonly overprintAdjustments?: number;
   readonly newInlineImages?: readonly NamedInlineImage[];
+  readonly grayImages?: readonly { readonly name: Uint8Array; readonly image: PdfStream }[];
 }
 
 interface MaskResource {
@@ -89,6 +91,10 @@ const BACKDROP = pdfName('BC').bytes;
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const COLOR_SPACE_ENTRY = pdfName('ColorSpace').bytes;
+const WIDTH = pdfName('Width').bytes;
+const HEIGHT = pdfName('Height').bytes;
+const BITS = pdfName('BitsPerComponent').bytes;
+const DECODE = pdfName('Decode').bytes;
 
 const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 
@@ -137,6 +143,111 @@ const checkCompressedRgbImages = (scan: MaskScan, bytes: Uint8Array, resources: 
   }
 };
 
+const imageInteger = (scan: MaskScan, image: PdfStream, key: Uint8Array): number => {
+  const value = scan.internals.objects.deref(image.dictionary.get(key));
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) {
+    throw new ValidationError('luminosity image dimensions or bit depth are invalid', 'color-space');
+  }
+  return value.value;
+};
+
+const imageDecode = (scan: MaskScan, image: PdfStream): number[] => {
+  const value = scan.internals.objects.deref(image.dictionary.get(DECODE));
+  if (value === undefined) return [0, 1, 0, 1, 0, 1];
+  if (value.kind !== 'array' || value.items.length !== 6) throw new ValidationError('luminosity image Decode is invalid', 'color-space');
+  return value.items.map(item => {
+    const resolved = scan.internals.objects.deref(item);
+    if ((resolved?.kind !== 'integer' && resolved?.kind !== 'real') || typeof resolved.value !== 'number') {
+      throw new ValidationError('luminosity image Decode is invalid', 'color-space');
+    }
+    return resolved.value;
+  });
+};
+
+const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: readonly number[]) => number): PdfStream => {
+  const width = imageInteger(scan, image, WIDTH);
+  const height = imageInteger(scan, image, HEIGHT);
+  const bits = imageInteger(scan, image, BITS);
+  if (![1, 2, 4, 8, 16].includes(bits)) throw new UnsupportedFeatureError('luminosity image bit depth is unsupported');
+  const inputRowBytes = Math.ceil((width * 3 * bits) / 8);
+  const outputBits = bits === 16 ? 16 : 8;
+  const outputRowBytes = width * (outputBits / 8);
+  if (!Number.isSafeInteger((inputRowBytes + outputRowBytes) * height) || (inputRowBytes + outputRowBytes) * height > scan.internals.maxDecodedBytes) {
+    throw new ResourceLimitError('luminosity image exceeds maxDecodedBytes');
+  }
+  const data = decodedData(scan.internals, image);
+  if (typeof data === 'string') throw new ValidationError(`luminosity image cannot be decoded: ${data}`, 'color-space');
+  if (data.length !== inputRowBytes * height) throw new ValidationError('luminosity image sample count is invalid', 'color-space');
+  const output = new Uint8Array(outputRowBytes * height);
+  const decode = imageDecode(scan, image);
+  const maximum = 2 ** bits - 1;
+  const outputMaximum = 2 ** outputBits - 1;
+  for (let row = 0; row < height; row++) {
+    const input = data.subarray(row * inputRowBytes, (row + 1) * inputRowBytes);
+    for (let pixel = 0; pixel < width; pixel++) {
+      const rgb = Array.from({ length: 3 }, (_, channel) => {
+        const raw = readImageSample(input, pixel * 3 + channel, bits) / maximum;
+        return (decode[channel * 2] ?? 0) + raw * ((decode[channel * 2 + 1] ?? 1) - (decode[channel * 2] ?? 0));
+      });
+      const luminance = rgbToGray(rgb);
+      const gray = Math.round(Math.min(1, Math.max(0, luminance)) * outputMaximum);
+      const offset = row * outputRowBytes + pixel * (outputBits / 8);
+      if (outputBits === 8) output[offset] = gray;
+      else {
+        output[offset] = Math.floor(gray / 256);
+        output[offset + 1] = gray % 256;
+      }
+    }
+  }
+  const dictionary = new Entries(image.dictionary.entries());
+  dictionary.set(COLOR_SPACE_ENTRY, pdfName('DeviceGray'));
+  dictionary.set(BITS, pdfInteger(outputBits));
+  dictionary.set(FILTER, pdfName('FlateDecode'));
+  dictionary.delete(DECODE);
+  dictionary.delete(DECODE_PARMS);
+  return { kind: 'stream', dictionary, data: deflateZlib(output) };
+};
+
+const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: readonly number[]) => number) => {
+  const profile = source.kind === 'icc' ? source.profile : calibratedProfile(source);
+  const toPcs = sourceEvaluator(profile, 'relativeColorimetric', encoding);
+  return values => {
+    const pcs = toPcs(values);
+    return pcs.space === 'XYZ' ? (pcs.values[1] ?? 0) : (labToXyz(pcs.values)[1] ?? 0);
+  };
+};
+
+const planGrayImages = (
+  scan: MaskScan,
+  config: { bytes: Uint8Array; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
+): readonly { readonly name: Uint8Array; readonly image: PdfStream }[] => {
+  const { bytes, resources, paintGray } = config;
+  const category = scan.internals.objects.deref(resources.get(XOBJECT));
+  const plans: { name: Uint8Array; image: PdfStream }[] = [];
+  const seen = new Set<string>();
+  for (const operation of readContent(bytes, scan.internals.maxNesting)) {
+    if (operation.operator !== 'Do') continue;
+    const [operand] = operation.operands;
+    if (operand?.kind !== 'name' || category?.kind !== 'dictionary') throw new ValidationError('luminosity XObject is missing', 'color-space');
+    const key = [...operand.bytes].join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const image = scan.internals.objects.deref(category.entries.get(operand.bytes));
+    if (image?.kind !== 'stream' || nameOf(scan.internals.objects.deref(image.dictionary.get(SUBTYPE))) !== 'Image') {
+      throw new UnsupportedFeatureError('luminosity mask contains an unsupported form XObject');
+    }
+    const color = image.dictionary.get(COLOR_SPACE_ENTRY);
+    if (color === undefined) throw new ValidationError('luminosity image ColorSpace is missing', 'color-space');
+    const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
+    if (space.kind === 'gray') continue;
+    if (space.kind !== 'rgb') throw new UnsupportedFeatureError('luminosity image colour space is unsupported');
+    const gray = nameOf(scan.internals.objects.deref(color));
+    const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
+    plans.push({ name: Uint8Array.from(operand.bytes), image: grayImage(scan, image, imageGray) });
+  }
+  return plans;
+};
+
 const numberOf = (value: PdfDirectObject): number => {
   if (value.kind === 'integer') return value.value;
   if (value.kind === 'real' && typeof value.value === 'number') return value.value;
@@ -152,15 +263,6 @@ const convertBackdrop = (mask: PdfDictionaryEntries, rgbToGray: (values: readonl
   const gray = rgbToGray(values);
   mapped.set(BACKDROP, pdfArray([pdfReal(gray)]));
   return mapped;
-};
-
-const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: readonly number[]) => number) => {
-  const profile = source.kind === 'icc' ? source.profile : calibratedProfile(source);
-  const toPcs = sourceEvaluator(profile, 'relativeColorimetric', encoding);
-  return values => {
-    const pcs = toPcs(values);
-    return pcs.space === 'XYZ' ? (pcs.values[1] ?? 0) : (labToXyz(pcs.values)[1] ?? 0);
-  };
 };
 
 const maskGroupForm = (scan: MaskScan, mask: PdfDictionaryEntries) => {
@@ -236,9 +338,18 @@ const planRgbLuminosityMask = (
     const rgbSource = resolveSourceSpace(scan.document, pdfName('DeviceRGB'), { resources: groupResources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (rgbSource.kind !== 'rgb') throw new ValidationError('DeviceRGB does not resolve to an RGB profile', 'color-space');
     const paintGray = cie ? cieLuminosity(rgbSource.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
+    const grayImages = planGrayImages(scan, { bytes, resources: groupResources, paintGray });
     const rewritten = rewriteDeviceRgbLuminosity(bytes, paintGray);
     if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity mask exceeds maxDecodedBytes');
-    scan.groups.set(groupReference.objectNumber, { reference: groupReference, form, group, data: deflateZlib(rewritten), outputSpace: 'DeviceGray' });
+    scan.groups.set(groupReference.objectNumber, {
+      reference: groupReference,
+      form,
+      group,
+      data: deflateZlib(rewritten),
+      outputSpace: 'DeviceGray',
+      resources: grayImages.length === 0 ? undefined : groupResources,
+      grayImages,
+    });
     if (cie) scan.approximated.add(groupReference.objectNumber);
   }
   const backdropGray = cie ? cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
@@ -375,6 +486,13 @@ const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
         addOverprintStates(scan.document, resources, plan.overprintNames);
       }
       addInlineXObjects(scan.document, resources, plan.newInlineImages ?? []);
+      if (plan.grayImages !== undefined && plan.grayImages.length > 0) {
+        const original = scan.internals.objects.deref(resources.get(XOBJECT));
+        if (original?.kind !== 'dictionary') throw new ValidationError('luminosity XObjects are missing', 'color-space');
+        const xobjects = new Entries(original.entries.entries());
+        for (const gray of plan.grayImages) xobjects.set(gray.name, scan.document.object(gray.image));
+        resources.set(XOBJECT, pdfDictionary(xobjects));
+      }
       const oldResources = dictionary.get(RESOURCES);
       if (oldResources?.kind === 'reference') discarded.push(oldResources);
       dictionary.set(RESOURCES, pdfDictionary(resources));

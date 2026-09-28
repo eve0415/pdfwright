@@ -74,7 +74,7 @@ const rewriteOperation = (operation: SpannedContentOperation, state: ColourState
   if (operator === 'sc' || operator === 'scn' || operator === 'SC' || operator === 'SCN') {
     return rewriteSample(operation, state, rgbToGray);
   }
-  if (operator === 'k' || operator === 'K' || operator === 'sh' || operator === 'Do' || operator === 'BI') {
+  if (operator === 'k' || operator === 'K' || operator === 'sh' || operator === 'BI') {
     throw new UnsupportedFeatureError('luminosity mask contains unsupported coloured content');
   }
   return { state, replacement: undefined };

@@ -144,6 +144,42 @@ const compressedMaskPdf = (filter: 'DCTDecode' | 'JPXDecode') =>
     },
   ]);
 
+const rgbImageMaskPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>' },
+      { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+      {
+        number: 6,
+        body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</XObject<</Im 9 0 R>>>>', '/Im Do'),
+      },
+      { number: 9, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB', String.fromCodePoint(255, 0, 0)) },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const maskImage = (document: ReturnType<typeof loadDocument>) => {
+  const group = document.get(pdfReference(6, 0));
+  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  const resources = group.dictionary.get(pdfName('Resources').bytes);
+  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  const xobjects = resources.entries.get(pdfName('XObject').bytes);
+  if (xobjects?.kind !== 'dictionary') throw new Error('mask XObjects are missing');
+  const reference = xobjects.entries.get(pdfName('Im').bytes);
+  if (reference?.kind !== 'reference') throw new Error('mask image is missing');
+  const image = document.get(reference);
+  if (image.kind !== 'stream') throw new Error('mask image is not a stream');
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('internals are unavailable');
+  const data = decodedData(internals, image);
+  if (typeof data === 'string') throw new Error(data);
+  return { color: image.dictionary.get(pdfName('ColorSpace').bytes), data, reference: reference.objectNumber };
+};
+
 const groupSpace = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): string => {
   const owner = document.get(reference);
   let group: PdfDirectObject | undefined = undefined;
@@ -268,5 +304,15 @@ describe('transparency group conversion', () => {
     expect(() => convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(
       expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'luminosity-compressed-rgb-image' }),
     );
+  });
+
+  it('converts an RGB image used by a luminosity group into a separate gray image', () => {
+    const document = loadDocument(rgbImageMaskPdf.bytes);
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    const image = maskImage(document);
+    expect(image.color).toStrictEqual(pdfName('DeviceGray'));
+    expect(image.data).toStrictEqual(Uint8Array.of(77));
+    expect(image.reference).not.toBe(9);
+    expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceGray');
   });
 });
