@@ -16,14 +16,13 @@ import { readIllustratorContainer } from '../packages/illustrator/src/testing/re
 import { writeIllustratorPdf } from '../packages/illustrator/src/writeIllustratorPdf.ts';
 import { encodeZstandardFrame } from '../packages/illustrator/src/zstd/frame.ts';
 
-const FILENAMES = ['01-standard.pdf', '02-content-size.pdf', '03-zlib-wrapper.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf'] as const;
+const FILENAMES = ['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf'] as const;
 const CHECKLIST = `# Illustrator 30.8.2 manual check
 
 These files have not been open-tested in Illustrator.
 
 - \`01-standard.pdf\`: Check the six editable layers in panel order: Die (outer), Spot shapes, White, Primer 30%, Design, 非表示. Check that 非表示 is hidden, Primer 30% has 30% opacity, the artboard is 100 × 70 mm with 3 mm bleed, and the artwork is positioned on the artboard. The die strokes and the fill-plus-stroke rectangle should each be one path. Check the Cut, White, Primer and ＣＵＴ spot swatches, embedded transparent rasters, clipping, and Overprint Fill on the small Cut rectangle.
 - \`02-content-size.pdf\`: Check that all six layers remain editable with a frame content size.
-- \`03-zlib-wrapper.pdf\`: Check that all six layers remain editable with the zlib wrapper.
 - \`04-raw-blocks.pdf\`: Check that all six layers remain editable with raw Zstandard blocks.
 - \`05-top-left.pdf\`: Check that artwork positions and artboard setup match 01 with top-left native coordinates.
 - \`06-unequal-dates.pdf\`: Record whether Illustrator restores the layers or opens only the visible page when page and application dates differ.
@@ -47,7 +46,7 @@ const makePdf = (model: IllustratorDocument, native: NativeData, options: Privat
   return document.save().toBytes();
 };
 
-/** Writes the six Illustrator open-test candidates and their checklist to an external directory. */
+/** Writes the Illustrator open-test candidates and their checklist to an external directory. */
 export const writeManualCheckSet = async (directory: string): Promise<readonly string[]> => {
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
@@ -57,13 +56,12 @@ export const writeManualCheckSet = async (directory: string): Promise<readonly s
   const native = writeNative(model);
   const standard = writeIllustratorPdf(model);
   const contentSize = makePdf(model, native, { compression: 'zstandard', frameOverride: contentSizeFrame(native.bytes) });
-  const zlib = makePdf(model, native, { compression: 'zstandard', wrapper: 'zlib' });
   const rawBlocks = writeIllustratorPdf(model, { compression: 'zstandard-raw-blocks' });
   const topLeft = makePdf(model, writeNative(model, { convention: 'top-left' }), { compression: 'zstandard' });
   const changed = loadDocument(standard);
   changed.page(0).setLastModified(pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 1, second: 0, offset: 'Z' }));
   const unequal = changed.save({ mode: 'incremental' }).toBytes();
-  const outputs = [standard, contentSize, zlib, rawBlocks, topLeft, unequal];
+  const outputs = [standard, contentSize, rawBlocks, topLeft, unequal];
   await Promise.all(
     FILENAMES.map(async (filename, index) => {
       const bytes = outputs[index];

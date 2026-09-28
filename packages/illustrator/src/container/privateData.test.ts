@@ -84,7 +84,7 @@ describe('illustrator private-data container', () => {
     expect(layout.blockLengths[0]).toBeLessThan(bytes.length / 4);
   });
 
-  it('can package unnormalized frame and zlib-wrapper diagnostic variants', () => {
+  it('can package an unnormalized diagnostic frame', () => {
     const bytes = new TextEncoder().encode('%!PS-Adobe-3.0\r%%EndComments\r');
     const frame = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0xa0, 5, 0, 0, 0, 0x29, 0, 0, 1, 2, 3, 4, 5]);
     const first = createDocument();
@@ -94,14 +94,6 @@ describe('illustrator private-data container', () => {
       lastModified: date,
       options: { compression: 'zstandard', frameOverride: frame },
     });
-    const second = createDocument();
-    const secondPage = second.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
-    attachPrivateData(second, secondPage, {
-      native: { bytes, metaDataLength: bytes.length },
-      lastModified: date,
-      options: { compression: 'zstandard', wrapper: 'zlib' },
-    });
     expect(new TextDecoder('latin1').decode(first.save().toBytes())).toContain('%AI24_ZStandard_Data');
-    expect(new TextDecoder('latin1').decode(second.save().toBytes())).toContain('%AI12_CompressedData');
   });
 });

@@ -16,18 +16,11 @@ const manifest = exportsDirectory === undefined ? undefined : await readIllustra
 const ladderSource = manifest?.samples[manifest.ladderSample]?.file ?? '';
 
 describe('illustrator manual-check file set', () => {
-  it('writes six PDFs and a checklist outside the repository', async () => {
+  it('writes the PDFs and a checklist outside the repository', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
     try {
       const files = await writeManualCheckSet(directory);
-      expect(files).toStrictEqual([
-        '01-standard.pdf',
-        '02-content-size.pdf',
-        '03-zlib-wrapper.pdf',
-        '04-raw-blocks.pdf',
-        '05-top-left.pdf',
-        '06-unequal-dates.pdf',
-      ]);
+      expect(files).toStrictEqual(['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf']);
       await expect(readdir(directory)).resolves.toStrictEqual([...files, 'CHECKLIST.md']);
       const standard = await readFile(path.join(directory, '01-standard.pdf'));
       expect(new TextDecoder().decode(standard.subarray(0, 8))).toBe('%PDF-1.7');
@@ -45,9 +38,7 @@ describe('illustrator manual-check file set', () => {
       await writeManualCheckSet(directory);
       const standard = readIllustratorContainer(await readFile(path.join(directory, '01-standard.pdf')));
       const variants = await Promise.all(
-        ['02-content-size.pdf', '03-zlib-wrapper.pdf', '04-raw-blocks.pdf'].map(async filename =>
-          readIllustratorContainer(await readFile(path.join(directory, filename))),
-        ),
+        ['02-content-size.pdf', '04-raw-blocks.pdf'].map(async filename => readIllustratorContainer(await readFile(path.join(directory, filename)))),
       );
       for (const variant of variants) {
         expect(variant.native).toStrictEqual(standard.native);
