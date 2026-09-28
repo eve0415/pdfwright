@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { stdout } from 'node:process';
+import { text as streamText } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -27,53 +28,81 @@ const source = parseIccProfile(Uint8Array.from(await readFile(sourcePath)));
 const destination = parseIccProfile(Uint8Array.from(await readFile(destinationPath)));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 
-const transparency = buildPdf([
-  {
-    xref: 'classic',
-    objects: [
-      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-      {
-        number: 3,
-        body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Group<</S/Transparency/CS/DeviceRGB>>/Contents 4 0 R/Resources<</ExtGState<</A<</ca 1>>/B<</ca 0.65/BM/Multiply>>>>>>>>',
-      },
-      { number: 4, body: streamBody('', '/A gs 0.8 0.2 0.1 rg 10 10 60 60 re f /B gs 0.1 0.5 0.9 rg 30 30 60 60 re f') },
-    ],
-    trailer: '/Root 1 0 R',
-  },
-]);
+const transparency = (groupColor: string) =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        {
+          number: 3,
+          body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Group<</S/Transparency${groupColor}>>/Contents 4 0 R/Resources<</ExtGState<</A<</ca 1>>/B<</ca 0.65/BM/Multiply>>>>>>>>`,
+        },
+        { number: 4, body: streamBody('', '/A gs 0.8 0.2 0.1 rg 10 10 60 60 re f /B gs 0.1 0.5 0.9 rg 30 30 60 60 re f') },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]);
 
-const mesh = (): Uint8Array => {
+const mesh = (colors: readonly (readonly number[])[]): Uint8Array => {
   const writer = new MeshBitWriter();
-  for (const vertex of [
-    [0, 0, 255, 0, 0],
-    [100, 0, 0, 255, 0],
-    [0, 100, 0, 0, 255],
-  ]) {
+  for (const [index, [x, y]] of [
+    [0, 0],
+    [100, 0],
+    [0, 100],
+  ].entries()) {
     writer.write(2, 0);
-    for (const value of vertex) writer.write(8, value);
+    writer.write(8, x ?? 0);
+    writer.write(8, y ?? 0);
+    for (const value of colors[index] ?? []) writer.write(8, value);
     writer.alignByte();
   }
   return writer.finish(1024);
 };
 
-const meshData = latin1Text(mesh());
-const meshPdf = buildPdf([
-  {
-    xref: 'classic',
-    objects: [
-      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>>>>>' },
-      { number: 4, body: streamBody('', '/Sh1 sh') },
-      {
-        number: 5,
-        body: streamBody('/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1 0 1 0 1]', meshData),
-      },
-    ],
-    trailer: '/Root 1 0 R',
-  },
-]);
+const meshPdf = (colorSpace: 'DeviceRGB' | 'DeviceCMYK', data: Uint8Array) =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>>>>>' },
+        { number: 4, body: streamBody('', '/Sh1 sh') },
+        {
+          number: 5,
+          body: streamBody(
+            `/ShadingType 4/ColorSpace/${colorSpace}/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1 0 1 0 1${colorSpace === 'DeviceCMYK' ? ' 0 1' : ''}]`,
+            latin1Text(data),
+          ),
+        },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]);
+
+const rgbVertices = [
+  [255, 0, 0],
+  [0, 255, 0],
+  [0, 0, 255],
+];
+
+const transiccVertices = async (): Promise<readonly number[][]> => {
+  const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
+  child.stdin.end(`${rgbVertices.map(vertex => vertex.join(' ')).join('\n')}\n`);
+  const [output, closed] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
+  expect(closed[0]).toBe(0);
+  return output
+    .trim()
+    .split(/\r?\n/u)
+    .map(line =>
+      line
+        .trim()
+        .split(/\s+/u)
+        .map(value => Math.round((Number(value) / 100) * 255)),
+    );
+};
 
 interface Raster {
   readonly width: number;
@@ -143,42 +172,66 @@ const measure = (before: Raster, after: Raster) => {
   };
 };
 
+const convertTransparency = (bytes: Uint8Array): Uint8Array => {
+  const document = loadDocument(bytes);
+  rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+  convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+  return document.save().toBytes();
+};
+
+const convertMesh = (bytes: Uint8Array): Uint8Array => {
+  const document = loadDocument(bytes);
+  convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+  return document.save().toBytes();
+};
+
 describe('converted rendering', () => {
-  it.each([
-    {
-      name: 'transparency',
-      maxBound: 12,
-      p99Bound: 12,
-      original: transparency.bytes,
-      convert: (bytes: Uint8Array) => {
-        const document = loadDocument(bytes);
-        rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
-        convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
-        return document.save().toBytes();
-      },
-    },
-    {
-      name: 'mesh',
-      maxBound: 25,
-      p99Bound: 23,
-      original: meshPdf.bytes,
-      convert: (bytes: Uint8Array) => {
-        const document = loadDocument(bytes);
-        convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-        return document.save().toBytes();
-      },
-    },
-  ])('measures $name against Ghostscript CMYK rendering', async ({ name, original, convert, maxBound, p99Bound }) => {
+  it('separates transparency correctness from the D7 appearance change', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
     try {
-      const first = await render(directory, `${name}-source`, original);
-      const second = await render(directory, `${name}-converted`, convert(original));
-      const statistics = measure(first, second);
-      stdout.write(`${name}: ${JSON.stringify(statistics)}\n`);
-      expect(statistics.pixels).toBeGreaterThan(0);
-      expect(statistics.max).toBeLessThan(Infinity);
-      expect(statistics.max).toBeLessThanOrEqual(maxBound);
-      expect(statistics.p99).toBeLessThanOrEqual(p99Bound);
+      const original = transparency('/CS/DeviceRGB').bytes;
+      const appearance = await render(directory, 'transparency-rgb', original);
+      const reference = await render(directory, 'transparency-cmyk-group', transparency('/CS/DeviceCMYK').bytes);
+      const converted = await render(directory, 'transparency-converted', convertTransparency(original));
+      const correctness = measure(reference, converted);
+      const policyAppearance = measure(appearance, converted);
+      stdout.write(`transparency correctness: ${JSON.stringify(correctness)}\n`);
+      stdout.write(`transparency D7 appearance: ${JSON.stringify(policyAppearance)}\n`);
+      expect(correctness.max).toBeLessThanOrEqual(0.5);
+      expect(policyAppearance.max).toBeLessThanOrEqual(9.8);
+      expect(policyAppearance.p99).toBeLessThanOrEqual(9.8);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a transparency group without an explicit colour space close to its input', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
+    try {
+      const original = transparency('').bytes;
+      const before = await render(directory, 'implicit-group-before', original);
+      const after = await render(directory, 'implicit-group-after', convertTransparency(original));
+      expect(measure(before, after).max).toBeLessThanOrEqual(0.5);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('compares mesh correctness with independent CMYK vertices and records appearance', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
+    try {
+      const original = meshPdf('DeviceRGB', mesh(rgbVertices)).bytes;
+      const reference = meshPdf('DeviceCMYK', mesh(await transiccVertices())).bytes;
+      const before = await render(directory, 'mesh-rgb', original);
+      const oracle = await render(directory, 'mesh-cmyk-reference', reference);
+      const after = await render(directory, 'mesh-converted', convertMesh(original));
+      const correctness = measure(oracle, after);
+      const appearance = measure(before, after);
+      stdout.write(`mesh correctness: ${JSON.stringify(correctness)}\n`);
+      stdout.write(`mesh appearance: ${JSON.stringify(appearance)}\n`);
+      expect(correctness.max).toBeLessThanOrEqual(0.5);
+      expect(appearance.max).toBeLessThanOrEqual(22);
+      expect(appearance.p99).toBeLessThanOrEqual(21);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
