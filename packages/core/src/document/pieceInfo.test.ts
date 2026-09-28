@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 
+import { loadDocument } from './loadDocument.ts';
 import { createDocument } from './pdfDocument.ts';
 import { rect } from './rect.ts';
 
@@ -13,6 +15,28 @@ const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(by
 const lastModified = pdfDate({ year: 2024, month: 3, day: 2, hour: 1, minute: 4, second: 5, offset: 'Z' });
 
 describe('page-piece data and indirect objects', () => {
+  it('preserves form PieceInfo and its private stream through a page edit', () => {
+    const document = createDocument();
+    const privateData = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new TextEncoder().encode('form private bytes') });
+    const group = document.group({ bbox: rect(pt(0), pt(0), pt(20), pt(20)) }, content => {
+      content.path(draw => draw.rect(0, 0, 20, 20));
+      content.fill('nonzero');
+    });
+    group.pieceInfo({ lastModified, data: { Illustrator: { private: privateData } } });
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(30), pt(30)) });
+    page.draw(content => {
+      content.group(group, [1, 0, 0, 1, 0, 0]);
+    });
+    const original = document.save().toBytes();
+    for (const mode of ['incremental', 'full'] as const) {
+      const loaded = loadDocument(original);
+      loaded.page(0).setBox('TrimBox', rect(pt(1), pt(1), pt(29), pt(29)));
+      const saved = loaded.save({ mode }).toBytes();
+      expect(compareDocuments(loadDocument(original), loadDocument(saved)).differences.map(difference => difference.kind)).toStrictEqual(['page-box']);
+      expect(ascii(saved)).toContain('form private bytes');
+    }
+  });
+
   it('keeps caller stream bytes unchanged and repeats the date in the page data dictionary', () => {
     const document = createDocument();
     const data = new TextEncoder().encode('private raw bytes (unchanged)');
