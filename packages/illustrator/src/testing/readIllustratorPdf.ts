@@ -13,8 +13,8 @@ export interface ContainerFacts {
   readonly roundtripVersion: number;
   readonly numBlock: number | undefined;
   readonly blockLengths: readonly number[];
-  readonly frameHeaderDescriptor: number;
-  readonly windowDescriptor: number;
+  readonly frameHeaderDescriptor: number | undefined;
+  readonly windowDescriptor: number | undefined;
   readonly pageDate: Uint8Array;
   readonly applicationDate: Uint8Array;
   readonly metaData: Uint8Array;
@@ -72,6 +72,14 @@ const join = (chunks: readonly Uint8Array[]): Uint8Array => {
   return output;
 };
 
+const decodeWrapped = (wrapped: Uint8Array) => {
+  const wrapper = decoder.decode(wrapped.subarray(0, 20));
+  const data = wrapped.subarray(20);
+  if (wrapper === '%AI24_ZStandard_Data') return { native: decompress(data), frameHeaderDescriptor: data[4], windowDescriptor: data[5] };
+  if (wrapper === '%AI12_CompressedData') return { native: inflateZlib(data).data, frameHeaderDescriptor: undefined, windowDescriptor: undefined };
+  throw new Error('unsupported Illustrator compression wrapper');
+};
+
 /** Resolves Illustrator page-piece streams and decompresses their native Zstandard payload. */
 export const readIllustratorContainer = (pdf: Uint8Array): ContainerFacts => {
   const loaded = loadDocument(pdf);
@@ -89,9 +97,7 @@ export const readIllustratorContainer = (pdf: Uint8Array): ContainerFacts => {
     .toSorted((left, right) => left.index - right.index)
     .map(({ name }) => stream(loaded, privateData.get(key(name))));
   const wrapped = join(blocks);
-  if (decoder.decode(wrapped.subarray(0, 20)) !== '%AI24_ZStandard_Data') throw new Error('unsupported Illustrator compression wrapper');
-  const frame = wrapped.subarray(20);
-  const native = decompress(frame);
+  const { native, frameHeaderDescriptor, windowDescriptor } = decodeWrapped(wrapped);
   return {
     privateKeys,
     containerVersion: integer(loaded, privateData.get(key('ContainerVersion'))),
@@ -100,8 +106,8 @@ export const readIllustratorContainer = (pdf: Uint8Array): ContainerFacts => {
     roundtripVersion: integer(loaded, privateData.get(key('RoundtripVersion'))),
     numBlock: privateData.has(key('NumBlock')) ? integer(loaded, privateData.get(key('NumBlock'))) : undefined,
     blockLengths: blocks.map(block => block.length),
-    frameHeaderDescriptor: frame[4] ?? 0,
-    windowDescriptor: frame[5] ?? 0,
+    frameHeaderDescriptor,
+    windowDescriptor,
     pageDate,
     applicationDate,
     metaData: stream(loaded, privateData.get(key('AIMetaData'))),

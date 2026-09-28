@@ -1,7 +1,7 @@
 import type { NativeCompression } from '../zstd/frame.ts';
 import type { PdfDate, PdfDocument, PdfPage } from '@pdfwright/core';
 
-import { InvalidArgumentError, PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName } from '@pdfwright/core';
+import { InvalidArgumentError, PdfDictionaryEntries, deflateZlib, pdfDictionary, pdfInteger, pdfName } from '@pdfwright/core';
 
 import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from '../zstd/frame.ts';
 
@@ -13,6 +13,10 @@ export interface NativeData {
 
 export interface PrivateDataOptions {
   readonly compression: NativeCompression;
+  /** Internal diagnostic frame, written without header normalization. */
+  readonly frameOverride?: Uint8Array;
+  /** Internal diagnostic wrapper. */
+  readonly wrapper?: 'zstandard' | 'zlib';
 }
 
 export interface PrivateDataInput {
@@ -26,7 +30,8 @@ export interface PrivateDataLayout {
   readonly frame: { readonly headerDescriptor: number; readonly windowDescriptor: number };
 }
 
-const WRAPPER = new TextEncoder().encode('%AI24_ZStandard_Data');
+const ZSTANDARD_WRAPPER = new TextEncoder().encode('%AI24_ZStandard_Data');
+const ZLIB_WRAPPER = new TextEncoder().encode('%AI12_CompressedData');
 const CHUNK_SIZE = 65536;
 const compress = (bytes: Uint8Array, compression: NativeCompression): Uint8Array => {
   if (compression === 'zstandard') return encodeZstandardFrame(bytes);
@@ -40,10 +45,11 @@ export const attachPrivateData = (document: PdfDocument, page: PdfPage, input: P
   if (!Number.isInteger(native.metaDataLength) || native.metaDataLength < 0 || native.metaDataLength > native.bytes.length) {
     throw new InvalidArgumentError('metadata length must be within native data');
   }
-  const frame = compress(native.bytes, options.compression);
-  const wrapped = new Uint8Array(WRAPPER.length + frame.length);
-  wrapped.set(WRAPPER);
-  wrapped.set(frame, WRAPPER.length);
+  const wrapper = options.wrapper === 'zlib' ? ZLIB_WRAPPER : ZSTANDARD_WRAPPER;
+  const frame = options.wrapper === 'zlib' ? deflateZlib(native.bytes) : (options.frameOverride ?? compress(native.bytes, options.compression));
+  const wrapped = new Uint8Array(wrapper.length + frame.length);
+  wrapped.set(wrapper);
+  wrapped.set(frame, wrapper.length);
 
   const entries = new PdfDictionaryEntries();
   const metadata = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: native.bytes.slice(0, native.metaDataLength) });
