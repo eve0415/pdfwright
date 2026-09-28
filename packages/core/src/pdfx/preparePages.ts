@@ -75,11 +75,57 @@ class TransparencyScan {
     return this.operations(bytes, resources);
   }
 
+  private pattern(value: PdfDirectObject | undefined, inherited: PdfDictionaryEntries): boolean {
+    if (value?.kind === 'reference') {
+      if (this.seen.has(value.objectNumber)) return false;
+      this.seen.add(value.objectNumber);
+    }
+    const pattern = this.internals.objects.deref(value);
+    if (pattern?.kind !== 'dictionary' && pattern?.kind !== 'stream') return false;
+    const entries = pattern.kind === 'stream' ? pattern.dictionary : pattern.entries;
+    const state = entriesOf(this.internals, entries.get(key('ExtGState')));
+    if (state !== undefined && transparentState(this.internals, state)) return true;
+    if (pattern.kind !== 'stream') return false;
+    const resources = entriesOf(this.internals, entries.get(key('Resources'))) ?? inherited;
+    const bytes = decodedData(this.internals, pattern);
+    if (typeof bytes === 'string') throw new ValidationError(`pattern content cannot be read: ${bytes}`, 'unreadable-resource');
+    return this.operations(bytes, resources);
+  }
+
+  private appearance(value: PdfDirectObject | undefined, resources: PdfDictionaryEntries): boolean {
+    if (value?.kind === 'reference') {
+      if (this.seen.has(value.objectNumber)) return false;
+      const resolved = this.internals.objects.deref(value);
+      if (resolved?.kind === 'stream') return this.xobject(value, resources);
+      this.seen.add(value.objectNumber);
+    }
+    const object = this.internals.objects.deref(value);
+    if (object?.kind !== 'dictionary') return false;
+    for (const [, child] of object.entries.entries()) if (this.appearance(child, resources)) return true;
+    return false;
+  }
+
+  annotations(value: PdfDirectObject | undefined, resources: PdfDictionaryEntries): boolean {
+    const annots = this.internals.objects.deref(value);
+    if (annots?.kind !== 'array') return false;
+    for (const item of annots.items) {
+      const annotation = entriesOf(this.internals, item);
+      const appearances = entriesOf(this.internals, annotation?.get(key('AP')));
+      if (appearances !== undefined && this.appearance(appearances.get(key('N')), resources)) return true;
+    }
+    return false;
+  }
+
   operations(bytes: Uint8Array | readonly Uint8Array[], resources: PdfDictionaryEntries): boolean {
     const states = entriesOf(this.internals, resources.get(key('ExtGState')));
     const xobjects = entriesOf(this.internals, resources.get(key('XObject')));
+    const patterns = entriesOf(this.internals, resources.get(key('Pattern')));
     for (const operation of readContent(bytes, this.internals.maxNesting)) {
       const [operand] = operation.operands;
+      if (operation.operator === 'scn' || operation.operator === 'SCN') {
+        const patternName = operation.operands.at(-1);
+        if (patternName?.kind === 'name' && this.pattern(patterns?.get(patternName.bytes), resources)) return true;
+      }
       if (operand?.kind !== 'name') continue;
       if (operation.operator === 'gs') {
         const state = entriesOf(this.internals, states?.get(operand.bytes));
@@ -102,7 +148,9 @@ const pageUsesTransparency = (document: LoadedDocument, internals: DocumentInter
   if (entry === undefined) throw new ValidationError('page entry is missing', 'unreadable-resource');
   const content = pageContent(internals, entry);
   if (content.problems.length > 0) throw new ValidationError('page content cannot be read', 'unreadable-resource');
-  return new TransparencyScan(internals).operations(content.streams, page.resources());
+  const scan = new TransparencyScan(internals);
+  const resources = page.resources();
+  return scan.operations(content.streams, resources) || scan.annotations(object.entries.get(key('Annots')), resources);
 };
 
 /** ISO 32000-1:2008, Table 30 defines page boxes; 11.4.7 permits an explicit colour space for page compositing. */
