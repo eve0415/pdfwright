@@ -148,6 +148,8 @@ describe('production page oracle', () => {
         expect(error).toBeLessThanOrEqual(2);
       }
       expect([hasInk(cut), hasInk(fold)]).toStrictEqual([true, true]);
+      expect([cut.inkAt(14, 57), cut.inkAt(127, 57), cut.inkAt(70, 13), cut.inkAt(70, 98)]).toStrictEqual([255, 255, 255, 255]);
+      expect(cut.inkAt(70, 57)).toBe(0);
       const magenta = await readPlate(plates, new TextEncoder().encode('Magenta'));
       const yellow = await readPlate(plates, new TextEncoder().encode('Yellow'));
       for (const plate of [white, primer, cut, fold, magenta, yellow]) {
