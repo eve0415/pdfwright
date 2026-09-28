@@ -36,7 +36,7 @@ describe('native exponent scanner', () => {
           items: [
             {
               kind: 'path',
-              geometry: { start: [1e-12, -1e-12], segments: [{ kind: 'line', to: [10, 0] }] },
+              geometry: { start: [5e-324, -0], segments: [{ kind: 'line', to: [10, -1e-12] }] },
               fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
             },
           ],
@@ -47,6 +47,7 @@ describe('native exponent scanner', () => {
     const native = writeNative(model).bytes;
     const text = new TextDecoder().decode(native);
     expect(findExponentTokens(native)).toStrictEqual([]);
+    expect(text).toContain('0 0 m\r');
     expect(text).not.toContain('c2pa');
     expect(text).not.toContain('/Users/');
     expect(text).toContain('%%For: () ()\r');

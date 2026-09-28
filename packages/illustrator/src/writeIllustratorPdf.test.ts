@@ -1,8 +1,9 @@
 import type { IllustratorDocument } from './model/illustratorDocument.ts';
 
-import { loadDocument, pdfDate } from '@pdfwright/core';
+import { loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { readIllustratorContainer } from './testing/readIllustratorPdf.ts';
 import { writeIllustratorPdfExample } from './writeIllustratorPdfExample.ts';
 
 import { writeIllustratorPdf } from './index.ts';
@@ -40,6 +41,20 @@ describe('illustrator PDF writer', () => {
     expect(loaded.pageCount).toBe(1);
     expect(loaded.page(0).pieceInfo()).toBeDefined();
     expect(writeIllustratorPdf(model)).toStrictEqual(bytes);
+  });
+
+  it('writes identical page and application date bytes for three offsets', () => {
+    const dates = [
+      pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 56, offset: 'Z' }),
+      pdfDate({ year: 2026, month: 9, day: 28, hour: 21, minute: 34, second: 56, offset: { sign: '+', hours: 9, minutes: 0 } }),
+      pdfDate({ year: 2026, month: 9, day: 28, hour: 7, minute: 4, second: 56, offset: { sign: '-', hours: 5, minutes: 30 } }),
+    ];
+    for (const lastModified of dates) {
+      const facts = readIllustratorContainer(writeIllustratorPdf({ ...model, lastModified }));
+      const expected = new TextEncoder().encode(pdfDateString(lastModified));
+      expect(facts.pageDate).toStrictEqual(expected);
+      expect(facts.applicationDate).toStrictEqual(expected);
+    }
   });
 
   it('rejects locked layers before output', () => {
