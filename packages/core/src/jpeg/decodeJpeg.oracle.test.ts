@@ -74,7 +74,45 @@ const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {
   return output;
 };
 
+const jpegSegment = (marker: number, payload: readonly number[]): number[] => [255, marker, 0, payload.length + 2, ...payload];
+
+const zrlJpeg = (nonzeroAc = 47, finalSymbol = 0xf0): Uint8Array => {
+  const bits = `0${'001'.repeat(nonzeroAc)}01${finalSymbol === 0xf1 ? '1' : ''}`;
+  const padded = bits.padEnd(Math.ceil(bits.length / 8) * 8, '1');
+  const entropy = Array.from({ length: padded.length / 8 }, (_, index) => Number.parseInt(padded.slice(index * 8, index * 8 + 8), 2));
+  return Uint8Array.from([
+    255,
+    0xd8,
+    ...jpegSegment(0xdb, [0, ...Array.from({ length: 64 }, () => 1)]),
+    ...jpegSegment(0xc4, [0, 1, ...Array.from({ length: 15 }, () => 0), 0]),
+    ...jpegSegment(0xc4, [0x10, 0, 2, ...Array.from({ length: 14 }, () => 0), 1, finalSymbol]),
+    ...jpegSegment(0xc0, [8, 0, 8, 0, 8, 1, 1, 0x11, 0]),
+    ...jpegSegment(0xda, [1, 1, 0, 0, 63, 0]),
+    ...entropy,
+    255,
+    0xd9,
+  ]);
+};
+
 describe('jpeg decoding against ImageMagick libjpeg', () => {
+  it('accepts a final ZRL that ends at coefficient 64 and matches djpeg', async () => {
+    const jpeg = zrlJpeg();
+    const reference = spawn('djpeg', ['-pnm']);
+    reference.stdin.end(jpeg);
+    const [output, errors, closed] = await Promise.all([arrayBuffer(reference.stdout), text(reference.stderr), once(reference, 'close')]);
+    expect(closed[0]).toBe(0);
+    expect(errors).toBe('');
+    const pnm = new Uint8Array(output);
+    const header = new TextEncoder().encode('P5\n8 8\n255\n');
+    expect(pnm.subarray(0, header.length)).toStrictEqual(header);
+    expect(pnm).toHaveLength(header.length + 64);
+    expect(maximumDifference(decoded(jpeg), pnm.subarray(header.length))).toBeLessThanOrEqual(1);
+  });
+
+  it('rejects a nonzero AC coefficient beyond position 63', () => {
+    expect(() => decoded(zrlJpeg(48, 0xf1))).toThrow(ParseError);
+  });
+
   it.each(['1x1,1x1,1x1', '2x1,1x1,1x1', '2x2,1x1,1x1'])('decodes generated RGB JPEG with sampling %s', async sampling => {
     const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-sampling-factor', sampling, '-quality', '90', 'jpeg:-'], rgb());
     const reference = await magick(['-define', 'jpeg:fancy-upsampling=off', 'jpeg:-', '-depth', '8', 'rgb:-'], jpeg);

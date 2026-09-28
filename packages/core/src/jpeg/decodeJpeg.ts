@@ -425,7 +425,8 @@ const block = (reader: EntropyReader, component: ScanComponent, previous: number
     const size = symbol % 16;
     if (size === 0 && run !== 15) return invalid(0, 'AC run is invalid');
     index += size === 0 ? 16 : run;
-    if (index >= 64) return invalid(0, 'AC run exceeds block');
+    // ITU-T T.81 (1992), F.2.2.2: a final ZRL may cover coefficients through position 63.
+    if (index > 64 || (index === 64 && size !== 0)) return invalid(0, 'AC run exceeds block');
     if (size === 0) continue;
     const natural = ZIGZAG[index] ?? 0;
     coefficients[natural] = reader.signed(size) * (component.quantization[natural] ?? 0);
