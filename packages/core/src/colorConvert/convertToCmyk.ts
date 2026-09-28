@@ -32,6 +32,7 @@ import { convertSpotSpaces } from './convertSpots.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewritePageColors } from './rewritePage.ts';
 
+/** Requires source RGB and output CMYK ICC bytes plus an output condition; compressed RGB images default to ICC-tagged keep, `pdfx` is off unless supplied, profiles default to a 24 MiB cap, and conversion refusals use typed ValidationError or UnsupportedFeatureError reasons under ICC.1:2022 and ISO 32000-1:2008, 8.6. */
 export interface ConvertToCmykOptions extends Omit<RewriteColorOptions, 'sourceRgbProfile' | 'outputProfile'> {
   /** ICC profile for untagged DeviceRGB colours. */
   readonly sourceRgbProfile: Uint8Array;
@@ -43,6 +44,7 @@ export interface ConvertToCmykOptions extends Omit<RewriteColorOptions, 'sourceR
   readonly pdfx?: (PdfX4MetadataOptions & PdfX4PageOptions & { readonly version?: 'PDF/X-4' }) | false;
 }
 
+/** Counts converted page, form, image, colour-space, shading, mesh, group, and annotation carriers and reports output-intent and optional PDF/X changes under ISO 32000-1:2008, 8.6 and 14.11.5. */
 export interface ConversionReport {
   readonly page: PageRewriteReport;
   readonly forms: FormConversionReport;

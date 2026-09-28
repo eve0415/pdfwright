@@ -1,5 +1,6 @@
 import { PdfwrightError } from './pdfwrightError.ts';
 
+/** Typed ICC failures for header, tag table, tag contents, channels, and matrix structure; `InvalidProfileError` also carries an offset and optional tag under ICC.1:2022, 7.2–7.3. */
 export type InvalidProfileReason =
   | 'truncated'
   | 'bad-signature'

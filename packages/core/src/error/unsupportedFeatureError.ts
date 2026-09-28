@@ -1,5 +1,6 @@
 import { PdfwrightError } from './pdfwrightError.ts';
 
+/** Typed reasons for unsupported ICC, compressed image, JPEG process, and DeviceN or NChannel behaviour; `jpeg-*` reasons follow ITU-T T.81:1992, Annex B process markers. */
 export type UnsupportedFeatureReason =
   | 'icc-version-5'
   | 'icc-mpet'

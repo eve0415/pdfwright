@@ -14,6 +14,7 @@ import { colorSpaceChannels, parseIccStructure } from './iccStructure.ts';
 import { readCurve, readSf32, readXyz } from './iccTags.ts';
 import { readIccText } from './iccText.ts';
 
+/** Parsed ICC header, optional colour tags, profile bytes, identity, and warnings; `parseIccProfile` accepts at most 24 MiB by default and reports malformed tags with InvalidProfileError under ICC.1:2022, 7.2–7.3. */
 export interface IccProfile {
   readonly header: IccHeader;
   readonly description: string | undefined;
@@ -30,8 +31,10 @@ export interface IccProfile {
   readonly warnings: readonly IccWarning[];
 }
 
+/** A parsed table or multi-process lookup tag in an ICC conversion pipeline under ICC.1:2022, 10.10–10.13. */
 export type LutTag = TableLut | MultiLut;
 
+/** Sets maxIccProfileBytes to 24 MiB by default and at least 132 bytes; an invalid option raises InvalidArgumentError, while a larger profile raises ResourceLimitError under ICC.1:2022, 7.2. */
 export interface ParseIccProfileOptions {
   /** Maximum ICC profile size in bytes before parsing; defaults to 24 MiB and must be at least 132. */
   readonly maxIccProfileBytes?: number;

@@ -1,3 +1,4 @@
+/** Stable top-level codes for invalid arguments or profiles, parsing, encryption, unsupported features, validation, and resource limits; subclasses may add a typed reason. */
 export type PdfwrightErrorCode =
   | 'invalid-argument'
   | 'invalid-profile'

@@ -24,6 +24,7 @@ import { registeredPrintingConditions } from './printingConditions.ts';
 export { pdfX4Rules } from './pdfX4Rules.ts';
 export type { PdfX4Rule, PdfX4RuleId, RuleAuthority } from './pdfX4Rules.ts';
 
+/** One PDF/X-4 structural check with its rule, authority, source, status, and location; unchecked requirements remain `not-checked` under ISO 15930-7:2010, clause 6. */
 export interface PdfX4Finding {
   readonly rule: PdfX4RuleId;
   readonly authority: RuleAuthority;
@@ -33,6 +34,7 @@ export interface PdfX4Finding {
   readonly detail: string;
 }
 
+/** Structural PDF/X-4 findings and a summary of violations found by those checks; it does not assert full conformance under ISO 15930-7:2010, clause 6. */
 export interface PdfX4Report {
   readonly findings: readonly PdfX4Finding[];
   readonly summary: 'no-violation-found-by-these-rules' | 'violations-found';

@@ -7,6 +7,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { createCalculatorFunction } from './calculatorFunction.ts';
 import { deterministicExp } from './deterministicMath.ts';
 
+/** Evaluates a parsed PDF function from components in its Domain to output components constrained by its Range; malformed functions raise ParseError under ISO 32000-1:2008, 7.10. */
 export type PdfFunction = (input: readonly number[]) => number[];
 export type FunctionResolver = (value: PdfDirectObject) => PdfObject;
 

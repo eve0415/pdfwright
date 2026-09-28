@@ -1,5 +1,7 @@
+/** Whether a PDF/X rule comes from PDF structure, a PDF/X preview, predecessor guidance, an explainer, observed behaviour, or package policy. */
 export type RuleAuthority = 'iso32000-1' | 'iso15930-7-preview' | 'predecessor-guidance' | 'industry-explainer' | 'implementation-evidence' | 'house-policy';
 
+/** Stable identifiers for the PDF/X-4 checks and explicit gaps tied to ISO 15930-7:2010, clause 6. */
 export type PdfX4RuleId =
   | 'X4-VERSION'
   | 'X4-PDF17-KEYS'
@@ -29,6 +31,7 @@ export type PdfX4RuleId =
   | 'X4-TRANSPARENCY'
   | 'X4-OC';
 
+/** A PDF/X-4 check identifier with the source and authority it follows; entries without an implemented clause check produce `not-checked`. */
 export interface PdfX4Rule {
   readonly id: PdfX4RuleId;
   readonly source: string;

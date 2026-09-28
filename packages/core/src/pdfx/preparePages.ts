@@ -11,11 +11,13 @@ import { decodedData } from '../font/fontValues.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries as Entries, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
+/** Adds TrimBox from MediaBox when a page has neither TrimBox nor ArtBox by default; `refuse` instead raises ValidationError without a reason under ISO 32000-1:2008, 14.11.2 and Table 30. */
 export interface PdfX4PageOptions {
   /** `trim-from-media` (the default) writes a TrimBox equal to the MediaBox on a page that sets neither TrimBox nor ArtBox; `refuse` throws ValidationError for such a page. */
   readonly pageBoxes?: 'trim-from-media' | 'refuse';
 }
 
+/** Zero-based page indexes where TrimBoxes or isolated DeviceCMYK transparency groups were added under ISO 32000-1:2008, 14.11.2 and 11.6.6. */
 export interface PdfX4PageChange {
   /** Zero-based page indices. */
   readonly addedTrimBoxes: readonly number[];

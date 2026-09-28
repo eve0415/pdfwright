@@ -5,6 +5,7 @@ import { BitWriter } from './bitWriter.ts';
 import { writeCompressedBlock } from './deflateBlock.ts';
 import { tokenize } from './lz77.ts';
 
+/** Selects compression level 0–9, default 6; invalid levels raise InvalidArgumentError without a reason, and compressed input blocks are at most 1 MiB under RFC 1951, 3.2. */
 export interface DeflateOptions {
   /** Compression level from 0 (stored blocks) to 9; defaults to 6. */
   level?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
@@ -133,6 +134,7 @@ export class ZlibDeflater {
   }
 }
 
+/** Pushes uncompressed bytes and finishes one zlib stream; writing after finish raises InvalidArgumentError without a reason, while RFC 1950, 2.2 defines its header and trailer. */
 export interface DeflateStream {
   push: (data: Uint8Array) => Uint8Array[];
   finish: () => Uint8Array;

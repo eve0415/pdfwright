@@ -10,11 +10,13 @@ import { ChunkedInflateOutput } from './chunkedInflateOutput.ts';
 import { Huffman } from './huffman.ts';
 import { CODE_LENGTH_ORDER, DISTANCE_BASE, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
 
+/** A nonfatal trailing-data, truncated-trailer, or checksum finding at a compressed byte offset under RFC 1950, 2.2. */
 export interface FlateWarning {
   readonly code: 'trailing-data' | 'truncated-trailer' | 'checksum-mismatch';
   readonly offset: number;
 }
 
+/** Caps decoded output at 256 MiB by default; invalid caps raise InvalidArgumentError without a reason and output past the cap raises ResourceLimitError under RFC 1950 and RFC 1951. */
 export interface InflateOptions {
   /** Largest decoded size accepted, in bytes; larger output throws ResourceLimitError. Defaults to 256 MiB. */
   maxOutputBytes?: number;

@@ -4,8 +4,10 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 
 import { iccSignature } from './iccSignature.ts';
 
+/** A nine-coefficient row-major 3-by-3 ICC matrix under ICC.1:2022, 10.22 and 10.31. */
 export type Matrix3 = readonly [number, number, number, number, number, number, number, number, number];
 
+/** An identity, gamma, sampled, or parametric ICC transfer curve; parametric types 0–4 and malformed tag errors follow ICC.1:2022, 10.6 and 10.18. */
 export type Curve =
   | { readonly kind: 'identity' }
   | { readonly kind: 'gamma'; readonly gamma: number }

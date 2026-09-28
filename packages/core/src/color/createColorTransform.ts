@@ -18,8 +18,10 @@ export interface IccColorSource {
   readonly profile: IccProfile;
 }
 
+/** A parsed ICC profile or calibrated RGB or gray source for a colour transform; ICC.1:2022, 6.2 connects its PCS values to the destination profile. */
 export type ColorSource = IccColorSource | CalRgbSource | CalGraySource;
 
+/** Requires a rendering intent and black-point-compensation choice; lut8 Lab scaling defaults to `icc` and can use `adobe`, while ICC.1:2022, 6.3.4.2, Table 13 defines the standard scaling. */
 export interface ColorTransformOptions {
   /** Rendering intent used by the transform. */
   readonly intent: RenderingIntent;
@@ -29,6 +31,7 @@ export interface ColorTransformOptions {
   readonly lut8LabEncoding?: 'icc' | 'adobe';
 }
 
+/** Converts normalized source components into destination components or 8-bit and 16-bit rows; wrong channel counts or nonfinite values raise InvalidArgumentError without a reason under ICC.1:2022, 6.2. */
 export interface ColorTransform extends RowConverters {
   readonly inputChannels: number;
   readonly outputChannels: number;

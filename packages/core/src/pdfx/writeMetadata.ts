@@ -4,6 +4,7 @@ import type { MetadataChange } from '../metadata/setMetadata.ts';
 
 import { setMetadata } from '../metadata/setMetadata.ts';
 
+/** Requires a caller date and Trapped state, keeps an existing DocumentID unless given a replacement, and writes PDF/X-4 Info and XMP identification under ISO 32000-1:2008, Table 317 and XMP Part 3, Table 20. */
 export interface PdfX4MetadataOptions {
   /** Date written to modification and XMP metadata dates. */
   readonly metadataDate: PdfDate;

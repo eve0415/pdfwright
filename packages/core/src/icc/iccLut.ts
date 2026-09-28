@@ -5,6 +5,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 
 import { iccSignature } from './iccSignature.ts';
 
+/** A colour lookup table with grid dimensions, channel counts, and 8-bit or 16-bit samples; parsing caps it at 16,777,216 entries with ResourceLimitError under ICC.1:2022, 10.10–10.11. */
 export interface Clut {
   readonly gridPoints: readonly number[];
   readonly inputChannels: number;
@@ -12,6 +13,7 @@ export interface Clut {
   readonly values: Uint8Array | Uint16Array;
 }
 
+/** A lut8 or lut16 pipeline with matrix, input curves, CLUT, and output curves under ICC.1:2022, 10.10–10.11; invalid tag data raises InvalidProfileError reason `bad-tag-data`. */
 export interface TableLut {
   readonly kind: 'lut8' | 'lut16';
   readonly matrix: Matrix3;

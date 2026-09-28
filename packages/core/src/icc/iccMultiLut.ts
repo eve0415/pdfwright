@@ -7,6 +7,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { iccSignature } from './iccSignature.ts';
 import { readCurve } from './iccTags.ts';
 
+/** An ICC lutAtoB or lutBtoA pipeline of curves, optional matrix and CLUT stages under ICC.1:2022, 10.12–10.13; malformed offsets raise InvalidProfileError reason `bad-tag-data`. */
 export interface MultiLut {
   readonly kind: 'lutAtoB' | 'lutBtoA';
   readonly b: readonly Curve[];

@@ -17,6 +17,7 @@ import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
 
 import { registeredPrintingConditions } from './printingConditions.ts';
 
+/** Embeds a CMYK output profile and printing-condition identifier; conflicting intents are refused and PDF/X version handling defaults on, with ValidationError reasons `output-intent-conflict`, `color-space`, or `pdf-extensions` under ISO 32000-1:2008, 14.11.5, Table 365. */
 export interface OutputIntentOptions {
   /** Output-class CMYK ICC profile embedded in the intent. */
   readonly outputProfile: Uint8Array;
@@ -34,6 +35,7 @@ export interface OutputIntentOptions {
   readonly pdfx?: boolean;
 }
 
+/** Reports whether an output intent was added, updated, or replaced, the removed subtypes, and the embedded profile reference under ISO 32000-1:2008, 14.11.5, Table 365. */
 export interface OutputIntentChange {
   readonly action: 'added' | 'updated' | 'replaced';
   readonly removedSubtypes: readonly string[];

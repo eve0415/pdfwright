@@ -5,15 +5,20 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { iccIdentity } from './iccIdentity.ts';
 import { iccSignature } from './iccSignature.ts';
 
+/** The ICC profile device or abstract class decoded from the header signature under ICC.1:2022, 7.2.1. */
 export type ProfileClass = 'input' | 'display' | 'output' | 'deviceLink' | 'colorSpace' | 'abstract' | 'namedColor';
+/** An ICC PCS or device colour-space signature, including 2–15 colourants for nCLR spaces under ICC.1:2022, 7.2.2. */
 export type DataColorSpace = 'XYZ' | 'Lab' | 'Gray' | 'RGB' | 'CMYK' | 'CMY' | 'Luv' | 'YCbCr' | 'Yxy' | 'HSV' | 'HLS' | { readonly colorants: number };
+/** The four ICC rendering intents used to choose profile transforms under ICC.1:2022, 6.2.2. */
 export type RenderingIntent = 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric';
+/** Three PCS tristimulus coordinates under ICC.1:2022, 6.3.2; values are carried as parsed without a default. */
 export interface Xyz {
   readonly x: number;
   readonly y: number;
   readonly z: number;
 }
 
+/** The declared ICC size, version, class, colour spaces, intent, illuminant, and profile ID under ICC.1:2022, 7.2; invalid fields raise InvalidProfileError during parsing. */
 export interface IccHeader {
   readonly size: number;
   readonly version: { readonly major: number; readonly minor: number; readonly bugfix: number };
@@ -31,6 +36,7 @@ export interface IccTagRecord {
   readonly size: number;
 }
 
+/** A nonfatal ICC trailing-data, alignment, or profile-ID finding with its byte offset under ICC.1:2022, 7.2–7.3. */
 export interface IccWarning {
   readonly code: 'trailing-data' | 'tag-misaligned' | 'profile-id-mismatch';
   readonly offset: number;
