@@ -1,10 +1,19 @@
-import type { Artboard, Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, SpotColor } from '../model/illustratorDocument.ts';
-import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfPage, Separation } from '@pdfwright/core';
+import type { Artboard, Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, RasterItem, SpotColor } from '../model/illustratorDocument.ts';
+import type { ImageRegistry } from './imageRegistry.ts';
+import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfImage, PdfPage, Separation } from '@pdfwright/core';
 
 import { UnsupportedFeatureError, add, cmyk, pt, rect } from '@pdfwright/core';
 
 import { artBounds } from '../geometry/bounds.ts';
 import { validateDocument } from '../model/validateDocument.ts';
+
+import { createImageRegistry } from './imageRegistry.ts';
+
+interface PageResources {
+  readonly document: PdfDocument;
+  readonly separation: (spot: SpotColor) => Separation;
+  readonly images: ImageRegistry;
+}
 
 const length = (value: Coordinate) => (typeof value === 'number' ? pt(value) : value);
 const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
@@ -50,23 +59,58 @@ const drawPath = (content: ContentBuilder, item: PathItem, separation: (spot: Sp
   content.restore();
 };
 
-const drawItem = (content: ContentBuilder, item: Item, separation: (spot: SpotColor) => Separation): void => {
+const rasterImage = (content: ContentBuilder, item: RasterItem, resources: PageResources): PdfImage => {
+  if (item.color.space === 'cmyk') {
+    return resources.document.image({
+      width: item.width,
+      height: item.height,
+      colorSpace: 'DeviceCMYK',
+      bitsPerComponent: 8,
+      samples: item.color.samples,
+      softMask: { width: item.width, height: item.height, samples: item.alpha },
+    });
+  }
+  if (item.color.samples === undefined) {
+    content.fillColor(resources.separation(item.color.spot), 1);
+    return resources.images.stencil(item.width, item.height, item.alpha);
+  }
+  return resources.document.image({
+    width: item.width,
+    height: item.height,
+    colorSpace: resources.separation(item.color.spot),
+    bitsPerComponent: 8,
+    samples: item.color.samples,
+    softMask: { width: item.width, height: item.height, samples: item.alpha },
+  });
+};
+
+const drawRaster = (content: ContentBuilder, item: RasterItem, resources: PageResources): void => {
+  content.save();
+  const image = rasterImage(content, item, resources);
+  content.image(image, [item.bounds.width, 0, 0, item.bounds.height, item.bounds.x, item.bounds.y]);
+  content.restore();
+};
+
+const drawItem = (content: ContentBuilder, item: Item, resources: PageResources): void => {
   switch (item.kind) {
     case 'path': {
-      drawPath(content, item, separation);
+      drawPath(content, item, resources.separation);
       break;
     }
     case 'clipGroup': {
       content.save();
       drawGeometry(content, item.clip);
       content.clip('nonzero');
-      for (const child of item.items) drawItem(content, child, separation);
+      for (const child of item.items) drawItem(content, child, resources);
       content.restore();
       break;
     }
-    case 'raster':
+    case 'raster': {
+      drawRaster(content, item, resources);
+      break;
+    }
     case 'group': {
-      throw new UnsupportedFeatureError('visible raster and transparency-group drawing is not available yet');
+      throw new UnsupportedFeatureError('visible transparency-group drawing is not available yet');
     }
     default: {
       throw new UnsupportedFeatureError('unknown Illustrator item kind');
@@ -108,11 +152,12 @@ export const drawPage = (document: PdfDocument, model: IllustratorDocument): Pdf
     }
     return value;
   };
+  const resources: PageResources = { document, separation, images: createImageRegistry(document) };
   page.draw(content => {
     content.transform(1, 0, 0, 1, left, bottom);
     for (const layer of model.layers) {
       if (layer.visible === false) continue;
-      for (const item of layer.items) drawItem(content, item, separation);
+      for (const item of layer.items) drawItem(content, item, resources);
     }
   });
   return page;
