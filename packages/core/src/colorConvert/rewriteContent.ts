@@ -39,6 +39,7 @@ export interface RewrittenContent {
   readonly kOnly: number;
   readonly overprintAdjustments: number;
   readonly formUses: readonly FormUse[];
+  readonly shadingUses: readonly ShadingUse[];
   readonly inlineImages: number;
   readonly newInlineImages: readonly (ConvertedInlineImage & { readonly name: string })[];
 }
@@ -67,6 +68,11 @@ export interface FormUse {
   readonly end: number;
 }
 
+export interface ShadingUse {
+  readonly name: Uint8Array;
+  readonly intent: RenderingIntent;
+}
+
 interface ContentEdit {
   readonly start: number;
   readonly end: number;
@@ -80,6 +86,7 @@ interface RewriteContext {
   readonly transforms: Map<string, ColorTransform>;
   readonly edits: ContentEdit[];
   readonly formUses: FormUse[];
+  readonly shadingUses: ShadingUse[];
   readonly newInlineImages: (ConvertedInlineImage & { readonly name: string })[];
   readonly overprintNames: OverprintNames | undefined;
   kOnly: number;
@@ -315,6 +322,10 @@ const objectOperation = (context: RewriteContext, operation: SpannedContentOpera
     context.formUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), entry: context.state, start: operation.start, end: operation.end });
     return undefined;
   }
+  if (operator === 'sh') {
+    context.shadingUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), intent: context.state.intent });
+    return undefined;
+  }
   if (operator === 'BI' && operation.inlineImage !== undefined) {
     const name = inlineResourceName(context);
     const converted = convertInlineImage({
@@ -414,6 +425,7 @@ export const rewriteContentColors = (
     transforms: new Map(),
     edits: [],
     formUses: [],
+    shadingUses: [],
     newInlineImages: [],
     overprintNames: config.overprintNames,
     kOnly: 0,
@@ -449,6 +461,7 @@ export const rewriteContentColors = (
       kOnly: context.kOnly,
       overprintAdjustments: 0,
       formUses: context.formUses,
+      shadingUses: context.shadingUses,
       inlineImages: context.inlineImages,
       newInlineImages: context.newInlineImages,
     };
@@ -468,6 +481,7 @@ export const rewriteContentColors = (
     kOnly: context.kOnly,
     overprintAdjustments: context.overprintAdjustments,
     formUses: context.formUses,
+    shadingUses: context.shadingUses,
     inlineImages: context.inlineImages,
     newInlineImages: context.newInlineImages,
   };

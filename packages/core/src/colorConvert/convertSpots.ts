@@ -2,30 +2,27 @@ import type { ColorSource } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
-import type { IccProfile } from '../icc/iccProfile.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
+import type { SampledCmykFunction } from './sampleCmykFunction.ts';
 import type { SourceSpace } from './sourceSpace.ts';
+import type { ConvertedCmykFunction, StitchedCmykFunction } from './stitchCmykFunction.ts';
 
-import { ByteWriter } from '../bytes/byteWriter.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
-import { deltaE2000 } from '../color/deltaE2000.ts';
-import { xyzToLab } from '../color/pcs.ts';
-import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
-import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
-import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
+import { pdfArray, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
+import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
+import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 
 export interface SpotConversionReport {
   readonly separations: number;
@@ -39,20 +36,9 @@ interface SpotContext {
   readonly options: RewriteColorOptions;
 }
 
-interface SampledFunction {
-  readonly kind: 'sampled';
-  readonly dictionary: PdfDictionaryEntries;
-  readonly data: Uint8Array;
-  readonly maxDeltaE2000: number;
-}
+type SampledFunction = SampledCmykFunction;
 
-interface StitchedFunction {
-  readonly kind: 'stitched';
-  readonly dictionary: PdfDictionaryEntries;
-  readonly functions: readonly SampledFunction[];
-}
-
-type ConvertedTint = SampledFunction | StitchedFunction;
+type ConvertedTint = ConvertedCmykFunction;
 
 interface TintEvaluator {
   readonly evaluate: PdfFunction;
@@ -128,71 +114,6 @@ const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'sep
 
 const alternateSource = (space: SourceSpace): ColorSource | undefined => (space.kind === 'rgb' || space.kind === 'gray' ? space.source : undefined);
 
-interface TintSamples {
-  readonly grid: number;
-  readonly values: Float64Array;
-  readonly maxDeltaE2000: number;
-}
-
-const gridValues = (config: {
-  dimensions: number;
-  grid: number;
-  domain: readonly number[];
-  evaluate: (tints: readonly number[]) => Float64Array;
-}): Float64Array => {
-  const { dimensions, grid, domain, evaluate } = config;
-  const count = grid ** dimensions;
-  if (!Number.isSafeInteger(count) || count > 100_000) throw new ResourceLimitError('spot tint table exceeds the sampling limit');
-  const values = new Float64Array(count * 4);
-  for (let index = 0; index < count; index++) {
-    const tints: number[] = [];
-    for (let axis = 0; axis < dimensions; axis++) {
-      const fraction = (Math.floor(index / grid ** axis) % grid) / (grid - 1);
-      tints.push((domain[axis * 2] ?? 0) + fraction * ((domain[axis * 2 + 1] ?? 1) - (domain[axis * 2] ?? 0)));
-    }
-    values.set(evaluate(tints), index * 4);
-  }
-  return values;
-};
-
-const midpointError = (config: {
-  values: Float64Array;
-  grid: number;
-  domain: readonly number[];
-  evaluate: (tints: readonly number[]) => Float64Array;
-  destination: IccProfile;
-}): number => {
-  const { values, grid, domain, evaluate, destination } = config;
-  const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
-  const lab = (cmyk: Float64Array): readonly number[] => {
-    const pcs = toPcs(cmyk);
-    return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
-  };
-  let maximum = 0;
-  for (let index = 0; index < grid - 1; index++) {
-    const tint = (domain[0] ?? 0) + ((index + 0.5) / (grid - 1)) * ((domain[1] ?? 1) - (domain[0] ?? 0));
-    const exact = evaluate([tint]);
-    const interpolated = Float64Array.from({ length: 4 }, (_, channel) => ((values[index * 4 + channel] ?? 0) + (values[(index + 1) * 4 + channel] ?? 0)) / 2);
-    maximum = Math.max(maximum, deltaE2000(lab(exact), lab(interpolated)));
-  }
-  return maximum;
-};
-
-const adaptiveSamples = (config: {
-  dimensions: number;
-  domain: readonly number[];
-  evaluate: (tints: readonly number[]) => Float64Array;
-  destination: IccProfile;
-}): TintSamples => {
-  const { dimensions, domain, evaluate, destination } = config;
-  if (dimensions > 1) return { grid: 17, values: gridValues({ dimensions, grid: 17, domain, evaluate }), maxDeltaE2000: 0 };
-  for (let grid = 256; ; grid *= 2) {
-    const values = gridValues({ dimensions, grid, domain, evaluate });
-    const maxDeltaE2000 = midpointError({ values, grid, domain, evaluate, destination });
-    if (maxDeltaE2000 <= 0.1 || grid >= 4096) return { grid, values, maxDeltaE2000 };
-  }
-};
-
 const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): SampledFunction => {
   const dimensions = space.kind === 'separation' ? 1 : space.names.length;
   if (dimensions > 4) throw new UnsupportedFeatureError('DeviceN has more than four colourants', 'device-n-components');
@@ -210,44 +131,12 @@ const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'sepa
     transform.convert(Float64Array.from(original.evaluate(tints)), output);
     return output;
   };
-  const sampled = adaptiveSamples({ dimensions, domain: original.domain, evaluate, destination: context.options.outputProfile });
-  const { grid } = sampled;
-  const writer = new ByteWriter();
-  for (const value of sampled.values) {
-    const sample = Math.round(value * 65535);
-    writer.writeByte(Math.floor(sample / 256));
-    writer.writeByte(sample % 256);
-  }
-  const entries = new PdfDictionaryEntries([
-    // ISO 32000-1:2008, 7.10.2 Table 39: Size fixes each input grid and BitsPerSample is 16 here.
-    [pdfName('FunctionType').bytes, pdfInteger(0)],
-    [pdfName('Domain').bytes, pdfArray(original.domain.map(value => pdfReal(value)))],
-    [pdfName('Range').bytes, pdfArray([0, 1, 0, 1, 0, 1, 0, 1].map(value => pdfInteger(value)))],
-    [pdfName('Size').bytes, pdfArray(Array.from({ length: dimensions }, () => pdfInteger(grid)))],
-    [pdfName('BitsPerSample').bytes, pdfInteger(16)],
-    [pdfName('Order').bytes, pdfInteger(1)],
-    [pdfName('Filter').bytes, pdfName('FlateDecode')],
-  ]);
-  return { kind: 'sampled', dictionary: entries, data: deflateZlib(writer.toUint8Array()), maxDeltaE2000: sampled.maxDeltaE2000 };
+  return sampleCmykFunction({ dimensions, domain: original.domain, evaluate, destination: context.options.outputProfile, grid: 17 });
 };
 
-const stitchedFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): StitchedFunction => {
+const stitchedFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): StitchedCmykFunction => {
   if (space.kind !== 'separation') return invalid('DeviceN stitching functions are unsupported');
-  const { tint } = space;
-  if (tint.kind !== 'dictionary') return invalid('stitching function is not a dictionary');
-  const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
-  const children = tint.entries.get(pdfName('Functions').bytes);
-  if (children?.kind !== 'array' || children.items.length === 0) return invalid('stitching function has no subfunctions');
-  const functions: SampledFunction[] = [];
-  for (const item of children.items) {
-    const child = internals.objects.deref(item);
-    if (child === undefined || child.kind === 'null') return invalid('stitching subfunction is missing');
-    functions.push(sampleFunction(context, { ...space, tint: child }));
-  }
-  const dictionary = new PdfDictionaryEntries(tint.entries.entries());
-  dictionary.set(pdfName('Range').bytes, pdfArray([0, 1, 0, 1, 0, 1, 0, 1].map(value => pdfInteger(value))));
-  return { kind: 'stitched', dictionary, functions };
+  return stitchCmykFunction(context.document, space.tint, child => sampleFunction(context, { ...space, tint: child }));
 };
 
 const convertedTint = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): ConvertedTint => {
@@ -386,16 +275,8 @@ const scanImages = (context: SpotContext, plans: Map<number, ImagePlan>): void =
   }
 };
 
-const writeTint = (document: LoadedDocument, converted: ConvertedTint): PdfReference => {
-  if (converted.kind === 'sampled') return document.object({ kind: 'stream', dictionary: converted.dictionary, data: converted.data });
-  const functions = converted.functions.map(item => document.object({ kind: 'stream', dictionary: item.dictionary, data: item.data }));
-  const entries = new PdfDictionaryEntries(converted.dictionary.entries());
-  entries.set(pdfName('Functions').bytes, pdfArray(functions));
-  return document.object(pdfDictionary(entries));
-};
-
 const convertedArray = (document: LoadedDocument, spot: SpotPlan): PdfDirectObject => {
-  const functionReference = writeTint(document, spot.sampled);
+  const functionReference = writeCmykFunction(document, spot.sampled);
   const [family, colorants] = spot.original.items;
   if (family === undefined || colorants === undefined) return invalid('spot colour space is incomplete');
   const items: PdfDirectObject[] = [family, colorants, pdfName('DeviceCMYK'), functionReference];
