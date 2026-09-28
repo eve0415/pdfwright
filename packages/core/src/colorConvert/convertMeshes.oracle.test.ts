@@ -6,7 +6,7 @@ import path from 'node:path';
 import { text as streamText } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { deltaE2000 } from '../color/deltaE2000.ts';
@@ -14,6 +14,7 @@ import { xyzToLab } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -23,6 +24,7 @@ import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 import { convertMeshShadings } from './convertMeshes.ts';
 import { MeshBitReader } from './meshBits.ts';
 import { MeshBitWriter } from './meshBitWriter.ts';
+import { subdivideMesh } from './meshSubdivision.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
@@ -430,6 +432,27 @@ const meshStop = (document: ReturnType<typeof loadDocument>): number => {
 };
 
 describe('mesh shading conversion', () => {
+  it('rejects an over-budget source before converting every vertex', () => {
+    const sourceTriangle = triangle();
+    const data = new Uint8Array(sourceTriangle.length * 100);
+    for (let index = 0; index < 100; index++) data.set(sourceTriangle, index * sourceTriangle.length);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    const convert = vi.spyOn(transform, 'convert');
+    expect(() =>
+      subdivideMesh(data, {
+        type: 4,
+        coordinateBits: 8,
+        componentBits: 8,
+        flagBits: 2,
+        decode: [0, 100, 0, 100, 0, 1, 0, 1, 0, 1],
+        transform,
+        destination,
+        maxBytes: 54,
+      }),
+    ).toThrow(ResourceLimitError);
+    expect(convert.mock.calls.length).toBeLessThan(30);
+  });
+
   it.each([
     { bits: 1, color: [0, 1, 1] },
     { bits: 2, color: [2, 1, 0] },
