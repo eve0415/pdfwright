@@ -91,7 +91,8 @@ const unary = (operator: string, value: number): number | undefined => {
       return -value;
     }
     case 'round': {
-      return value < 0 ? -Math.floor(-value + 0.5) : Math.floor(value + 0.5);
+      // ISO 32000-1:2008, 7.10.5 and Annex B defer to PostScript round, whose half ties go toward positive infinity.
+      return Math.floor(value + 0.5);
     }
     case 'sqrt': {
       return Math.sqrt(value);
