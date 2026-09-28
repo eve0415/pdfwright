@@ -41,6 +41,7 @@ const targetFiles = async (): Promise<string[]> => {
     'packages/core/src/metadata/coverageCanary.oracle.test.ts',
     'packages/illustrator/src/zstd/coverageCanary.oracle.test.ts',
     'packages/illustrator/src/page/coverageCanary.oracle.test.ts',
+    'packages/illustrator/src/testing/coverageCanary.oracle.test.ts',
     'coverageCanary.config.ts',
     ...packages.map(dir => path.join(dir, 'coverageCanary.config.ts')),
   ];
