@@ -1,18 +1,22 @@
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent, Xyz } from '../icc/iccStructure.ts';
+import type { CalGraySource, CalRgbSource } from './calibratedSource.ts';
 import type { PcsValue } from './profilePipeline.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { colorSpaceChannels } from '../icc/iccStructure.ts';
 
 import { blackPointCompensation } from './blackPoint.ts';
+import { calibratedProfile } from './calibratedSource.ts';
 import { D50, labToXyz } from './pcs.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
 
-export interface ColorSource {
+export interface IccColorSource {
   readonly kind: 'icc';
   readonly profile: IccProfile;
 }
+
+export type ColorSource = IccColorSource | CalRgbSource | CalGraySource;
 
 export interface ColorTransformOptions {
   readonly intent: RenderingIntent;
@@ -45,13 +49,14 @@ const absolute = (input: PcsValue, sourceWhite: Xyz, destinationWhite: Xyz): Pcs
 
 export const createColorTransform = (source: ColorSource, destination: IccProfile, options: ColorTransformOptions): ColorTransform => {
   const encoding = options.lut8LabEncoding ?? 'icc';
-  const inputChannels = colorSpaceChannels(source.profile.header.colorSpace);
+  const sourceProfile = source.kind === 'icc' ? source.profile : calibratedProfile(source);
+  const inputChannels = colorSpaceChannels(sourceProfile.header.colorSpace);
   const outputChannels = colorSpaceChannels(destination.header.colorSpace);
-  const fromDevice = sourceEvaluator(source.profile, options.intent, encoding);
+  const fromDevice = sourceEvaluator(sourceProfile, options.intent, encoding);
   const toDevice = destinationEvaluator(destination, options.intent, encoding);
-  const sourceWhite = mediaWhite(source.profile);
+  const sourceWhite = mediaWhite(sourceProfile);
   const destinationWhite = mediaWhite(destination);
-  const compensate = blackPointCompensation(source.profile, destination, {
+  const compensate = blackPointCompensation(sourceProfile, destination, {
     intent: options.intent,
     requested: options.blackPointCompensation,
     option: encoding,

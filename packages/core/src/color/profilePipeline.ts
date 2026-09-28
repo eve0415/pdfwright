@@ -46,7 +46,7 @@ const multiply = (matrix: Matrix3, values: readonly number[]): number[] => [
   matrix[6] * (values[0] ?? 0) + matrix[7] * (values[1] ?? 0) + matrix[8] * (values[2] ?? 0),
 ];
 
-const inverse = (matrix: Matrix3): Matrix3 => {
+export const invertMatrix3 = (matrix: Matrix3): Matrix3 => {
   const [a, b, c, d, e, f, g, h, i] = matrix;
   const A = e * i - f * h;
   const B = c * h - b * i;
@@ -95,7 +95,8 @@ export const sourceEvaluator = (
     const { trc } = profile;
     if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
     if (pcs(profile) === 'Lab') return input => ({ space: 'Lab', values: [evaluateCurve(trc.gray, input[0] ?? 0) * 100, 0, 0] });
-    return input => ({ space: 'XYZ', values: [D50.x, D50.y, D50.z].map(value => value * evaluateCurve(trc.gray, input[0] ?? 0)) });
+    const white = profile.mediaWhitePoint ?? D50;
+    return input => ({ space: 'XYZ', values: [white.x, white.y, white.z].map(value => value * evaluateCurve(trc.gray, input[0] ?? 0)) });
   }
   return missing('ICC device-to-PCS direction is missing');
 };
@@ -113,7 +114,7 @@ export const destinationEvaluator = (profile: IccProfile, intent: RenderingInten
   if (profile.header.colorSpace === 'RGB') {
     const { trc } = profile;
     if (trc === undefined || !('red' in trc)) return missing('ICC RGB TRCs are missing');
-    const matrix = inverse(colorantsMatrix(profile));
+    const matrix = invertMatrix3(colorantsMatrix(profile));
     return input => {
       const xyz = input.space === 'XYZ' ? input.values : labToXyz(input.values);
       const channels = multiply(matrix, xyz);
