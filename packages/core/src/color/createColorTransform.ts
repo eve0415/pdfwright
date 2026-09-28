@@ -68,6 +68,16 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
       throw new InvalidArgumentError('colour transform buffer dimensions differ from profile channels');
     }
     for (const value of input) if (!Number.isFinite(value)) throw new InvalidArgumentError('colour components must be finite');
+    if (
+      sourceProfile.header.colorSpace === 'RGB' &&
+      destination.header.colorSpace === 'CMYK' &&
+      options.intent !== 'absoluteColorimetric' &&
+      input.every(value => value === 1)
+    ) {
+      // ICC.1:2022, 6.2.2 maps media white to PCS white; keep the no-ink endpoint exact across non-absolute intents.
+      output.fill(0, 0, outputChannels);
+      return;
+    }
     const pcsValue = fromDevice(input);
     const corrected = compensate === undefined ? pcsValue : compensate(pcsValue);
     const connected = options.intent === 'absoluteColorimetric' ? absolute(corrected, sourceWhite, destinationWhite) : corrected;

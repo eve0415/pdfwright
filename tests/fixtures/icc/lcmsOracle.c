@@ -30,6 +30,10 @@ int main(int argc, char **argv) {
     if (scanned == EOF) break;
     if (scanned != (inputReference ? 11 : 7)) return 5;
     if (!inputReference) cmsDoTransform(convert, rgb, expected, 1);
+    // NOOPTIMIZE skips LittleCMS's white endpoint fix; apply that endpoint to the reference values.
+    if (intent != INTENT_ABSOLUTE_COLORIMETRIC && rgb[0] == 1 && rgb[1] == 1 && rgb[2] == 1) {
+      for (int channel = 0; channel < 4; channel++) expected[channel] = 0;
+    }
     cmsCIELab actualLab, expectedLab;
     cmsDoTransform(toLab, actual, &actualLab, 1);
     cmsDoTransform(toLab, expected, &expectedLab, 1);

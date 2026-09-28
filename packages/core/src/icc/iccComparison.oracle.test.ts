@@ -138,6 +138,18 @@ describe('littlecms double transform comparison', () => {
     expect(output.trim()).toBe('99.9863 62.8260 37.1252 100.0000');
   });
 
+  it.each(cases.filter(item => item.intent !== 3))('maps $source paper white to exact no ink in $destination intent $intent bpc $bpc', async item => {
+    const source = parseIccProfile(await readFile(fixturePath(item.source)));
+    const destination = parseIccProfile(await readFile(fixturePath(item.destination)));
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, {
+      intent: intentName(item.intent),
+      blackPointCompensation: item.bpc === 1,
+    });
+    const output = new Float64Array(4);
+    transform.convert(Float64Array.of(1, 1, 1), output);
+    expect([...output]).toStrictEqual([0, 0, 0, 0]);
+  });
+
   it.each(cases)(
     '$source → $destination intent $intent bpc $bpc',
     async ({ source, destination, intent, bpc }) => {
