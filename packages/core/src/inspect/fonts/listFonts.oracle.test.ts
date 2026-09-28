@@ -100,12 +100,12 @@ const expectedRow = (font: FontEntry, printed: readonly FontRow[]): FontRow => {
 const byObject = (rows: readonly FontRow[]): FontRow[] =>
   rows.toSorted((left, right) => `${left.object} ${left.name}`.localeCompare(`${right.object} ${right.name}`));
 
-// pdffonts does not list fonts that only a graphics state parameter dictionary's Font entry names (8.4.5, Table 58), which pdfwright lists.
+// pdffonts does not list fonts only named by a graphics state's Font entry or AcroForm default resources, which pdfwright lists.
 const compare = async (file: string, omitted: ReadonlySet<string> = new Set()): Promise<{ readonly pdffonts: FontRow[]; readonly pdfwright: FontRow[] }> => {
   const printed = await pdffonts(file);
   const bytes = new Uint8Array(await readFile(file));
   const inventory = listFonts(loadDocument(bytes), { shownOn: false });
-  const listed = inventory.fonts.filter(font => !omitted.has(font.key));
+  const listed = inventory.fonts.filter(font => font.pages.length > 0 && !omitted.has(font.key));
   return {
     pdffonts: byObject(printed),
     pdfwright: byObject(listed.map(font => expectedRow(font, printed))),
