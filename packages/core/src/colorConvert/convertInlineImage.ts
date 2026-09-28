@@ -13,7 +13,9 @@ import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
+import { serializeObject } from '../serialize/serializeObject.ts';
 
+import { convertIndexedColorSpace } from './convertIndexed.ts';
 import { convertImageRow } from './imageRows.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
@@ -104,11 +106,30 @@ const geometry = (values: ReadonlyMap<string, PdfDirectObject>, ceiling: number)
   return { width, height, bits, inputRow, outputBits };
 };
 
+const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>, color: PdfDirectObject): ConvertedInlineImage | undefined => {
+  const converted = convertIndexedColorSpace({ document: config.document, resources: config.resources, options: config.options }, color);
+  if (converted === undefined) return undefined;
+  const width = number(values.get('W') ?? values.get('Width'), 'Width');
+  const height = number(values.get('H') ?? values.get('Height'), 'Height');
+  const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
+  const tokens: string[] = [];
+  for (let index = 0; index < config.image.parameters.length; index += 2) {
+    const key = config.image.parameters[index];
+    const value = config.image.parameters[index + 1];
+    if (key?.kind !== 'name' || value === undefined || value.kind === 'stray-delimiter') return invalid('inline Indexed parameters are malformed');
+    const name = new TextDecoder('latin1').decode(key.bytes);
+    const entry = name === 'CS' || name === 'ColorSpace' ? converted : value;
+    tokens.push(latin1(serializeObject(key, { fractionDigits: 5 })), latin1(serializeObject(entry, { fractionDigits: 5 })));
+  }
+  return { replacement: `BI ${tokens.join(' ')} ID\n${latin1(config.image.data)}\nEI`, width, height, bits, data: config.image.data, asXObject: false };
+};
+
 /** Converts an inline image using its current graphics-state intent and the same row evaluator as image XObjects. */
 export const convertInlineImage = (config: InlineConfig): ConvertedInlineImage | undefined => {
   const { document, image, resources, options } = config;
   const values = parameters(image);
   const color = values.get('CS') ?? values.get('ColorSpace');
+  if (color?.kind === 'array') return indexedImage(config, values, color);
   if (color?.kind !== 'name') return color === undefined ? invalid('inline image ColorSpace is missing') : undefined;
   const family = new TextDecoder('latin1').decode(color.bytes);
   if (family !== 'RGB' && family !== 'DeviceRGB') return undefined;

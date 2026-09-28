@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
+import { createColorTransform } from '../color/createColorTransform.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
@@ -108,6 +109,18 @@ const inlineData = (bytes: Uint8Array): Uint8Array => {
   const data = operation?.inlineImage?.data;
   if (data === undefined) throw new Error('converted inline image is missing');
   return data;
+};
+
+const inlineIndexedLookup = (bytes: Uint8Array): Uint8Array => {
+  const [operation] = readContent(bytes, 32);
+  const parameters = operation?.inlineImage?.parameters;
+  if (parameters === undefined) throw new Error('inline image is missing');
+  const index = parameters.findIndex(value => value.kind === 'name' && new TextDecoder('latin1').decode(value.bytes) === 'CS');
+  const color = parameters[index + 1];
+  if (color?.kind !== 'array') throw new Error('Indexed inline colour space is missing');
+  const lookup = color.items.at(3);
+  if (lookup?.kind !== 'string') throw new Error('Indexed inline lookup is missing');
+  return lookup.bytes;
 };
 
 const xObjectData = (document: ReturnType<typeof loadDocument>, name: string): Uint8Array => {
@@ -217,6 +230,21 @@ describe('page colour conversion', () => {
     });
     expect(result.inlineImages).toBe(1);
     expect(inflateZlib(inlineData(result.bytes)).data).toHaveLength(4);
+  });
+
+  it('converts an inline Indexed lookup and preserves the index bytes', () => {
+    const document = loadDocument(pdf());
+    const input = latin1Bytes(`BI /W 2 /H 1 /BPC 8 /CS [/I /RGB 1 <000000ff0000>] ID\n${String.fromCodePoint(0, 1)}\nEI`);
+    const result = rewriteContentColors(document, input, {
+      resources: document.page(0).resources(),
+      options: { sourceRgbProfile: source, outputProfile: destination },
+    });
+    const expected = new Uint8Array(8);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    transform.convertRow8(Uint8Array.of(0, 0, 0, 255, 0, 0), expected, 2);
+    expect(result.inlineImages).toBe(1);
+    expect(inlineData(result.bytes)).toStrictEqual(Uint8Array.of(0, 1));
+    expect(inlineIndexedLookup(result.bytes)).toStrictEqual(expected);
   });
 
   it('moves a converted inline image above 4 KB into an XObject', () => {
