@@ -1,7 +1,7 @@
 import type { CreatedMetadataOptions } from '../metadata/createdMetadata.ts';
 import type { DocumentInfo } from '../metadata/documentInfo.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
-import type { SavedPdf } from '../write/savedPdf.ts';
+import type { BufferedSavedPdf } from '../write/savedPdf.ts';
 import type { IndirectObject } from '../write/writeDocument.ts';
 import type { ContentBuilder } from './contentBuilder.ts';
 import type { GroupOptions, PdfGroup } from './group.ts';
@@ -55,7 +55,7 @@ export interface PdfDocument {
   group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
   object: (value: PdfObject) => PdfReference;
   pieceInfo: (input: DocumentPieceInfoInput) => void;
-  save: () => SavedPdf;
+  save: () => BufferedSavedPdf;
 }
 
 export interface PdfPage {
@@ -221,7 +221,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         },
       };
     },
-    save: (): SavedPdf => {
+    save: (): BufferedSavedPdf => {
       const catalog = new PdfDictionaryEntries([
         [pdfName('Type').bytes, pdfName('Catalog')],
         [pdfName('Pages').bytes, pdfReference(2, 0)],

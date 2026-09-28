@@ -13,12 +13,13 @@ import { createMd5 } from '../hash/md5.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { isWhitespace } from '../parse/characterClass.ts';
-import { savedPdf } from '../write/savedPdf.ts';
+import { savedPdf, streamedPdf } from '../write/savedPdf.ts';
 import { COMPRESSED, FREE, IN_FILE } from '../xref/objectIndex.ts';
 
-import { PdfEmitter } from './emitter.ts';
+import { PdfEmitter, emittedChunks } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
+import { writeLengthObject, writeProducedStream } from './producedStream.ts';
 import { TRAILER_KEYS, copiedTrailerEntries, withTrailerChanges } from './trailerCopy.ts';
 import { coveringStreamData, fieldWidths, idArray, writeCoveringTable } from './xrefWriter.ts';
 
@@ -237,13 +238,20 @@ class FullRewriter {
       this.entries.set(number, { objectNumber: number, type: 1, field: emitter.offset, generation: object.generation });
       emitter.writer.writeAscii(`${String(number)} ${String(object.generation)} obj\n`);
       const original = originalValue(input.store, number, input.maxNesting);
-      mergeSerialize(emitter.writer, object.value, {
+      const context = {
         original: original?.node,
         bytes: original?.bytes ?? new Uint8Array(),
         fractionDigits: input.fractionDigits,
         warn,
-      });
+      };
+      const produced = input.produced.get(number);
+      if (produced === undefined) mergeSerialize(emitter.writer, object.value, context);
+      else writeProducedStream(emitter, object.value, { stream: produced, context });
       emitter.writer.writeAscii('\nendobj\n');
+      if (produced !== undefined) {
+        this.entries.set(produced.lengthNumber, { objectNumber: produced.lengthNumber, type: 1, field: emitter.offset, generation: 0 });
+        writeLengthObject(emitter, produced);
+      }
     }
   }
 
@@ -311,7 +319,7 @@ class FullRewriter {
     const previous = identifiers(input.structure.trailer);
     if (previous === undefined) return undefined;
     const hash = createMd5();
-    for (const chunk of this.emitter.finish()) hash.update(chunk);
+    for (const chunk of emittedChunks(this.emitter.finishParts())) hash.update(chunk);
     return [previous[0], hash.update(trailerWithoutId).digest()];
   }
 
@@ -392,7 +400,12 @@ class FullRewriter {
     const xrefOffset = this.writeCrossReference();
     // 7.5.5: the file ends with startxref, the offset of the cross-reference section, and %%EOF.
     this.emitter.writer.writeAscii(`\nstartxref\n${String(xrefOffset)}\n%%EOF\n`);
-    return savedPdf(this.emitter.finish(), { mode: 'full', warnings: this.warnings });
+    const details = { mode: 'full', warnings: this.warnings } as const;
+    if (this.input.produced.size > 0) {
+      const parts = this.emitter.finishParts();
+      return streamedPdf(() => emittedChunks(parts), details);
+    }
+    return savedPdf(this.emitter.finish(), details);
   }
 }
 

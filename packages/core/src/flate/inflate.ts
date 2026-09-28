@@ -23,6 +23,8 @@ export interface InflateOptions {
 export interface ChunkedInflateOptions extends InflateOptions {
   /** Receives trailer warnings before the first decoded chunk is yielded. */
   onWarning?: (warning: FlateWarning) => void;
+  /** Keep the caller's input buffer while decoding; the caller must not mutate it until iteration ends. */
+  copyInput?: boolean;
 }
 
 interface DecodedRaw {
@@ -259,7 +261,7 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
 /** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk. */
 export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> {
   const limit = maxOutputBytes(options);
-  const copy = Uint8Array.from(data);
+  const copy = options?.copyInput === false ? data : Uint8Array.from(data);
   const warnings: FlateWarning[] = [];
   const scan = decodeChunks(copy, limit, warnings);
   let complete = false;

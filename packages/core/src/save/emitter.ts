@@ -1,8 +1,17 @@
 import { ByteWriter } from '../bytes/byteWriter.ts';
 
+export type EmittedPart = Uint8Array | { readonly length: number; readonly produce: () => Generator<Uint8Array> };
+
+export const emittedChunks = function* (parts: readonly EmittedPart[]): Generator<Uint8Array> {
+  for (const part of parts) {
+    if (part instanceof Uint8Array) yield part;
+    else yield* part.produce();
+  }
+};
+
 /** Collects output as chunks: views of existing bytes, and new bytes written into a buffer; `offset` is the position of the next byte. */
 export class PdfEmitter {
-  private readonly chunks: Uint8Array[] = [];
+  private readonly chunks: EmittedPart[] = [];
   private flushed = 0;
   writer: ByteWriter = new ByteWriter();
 
@@ -26,9 +35,22 @@ export class PdfEmitter {
     this.flushed += bytes.length;
   }
 
+  /** Reserves the measured space of a repeatable stream without retaining its bytes. */
+  produced(length: number, produce: () => Generator<Uint8Array>): void {
+    this.flush();
+    this.chunks.push({ length, produce });
+    this.flushed += length;
+  }
+
+  finishParts(): readonly EmittedPart[] {
+    this.flush();
+    return this.chunks;
+  }
+
   /** The chunks emitted so far, finishing the current buffer. */
   finish(): Uint8Array[] {
     this.flush();
-    return this.chunks;
+    if (this.chunks.some(part => !(part instanceof Uint8Array))) throw new Error('produced output requires a streamed save');
+    return this.chunks.filter((part): part is Uint8Array => part instanceof Uint8Array);
   }
 }

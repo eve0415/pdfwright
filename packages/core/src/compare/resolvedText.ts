@@ -1,9 +1,10 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
+import type { StreamProducer } from '../document/editedObjects.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
-import { md5 } from '../hash/md5.ts';
+import { createMd5, md5 } from '../hash/md5.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 const hex = (bytes: Uint8Array): string => {
@@ -52,24 +53,31 @@ const DIGEST_ABOVE = 64;
 
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const LENGTH = pdfName('Length').bytes;
 
 type Task =
-  | { readonly kind: 'visit'; readonly value: PdfObject | undefined }
+  | { readonly kind: 'visit'; readonly value: PdfObject | undefined; readonly producer: StreamProducer | undefined }
   | { readonly kind: 'array'; readonly count: number }
-  | { readonly kind: 'dictionary'; readonly keys: readonly Uint8Array[]; readonly data?: Uint8Array }
+  | { readonly kind: 'dictionary'; readonly keys: readonly Uint8Array[]; readonly dataDigest?: Uint8Array }
   | { readonly kind: 'reference'; readonly key: string };
 
 const referenceKey = (value: Extract<PdfDirectObject, { kind: 'reference' }>): string => `${String(value.objectNumber)}.${String(value.generation)}`;
 
 // Dictionaries compare regardless of key order, and an entry whose value is null is the same as an absent one (ISO 32000-1:2008, 7.3.7); a stream adds the digest of its data.
-const dictionaryText = (keys: readonly Uint8Array[], parts: readonly string[], data: Uint8Array | undefined): string => {
+const dictionaryText = (keys: readonly Uint8Array[], parts: readonly string[], dataDigest: Uint8Array | undefined): string => {
   const texts: string[] = [];
   for (const [index, key] of keys.entries()) {
     const text = parts[index] ?? 'null';
     if (text !== 'null') texts.push(`/${hex(key)} ${text}`);
   }
   const dictionary = `<<${texts.toSorted().join(' ')}>>`;
-  return data === undefined ? dictionary : `${dictionary}stream${hex(md5(data))}`;
+  return dataDigest === undefined ? dictionary : `${dictionary}stream${hex(dataDigest)}`;
+};
+
+const producedDigest = (produce: StreamProducer): Uint8Array => {
+  const hash = createMd5();
+  for (const chunk of produce()) hash.update(chunk);
+  return hash.digest();
 };
 
 // Resolved text, or undefined when an object the value leads to cannot be read.
@@ -97,11 +105,11 @@ export class ResolvedTexts {
 
   /** The text of a value; throws ParseError when an object it leads to cannot be read. */
   text(value: PdfObject | undefined): string {
-    const tasks: Task[] = [{ kind: 'visit', value }];
+    const tasks: Task[] = [{ kind: 'visit', value, producer: undefined }];
     const results: string[] = [];
     const path = new Set<string>();
     for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
-      if (task.kind === 'visit') this.visit(task.value, { tasks, results, path });
+      if (task.kind === 'visit') this.visit(task.value, task.producer, { tasks, results, path });
       else if (task.kind === 'reference') {
         path.delete(task.key);
         const text = results.pop() ?? 'null';
@@ -110,13 +118,17 @@ export class ResolvedTexts {
         results.push(kept);
       } else {
         const parts = results.splice(results.length - (task.kind === 'array' ? task.count : task.keys.length));
-        results.push(task.kind === 'array' ? `[${parts.join(' ')}]` : dictionaryText(task.keys, parts, task.data));
+        results.push(task.kind === 'array' ? `[${parts.join(' ')}]` : dictionaryText(task.keys, parts, task.dataDigest));
       }
     }
     return results.pop() ?? 'null';
   }
 
-  private visit(value: PdfObject | undefined, walk: { readonly tasks: Task[]; readonly results: string[]; readonly path: Set<string> }): void {
+  private visit(
+    value: PdfObject | undefined,
+    producer: StreamProducer | undefined,
+    walk: { readonly tasks: Task[]; readonly results: string[]; readonly path: Set<string> },
+  ): void {
     const { tasks, results, path } = walk;
     if (value === undefined) {
       results.push('null');
@@ -131,19 +143,29 @@ export class ResolvedTexts {
       }
       if (path.size >= MAX_DEPTH) throw new ResourceLimitError(`a compared value leads through more than ${String(MAX_DEPTH)} references`);
       path.add(key);
-      tasks.push({ kind: 'reference', key }, { kind: 'visit', value: this.document.objects.deref(value) });
+      tasks.push(
+        { kind: 'reference', key },
+        { kind: 'visit', value: this.document.objects.deref(value), producer: this.document.objects.producedStreams.get(value.objectNumber) },
+      );
       return;
     }
     if (value.kind === 'array') {
-      tasks.push({ kind: 'array', count: value.items.length }, ...value.items.map((item): Task => ({ kind: 'visit', value: item })).toReversed());
+      tasks.push(
+        { kind: 'array', count: value.items.length },
+        ...value.items.map((item): Task => ({ kind: 'visit', value: item, producer: undefined })).toReversed(),
+      );
       return;
     }
     if (value.kind === 'dictionary' || value.kind === 'stream') {
-      const entries = [...(value.kind === 'stream' ? value.dictionary : value.entries).entries()];
+      const entries = [...(value.kind === 'stream' ? value.dictionary : value.entries).entries()].filter(
+        ([key]) => value.kind !== 'stream' || key.length !== LENGTH.length || key.some((byte, index) => byte !== LENGTH[index]),
+      );
       const keys = entries.map(([key]) => key);
       tasks.push(
-        value.kind === 'stream' ? { kind: 'dictionary', keys, data: value.data } : { kind: 'dictionary', keys },
-        ...entries.map(([, item]): Task => ({ kind: 'visit', value: item })).toReversed(),
+        value.kind === 'stream'
+          ? { kind: 'dictionary', keys, dataDigest: producer === undefined ? md5(value.data) : producedDigest(producer) }
+          : { kind: 'dictionary', keys },
+        ...entries.map(([, item]): Task => ({ kind: 'visit', value: item, producer: undefined })).toReversed(),
       );
       return;
     }

@@ -1,3 +1,5 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestSection } from '../testing/pdfBuilder.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -8,6 +10,7 @@ import { rect } from '../document/rect.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { md5 } from '../hash/md5.ts';
 import { pt } from '../length/length.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text } from '../testing/pdfBuilder.ts';
 
@@ -39,6 +42,20 @@ const editedBytes = (): Uint8Array => {
 };
 
 const lastTrailer = (bytes: Uint8Array): string => latin1Text(bytes).split('trailer').at(-1) ?? '';
+
+const producedObject = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
+  if (value.kind !== 'stream') throw new Error('missing produced stream');
+  return value;
+};
+
+const addProduced = (document: LoadedDocument): void => {
+  const edited = internalsOf(document)?.objects;
+  if (edited === undefined) throw new Error('missing document internals');
+  edited.setProduced(pdfReference(5, 0), new PdfDictionaryEntries([[pdfName('Type').bytes, pdfName('Example')]]), function* () {
+    yield latin1Bytes('first');
+    yield latin1Bytes('second');
+  });
+};
 
 describe('incremental save', () => {
   it('returns the source unchanged when nothing changed', () => {
@@ -156,6 +173,22 @@ describe('incremental save', () => {
       [10, 10, 600, 780],
       { kind: 'null' },
     ]);
+  });
+
+  it.each(['classic', 'stream'] as const)('streams a produced object through a %s update', async xref => {
+    const source = base({ xref });
+    const document = loadDocument(source);
+    addProduced(document);
+    const saved = document.save({ mode: 'incremental' });
+    const parts: Uint8Array[] = [];
+    for await (const part of saved.toStream()) parts.push(part);
+    const updated = loadDocument(parts);
+    const value = producedObject(updated.get(pdfReference(5, 0)));
+    expect(latin1Text(value.data)).toBe('firstsecond');
+    expect(value.dictionary.get(pdfName('Length').bytes)?.kind).toBe('reference');
+    expect(updated.structure.sections.map(section => section.kind)).toStrictEqual([xref, xref]);
+    expect(updated.structure.trailer.get(pdfName('Prev').bytes)?.kind).toBe('integer');
+    expect(updated.structure.trailer.get(pdfName('Private').bytes)?.kind).toBe('string');
   });
 
   it('writes trailer changes into the added trailer, even with no object changed', () => {

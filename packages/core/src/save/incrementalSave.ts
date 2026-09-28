@@ -4,6 +4,7 @@ import type { DocumentStructure, SaveBase } from '../document/readStructure.ts';
 import type { LexContext } from '../parse/lexer.ts';
 import type { SavedPdf } from '../write/savedPdf.ts';
 import type { OriginalValue } from './originalValue.ts';
+import type { MeasuredStream } from './producedStream.ts';
 import type { SaveWarning } from './saveWarning.ts';
 import type { Entry } from './xrefWriter.ts';
 
@@ -13,18 +14,20 @@ import { createMd5 } from '../hash/md5.ts';
 import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseAnnotated } from '../parse/parseObject.ts';
-import { savedPdf } from '../write/savedPdf.ts';
+import { savedPdf, streamedPdf } from '../write/savedPdf.ts';
 import { FREE } from '../xref/objectIndex.ts';
 
-import { PdfEmitter } from './emitter.ts';
+import { PdfEmitter, emittedChunks } from './emitter.ts';
 import { mergeSerialize } from './mergeSerialize.ts';
 import { originalValue } from './originalValue.ts';
+import { writeLengthObject, writeProducedStream } from './producedStream.ts';
 import { TRAILER_KEYS, copiedTrailerEntries, withTrailerChanges } from './trailerCopy.ts';
 import { fieldWidths, idArray, indexRuns, streamData, writeTable } from './xrefWriter.ts';
 
 export interface SaveInput {
   readonly store: ObjectStore;
   readonly changes: ReadonlyMap<number, ObjectChange>;
+  readonly produced: ReadonlyMap<number, MeasuredStream>;
   /** Trailer entries set or removed since loading, applied over the entries copied from the source trailer. */
   readonly trailerChanges: readonly TrailerChange[];
   /** One above the highest object number in use or assigned. */
@@ -99,7 +102,16 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
     const { writer } = emitter;
     writer.writeAscii(`${String(objectNumber)} ${String(change.generation)} obj\n`);
     const original = originalValue(input.store, objectNumber, input.maxNesting);
-    mergeSerialize(writer, change.value, { original: original?.node, bytes: original?.bytes ?? new Uint8Array(), fractionDigits: input.fractionDigits, warn });
+    const context = { original: original?.node, bytes: original?.bytes ?? new Uint8Array(), fractionDigits: input.fractionDigits, warn };
+    const produced = input.produced.get(objectNumber);
+    if (produced === undefined) mergeSerialize(writer, change.value, context);
+    else {
+      writeProducedStream(emitter, change.value, { stream: produced, context });
+      emitter.writer.writeAscii('\nendobj\n');
+      written.entries.push({ objectNumber: produced.lengthNumber, type: 1, field: emitter.offset - shift, generation: 0 });
+      writeLengthObject(emitter, produced);
+      continue;
+    }
     writer.writeAscii('\nendobj\n');
   }
   return written;
@@ -135,9 +147,14 @@ const fileIdentifier = (input: SaveInput, request: Identified): readonly [Uint8A
   if (input.fileIdentifier !== 'derive') return input.fileIdentifier;
   const previous = identifiers(input.structure.trailer);
   if (previous === undefined) return undefined;
-  const { emitter } = request;
-  const appended = emitter.writer.toUint8Array().subarray(request.appendStart - (emitter.offset - emitter.writer.length));
-  return [previous[0], createMd5().update(previous[0]).update(previous[1]).update(appended).update(request.withoutId()).digest()];
+  const hash = createMd5().update(previous[0]).update(previous[1]);
+  let offset = 0;
+  for (const chunk of emittedChunks(request.emitter.finishParts())) {
+    const start = Math.max(0, request.appendStart - offset);
+    if (start < chunk.length) hash.update(chunk.subarray(start));
+    offset += chunk.length;
+  }
+  return [previous[0], hash.update(request.withoutId()).digest()];
 };
 
 const writeClassicSection = (emitter: PdfEmitter, input: SaveInput, request: SectionRequest): number => {
@@ -229,5 +246,10 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
   const xrefOffset = structure.lastSectionKind === 'stream' ? writeStreamSection(emitter, input, request) : writeClassicSection(emitter, input, request);
   // 7.5.5: the file ends with startxref, the offset of the last cross-reference section, and %%EOF.
   emitter.writer.writeAscii(`\nstartxref\n${String(xrefOffset - (input.base?.shift ?? 0))}\n%%EOF\n`);
-  return savedPdf(emitter.finish(), { mode: 'incremental', warnings });
+  const details = { mode: 'incremental', warnings } as const;
+  if (input.produced.size > 0) {
+    const parts = emitter.finishParts();
+    return streamedPdf(() => emittedChunks(parts), details);
+  }
+  return savedPdf(emitter.finish(), details);
 };

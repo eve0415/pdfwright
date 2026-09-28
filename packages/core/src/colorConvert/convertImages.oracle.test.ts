@@ -1,14 +1,19 @@
 import type { PdfObject } from '../object/pdfObject.ts';
+import type { SavedPdf, StreamedSavedPdf } from '../write/savedPdf.ts';
 
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { runTool } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
+import { compareDocuments } from '../compare/compareDocuments.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
-import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -24,6 +29,29 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const displayP3 = parseIccProfile(await fixture('DisplayP3-v4.icc'));
 const pixels = Uint8Array.of(0, 0, 0, 255, 128, 64);
+
+const streamed = (saved: SavedPdf): StreamedSavedPdf => {
+  if (saved.kind !== 'streamed') throw new Error('expected a streamed save');
+  return saved;
+};
+
+const qpdfCheck = async (chunks: readonly Uint8Array[]): Promise<void> => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-image-'));
+  try {
+    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const file = path.join(directory, 'converted.pdf');
+    await writeFile(file, bytes);
+    const check = await runTool('qpdf', ['--check', file]);
+    expect(check.code).toBe(0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
 
 interface ImagePdfOptions {
   readonly width?: number;
@@ -197,21 +225,29 @@ describe('image colour conversion', () => {
     expect(imageData(document)).toStrictEqual(expected);
   });
 
-  it('refuses a compressed image above the in-memory ceiling before decoding', () => {
+  it('rejects an image whose decoded data is shorter than its dimensions', () => {
     const compressed = deflateZlib(new Uint8Array());
     const document = loadDocument(imagePdf('FlateDecode', compressed, { width: 10_000, height: 10_000 }));
     expect(() => {
       convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
-    }).toThrow(ResourceLimitError);
+    }).toThrow(ValidationError);
     expect(document.save().mode).toBe('incremental');
   });
 
-  it('caps combined decoded input and output memory before decoding', () => {
-    const compressed = deflateZlib(new Uint8Array());
+  it('streams converted image data above the former in-memory ceiling', async () => {
+    const compressed = deflateZlib(new Uint8Array(1024 * 1024 * 3));
     const document = loadDocument(imagePdf('FlateDecode', compressed, { width: 1024, height: 1024 }));
-    expect(() => {
-      convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
-    }).toThrow(ResourceLimitError);
+    expect(convertImages(document, { sourceRgbProfile: source, outputProfile: destination }).converted).toBe(1);
+    const saved = streamed(document.save());
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    expect(saved.measureByteLength()).toBe(chunks.reduce((total, chunk) => total + chunk.length, 0));
+    const reloaded = loadDocument(chunks);
+    await qpdfCheck(chunks);
+    expect(imageData(reloaded)).toHaveLength(1024 * 1024 * 4);
+    expect(compareDocuments(document, reloaded, { include: ['resources'] }).differences).toStrictEqual([]);
+    const image = imageStream(reloaded.get(pdfReference(5, 0)));
+    expect(image.dictionary.get(pdfName('Length').bytes)?.kind).toBe('reference');
   });
 
   it('uses image Intent unless the caller fixes the conversion intent', () => {

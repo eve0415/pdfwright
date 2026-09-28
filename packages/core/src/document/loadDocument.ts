@@ -25,6 +25,7 @@ import { pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { fullRewrite } from '../save/fullRewrite.ts';
 import { incrementalSave } from '../save/incrementalSave.ts';
+import { measureStreams } from '../save/producedStream.ts';
 import { locateHeader } from '../xref/locate.ts';
 
 import { createDocumentHandles } from './documentHandles.ts';
@@ -274,11 +275,13 @@ class LoadedPdf implements LoadedDocument {
     this.versionChange(changes, warnings);
     const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
     this.objects.saveHook?.(changes, { fractionDigits });
+    const produced = measureStreams(this.objects.producedStreams, this.objects.size);
     const input = {
       store: this.objects.store,
       changes,
       trailerChanges: this.objects.trailerChanges,
-      size: this.objects.size,
+      size: this.objects.size + produced.size,
+      produced,
       structure: this.read,
       base: this.base,
       fractionDigits,

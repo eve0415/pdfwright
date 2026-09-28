@@ -1,7 +1,7 @@
 import type { SaveWarning } from '../save/saveWarning.ts';
 
 /** A saved PDF held as ordered chunks: views of the source file and new buffers, never joined. */
-export interface SavedPdf {
+export interface BufferedSavedPdf {
   readonly kind: 'buffered';
   readonly chunks: readonly Uint8Array[];
   readonly byteLength: number;
@@ -13,6 +13,18 @@ export interface SavedPdf {
   toStream: () => ReadableStream<Uint8Array>;
 }
 
+export interface StreamedSavedPdf extends SaveDetails {
+  readonly kind: 'streamed';
+  /** Materializes the output for callers that use the buffered API. */
+  readonly chunks: readonly Uint8Array[];
+  readonly byteLength: number;
+  readonly toBytes: () => Uint8Array;
+  readonly toStream: () => ReadableStream<Uint8Array>;
+  readonly measureByteLength: () => number;
+}
+
+export type SavedPdf = BufferedSavedPdf | StreamedSavedPdf;
+
 export interface SaveDetails {
   readonly mode: 'incremental' | 'full';
   readonly warnings: readonly SaveWarning[];
@@ -20,7 +32,7 @@ export interface SaveDetails {
 
 const WRITTEN: SaveDetails = { mode: 'full', warnings: [] };
 
-export const savedPdf = (input: readonly Uint8Array[], details: SaveDetails = WRITTEN): SavedPdf => {
+export const savedPdf = (input: readonly Uint8Array[], details: SaveDetails = WRITTEN): BufferedSavedPdf => {
   const chunks = Object.freeze([...input]);
   const byteLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   return {
@@ -50,3 +62,43 @@ export const savedPdf = (input: readonly Uint8Array[], details: SaveDetails = WR
     },
   };
 };
+
+/** A repeatable save whose output is generated as the reader consumes it. */
+export const streamedPdf = (produce: () => Generator<Uint8Array>, details: SaveDetails): StreamedSavedPdf => ({
+  kind: 'streamed',
+  mode: details.mode,
+  warnings: Object.freeze([...details.warnings]),
+  get chunks(): readonly Uint8Array[] {
+    return [...produce()];
+  },
+  get byteLength(): number {
+    let length = 0;
+    for (const chunk of produce()) length += chunk.length;
+    return length;
+  },
+  toBytes: (): Uint8Array => {
+    const chunks = [...produce()];
+    const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return bytes;
+  },
+  toStream: (): ReadableStream<Uint8Array> => {
+    const iterator = produce();
+    return new ReadableStream<Uint8Array>({
+      pull: controller => {
+        const next = iterator.next();
+        if (next.done === true) controller.close();
+        else controller.enqueue(next.value);
+      },
+    });
+  },
+  measureByteLength: (): number => {
+    let length = 0;
+    for (const chunk of produce()) length += chunk.length;
+    return length;
+  },
+});

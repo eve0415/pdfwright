@@ -1,6 +1,8 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { DocumentInternals } from '../document/documentInternals.ts';
+import type { StreamProducer } from '../document/editedObjects.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PredictorParameters } from '../filter/predictor.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
@@ -9,14 +11,15 @@ import type { ResourceVisit } from '../resourceGraph/walkResources.ts';
 import type { FormUse, RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
-import { ByteWriter } from '../bytes/byteWriter.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { undoPredictor } from '../filter/predictor.ts';
 import { createDeflateStream } from '../flate/deflate.ts';
+import { inflateChunks } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
@@ -43,8 +46,8 @@ interface ImagePlan {
   readonly image: PdfStream;
   readonly source: SourceSpace;
   readonly filter: 'DCTDecode' | 'JPXDecode' | undefined;
-  readonly converted: Uint8Array | undefined;
-  readonly stencil: Uint8Array | undefined;
+  readonly converted: StreamProducer | undefined;
+  readonly stencil: StreamProducer | undefined;
   readonly outputBits: number | undefined;
   readonly explicitColorSpace: PdfDirectObject | undefined;
 }
@@ -60,9 +63,9 @@ interface ImageScan {
 }
 
 interface EncodedImageData {
-  readonly data: Uint8Array;
+  readonly data: StreamProducer;
   readonly bits: number;
-  readonly stencil: Uint8Array | undefined;
+  readonly stencil: StreamProducer | undefined;
 }
 
 interface ImageGeometry {
@@ -212,7 +215,7 @@ const stencilRow = (row: Uint8Array, config: { width: number; channels: number; 
   return stencil;
 };
 
-const geometry = (scan: ImageScan, image: PdfStream, space: SourceSpace): ImageGeometry => {
+const imageGeometry = (scan: ImageScan, image: PdfStream, space: SourceSpace): ImageGeometry => {
   const width = imageNumber(scan, image, WIDTH);
   const height = imageNumber(scan, image, HEIGHT);
   const bits = imageNumber(scan, image, BITS);
@@ -223,38 +226,128 @@ const geometry = (scan: ImageScan, image: PdfStream, space: SourceSpace): ImageG
   const outputRowBytes = width * 4 * (outputBits / 8);
   const ranges = maskRanges(scan, image, { channels, bits });
   const maskRowBytes = ranges === undefined ? 0 : Math.ceil(width / 8);
-  const ceiling = Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES);
-  if (!Number.isSafeInteger((inputRow + outputRowBytes + maskRowBytes) * height) || (inputRow + outputRowBytes + maskRowBytes) * height > ceiling) {
-    throw new ResourceLimitError(`RGB image conversion exceeds the in-memory ceiling (${String(ceiling)} decoded bytes); streamed saving is required`);
+  const workingBytes = inputRow * 3 + outputRowBytes + maskRowBytes;
+  if (!Number.isSafeInteger(inputRow * height) || !Number.isSafeInteger(workingBytes) || workingBytes > scan.internals.maxDecodedBytes) {
+    throw new ResourceLimitError(`RGB image rows exceed maxDecodedBytes (${String(scan.internals.maxDecodedBytes)} bytes)`);
   }
   return { width, height, bits, channels, inputRow, outputBits, ranges };
+};
+
+const imagePredictor = (scan: ImageScan, image: PdfStream): PredictorParameters => {
+  const parameters = deref(scan, image.dictionary.get(DECODE_PARMS));
+  const parms = parameters?.kind === 'array' ? deref(scan, parameters.items[0]) : parameters;
+  const predictorValue = parms?.kind === 'dictionary' ? deref(scan, parms.entries.get(pdfName('Predictor').bytes)) : undefined;
+  const colorsValue = parms?.kind === 'dictionary' ? deref(scan, parms.entries.get(pdfName('Colors').bytes)) : undefined;
+  const bitsValue = parms?.kind === 'dictionary' ? deref(scan, parms.entries.get(pdfName('BitsPerComponent').bytes)) : undefined;
+  const columnsValue = parms?.kind === 'dictionary' ? deref(scan, parms.entries.get(pdfName('Columns').bytes)) : undefined;
+  return {
+    predictor: predictorValue?.kind === 'integer' ? predictorValue.value : 1,
+    colors: colorsValue?.kind === 'integer' ? colorsValue.value : 1,
+    bitsPerComponent: bitsValue?.kind === 'integer' ? bitsValue.value : 8,
+    columns: columnsValue?.kind === 'integer' ? columnsValue.value : 1,
+  };
+};
+
+class ImageChunkCursor {
+  private readonly iterator: Iterator<Uint8Array>;
+  private current: IteratorResult<Uint8Array>;
+  private position = 0;
+
+  constructor(chunks: Iterable<Uint8Array>) {
+    this.iterator = chunks[Symbol.iterator]();
+    this.current = this.iterator.next();
+  }
+
+  private advance(): void {
+    while (this.current.done !== true && this.position === this.current.value.length) {
+      this.current = this.iterator.next();
+      this.position = 0;
+    }
+  }
+
+  take(length: number): Uint8Array {
+    const output = new Uint8Array(length);
+    let filled = 0;
+    while (filled < length) {
+      this.advance();
+      if (this.current.done === true) return invalid('decoded image length does not match its dimensions');
+      const count = Math.min(this.current.value.length - this.position, length - filled);
+      output.set(this.current.value.subarray(this.position, this.position + count), filled);
+      this.position += count;
+      filled += count;
+    }
+    return output;
+  }
+
+  hasMore(): boolean {
+    this.advance();
+    return this.current.done !== true;
+  }
+}
+
+const imageChunks = (image: PdfStream, filters: readonly string[], expected: number): Iterable<Uint8Array> | undefined => {
+  if (filters.length === 1 && filters[0] === 'FlateDecode') return inflateChunks(image.data, { maxOutputBytes: expected, copyInput: false });
+  if (filters.length === 0) return [image.data];
+  return undefined;
+};
+
+const imageRows = function* (scan: ImageScan, image: PdfStream, geometry: ImageGeometry): Generator<Uint8Array> {
+  const filters = filterNames(scan, image);
+  const settings = imagePredictor(scan, image);
+  const encodedRow = geometry.inputRow + (settings.predictor >= 10 ? 1 : 0);
+  const expected = encodedRow * geometry.height;
+  const chunks = imageChunks(image, filters, expected);
+  if (chunks === undefined) {
+    const data = decodedData(scan.internals, image);
+    if (typeof data === 'string') throw new ValidationError(`image data cannot be decoded: ${data}`, 'color-space');
+    if (data.length !== geometry.inputRow * geometry.height) invalid('decoded image length does not match its dimensions');
+    for (let row = 0; row < geometry.height; row++) yield data.subarray(row * geometry.inputRow, (row + 1) * geometry.inputRow);
+    return;
+  }
+  const cursor = new ImageChunkCursor(chunks);
+  let previous: Uint8Array = new Uint8Array(geometry.inputRow);
+  for (let row = 0; row < geometry.height; row++) {
+    const encoded = cursor.take(encodedRow);
+    let decoded: Uint8Array = encoded;
+    if (settings.predictor >= 10) {
+      const pair = new Uint8Array(geometry.inputRow + 1 + encodedRow);
+      pair.set(previous, 1);
+      pair.set(encoded, geometry.inputRow + 1);
+      decoded = undoPredictor(pair, settings).subarray(geometry.inputRow);
+    } else if (settings.predictor !== 1) decoded = undoPredictor(encoded, settings);
+    if (decoded.length !== geometry.inputRow) invalid('decoded image row has the wrong width');
+    previous = decoded;
+    yield decoded;
+  }
+  if (cursor.hasMore()) invalid('decoded image length does not match its dimensions');
 };
 
 const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
   const { space, reference } = target;
   const source = colorSource(space);
   if (source === undefined) return invalid('image colour space cannot be converted');
-  const { width, height, bits, channels, inputRow, outputBits, ranges } = geometry(scan, image, space);
-  const data = decodedData(scan.internals, image);
-  if (typeof data === 'string') throw new ValidationError(`image data cannot be decoded: ${data}`, 'color-space');
-  if (data.length !== inputRow * height) return invalid('decoded image length does not match its dimensions');
+  const { width, height, bits, channels, inputRow, outputBits, ranges } = imageGeometry(scan, image, space);
+  for (const row of imageRows(scan, image, { width, height, bits, channels, inputRow, outputBits, ranges })) void row;
   const transform = transformFor(scan, image, { source, reference });
   const decode = decodeArray(scan, image, channels);
-  const deflater = createDeflateStream();
-  const writer = new ByteWriter();
-  const maskDeflater = ranges === undefined ? undefined : createDeflateStream();
-  const maskWriter = ranges === undefined ? undefined : new ByteWriter();
-  for (let row = 0; row < height; row++) {
-    const input = data.subarray(row * inputRow, (row + 1) * inputRow);
-    const converted = convertImageRow(input, { width, channels, bits, transform, decode });
-    for (const chunk of deflater.push(converted)) writer.writeBytes(chunk);
-    if (ranges !== undefined && maskDeflater !== undefined && maskWriter !== undefined) {
-      for (const chunk of maskDeflater.push(stencilRow(input, { width, channels, bits, ranges }))) maskWriter.writeBytes(chunk);
+  const geometry = { width, height, bits, channels, inputRow, outputBits, ranges };
+  const data: StreamProducer = function* () {
+    const deflater = createDeflateStream();
+    for (const input of imageRows(scan, image, geometry)) {
+      const converted = convertImageRow(input, { width, channels, bits, transform, decode });
+      yield* deflater.push(converted);
     }
-  }
-  writer.writeBytes(deflater.finish());
-  if (maskDeflater !== undefined && maskWriter !== undefined) maskWriter.writeBytes(maskDeflater.finish());
-  return { data: writer.toUint8Array(), bits: outputBits, stencil: maskWriter?.toUint8Array() };
+    yield deflater.finish();
+  };
+  const stencil: StreamProducer | undefined =
+    ranges === undefined
+      ? undefined
+      : function* () {
+          const deflater = createDeflateStream();
+          for (const input of imageRows(scan, image, geometry)) yield* deflater.push(stencilRow(input, { width, channels, bits, ranges }));
+          yield deflater.finish();
+        };
+  return { data, bits: outputBits, stencil };
 };
 
 const planUntaggedJpx = (scan: ImageScan, target: { reference: PdfReference; image: PdfStream }): void => {
@@ -428,7 +521,7 @@ const addStencil = (scan: ImageScan, plan: ImagePlan): PdfReference | undefined 
     [BITS, pdfInteger(1)],
     [FILTER, pdfName('FlateDecode')],
   ]);
-  return scan.document.object({ kind: 'stream', dictionary, data: plan.stencil });
+  return scan.internals.objects.addProduced(dictionary, plan.stencil);
 };
 
 const applyPlans = (scan: ImageScan): ImageConversionReport => {
@@ -470,7 +563,7 @@ const applyPlans = (scan: ImageScan): ImageConversionReport => {
     dictionary.delete(DECODE);
     const stencil = addStencil(scan, plan);
     if (stencil !== undefined) dictionary.set(MASK, stencil);
-    scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.converted });
+    scan.internals.objects.setProduced(plan.reference, dictionary, plan.converted);
     converted++;
     changed = true;
   }

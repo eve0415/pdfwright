@@ -32,6 +32,9 @@ export type SaveHook = (changes: Map<number, ObjectChange>, context: SaveHookCon
 
 export type ObjectChange = { readonly generation: number; readonly value: PdfObject } | { readonly generation: number; readonly deleted: true };
 
+/** Recreates a changed stream's encoded bytes without retaining the complete result. */
+export type StreamProducer = () => Generator<Uint8Array>;
+
 const WRITER_KEYS = new Set(['Size', 'Prev', 'XRefStm', 'ID']);
 
 const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
@@ -40,6 +43,7 @@ const label = (reference: PdfReference): string => `${String(reference.objectNum
 export class EditedObjects implements ObjectResolver {
   readonly store: ObjectStore;
   readonly changes: Map<number, ObjectChange> = new Map<number, ObjectChange>();
+  readonly producedStreams: Map<number, StreamProducer> = new Map<number, StreamProducer>();
   private next: number;
 
   private objectStreams: ReadonlySet<number> | undefined = undefined;
@@ -96,7 +100,43 @@ export class EditedObjects implements ObjectResolver {
 
   /** A copy of the object that shares nothing with the document, stream data included; the source object is parsed once and cached, so its warnings are reported once. */
   get(reference: PdfReference): PdfObject {
+    const producer = this.producedStreams.get(reference.objectNumber);
+    if (producer !== undefined) {
+      const value = this.resolve(reference.objectNumber, reference.generation);
+      if (value.kind === 'stream') {
+        const chunks = [...producer()];
+        const data = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.length, 0));
+        let offset = 0;
+        for (const chunk of chunks) {
+          data.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return copyObject({ kind: 'stream', dictionary: value.dictionary, data });
+      }
+    }
     return copyObject(this.resolve(reference.objectNumber, reference.generation));
+  }
+
+  /** Replaces an image with a stream generated on each save and on direct reads. */
+  setProduced(reference: PdfReference, dictionary: PdfDictionaryEntries, produce: StreamProducer): void {
+    this.set(reference, { kind: 'stream', dictionary, data: new Uint8Array() });
+    this.producedStreams.set(reference.objectNumber, produce);
+  }
+
+  /** Adds a generated stream and returns its reference. */
+  addProduced(dictionary: PdfDictionaryEntries, produce: StreamProducer): PdfReference {
+    const reference = this.add({ kind: 'stream', dictionary, data: new Uint8Array() });
+    this.producedStreams.set(reference.objectNumber, produce);
+    return reference;
+  }
+
+  /** Finds the producer for a changed stream returned by resolve or deref. */
+  producerFor(value: PdfObject): StreamProducer | undefined {
+    for (const [number, producer] of this.producedStreams) {
+      const change = this.changes.get(number);
+      if (change !== undefined && 'value' in change && change.value === value) return producer;
+    }
+    return undefined;
   }
 
   private current(reference: PdfReference): void {
@@ -111,11 +151,13 @@ export class EditedObjects implements ObjectResolver {
   // ISO 32000-1:2008, 7.5.6, EXAMPLE: a changed object "retains the same object number and generation number as before".
   set(reference: PdfReference, value: PdfObject): void {
     this.current(reference);
+    this.producedStreams.delete(reference.objectNumber);
     this.changes.set(reference.objectNumber, { generation: reference.generation, value: cloneObject(value) });
   }
 
   delete(reference: PdfReference): void {
     this.current(reference);
+    this.producedStreams.delete(reference.objectNumber);
     this.changes.set(reference.objectNumber, { generation: reference.generation, deleted: true });
   }
 
@@ -178,6 +220,8 @@ export class EditedObjects implements ObjectResolver {
   adopt(other: EditedObjects): void {
     this.changes.clear();
     for (const [objectNumber, change] of other.changes) this.changes.set(objectNumber, change);
+    this.producedStreams.clear();
+    for (const [objectNumber, producer] of other.producedStreams) this.producedStreams.set(objectNumber, producer);
     this.next = other.next;
     this.objectStreams = other.objectStreams;
     this.trailerEdits.clear();

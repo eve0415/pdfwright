@@ -1,9 +1,11 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
+import type { StreamProducer } from '../document/editedObjects.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { ValuePath, ValueSummary } from './pdfDifference.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { createMd5 } from '../hash/md5.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
@@ -53,6 +55,36 @@ const latin1 = (bytes: Uint8Array): string => {
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   left.length === right.length &&
   ((left.buffer === right.buffer && left.byteOffset === right.byteOffset) || left.every((byte, index) => byte === right[index]));
+
+interface EncodedDigest {
+  readonly length: number;
+  readonly digest: Uint8Array;
+}
+
+const encodedDigest = (data: Uint8Array, producer: StreamProducer | undefined): EncodedDigest => {
+  if (producer === undefined) return { length: data.length, digest: createMd5().update(data).digest() };
+  const hash = createMd5();
+  let length = 0;
+  for (const chunk of producer()) {
+    hash.update(chunk);
+    length += chunk.length;
+  }
+  return { length, digest: hash.digest() };
+};
+
+const producedData = (
+  sides: { readonly a: DocumentInternals; readonly b: DocumentInternals },
+  values: readonly [StreamObject, StreamObject],
+  sameEncoding: boolean,
+): { readonly a: EncodedDigest; readonly b: EncodedDigest; readonly equal: boolean } | undefined => {
+  const [left, right] = values;
+  const producedA = sides.a.objects.producerFor(left);
+  const producedB = sides.b.objects.producerFor(right);
+  if (producedA === undefined && producedB === undefined) return undefined;
+  const a = encodedDigest(left.data, producedA);
+  const b = encodedDigest(right.data, producedB);
+  return { a, b, equal: sameEncoding && a.length === b.length && sameBytes(a.digest, b.digest) };
+};
 
 const serializedText = (value: PdfDirectObject): string => {
   try {
@@ -340,6 +372,16 @@ export class ValueGraph {
   // Stream data is equal as raw bytes under the same resolved filters, else as decoded bytes; a form's content compares operation by operation (ISO 32000-1:2008, 8.10).
   private data([left, right]: readonly [StreamObject, StreamObject], path: Where): void {
     const { a, b } = this.context;
+    const produced = producedData({ a, b }, [left, right], sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right)));
+    if (produced !== undefined) {
+      if (produced.equal) return;
+      this.report.mismatch({
+        path: pathOf(path),
+        a: { kind: 'stream', text: `${String(produced.a.length)} stored bytes` },
+        b: { kind: 'stream', text: `${String(produced.b.length)} stored bytes` },
+      });
+      return;
+    }
     if (sameBytes(left.data, right.data) && sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right))) return;
     if (this.raw) {
       this.report.mismatch({

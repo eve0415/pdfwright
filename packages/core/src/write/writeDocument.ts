@@ -1,5 +1,5 @@
 import type { PdfObject } from '../object/pdfObject.ts';
-import type { SavedPdf } from './savedPdf.ts';
+import type { BufferedSavedPdf } from './savedPdf.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -24,7 +24,7 @@ export interface WriteOptions {
 const xrefEntry = (offset: number, generation: number, use: 'n' | 'f'): string =>
   `${String(offset).padStart(10, '0')} ${String(generation).padStart(5, '0')} ${use} \n`;
 
-export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDictionaryEntries, options: WriteOptions): SavedPdf => {
+export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDictionaryEntries, options: WriteOptions): BufferedSavedPdf => {
   const ordered = objects.toSorted((left, right) => left.objectNumber - right.objectNumber);
   for (let index = 0; index < ordered.length; index++) {
     const object = ordered[index];
