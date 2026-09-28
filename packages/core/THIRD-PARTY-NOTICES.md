@@ -2,6 +2,31 @@
 
 `@pdfwright/core` includes the following third-party data, each under the licence shown with it.
 
+## fdlibm mathematics
+
+`src/color/ieeeMath.ts` adapts `s_cbrt.c` and `e_pow.c` from <https://www.netlib.org/fdlibm/>. Their notices follow verbatim.
+
+```text
+ * ====================================================
+ * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Developed at SunSoft, a Sun Microsystems, Inc. business.
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice
+ * is preserved.
+ * ====================================================
+```
+
+```text
+ * ====================================================
+ * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice
+ * is preserved.
+ * ====================================================
+```
+
 ## Adobe Glyph List
 
 - Source: <https://github.com/adobe-type-tools/agl-aglfn> at commit `4036a9ca80a62f64f9de4f7321a9a045ad0ecfd6`, the files `glyphlist.txt` (sha256 `a3b2f61ced9f3644cc0d4ecde5c59df34ca286c689d9484a43a710a81c466789`) and `zapfdingbats.txt` (sha256 `f6394e3cb8a447e84a1dad75d4baaf2aa7f45dc104faf369f4720e1a774ef2dc`).
