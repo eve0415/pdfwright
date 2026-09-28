@@ -1,4 +1,4 @@
-import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
+import type { PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -11,25 +11,26 @@ import { createProductionPage } from './productionPageFixture.ts';
 
 const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
-const imageReferences = (value: PdfDirectObject | undefined): number[] =>
-  value?.kind === 'dictionary' ? [...value.entries.entries()].flatMap(([, item]) => (item.kind === 'reference' ? [item.objectNumber] : [])) : [];
-
 const subtype = (value: PdfObject): string | undefined => {
   const name = value.kind === 'stream' ? value.dictionary.get(pdfName('Subtype').bytes) : undefined;
   return name?.kind === 'name' ? ascii(name.bytes) : undefined;
 };
 
-const sharedImageMask = (bytes: Uint8Array): readonly [number, boolean, boolean] => {
+const sharedSpotMask = (bytes: Uint8Array): readonly [number, number, boolean] => {
   const document = loadDocument(bytes);
   const objects = Array.from({ length: 30 }, (_, index) => ({ number: index + 1, value: document.get(pdfReference(index + 1, 0)) }));
-  const masks = objects.filter(({ value }) => value.kind === 'stream' && value.dictionary.get(pdfName('ImageMask').bytes)?.kind === 'boolean');
-  const maskNumber = masks[0]?.number;
-  const xobject = pdfName('XObject').bytes;
-  const pageUses = imageReferences(document.page(0).resources().get(xobject)).includes(maskNumber ?? -1);
-  const form = objects.find(({ value }) => subtype(value) === 'Form')?.value;
-  const formResources = form?.kind === 'stream' ? form.dictionary.get(pdfName('Resources').bytes) : undefined;
-  const formUses = imageReferences(formResources?.kind === 'dictionary' ? formResources.entries.get(xobject) : undefined).includes(maskNumber ?? -1);
-  return [masks.length, pageUses, formUses];
+  const spotImages = objects.filter(({ value }) => {
+    if (value.kind !== 'stream' || subtype(value) !== 'Image') return false;
+    const space = value.dictionary.get(pdfName('ColorSpace').bytes);
+    return space?.kind === 'array' && space.items[0]?.kind === 'name' && ascii(space.items[0].bytes) === 'Separation';
+  });
+  const masks = spotImages.map(({ value }) => (value.kind === 'stream' ? value.dictionary.get(pdfName('SMask').bytes) : undefined));
+  const numbers = masks.flatMap(mask => (mask?.kind === 'reference' ? [mask.objectNumber] : []));
+  return [
+    spotImages.length,
+    new Set(numbers).size,
+    !objects.some(({ value }) => value.kind === 'stream' && value.dictionary.get(pdfName('ImageMask').bytes) !== undefined),
+  ];
 };
 
 describe('production page structure', () => {
@@ -61,9 +62,9 @@ describe('production page structure', () => {
     expect(contents).toContain('/Fm1 Do');
   });
 
-  it('uses one stencil image for both spot plates', () => {
+  it('uses two Separation images with one shared soft mask', () => {
     const bytes = createProductionPage().saved.toBytes();
-    expect(sharedImageMask(bytes)).toStrictEqual([1, true, true]);
+    expect(sharedSpotMask(bytes)).toStrictEqual([2, 1, true]);
   });
 
   it('clips each painted object to the die line separately', () => {

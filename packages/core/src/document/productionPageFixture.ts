@@ -39,11 +39,18 @@ export const createProductionPage = ({ clipArtwork = true }: { readonly clipArtw
     softMask: { width: 1, height: 1, samples: new Uint8Array([128]) },
   });
   const mask = { width: 3, height: 1, samples: new Uint8Array([255, 128, 0]) };
-  const plateImage = document.image({ width: 3, height: 1, colorSpace: 'ImageMask', bitsPerComponent: 1, samples: new Uint8Array([0xc0]), softMask: mask });
+  const whiteImage = document.image({ width: 3, height: 1, colorSpace: white, bitsPerComponent: 8, samples: new Uint8Array([255, 255, 255]), softMask: mask });
+  const primerImage = document.image({
+    width: 3,
+    height: 1,
+    colorSpace: primer,
+    bitsPerComponent: 8,
+    samples: new Uint8Array([255, 255, 255]),
+    softMask: mask,
+  });
   const primerGroup = document.group({ bbox: rect(pt(0), pt(0), mm(30), mm(10)), isolated: true, colorSpace: 'DeviceCMYK' }, content => {
     content.graphicsState({ fillAlpha: 0.3 });
-    content.fillColor(primer, 1);
-    content.image(plateImage, [mm(30), 0, 0, mm(10), 0, 0]);
+    content.image(primerImage, [mm(30), 0, 0, mm(10), 0, 0]);
   });
 
   const page = document.addPage({
@@ -68,8 +75,7 @@ export const createProductionPage = ({ clipArtwork = true }: { readonly clipArtw
     if (clipArtwork) clipped(drawArtwork);
     else drawArtwork();
     clipped(() => {
-      content.fillColor(white, 1);
-      content.image(plateImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
+      content.image(whiteImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
     });
     clipped(() => {
       content.group(primerGroup, [1, 0, 0, 1, mm(10), mm(20)]);

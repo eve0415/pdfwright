@@ -14,6 +14,7 @@ import type { Separation, SeparationOptions } from './separation.ts';
 import { pdfDateObject } from '../date/pdfDate.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
+import { md5 } from '../hash/md5.ts';
 import { formatLength } from '../length/length.ts';
 import { createdPacket, validateCreatedMetadata } from '../metadata/createdMetadata.ts';
 import { documentInfoDictionary } from '../metadata/documentInfo.ts';
@@ -123,19 +124,50 @@ export const isolateContent = (data: Uint8Array): Uint8Array => {
   return isolated;
 };
 
-const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: number): Map<ImageRecord, ImageObjectNumbers> => {
+const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: number) => {
   let nextNumber = firstNumber;
   const numbersByImage = new Map<ImageRecord, ImageObjectNumbers>();
+  const masks = new Map<string, { readonly width: number; readonly height: number; readonly samples: Uint8Array; readonly number: number }[]>();
   for (const image of images) {
     const numbers: ImageObjectNumbers = { parent: nextNumber };
     if (image.softMask !== undefined) {
-      numbers.mask = nextNumber++;
+      const mask = image.softMask;
+      const key = [...md5(mask.samples)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const candidates = masks.get(key) ?? [];
+      const shared = candidates.find(
+        candidate =>
+          candidate.width === mask.width &&
+          candidate.height === mask.height &&
+          candidate.samples.length === mask.samples.length &&
+          candidate.samples.every((sample, index) => sample === mask.samples[index]),
+      );
+      if (shared === undefined) {
+        numbers.mask = nextNumber++;
+        candidates.push({ ...mask, number: numbers.mask });
+        masks.set(key, candidates);
+      } else numbers.mask = shared.number;
       numbers.parent = nextNumber;
     }
     nextNumber++;
     numbersByImage.set(image, numbers);
   }
-  return numbersByImage;
+  return { numbers: numbersByImage, nextNumber };
+};
+
+const appendImageObjects = (objects: IndirectObject[], images: readonly ImageRecord[], numbersByImage: Map<ImageRecord, ImageObjectNumbers>): void => {
+  const emittedMasks = new Set<number>();
+  for (const image of images) {
+    const numbers = numbersByImage.get(image);
+    if (numbers === undefined) throw new ValidationError('image reference is missing');
+    if (image.softMask !== undefined) {
+      if (numbers.mask === undefined) throw new ValidationError('soft mask reference is missing');
+      if (!emittedMasks.has(numbers.mask)) {
+        objects.push({ objectNumber: numbers.mask, generation: 0, value: softMaskObject(image.softMask) });
+        emittedMasks.add(numbers.mask);
+      }
+    }
+    objects.push({ objectNumber: numbers.parent, generation: 0, value: imageObject(image, numbers.mask) });
+  }
 };
 
 const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<GroupRecord, number> => {
@@ -261,9 +293,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       }
       const contentStart = pageStart + pages.length;
       const imageStart = contentStart + pages.reduce((sum, page) => sum + page.contents.length, 0);
-      const imageNumbers = allocateImageNumbers(images, imageStart);
-      const groupStart = imageStart + images.reduce((sum, image) => sum + (image.softMask === undefined ? 1 : 2), 0);
-      const groupNumbers = allocateGroupNumbers(groups, groupStart);
+      const imageAllocation = allocateImageNumbers(images, imageStart);
+      const imageNumbers = imageAllocation.numbers;
+      const groupNumbers = allocateGroupNumbers(groups, imageAllocation.nextNumber);
       const resourceNumbers: ResourceNumbers = { imageNumbers, groupNumbers };
       let nextContentNumber = contentStart;
       for (let index = 0; index < pages.length; index++) {
@@ -280,15 +312,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
           objects.push({ objectNumber: objects.length + 1, generation: 0, value: { kind: 'stream', dictionary, data: deflateZlib(data) } });
         }
       }
-      for (const image of images) {
-        const numbers = imageNumbers.get(image);
-        if (numbers === undefined) throw new ValidationError('image reference is missing');
-        if (image.softMask !== undefined) {
-          if (numbers.mask === undefined) throw new ValidationError('soft mask reference is missing');
-          objects.push({ objectNumber: numbers.mask, generation: 0, value: softMaskObject(image.softMask) });
-        }
-        objects.push({ objectNumber: numbers.parent, generation: 0, value: imageObject(image, numbers.mask) });
-      }
+      appendImageObjects(objects, images, imageNumbers);
       for (const record of groups) {
         const number = groupNumbers.get(record);
         if (number === undefined) throw new ValidationError('group reference is missing');

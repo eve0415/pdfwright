@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { text } from 'node:stream/consumers';
@@ -106,6 +106,23 @@ const hasInkOutsideDie = (plate: Awaited<ReturnType<typeof readPlate>>): boolean
 };
 
 describe('production page oracle', () => {
+  it('renders the Separation images with mupdf', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-production-mupdf-'));
+    try {
+      const file = path.join(directory, 'page.pdf');
+      const rendered = path.join(directory, 'page.ppm');
+      await writeFile(file, createProductionPage().saved.toBytes());
+      const child = spawn('mutool', ['draw', '-q', '-F', 'pnm', '-c', 'rgb', '-o', rendered, file]);
+      await once(child, 'close');
+      expect(child.exitCode).toBe(0);
+      const pixels = await readFile(rendered);
+      expect(pixels.subarray(0, 2).toString()).toBe('P6');
+      expect(new Set(pixels).size).toBeGreaterThan(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('passes qpdf and reports exact boxes, PieceInfo dates, and separation spaces', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-production-'));
     try {
