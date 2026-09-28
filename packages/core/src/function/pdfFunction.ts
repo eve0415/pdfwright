@@ -7,11 +7,12 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { createCalculatorFunction } from './calculatorFunction.ts';
 
 export type PdfFunction = (input: readonly number[]) => number[];
+export type FunctionResolver = (value: PdfDirectObject) => PdfObject;
 
 const key = (name: string): Uint8Array => new TextEncoder().encode(name);
 const get = (entries: PdfDictionaryEntries, name: string): PdfDirectObject | undefined => entries.get(key(name));
 
-const numeric = (value: PdfDirectObject | undefined, name: string): number => {
+const numeric = (value: PdfObject | undefined, name: string): number => {
   if (value?.kind === 'integer') return value.value;
   if (value?.kind === 'real') return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
   throw new ParseError(`function ${name} must be a number`, 0);
@@ -20,6 +21,13 @@ const numeric = (value: PdfDirectObject | undefined, name: string): number => {
 const numberArray = (value: PdfDirectObject | undefined, name: string): number[] => {
   if (value?.kind !== 'array') throw new ParseError(`function ${name} must be an array`, 0);
   return value.items.map(item => numeric(item, name));
+};
+
+const resolvedNumberArray = (value: PdfDirectObject | undefined, name: string, resolve: FunctionResolver): number[] => {
+  if (value === undefined) throw new ParseError(`function ${name} must be an array`, 0);
+  const array = value.kind === 'reference' ? resolve(value) : value;
+  if (array.kind !== 'array') throw new ParseError(`function ${name} must be an array`, 0);
+  return array.items.map(item => numeric(item.kind === 'reference' ? resolve(item) : item, name));
 };
 
 const optionalArray = (entries: PdfDictionaryEntries, name: string, fallback: number[]): number[] => {
@@ -108,14 +116,20 @@ const evaluateExponential = (entries: PdfDictionaryEntries, domain: number[]): P
   return input => c0.map((start, index) => start + clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0) ** exponent * ((c1[index] ?? 0) - start));
 };
 
-const evaluateStitched = (entries: PdfDictionaryEntries, domain: number[], recurse: (item: PdfDirectObject) => PdfFunction): PdfFunction => {
+const evaluateStitched = (
+  entries: PdfDictionaryEntries,
+  domain: number[],
+  context: { resolve: FunctionResolver; recurse: (item: PdfObject) => PdfFunction },
+): PdfFunction => {
   // ISO 32000-1:2008, 7.10.4 and Table 41: intervals are half-open except the last.
-  const functions = get(entries, 'Functions');
+  const { resolve, recurse } = context;
+  const functionsValue = get(entries, 'Functions');
+  const functions = functionsValue?.kind === 'reference' ? resolve(functionsValue) : functionsValue;
   if (domain.length !== 2 || functions?.kind !== 'array' || functions.items.length === 0) throw new ParseError('invalid stitching function', 0);
-  const bounds = numberArray(get(entries, 'Bounds'), 'Bounds');
-  const encode = numberArray(get(entries, 'Encode'), 'Encode');
+  const bounds = resolvedNumberArray(get(entries, 'Bounds'), 'Bounds', resolve);
+  const encode = resolvedNumberArray(get(entries, 'Encode'), 'Encode', resolve);
   if (bounds.length !== functions.items.length - 1 || encode.length !== functions.items.length * 2) throw new ParseError('invalid stitching intervals', 0);
-  const subfunctions = functions.items.map(recurse);
+  const subfunctions = functions.items.map(item => recurse(item.kind === 'reference' ? resolve(item) : item));
   return input => {
     const x = clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0);
     const index = bounds.findIndex(bound => x < bound);
@@ -128,7 +142,7 @@ const evaluateStitched = (entries: PdfDictionaryEntries, domain: number[], recur
 };
 
 /** Parses and evaluates a direct PDF function object or a decoded function stream. */
-export const createPdfFunction = (object: PdfObject, depth = 0): PdfFunction => {
+export const createPdfFunction = (object: PdfObject, resolve: FunctionResolver = value => value, depth = 0): PdfFunction => {
   if (depth > 16) throw new ResourceLimitError('PDF function nesting exceeds 16');
   if (object.kind !== 'dictionary' && object.kind !== 'stream') throw new ParseError('PDF function must be a dictionary or stream', 0);
   const entries = object.kind === 'stream' ? object.dictionary : object.entries;
@@ -141,7 +155,7 @@ export const createPdfFunction = (object: PdfObject, depth = 0): PdfFunction => 
   const evaluate: PdfFunction = (() => {
     if (type === 0 && object.kind === 'stream' && range !== undefined) return evaluateSampled(entries, object.data, { domain, range });
     if (type === 2) return evaluateExponential(entries, domain);
-    if (type === 3) return evaluateStitched(entries, domain, item => createPdfFunction(item, depth + 1));
+    if (type === 3) return evaluateStitched(entries, domain, { resolve, recurse: item => createPdfFunction(item, resolve, depth + 1) });
     if (type === 4 && object.kind === 'stream' && range !== undefined) return createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
     throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
   })();

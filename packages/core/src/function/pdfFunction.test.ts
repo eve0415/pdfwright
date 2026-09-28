@@ -1,8 +1,8 @@
-import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
 import { createPdfFunction } from './pdfFunction.ts';
 
@@ -23,6 +23,13 @@ const streamFunction = (type: number, extra: Record<string, PdfDirectObject>, da
   dictionary: functionObject(type, extra).entries,
   data,
 });
+
+const resolveObject = (objects: ReadonlyMap<number, PdfDirectObject>, value: PdfDirectObject): PdfObject => {
+  if (value.kind !== 'reference') return value;
+  const resolved = objects.get(value.objectNumber);
+  if (resolved === undefined) throw new Error('missing test object');
+  return resolved;
+};
 
 describe('pdf functions', () => {
   it('interpolates packed samples and clips domain and range', () => {
@@ -45,6 +52,22 @@ describe('pdf functions', () => {
     expect(createPdfFunction(left)([0.5])).toStrictEqual([0.25]);
     expect(createPdfFunction(stitched)([0.25])).toStrictEqual([0.25]);
     expect(createPdfFunction(stitched)([0.75])).toStrictEqual([0.5]);
+  });
+
+  it('resolves indirect stitching entries and subfunctions', () => {
+    const left = functionObject(2, { C0: numbers([0]), C1: numbers([1]), N: pdfInteger(2) });
+    const right = functionObject(2, { C0: numbers([1]), C1: numbers([0]), N: pdfInteger(1) });
+    const stitched = functionObject(3, { Functions: pdfReference(10, 0), Bounds: pdfReference(11, 0), Encode: pdfReference(12, 0) });
+    const objects = new Map<number, PdfDirectObject>([
+      [10, pdfArray([pdfReference(13, 0), pdfReference(14, 0)])],
+      [11, numbers([0.5])],
+      [12, numbers([0, 1, 0, 1])],
+      [13, left],
+      [14, right],
+    ]);
+    const evaluate = createPdfFunction(stitched, value => resolveObject(objects, value));
+    expect(evaluate([0.25])).toStrictEqual([0.25]);
+    expect(evaluate([0.75])).toStrictEqual([0.5]);
   });
 
   it('executes calculator branches with a bounded operand stack', () => {

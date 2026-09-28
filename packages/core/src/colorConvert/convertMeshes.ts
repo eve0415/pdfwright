@@ -157,9 +157,9 @@ const decodedFunction = (scan: MeshScan, value: PdfObject): PdfObject => {
 };
 
 const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): PdfFunction => {
-  if (value.kind !== 'array') return createPdfFunction(decodedFunction(scan, value));
+  if (value.kind !== 'array') return createPdfFunction(decodedFunction(scan, value), child => decodedFunction(scan, child));
   if (value.items.length !== channels) return invalid('mesh Function array disagrees with its colour space');
-  const functions = value.items.map(item => createPdfFunction(decodedFunction(scan, item)));
+  const functions = value.items.map(item => createPdfFunction(decodedFunction(scan, item), child => decodedFunction(scan, child)));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
 
@@ -177,7 +177,7 @@ const convertedMeshFunction = (
         if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('mesh stitching subfunction is invalid');
         const entries = decoded.kind === 'dictionary' ? decoded.entries : decoded.dictionary;
         const childDomain = arrayNumbers(entries.get(pdfName('Domain').bytes), 2);
-        const fn = createPdfFunction(decoded);
+        const fn = createPdfFunction(decoded, item => decodedFunction(scan, item));
         const evaluate = (input: readonly number[]): Float64Array => {
           const output = new Float64Array(4);
           transform.convert(Float64Array.from(fn(input)), output);

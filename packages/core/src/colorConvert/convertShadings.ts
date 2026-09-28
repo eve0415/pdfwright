@@ -197,9 +197,9 @@ const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject 
 };
 
 const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): PdfFunction => {
-  if (value.kind !== 'array') return createPdfFunction(decodedFunction(document, value));
+  if (value.kind !== 'array') return createPdfFunction(decodedFunction(document, value), child => decodedFunction(document, child));
   if (value.items.length !== channels) return invalid('shading Function array disagrees with its colour space');
-  const functions = value.items.map(item => createPdfFunction(decodedFunction(document, item)));
+  const functions = value.items.map(item => createPdfFunction(decodedFunction(document, item), child => decodedFunction(document, child)));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
 

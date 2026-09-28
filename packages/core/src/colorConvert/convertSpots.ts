@@ -2,7 +2,7 @@ import type { ColorSource } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
-import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SampledCmykFunction } from './sampleCmykFunction.ts';
 import type { SourceSpace } from './sourceSpace.ts';
@@ -102,14 +102,22 @@ const functionDomain = (object: PdfDirectObject | PdfStream, dimensions: number)
 const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'separation' | 'deviceN' }, dimensions: number): TintEvaluator => {
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
+  const resolve = (value: PdfDirectObject): PdfObject => {
+    const child = internals.objects.deref(value);
+    if (child === undefined) return invalid('tint function is missing');
+    if (child.kind !== 'stream') return child;
+    const data = decodedData(internals, child);
+    if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
+    return { kind: 'stream', dictionary: child.dictionary, data };
+  };
   const object = tint.tint;
   if (object.kind === 'stream') {
     const data = decodedData(internals, object);
     if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
     const decoded: PdfStream = { kind: 'stream', dictionary: object.dictionary, data };
-    return { evaluate: createPdfFunction(decoded), domain: functionDomain(decoded, dimensions) };
+    return { evaluate: createPdfFunction(decoded, resolve), domain: functionDomain(decoded, dimensions) };
   }
-  return { evaluate: createPdfFunction(object), domain: functionDomain(object, dimensions) };
+  return { evaluate: createPdfFunction(object, resolve), domain: functionDomain(object, dimensions) };
 };
 
 const alternateSource = (space: SourceSpace): ColorSource | undefined => (space.kind === 'rgb' || space.kind === 'gray' ? space.source : undefined);
