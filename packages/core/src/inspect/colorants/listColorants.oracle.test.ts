@@ -5,6 +5,7 @@ import type { PageColorants } from './listColorants.ts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
@@ -294,6 +295,7 @@ const corpusDifferences = async (set: string, directory = path.join(CORPUS, set)
   const failing = await failingFiles();
   const names = await readdir(directory).catch((): string[] => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
+  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
   const differences: string[] = [];
   const next = async (index: number): Promise<string[]> => {
     const name = files[index];

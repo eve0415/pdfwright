@@ -130,6 +130,15 @@ jobs:
       - name: Install the Playwright browser with its system dependencies
         run: pnpm exec playwright install --with-deps --only-shell chromium
 
+      - name: Restore govdocs1 corpus
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/core/test/corpus/govdocs1/.cache
+          key: govdocs1-${{ hashFiles('packages/core/test/corpus/govdocs1/manifest.json') }}
+
+      - name: Fetch govdocs1 corpus
+        run: node scripts/fetchCorpus.ts
+
       - name: Test
         run: pnpm exec vitest run --project oracle
 

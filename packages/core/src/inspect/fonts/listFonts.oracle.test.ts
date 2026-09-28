@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env } from 'node:process';
 import { text as streamText } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
@@ -190,11 +191,14 @@ const expectedErrors = async (): Promise<ReadonlySet<string>> => {
 const corpusFiles = async (set: string, directory = path.join(CORPUS, set)): Promise<readonly string[]> => {
   try {
     const names = await readdir(directory);
-    return names
+    const files = names
       .filter(name => name.endsWith('.pdf'))
       .toSorted()
       .map(name => path.join(directory, name));
+    if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+    return files;
   } catch {
+    if (set === 'govdocs1' && env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
     return [];
   }
 };

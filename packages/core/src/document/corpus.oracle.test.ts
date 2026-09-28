@@ -3,6 +3,7 @@ import type { PdfDifference } from '../compare/pdfDifference.ts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
@@ -168,8 +169,12 @@ const GOVDOCS = path.join(CORPUS, 'govdocs1/.cache/files');
 const runFetched = async (): Promise<Record<string, string[]>> => {
   try {
     const names = await readdir(GOVDOCS);
-    if (!names.some(name => name.endsWith('.pdf'))) return {};
+    if (!names.some(name => name.endsWith('.pdf'))) {
+      if (env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+      return {};
+    }
   } catch {
+    if (env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
     return {};
   }
   return runSet('govdocs1', GOVDOCS);
@@ -186,7 +191,10 @@ const readOptional = async (file: string): Promise<Uint8Array | undefined> => {
 // The Illustrator file of govdocs1: a plate and a trim box are added, and nothing but the page's boxes, content and resources may differ, while every reader shows the new box without repairs.
 const illustratorEdit = async (): Promise<string[]> => {
   const bytes = await readOptional(path.join(GOVDOCS, '000146.pdf'));
-  if (bytes === undefined) return [];
+  if (bytes === undefined) {
+    if (env['CI'] !== undefined) throw new Error('govdocs1 Illustrator file is missing');
+    return [];
+  }
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-'));
   try {
     const results = await Promise.all(

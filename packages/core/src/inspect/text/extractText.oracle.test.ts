@@ -5,6 +5,7 @@ import type { PageGlyph } from './extractText.ts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
@@ -277,6 +278,7 @@ const extractionFailures = async (set: string, directory: string): Promise<strin
   const failing = await expectedErrors();
   const names = await readdir(directory).catch((): string[] => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
+  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
   const thrown: string[] = [];
   const next = async (index: number): Promise<string[]> => {
     const name = files[index];
