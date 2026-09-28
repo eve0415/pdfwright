@@ -49,6 +49,14 @@ const source = buildPdf([
   },
 ]).bytes;
 
+let peakBytes = 0;
+const sample = (): void => {
+  const usage = process.memoryUsage();
+  peakBytes = Math.max(peakBytes, usage.heapUsed + usage.external);
+};
+sample();
+const interval = setInterval(sample, 1);
+
 const fixtureDirectory = path.join(process.cwd(), 'tests/fixtures/icc');
 const rgbBytes = await readFile(path.join(fixtureDirectory, 'sRGB.icm'));
 const cmykBytes = await readFile(path.join(fixtureDirectory, 'fogra28l.icc'));
@@ -56,9 +64,17 @@ const rgb = parseIccProfile(Uint8Array.from(rgbBytes));
 const cmyk = parseIccProfile(Uint8Array.from(cmykBytes));
 const start = performance.now();
 const document = loadDocument(source);
+sample();
 convertImages(document, { sourceRgbProfile: rgb, outputProfile: cmyk });
+sample();
 const saved = document.save();
+sample();
 let outputBytes = 0;
-for await (const chunk of saved.toStream()) outputBytes += chunk.length;
+for await (const chunk of saved.toStream()) {
+  outputBytes += chunk.length;
+  sample();
+}
+sample();
+clearInterval(interval);
 const seconds = (performance.now() - start) / 1000;
-console.log(JSON.stringify({ pixels: width * height, seconds, peakRssMiB: process.resourceUsage().maxRSS / 1024, outputBytes, kind: saved.kind }));
+console.log(JSON.stringify({ pixels: width * height, seconds, peakBytes, outputBytes, kind: saved.kind }));

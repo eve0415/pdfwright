@@ -18,7 +18,7 @@ const projects = (): TestProjectInlineConfiguration[] => {
   if ('Bun' in globalThis) return [{ test: project('bun') }];
   if ('Deno' in globalThis) return [{ test: project('deno') }];
   return [
-    { test: project('node') },
+    { test: { ...project('node'), include: [...include, 'scripts/**/*.node.test.ts'] } },
     { test: { name: 'oracle', include: oracleInclude, provide: { runtime: 'node' } } },
     {
       optimizeDeps: { include: ['fflate', 'pako'] },
