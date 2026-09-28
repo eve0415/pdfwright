@@ -1,3 +1,5 @@
+import type { FlateWarning } from './inflate.ts';
+
 import { zlibSync as compressFflate } from 'fflate';
 import { deflate } from 'pako';
 import { describe, expect, it } from 'vitest';
@@ -150,6 +152,44 @@ describe('zlib inflation', () => {
 });
 
 describe('chunked zlib inflate', () => {
+  it('reports trailer warnings while returning decoded chunks', () => {
+    const input = new TextEncoder().encode('stream payload');
+    const compressed = deflateZlib(input);
+    const corrupted = Uint8Array.from(compressed);
+    corrupted[corrupted.length - 1] = 0;
+    for (const { data, code } of [
+      { data: compressed.subarray(0, -2), code: 'truncated-trailer' },
+      { data: corrupted, code: 'checksum-mismatch' },
+      { data: Uint8Array.from([...compressed, 0]), code: 'trailing-data' },
+    ]) {
+      const warnings: FlateWarning[] = [];
+      const chunks = [
+        ...inflateChunks(data, {
+          onWarning: warning => {
+            warnings.push(warning);
+          },
+        }),
+      ];
+      const restored = new Uint8Array(input.length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        restored.set(chunk, offset);
+        offset += chunk.length;
+      }
+      expect(restored).toStrictEqual(input);
+      expect(warnings.map(warning => warning.code)).toStrictEqual([code]);
+    }
+  });
+
+  it('rejects malformed later blocks before yielding earlier decoded bytes', () => {
+    const bytes = new Uint8Array(2 + 5 + 65535 + 6 + 1 + 4);
+    bytes.set([0x78, 0x01, 0, 255, 255, 0, 0]);
+    bytes.fill(65, 7, 7 + 65535);
+    bytes.set([0, 1, 0, 254, 255, 65, 7], 7 + 65535);
+    const stream = inflateChunks(bytes);
+    expect(() => stream.next()).toThrow(ParseError);
+  });
+
   it('yields bounded decoded chunks across long distance references', () => {
     const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
     const chunks = [...inflateChunks(deflateZlib(input))];

@@ -20,6 +20,11 @@ export interface InflateOptions {
   maxOutputBytes?: number;
 }
 
+export interface ChunkedInflateOptions extends InflateOptions {
+  /** Receives trailer warnings before the first decoded chunk is yielded. */
+  onWarning?: (warning: FlateWarning) => void;
+}
+
 interface DecodedRaw {
   data: Uint8Array;
   bytesConsumed: number;
@@ -200,9 +205,18 @@ const decodeCompressedChunks = function* (reader: BitReader, output: ChunkedInfl
   }
 };
 
-/** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk. */
-export const inflateChunks = function* (data: Uint8Array, options?: InflateOptions): Generator<Uint8Array> {
-  const limit = maxOutputBytes(options);
+const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; checksum: number; warnings: FlateWarning[] | undefined }): void => {
+  // RFC 1950, 2.2: the four-byte Adler-32 trailer follows the deflate blocks.
+  const { data, trailerOffset, checksum, warnings } = config;
+  if (data.length - trailerOffset < 4) warnings?.push({ code: 'truncated-trailer', offset: trailerOffset });
+  else {
+    const expected = new DataView(data.buffer, data.byteOffset + trailerOffset, 4).getUint32(0);
+    if (checksum !== expected) warnings?.push({ code: 'checksum-mismatch', offset: trailerOffset });
+    if (data.length > trailerOffset + 4) warnings?.push({ code: 'trailing-data', offset: trailerOffset + 4 });
+  }
+};
+
+const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: FlateWarning[]): Generator<Uint8Array> {
   if (data.length < 2) throw new ParseError('truncated zlib header', data.length);
   const cmf = data[0] ?? 0;
   const flg = data[1] ?? 0;
@@ -236,8 +250,17 @@ export const inflateChunks = function* (data: Uint8Array, options?: InflateOptio
   const rest = output.finish();
   checksum = updateAdler32(checksum, rest);
   if (rest.length > 0) yield rest;
-  const trailerOffset = Math.ceil(reader.bitPosition / 8) + 2;
-  if (data.length - trailerOffset < 4) throw new ParseError('truncated zlib trailer', trailerOffset);
-  const expected = new DataView(data.buffer, data.byteOffset + trailerOffset, 4).getUint32(0);
-  if (checksum !== expected) throw new ParseError('zlib checksum mismatch', trailerOffset);
+  checkChunkTrailer({ data, trailerOffset: Math.ceil(reader.bitPosition / 8) + 2, checksum, warnings });
+};
+
+/** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk. */
+export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> {
+  const limit = maxOutputBytes(options);
+  const copy = Uint8Array.from(data);
+  const warnings: FlateWarning[] = [];
+  const scan = decodeChunks(copy, limit, warnings);
+  let complete = false;
+  while (!complete) complete = scan.next().done === true;
+  for (const warning of warnings) options?.onWarning?.(warning);
+  yield* decodeChunks(copy, limit);
 };
