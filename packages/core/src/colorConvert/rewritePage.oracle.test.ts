@@ -7,7 +7,7 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -37,6 +37,20 @@ const pdf = (pieceInfo = false): Uint8Array =>
     },
   ]).bytes;
 
+const overprintPdf = (): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</OP true/OPM 1>>>>>>>>' },
+        { number: 4, body: streamBody('', '/GS gs 0 0 0 RG 0 0 m 10 10 l S') },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
 const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('missing internals');
@@ -58,6 +72,13 @@ const spotName = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const [, name] = separation.items;
   if (name?.kind !== 'name') throw new Error('missing colorant name');
   return name.bytes;
+};
+
+const addedOverprintStates = (document: ReturnType<typeof loadDocument>): readonly boolean[] => {
+  const resources = document.page(0).resources();
+  const states = resources.get(pdfName('ExtGState').bytes);
+  if (states?.kind !== 'dictionary') throw new Error('missing ExtGState');
+  return [states.entries.has(pdfName('PWOPM0').bytes), states.entries.has(pdfName('PWOPM1').bytes)];
 };
 
 describe('page colour conversion', () => {
@@ -123,6 +144,59 @@ describe('page colour conversion', () => {
     });
     expect(latin1Text(kept.bytes)).toBe(latin1Text(raw));
     expect(latin1Text(promoted.bytes)).toBe('0 0 0 0.75 k /DeviceCMYK cs 0 0 0 0.5 sc');
+  });
+
+  it('neutralises overprint mode around a converted path', () => {
+    const document = loadDocument(pdf());
+    const resources = document.page(0).resources();
+    const state = pdfDictionary(
+      new PdfDictionaryEntries([
+        [pdfName('OP').bytes, { kind: 'boolean', value: true }],
+        [pdfName('OPM').bytes, pdfInteger(1)],
+      ]),
+    );
+    const states = new PdfDictionaryEntries([[pdfName('GS').bytes, state]]);
+    resources.set(pdfName('ExtGState').bytes, pdfDictionary(states));
+    const raw = latin1Bytes('/GS gs 0 0 0 RG 0 0 m 10 10 l S');
+    const config = { resources, options: { sourceRgbProfile: source, outputProfile: destination }, overprintNames: { off: 'PW0', on: 'PW1' } };
+    const result = rewriteContentColors(document, raw, config);
+    const text = latin1Text(result.bytes);
+    expect(text).toContain('0 0 0 1 K');
+    expect(text).toMatch(/\/PW0 gs\s+0 0 m 10 10 l S\s+\/PW1 gs/u);
+    expect(result.overprintAdjustments).toBe(1);
+    expect(() => {
+      rewriteContentColors(document, raw, { ...config, options: { ...config.options, overprintMode: 'refuse' } });
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'overprint-mode-change' }));
+  });
+
+  it('adds only the overprint states that rewritten page content uses', () => {
+    const document = loadDocument(overprintPdf());
+    const report = rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    const text = pageText(document);
+    expect(report.overprintAdjustments).toBe(1);
+    expect(text).toMatch(/\/PWOPM0 gs\s+0 0 m 10 10 l S\s+\/PWOPM1 gs/u);
+    expect(addedOverprintStates(document)).toStrictEqual([true, true]);
+  });
+
+  it('sets OPM 0 around text showing inside BT and ET', () => {
+    const document = loadDocument(pdf());
+    const resources = document.page(0).resources();
+    const state = pdfDictionary(
+      new PdfDictionaryEntries([
+        [pdfName('OP').bytes, { kind: 'boolean', value: true }],
+        [pdfName('OPM').bytes, pdfInteger(1)],
+      ]),
+    );
+    const states = new PdfDictionaryEntries([[pdfName('GS').bytes, state]]);
+    resources.set(pdfName('ExtGState').bytes, pdfDictionary(states));
+    const raw = latin1Bytes('/GS gs 0 0 0 rg BT (x) Tj ET');
+    const result = rewriteContentColors(document, raw, {
+      resources,
+      options: { sourceRgbProfile: source, outputProfile: destination },
+      overprintNames: { off: 'PW0', on: 'PW1' },
+    });
+    expect(latin1Text(result.bytes)).toMatch(/BT\s+\/PW0 gs\s+\(x\) Tj\s+\/PW1 gs\s+ET/u);
+    expect(result.overprintAdjustments).toBe(1);
   });
 
   it('refuses PieceInfo before writing a replacement stream', () => {
