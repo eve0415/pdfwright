@@ -87,15 +87,19 @@ describe('convert to cmyk', () => {
       },
     ]).bytes;
     const document = loadDocument(input);
-    const before = document.save().toBytes();
+    const beforeSave = document.save();
+    const before = beforeSave.toBytes();
     expect(() =>
       convertToCmyk(document, {
         sourceRgbProfile: source,
         outputProfile: output,
         outputIntent: { outputConditionIdentifier: 'FOGRA28' },
         compressedRgbImages: 'refuse',
+        pdfx: { trapped: 'False', metadataDate: date },
       }),
     ).toThrow(UnsupportedFeatureError);
-    expect(document.save().toBytes()).toStrictEqual(before);
+    const afterSave = document.save();
+    expect(afterSave.toBytes()).toStrictEqual(before);
+    expect(afterSave.warnings).toStrictEqual(beforeSave.warnings);
   });
 });

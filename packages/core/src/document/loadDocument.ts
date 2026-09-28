@@ -165,6 +165,10 @@ class LoadedPdf implements LoadedDocument {
         this.pdfx4Version = true;
         this.pdfx4CatalogLowered ||= catalogLowered;
       },
+      pdfX4VersionState: () => [this.pdfx4Version, this.pdfx4CatalogLowered],
+      restorePdfX4VersionState: state => {
+        [this.pdfx4Version, this.pdfx4CatalogLowered] = state;
+      },
     });
   }
 

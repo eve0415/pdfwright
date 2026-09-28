@@ -66,6 +66,7 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
   const previous = internals.objects.fork();
+  const version = internals.pdfX4VersionState();
   try {
     const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
     const page = rewritePageColors(document, conversion);
@@ -82,6 +83,7 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
     return { page, forms, images, indexed, spots, shadings, meshes, groups, otherCarriers, outputIntent, pageBoxes, metadata };
   } catch (error: unknown) {
     internals.objects.adopt(previous);
+    internals.restorePdfX4VersionState(version);
     throw error;
   }
 };
