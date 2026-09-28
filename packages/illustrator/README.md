@@ -83,6 +83,8 @@ Layers are supplied in paint order, bottom first; the Layers panel shows the rev
 
 The reference structure was recorded from PDFs saved by Illustrator 30.8.2 with “Preserve Illustrator Editing Capabilities” at Acrobat 4 and Acrobat 8 compatibility. Local structural comparisons cover private-data key sets and versions, 65,536-byte chunking, equal page and application dates, the Zstandard frame header and window, cropmarks, layer and raster counts, and path and group operator counts. The local reader also reconstructs supported layer artwork from three 30.8.2 saves; writing and reading that artwork again preserves its normalized structure and raster color and alpha bytes. Package-generated PDFs are checked for those container fields, artboard declarations, native layer/path/clip/raster round trips, fixed-point numbers without exponent form, and visible separations rendered at 72 dpi. A 10 MB mixed raster payload was decoded byte-for-byte by two independent Zstandard decoders.
 
+Illustrator 30.8.2 opens package output as editable layers. It accepts Zstandard frames with a content size and frames containing raw blocks, and opens both bottom-left and top-left native coordinate conventions. When the page and application `/LastModified` dates differ, Illustrator asks how to proceed and defaults to keeping Illustrator editing. The native-data container supports only the `%AI24_ZStandard_Data` wrapper; Illustrator 30.8.2 rejected `%AI12_CompressedData` and imported only the visible page.
+
 ## Supported features and limits
 
 - CMYK documents, bleed, visible and hidden layers, layer and group opacity, closed filled or stroked paths, spot colors and tints, overprint, clipping groups, and CMYK or spot rasters with alpha are supported.
@@ -91,7 +93,5 @@ The reference structure was recorded from PDFs saved by Illustrator 30.8.2 with 
 - Page colorant names default to UTF-8. Illustrator on a Japanese system writes Shift_JIS bytes for some names; pass `SpotColor.nameBytes` to choose the bytes on the visible page. Native names remain UTF-8.
 - Group and clipping-group nesting is limited to 128 levels; deeper artwork raises `ValidationError`.
 - The default Zstandard encoder uses raw literals and predefined FSE sequence tables. On two inspected 30.8.2 native payloads, its frames measured about 1.1 and 1.3 times the size of Illustrator's frames. A caller-supplied compressor's frame header is normalized; compressed payload corruption is not detected by this package.
-
-Opening package output in Illustrator has not been checked, including the generated manual-check PDFs. Locked layers, RGB documents, text, open and compound paths, gradients, custom stroke settings, non-Japanese system locales, and which omitted Setup blocks Illustrator requires have not been open-tested. Acceptance of frame content sizes, the zlib wrapper, top-left native coordinates, indirect application data, and unequal page and application dates has not been checked in Illustrator.
 
 Licensed under MIT OR Apache-2.0.
