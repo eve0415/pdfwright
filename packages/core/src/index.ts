@@ -20,6 +20,8 @@ export { createDeflateStream, deflateRaw, deflateZlib } from './flate/deflate.ts
 export type { DeflateOptions, DeflateStream } from './flate/deflate.ts';
 export { inflateChunks, inflateRaw, inflateZlib } from './flate/inflate.ts';
 export type { FlateWarning, InflateOptions } from './flate/inflate.ts';
+export { createPdfFunction } from './function/pdfFunction.ts';
+export type { PdfFunction } from './function/pdfFunction.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
