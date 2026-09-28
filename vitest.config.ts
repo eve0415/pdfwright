@@ -21,7 +21,7 @@ const projects = (): TestProjectInlineConfiguration[] => {
     { test: { ...project('node'), include: [...include, 'scripts/**/*.node.test.ts'] } },
     { test: { name: 'oracle', include: oracleInclude, provide: { runtime: 'node' } } },
     {
-      optimizeDeps: { include: ['fflate', 'pako'] },
+      optimizeDeps: { include: ['fflate', 'fzstd', 'pako'] },
       test: {
         ...project('browser'),
         browser: { enabled: true, headless: true, provider: playwright(), instances: [{ browser: 'chromium' }] },

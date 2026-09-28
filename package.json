@@ -20,6 +20,7 @@
     "bun": "npm:bun@1.4.2",
     "deno": "npm:deno@2.9.6",
     "fflate": "0.8.3",
+    "fzstd": "0.1.1",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2003",
