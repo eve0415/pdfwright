@@ -4,9 +4,9 @@
 
 `fogra28l.icc` is generated from that data with ArgyllCMS `colprof -qm -nc -S sRGB.icm -l 300 -k r`, after replacing the file's `ISO28178` opening line with a CTI3 header containing `DEVICE_CLASS "OUTPUT"` and `COLOR_REP "CMYK_LAB"` for the generator. It is a test profile generated from Fogra characterisation data FOGRA28, not a Fogra reference profile. SHA-256: `0f3c24a7821d3da3a2f99ef5d7274914adfbd1b3152a8dbc38065f3b7a5dfd88`.
 
-`fogra28l-v4.icc` is a resampled v4 derivative of the generated profile, using the mAB/mBA pipeline. SHA-256: `130df49474b3ceeaaf7bc95d82cfb788883df003ae45501518c406e9836921dd`.
+`fogra28l-v4.icc` was generated from `fogra28l.icc` by the LittleCMS-based `probe/mkv4.c` generator, with 11⁴ A2B and 33³ B2A sampling and the mAB/mBA pipeline. SHA-256: `130df49474b3ceeaaf7bc95d82cfb788883df003ae45501518c406e9836921dd`.
 
-`synthetic-cmyk.icc` is generated from the analytic CMYK model in `synth.py`. Its ink responses and tone value increase are chosen values rather than measured data. SHA-256: `a54aeafff02b2673fecc2aa1d17e17f7dcd91fadf94b5be966a7b116da318f4d`.
+`synthetic-cmyk.icc` was built by profiling the CTI3 data written by `synth.py` from a 1,500-patch ArgyllCMS `targen -d4` set with ArgyllCMS `colprof -qm -nc -S sRGB.icm -l 300 -k r`. Its ink responses and tone value increase are chosen values rather than measured data. SHA-256: `a54aeafff02b2673fecc2aa1d17e17f7dcd91fadf94b5be966a7b116da318f4d`.
 
 `sRGB.icm` comes from ArgyllCMS `ref/`; its embedded copyright tag says Graeme W. Gill released it into the public domain. SHA-256: `1c5f1948454f34199b8a497611b6a25d23d542f93a6939cee5da86f20845328a`.
 
