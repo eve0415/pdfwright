@@ -62,7 +62,7 @@ const drawPath = (content: ContentBuilder, item: PathItem, separation: (spot: Sp
   content.restore();
 };
 
-const rasterImage = (content: ContentBuilder, item: RasterItem, resources: PageResources): PdfImage => {
+const rasterImage = (item: RasterItem, resources: PageResources): PdfImage => {
   if (item.color.space === 'cmyk') {
     return resources.document.image({
       width: item.width,
@@ -74,8 +74,14 @@ const rasterImage = (content: ContentBuilder, item: RasterItem, resources: PageR
     });
   }
   if (item.color.samples === undefined) {
-    content.fillColor(resources.separation(item.color.spot), 1);
-    return resources.images.stencil(item.width, item.height, item.alpha);
+    return resources.document.image({
+      width: item.width,
+      height: item.height,
+      colorSpace: resources.separation(item.color.spot),
+      bitsPerComponent: 8,
+      samples: resources.images.fullTint(item.width, item.height),
+      softMask: { width: item.width, height: item.height, samples: item.alpha },
+    });
   }
   return resources.document.image({
     width: item.width,
@@ -89,7 +95,7 @@ const rasterImage = (content: ContentBuilder, item: RasterItem, resources: PageR
 
 const drawRaster = (content: ContentBuilder, item: RasterItem, resources: PageResources): void => {
   content.save();
-  const image = rasterImage(content, item, resources);
+  const image = rasterImage(item, resources);
   content.image(image, [item.bounds.width, 0, 0, item.bounds.height, item.bounds.x, item.bounds.y]);
   content.restore();
 };
@@ -167,7 +173,7 @@ export const drawPage = (document: PdfDocument, model: IllustratorDocument, prep
     return value;
   };
   const bbox = rect(negate(length(left)), negate(length(bottom)), add(width, length(right)), add(height, length(top)));
-  const resources: PageResources = { document, separation, images: createImageRegistry(document), bbox };
+  const resources: PageResources = { document, separation, images: createImageRegistry(), bbox };
   page.draw(content => {
     content.transform(1, 0, 0, 1, left, bottom);
     for (const layer of model.layers) {

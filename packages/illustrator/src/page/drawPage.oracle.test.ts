@@ -63,6 +63,40 @@ const renderedInk = (plate: Plate, [minX, minY, maxX, maxY]: readonly [number, n
 };
 
 describe('visible-page render oracle', () => {
+  it('renders spot coverage as tint times alpha', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-raster-'));
+    try {
+      const file = path.join(directory, 'raster.pdf');
+      const raster: IllustratorDocument = {
+        artboard: { width: 30, height: 10 },
+        lastModified: date,
+        layers: [
+          {
+            name: 'White',
+            items: [
+              {
+                kind: 'raster',
+                width: 3,
+                height: 1,
+                bounds: { x: 0, y: 0, width: 30, height: 10 },
+                color: { space: 'spot', spot: white, samples: Uint8Array.of(255, 128, 255) },
+                alpha: Uint8Array.of(255, 128, 0),
+              },
+            ],
+          },
+        ],
+      };
+      await writeFile(file, writeIllustratorPdf(raster));
+      const files = await renderPlates(file, path.join(directory, 'plates'), true);
+      const plate = await readPlate(files, new TextEncoder().encode('White'));
+      expect(Math.abs(plate.inkAt(5, 5) - 255)).toBeLessThanOrEqual(2);
+      expect(Math.abs(plate.inkAt(15, 5) - 64)).toBeLessThanOrEqual(2);
+      expect(plate.inkAt(25, 5)).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a rendered mitered triangle within its written ArtBox', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-miter-'));
     try {

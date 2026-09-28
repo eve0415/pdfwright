@@ -44,7 +44,7 @@ describe('visible Illustrator page', () => {
     expect(content).toContain('W\nn\n');
   });
 
-  it('shares one alpha stencil across spot plates and draws a CMYK image', () => {
+  it('draws spot rasters as Separation images sharing a soft mask', () => {
     const alpha = new Uint8Array([255, 128, 0]);
     const bounds = { x: 0, y: 0, width: 30, height: 10 };
     const white = { name: 'White', alternate: [0, 0, 0, 0.1] } as const;
@@ -66,7 +66,11 @@ describe('visible Illustrator page', () => {
     const document = createDocument();
     drawPage(document, model);
     const pdf = new TextDecoder('latin1').decode(document.save().toBytes());
-    expect(pdf.match(/\/ImageMask true/gu)).toHaveLength(1);
+    expect([
+      pdf.includes('/ImageMask true'),
+      pdf.match(/\/SMask \d+ 0 R/gu)?.length,
+      new Set([...pdf.matchAll(/\/SMask (\d+) 0 R/gu)].map(match => match[1])).size,
+    ]).toStrictEqual([false, 3, 2]);
     expect(pdf).toContain('/SMask');
     expect(pdf).toContain('/ColorSpace/DeviceCMYK');
     expect(pdf).toContain('/Separation /White');

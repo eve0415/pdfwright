@@ -4,7 +4,7 @@ import { mm, pdfDate } from '@pdfwright/core';
 
 import { writeIllustratorPdf } from './writeIllustratorPdf.ts';
 
-/** Writes die lines, white ink, primer, and CMYK artwork with one shared alpha stencil. */
+/** Writes die lines, white ink, primer, and CMYK artwork with one shared soft mask. */
 export const writeIllustratorPdfExample = (): Uint8Array => {
   const die: PathGeometry = {
     start: [mm(5), mm(5)],

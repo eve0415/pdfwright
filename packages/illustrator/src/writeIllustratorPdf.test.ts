@@ -69,7 +69,7 @@ describe('illustrator PDF writer', () => {
     expect(pdf).toContain('/Separation /Cut');
     expect(pdf).toContain('/Separation /White');
     expect(pdf).toContain('/Separation /Primer');
-    expect(pdf).toContain('/ImageMask true');
+    expect([pdf.includes('/ImageMask true'), [...pdf.matchAll(/\/ColorSpace\[\/Separation \/(?:White|Primer)/gu)].length]).toStrictEqual([false, 2]);
   });
 
   it('scans model colors once across the native and visible page writers', () => {

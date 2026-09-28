@@ -8,7 +8,7 @@ Adobe and Illustrator are either registered trademarks or trademarks of Adobe in
 
 ## Example
 
-This page has a CMYK image, white ink and primer plates sharing one alpha stencil, and a hairline die stroke. The complete example is executed by the package tests.
+This page has a CMYK image, white ink and primer plates sharing one soft mask, and a hairline die stroke. The complete example is executed by the package tests.
 
 ```ts
 import { mm, pdfDate } from '@pdfwright/core';
