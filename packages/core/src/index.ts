@@ -25,6 +25,7 @@ export type { PdfFunction } from './function/pdfFunction.ts';
 export { parseIccProfile } from './icc/iccProfile.ts';
 export type { IccProfile } from './icc/iccProfile.ts';
 export type { Curve, Matrix3 } from './icc/iccTags.ts';
+export type { Clut, TableLut } from './icc/iccLut.ts';
 export type { DataColorSpace, IccHeader, IccWarning, ProfileClass, RenderingIntent, Xyz } from './icc/iccStructure.ts';
 export {
   PdfDictionaryEntries,
