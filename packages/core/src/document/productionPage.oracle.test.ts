@@ -158,6 +158,20 @@ describe('production page oracle', () => {
     }
   });
 
+  it('detects process ink outside the die line when the artwork clip is absent', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-production-unclipped-'));
+    try {
+      const file = path.join(directory, 'page.pdf');
+      await writeFile(file, createProductionPage({ clipArtwork: false }).saved.toBytes());
+      const plates = await renderPlates(file, directory, true);
+      const magenta = await readPlate(plates, new TextEncoder().encode('Magenta'));
+      const yellow = await readPlate(plates, new TextEncoder().encode('Yellow'));
+      expect([hasInkOutsideDie(magenta), hasInkOutsideDie(yellow)]).toStrictEqual([true, true]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('uses no exponent-form number tokens outside streams or in content streams', () => {
     const bytes = createProductionPage().saved.toBytes();
     expect(scanNumbers(bytes)).toStrictEqual([]);

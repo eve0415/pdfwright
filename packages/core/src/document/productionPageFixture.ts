@@ -18,7 +18,7 @@ export interface ProductionPageFixture {
   foldName: Uint8Array;
 }
 
-export const createProductionPage = (): ProductionPageFixture => {
+export const createProductionPage = ({ clipArtwork = true }: { readonly clipArtwork?: boolean } = {}): ProductionPageFixture => {
   const lastModified = pdfDate({ year: 2024, month: 3, day: 2, hour: 1, minute: 4, second: 5, offset: 'Z' });
   const document = createDocument({ info: { title: 'Print page', modificationDate: lastModified } });
   const whiteName = new TextEncoder().encode('White');
@@ -62,9 +62,11 @@ export const createProductionPage = (): ProductionPageFixture => {
       render();
       content.restore();
     };
-    clipped(() => {
+    const drawArtwork = (): void => {
       content.image(artwork, [mm(50), 0, 0, mm(40), 0, 0]);
-    });
+    };
+    if (clipArtwork) clipped(drawArtwork);
+    else drawArtwork();
     clipped(() => {
       content.fillColor(white, 1);
       content.image(plateImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
