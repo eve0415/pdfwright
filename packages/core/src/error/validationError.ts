@@ -7,7 +7,11 @@ export type ValidationReason =
   | 'xmp-unreadable'
   | 'xmp-unrepresentable'
   | 'signed-document'
-  | 'output-intent-conflict';
+  | 'output-intent-conflict'
+  | 'application-data'
+  | 'default-gray'
+  | 'default-cmyk-conflict'
+  | 'unreadable-resource';
 
 export class ValidationError extends PdfwrightError {
   override readonly code = 'validation' as const;
