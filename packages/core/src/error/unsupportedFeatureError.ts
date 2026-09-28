@@ -6,6 +6,15 @@ export type UnsupportedFeatureReason =
   | 'compressed-rgb-image'
   | 'luminosity-compressed-rgb-image'
   | 'jpx-color-space'
+  | 'jpeg-progressive'
+  | 'jpeg-arithmetic'
+  | 'jpeg-lossless'
+  | 'jpeg-12-bit'
+  | 'jpeg-cmyk'
+  | 'jpeg-multi-scan'
+  | 'jpeg-sampling'
+  | 'jpeg-color-transform'
+  | 'jpeg-process'
   | 'device-n-components'
   | 'nchannel-process';
 
