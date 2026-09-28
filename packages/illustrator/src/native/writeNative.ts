@@ -1,6 +1,7 @@
 import type { NativeData } from '../container/privateData.ts';
-import type { Coordinate, IllustratorDocument } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument } from '../model/illustratorDocument.ts';
 
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 import { validateDocument } from '../model/validateDocument.ts';
 
 import { nameBasedUuid } from './nameBasedUuid.ts';
@@ -15,7 +16,7 @@ export interface WriteNativeOptions {
   readonly convention?: 'bottom-left' | 'top-left';
 }
 
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 
 /** Serializes the native layer copy with a metadata prefix ending at `%%EndComments`. */
 export const writeNative = (document: IllustratorDocument, options: WriteNativeOptions = {}): NativeData => {

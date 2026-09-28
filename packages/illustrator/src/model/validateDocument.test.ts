@@ -44,6 +44,18 @@ describe('illustrator document validation', () => {
     expect(validates(document)).not.toThrow();
   });
 
+  it('accepts finite coordinates with bigint terms beyond Number range', () => {
+    const huge = 10n ** 400n;
+    const ten = { numerator: huge * 10n, denominator: huge };
+    expect(
+      validates({
+        ...document,
+        artboard: { width: ten, height: ten },
+        layers: [{ name: 'Artwork', items: [{ ...path, geometry: { ...path.geometry, start: [ten, 0] } }] }],
+      }),
+    ).not.toThrow();
+  });
+
   it('rejects unobserved locked layers', () => {
     expect(validates({ ...document, layers: [{ ...layer, locked: true }] })).toThrow(UnsupportedFeatureError);
   });

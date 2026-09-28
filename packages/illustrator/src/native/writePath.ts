@@ -1,5 +1,7 @@
-import type { Coordinate, Paint, PathGeometry, PathItem, Point } from '../model/illustratorDocument.ts';
+import type { Paint, PathGeometry, PathItem, Point } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
+
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 
 import { formatNativeNumber } from './formatNativeNumber.ts';
 
@@ -7,7 +9,7 @@ export interface NativePathOptions {
   readonly yOffset?: number;
 }
 
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 const formatted = (point: Point, yOffset: number): readonly [string, string] => [
   formatNativeNumber(point[0]),
   yOffset === 0 ? formatNativeNumber(point[1]) : formatNativeNumber(number(point[1]) + yOffset),

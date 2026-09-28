@@ -1,9 +1,10 @@
-import type { Coordinate, IllustratorDocument, Item, Paint, SpotColor } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, Item, Paint, SpotColor } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
 import { InvalidArgumentError, add, formatInteger, multiply, pt, subtract } from '@pdfwright/core';
 
 import { artBounds, integerBounds } from '../geometry/bounds.ts';
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 
 import { formatNativeNumber } from './formatNativeNumber.ts';
 import { escapeNativeString } from './nativeString.ts';
@@ -20,7 +21,7 @@ export interface DocumentColors {
 
 const encoder = new TextEncoder();
 const PROCESS_PLATES = ['Cyan', 'Magenta', 'Yellow', 'Black'] as const;
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 
 const byteCompare = (left: string, right: string): number => {
   const first = encoder.encode(left);

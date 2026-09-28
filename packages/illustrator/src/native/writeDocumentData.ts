@@ -1,6 +1,8 @@
 import type { Coordinate, IllustratorDocument } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
+import { coordinateNumber } from '../model/coordinateNumber.ts';
+
 import { createSerializedDictionaryWriter } from './serializedDictionary.ts';
 
 export interface DocumentDataOptions {
@@ -8,7 +10,7 @@ export interface DocumentDataOptions {
   readonly convention?: 'bottom-left' | 'top-left';
 }
 
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 
 const bleedSides = (
   document: IllustratorDocument,

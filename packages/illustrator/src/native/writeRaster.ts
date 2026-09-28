@@ -1,5 +1,7 @@
-import type { Coordinate, RasterItem } from '../model/illustratorDocument.ts';
+import type { RasterItem } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
+
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 
 import { formatNativeNumber } from './formatNativeNumber.ts';
 import { nameBasedUuid } from './nameBasedUuid.ts';
@@ -11,7 +13,7 @@ export interface NativeRasterOptions {
 }
 
 const encoder = new TextEncoder();
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 
 const writeUuid = (writer: NativeWriter, key: string, uuid: string): void => {
   writer.raw(encoder.encode('%_'));

@@ -15,10 +15,11 @@ import type {
   Stroke,
 } from '../model/illustratorDocument.ts';
 
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 import { formatNativeNumber } from '../native/formatNativeNumber.ts';
 
 const number = (value: Coordinate): number => Number(formatNativeNumber(value));
-const rawNumber = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const rawNumber = coordinateNumber;
 const point = (value: Point): Point => [number(value[0]), number(value[1])];
 
 const geometry = (value: PathGeometry): PathGeometry => {

@@ -2,8 +2,10 @@ import type { Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathIt
 
 import { UnsupportedFeatureError, ValidationError } from '@pdfwright/core';
 
+import { coordinateNumber } from './coordinateNumber.ts';
+
 const coordinate = (value: Coordinate): number => {
-  const number = typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator);
+  const number = coordinateNumber(value);
   if (!Number.isFinite(number)) throw new ValidationError('coordinate must be finite');
   if (typeof value !== 'number' && value.denominator <= 0n) throw new ValidationError('length denominator must be positive');
   return number;

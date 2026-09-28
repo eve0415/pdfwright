@@ -1,4 +1,6 @@
-import type { Coordinate, IllustratorDocument, Item, PathGeometry, Point } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, Item, PathGeometry, Point } from '../model/illustratorDocument.ts';
+
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 
 export interface Bounds {
   readonly minX: number;
@@ -7,7 +9,7 @@ export interface Bounds {
   readonly maxY: number;
 }
 
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 const xy = (point: Point): readonly [number, number] => [number(point[0]), number(point[1])];
 
 const includePoint = (bounds: Bounds, x: number, y: number): Bounds => ({

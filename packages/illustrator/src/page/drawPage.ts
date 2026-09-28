@@ -5,6 +5,7 @@ import type { ContentBuilder, PageOptions, PathBuilder, PdfDocument, PdfImage, P
 import { UnsupportedFeatureError, add, cmyk, negate, pt, rect } from '@pdfwright/core';
 
 import { artBounds } from '../geometry/bounds.ts';
+import { coordinateNumber } from '../model/coordinateNumber.ts';
 import { validateDocument } from '../model/validateDocument.ts';
 
 import { createImageRegistry } from './imageRegistry.ts';
@@ -17,7 +18,7 @@ interface PageResources {
 }
 
 const length = (value: Coordinate) => (typeof value === 'number' ? pt(value) : value);
-const number = (value: Coordinate): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
+const number = coordinateNumber;
 
 const bleedSides = (artboard: Artboard) => {
   const bleed = artboard.bleed ?? 0;
