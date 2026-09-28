@@ -10,20 +10,19 @@ import { separationObject } from './separation.ts';
 
 export type ImageColorSpace = 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | Separation;
 
-export interface ImageOptions {
+export type ImageOptions = {
   /** Image width in pixels. */
   width: number;
   /** Image height in pixels. */
   height: number;
-  /** Colour space of the supplied samples. */
-  colorSpace: ImageColorSpace;
-  /** Eight bits per component for supplied samples. */
-  bitsPerComponent: 8;
-  /** One byte per component, width × height × components long, else ValidationError; for a Separation space each byte is an ink amount, 255 meaning tint 1 (ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4, NOTE 5). */
+  /** One byte per component for an ordinary image, or packed rows of one-bit stencil samples. For a Separation space each byte is an ink amount, 255 meaning tint 1 (ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4, NOTE 5). */
   samples: Uint8Array;
   /** Optional grayscale alpha samples with the same pixel dimensions. */
   softMask?: { width: number; height: number; samples: Uint8Array };
-}
+} & (
+  | { /** Eight-bit samples in a named colour space. */ colorSpace: ImageColorSpace; bitsPerComponent: 8 }
+  | { /** One-bit stencil painted with the current nonstroking colour. */ colorSpace: 'ImageMask'; bitsPerComponent: 1 }
+);
 
 /** An image XObject created by, and usable only in, the document that returned it. */
 export interface PdfImage {
@@ -39,7 +38,7 @@ export interface SoftMaskRecord {
 export interface ImageRecord {
   readonly width: number;
   readonly height: number;
-  readonly colorSpace: 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | SeparationRecord;
+  readonly colorSpace: 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | 'ImageMask' | SeparationRecord;
   readonly samples: Uint8Array;
   readonly softMask: SoftMaskRecord | undefined;
 }
@@ -50,8 +49,12 @@ export const createImageRecord = (options: ImageOptions, resolveSeparation: (sep
   // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image dimensions, colour space, and bits per component.
   const { width, height, colorSpace, samples, softMask } = options;
   if (!validDimension(width) || !validDimension(height)) throw new ValidationError('image dimensions must be positive integers');
-  const channels = { DeviceRGB: 3, DeviceCMYK: 4, DeviceGray: 1 }[typeof colorSpace === 'string' ? colorSpace : 'DeviceGray'];
-  if (samples.length !== width * height * channels) throw new ValidationError('image sample length does not match dimensions and colour space');
+  if (options.bitsPerComponent !== (colorSpace === 'ImageMask' ? 1 : 8)) throw new ValidationError('image bit depth does not match its colour space');
+  let channels = 1;
+  if (colorSpace === 'DeviceRGB') channels = 3;
+  else if (colorSpace === 'DeviceCMYK') channels = 4;
+  const expected = colorSpace === 'ImageMask' ? Math.ceil(width / 8) * height : width * height * channels;
+  if (samples.length !== expected) throw new ValidationError('image sample length does not match dimensions and colour space');
   if (
     softMask !== undefined &&
     (!validDimension(softMask.width) || !validDimension(softMask.height) || softMask.samples.length !== softMask.width * softMask.height)
@@ -69,16 +72,21 @@ export const createImageRecord = (options: ImageOptions, resolveSeparation: (sep
 
 // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image XObject dictionaries; 11.6.5, Table 145 requires a grayscale soft-mask image.
 export const imageObject = (image: ImageRecord, softMaskObjectNumber?: number): PdfObject => {
-  const colorSpace = typeof image.colorSpace === 'string' ? pdfName(image.colorSpace) : separationObject(image.colorSpace);
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('XObject')],
     [pdfName('Subtype').bytes, pdfName('Image')],
     [pdfName('Width').bytes, pdfInteger(image.width)],
     [pdfName('Height').bytes, pdfInteger(image.height)],
-    [pdfName('ColorSpace').bytes, colorSpace],
-    [pdfName('BitsPerComponent').bytes, pdfInteger(8)],
+    [pdfName('BitsPerComponent').bytes, pdfInteger(image.colorSpace === 'ImageMask' ? 1 : 8)],
     [pdfName('Filter').bytes, pdfName('FlateDecode')],
   ]);
+  // ISO 32000-1:2008, 8.9.6.2: a stencil has no ColorSpace and paints with the current nonstroking colour; Decode [1 0] paints bits set to 1.
+  if (image.colorSpace === 'ImageMask') {
+    dictionary.set(pdfName('ImageMask').bytes, { kind: 'boolean', value: true });
+    dictionary.set(pdfName('Decode').bytes, pdfArray([pdfInteger(1), pdfInteger(0)]));
+  } else {
+    dictionary.set(pdfName('ColorSpace').bytes, typeof image.colorSpace === 'string' ? pdfName(image.colorSpace) : separationObject(image.colorSpace));
+  }
   if (typeof image.colorSpace !== 'string') {
     // ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4 NOTE 5: Separation samples are ink amounts, with 255 mapping to tint 1.
     dictionary.set(pdfName('Decode').bytes, pdfArray([pdfInteger(0), pdfInteger(1)]));

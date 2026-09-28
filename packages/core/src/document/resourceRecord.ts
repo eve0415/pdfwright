@@ -101,6 +101,7 @@ export const createContentHooks = (resources: ResourceRecord, records: DocumentR
   const name = options.name ?? joinedName;
   return {
     blendingSpace: options.blendingSpace,
+    imageMask: image => imageRecord(records, image).colorSpace === 'ImageMask',
     registerGraphicsState: stateOptions => {
       const key = JSON.stringify([
         stateOptions.fillAlpha,

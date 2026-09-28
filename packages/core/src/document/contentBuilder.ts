@@ -66,6 +66,7 @@ export interface ContentHooks {
   registerGraphicsState?: (options: GraphicsStateOptions) => string;
   registerSeparation?: (separation: Separation) => string;
   registerImage?: (image: PdfImage) => string;
+  imageMask?: (image: PdfImage) => boolean;
   groupSummary?: (group: PdfGroup) => ContentSummary;
   registerGroup?: (group: PdfGroup) => string;
   // The blending colour space paint is composited in; DeviceCMYK when omitted.
@@ -405,6 +406,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     },
     image: (image, matrix): void => {
       ensureOpen();
+      if (hooks.imageMask?.(image) === true) checkWhiteOverprint(false);
       reach(depth + 1);
       let name = localImages.get(image);
       if (name === undefined) {

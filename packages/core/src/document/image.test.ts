@@ -65,6 +65,40 @@ describe('image XObjects', () => {
     expect(pdf).toContain('/Separation /White');
   });
 
+  it('writes a one-bit stencil that uses the current spot colour and a soft mask', () => {
+    const document = createDocument();
+    const white = document.separation({ name: 'White', alternate: cmyk(0, 0, 0, 0.1) });
+    const image = document.image({
+      width: 3,
+      height: 1,
+      colorSpace: 'ImageMask',
+      bitsPerComponent: 1,
+      samples: Uint8Array.of(0xc0),
+      softMask: { width: 3, height: 1, samples: Uint8Array.of(255, 128, 0) },
+    });
+    document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) }).draw(content => {
+      content.fillColor(white, 1);
+      content.image(image, [20, 0, 0, 20, 0, 0]);
+    });
+    const pdf = ascii(document.save().toBytes());
+    expect(pdf).toContain('/ImageMask true');
+    expect(pdf).toContain('/BitsPerComponent 1');
+    expect(pdf).toContain('/Decode[1 0]');
+    expect(pdf).not.toContain('/ColorSpace/ImageMask');
+  });
+
+  it('guards invisible white overprint when painting a stencil image', () => {
+    const document = createDocument();
+    const stencil = document.image({ width: 1, height: 1, colorSpace: 'ImageMask', bitsPerComponent: 1, samples: Uint8Array.of(0x80) });
+    document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) }).draw(content => {
+      content.fillColor(cmyk(0, 0, 0, 0));
+      content.graphicsState({ overprintFill: true, overprintMode: 1 });
+      expect(() => {
+        content.image(stencil, [20, 0, 0, 20, 0, 0]);
+      }).toThrow(expect.objectContaining({ reason: 'invisible-overprint' }));
+    });
+  });
+
   it('returns a frozen handle that keeps its own copy of the samples', () => {
     const document = createDocument();
     const samples = new Uint8Array([10, 20, 30]);
