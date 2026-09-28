@@ -106,7 +106,6 @@ export default defineConfig({
   },
   overrides: [
     {
-      // Zstandard frame fields and name-based UUIDs require shifts and masks on bytes.
       files: [
         'packages/core/src/hash/md5.ts',
         'packages/core/src/flate/**/*.ts',
