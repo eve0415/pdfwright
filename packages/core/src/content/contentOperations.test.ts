@@ -6,7 +6,7 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { latin1Bytes } from '../testing/pdfBuilder.ts';
 
-import { readContent } from './contentOperations.ts';
+import { readContent, readContentSpans } from './contentOperations.ts';
 
 const operations = (content: string | readonly string[]): ContentOperation[] => [
   ...readContent(typeof content === 'string' ? latin1Bytes(content) : content.map(text => latin1Bytes(text)), 32),
@@ -69,6 +69,17 @@ describe('content operations', () => {
       8,
       latin1Bytes('A EI B'),
       { operator: 'Q', operands: [], stream: 0, offset: 42 },
+    ]);
+  });
+
+  it('reports byte spans for rewriting without changing ordinary reads', () => {
+    const bytes = latin1Bytes('q 0.5 0 0 rg\nBI /W 1 /H 1 /BPC 8 /CS /G ID\nA EI\nQ');
+    const ranged = [...readContentSpans(bytes, 32)];
+    expect(ranged.map(operation => [operation.start, operation.end, new TextDecoder().decode(bytes.subarray(operation.start, operation.end))])).toStrictEqual([
+      [0, 1, 'q'],
+      [2, 12, '0.5 0 0 rg'],
+      [13, 47, 'BI /W 1 /H 1 /BPC 8 /CS /G ID\nA EI'],
+      [48, 49, 'Q'],
     ]);
   });
 
