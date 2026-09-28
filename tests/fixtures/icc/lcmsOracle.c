@@ -4,7 +4,8 @@
 #include <stdlib.h>
 
 int main(int argc, char **argv) {
-  if (argc != 6) return 2;
+  if (argc != 6 && argc != 7) return 2;
+  const int inputReference = argc == 7;
   cmsHPROFILE source = cmsOpenProfileFromFile(argv[1], "r");
   cmsHPROFILE destination = cmsOpenProfileFromFile(argv[2], "r");
   cmsHPROFILE lab = cmsCreateLab4Profile(NULL);
@@ -20,10 +21,15 @@ int main(int argc, char **argv) {
   double maximum = 0, total = 0, channelMaximum = 0;
   for (;;) {
     double rgb[3], actual[4], expected[4];
-    int scanned = fscanf(input, "%lf %lf %lf %lf %lf %lf %lf", &rgb[0], &rgb[1], &rgb[2], &actual[0], &actual[1], &actual[2], &actual[3]);
+    int scanned;
+    if (inputReference) {
+      scanned = fscanf(input, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &rgb[0], &rgb[1], &rgb[2], &actual[0], &actual[1], &actual[2], &actual[3], &expected[0], &expected[1], &expected[2], &expected[3]);
+    } else {
+      scanned = fscanf(input, "%lf %lf %lf %lf %lf %lf %lf", &rgb[0], &rgb[1], &rgb[2], &actual[0], &actual[1], &actual[2], &actual[3]);
+    }
     if (scanned == EOF) break;
-    if (scanned != 7) return 5;
-    cmsDoTransform(convert, rgb, expected, 1);
+    if (scanned != (inputReference ? 11 : 7)) return 5;
+    if (!inputReference) cmsDoTransform(convert, rgb, expected, 1);
     cmsCIELab actualLab, expectedLab;
     cmsDoTransform(toLab, actual, &actualLab, 1);
     cmsDoTransform(toLab, expected, &expectedLab, 1);

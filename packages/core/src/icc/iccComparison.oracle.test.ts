@@ -89,18 +89,43 @@ const execute = async (file: string, args: readonly string[], input = ''): Promi
   return stdout;
 };
 
-const runOracle = async (config: { source: string; destination: string; intent: number; bpc: number; rows: readonly string[] }): Promise<number[]> => {
+const runOracle = async (config: {
+  source: string;
+  destination: string;
+  intent: number;
+  bpc: number;
+  rows: readonly string[];
+  reference?: 'input';
+}): Promise<number[]> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-lcms-'));
   try {
     const executable = path.join(directory, 'lcmsOracle');
     const input = path.join(directory, 'samples.txt');
     await writeFile(input, `${config.rows.join('\n')}\n`);
     await execute('cc', ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', fixturePath('lcmsOracle.c'), '-llcms2', '-lm', '-o', executable]);
-    const stdout = await execute(executable, [fixturePath(config.source), fixturePath(config.destination), String(config.intent), String(config.bpc), input]);
+    const args = [fixturePath(config.source), fixturePath(config.destination), String(config.intent), String(config.bpc), input];
+    if (config.reference === 'input') args.push('input');
+    const stdout = await execute(executable, args);
     return stdout.trim().split(/\s+/u).map(Number);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+};
+
+const argyllRows = (output: string): number[][] =>
+  output
+    .trim()
+    .split(/\r?\n/u)
+    .map(line => {
+      const values = line.trim().split(/\s+/u).map(Number);
+      if (values.length !== 4 || values.some(value => !Number.isFinite(value))) throw new Error('ArgyllCMS returned invalid CMYK values');
+      return values;
+    });
+
+const referenceAt = (rows: readonly number[][], index: number): readonly number[] => {
+  const row = rows[index];
+  if (row === undefined) throw new Error('ArgyllCMS returned fewer colours than requested');
+  return row;
 };
 
 const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'].flatMap(source =>
@@ -128,6 +153,44 @@ describe('littlecms double transform comparison', () => {
       const [count, maximum, mean, channelMaximum] = await runOracle({ source, destination, intent, bpc, rows });
       process.stdout.write(
         `${source} ${destination} intent=${String(intent)} bpc=${String(bpc)} n=${String(count)} max=${String(maximum)} mean=${String(mean)} channel=${String(channelMaximum)}\n`,
+      );
+      expect(count).toBe(6189);
+      expect(maximum).toBeLessThanOrEqual(0.05);
+      expect(mean).toBeLessThanOrEqual(0.005);
+      expect(channelMaximum).toBeLessThanOrEqual(0.5);
+    },
+    60_000,
+  );
+});
+
+describe('argyllcms independent conversion comparison', () => {
+  it.each([
+    { name: 'relative', intent: 1, flag: 'r' },
+    { name: 'perceptual', intent: 0, flag: 'p' },
+  ])(
+    '$name intent',
+    async ({ intent, flag }) => {
+      const source = 'sRGB.icm';
+      const destination = 'fogra28l.icc';
+      const colors = samples();
+      const rgbInput = colors
+        .map(([red, green, blue]) => `${(red / 255).toPrecision(17)} ${(green / 255).toPrecision(17)} ${(blue / 255).toPrecision(17)}`)
+        .join('\n');
+      const labOutput = await execute('xicclu', ['-v0', '-ff', `-i${flag}`, '-pl', fixturePath(source)], `${rgbInput}\n`);
+      const deviceOutput = await execute('xicclu', ['-v0', '-fb', `-i${flag}`, '-pl', fixturePath(destination)], labOutput);
+      const reference = argyllRows(deviceOutput);
+      const rgb = parseIccProfile(await readFile(fixturePath(source)));
+      const cmyk = parseIccProfile(await readFile(fixturePath(destination)));
+      const transform = createColorTransform({ kind: 'icc', profile: rgb }, cmyk, { intent: intentName(intent), blackPointCompensation: false });
+      const output = new Float64Array(4);
+      const rows = colors.map(([red, green, blue], index) => {
+        transform.convert(Float64Array.of(red / 255, green / 255, blue / 255), output);
+        const values = [red / 255, green / 255, blue / 255, ...output.map(value => value * 100), ...referenceAt(reference, index).map(value => value * 100)];
+        return values.map(value => value.toPrecision(17)).join(' ');
+      });
+      const [count, maximum, mean, channelMaximum] = await runOracle({ source, destination, intent, bpc: 0, rows, reference: 'input' });
+      process.stdout.write(
+        `argyllcms intent=${String(intent)} n=${String(count)} max=${String(maximum)} mean=${String(mean)} channel=${String(channelMaximum)}\n`,
       );
       expect(count).toBe(6189);
       expect(maximum).toBeLessThanOrEqual(0.05);
