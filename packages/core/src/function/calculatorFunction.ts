@@ -141,12 +141,6 @@ const binary = (operator: string, left: number, right: number): number | boolean
     case 'atan': {
       return ((Math.atan2(left, right) * 180) / Math.PI + 360) % 360;
     }
-    case 'eq': {
-      return left === right;
-    }
-    case 'ne': {
-      return left !== right;
-    }
     case 'lt': {
       return left < right;
     }
@@ -271,7 +265,14 @@ const arithmeticOperation = (operator: string, stack: Value[]): boolean => {
     stack.push(result);
     return true;
   }
-  if (['add', 'sub', 'mul', 'div', 'idiv', 'mod', 'exp', 'atan', 'eq', 'ne', 'lt', 'le', 'gt', 'ge'].includes(operator)) {
+  if (operator === 'eq' || operator === 'ne') {
+    // ISO 32000-1:2008, 7.10.5 and Annex B allow any operands for PostScript eq and ne.
+    const right = pop(stack);
+    const left = pop(stack);
+    stack.push(operator === 'eq' ? left === right : left !== right);
+    return true;
+  }
+  if (['add', 'sub', 'mul', 'div', 'idiv', 'mod', 'exp', 'atan', 'lt', 'le', 'gt', 'ge'].includes(operator)) {
     const right = number(stack);
     const result = binary(operator, number(stack), right);
     if (result === undefined || (typeof result === 'number' && !Number.isFinite(result))) throw error('invalid arithmetic result');
