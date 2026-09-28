@@ -4,6 +4,7 @@ import type { IccHeader, IccTagRecord, IccWarning, Xyz } from './iccStructure.ts
 import type { Curve, Matrix3 } from './iccTags.ts';
 
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { readLut } from './iccLut.ts';
 import { readMultiLut } from './iccMultiLut.ts';
@@ -38,6 +39,12 @@ const channels = (space: IccHeader['colorSpace']): number => {
 
 export const parseIccProfile = (source: Uint8Array): IccProfile => {
   const structure = parseIccStructure(source);
+  if (
+    structure.tags.some(tag => (tag.signature.startsWith('D2B') || tag.signature.startsWith('B2D')) && ['0', '1', '2', '3'].includes(tag.signature.charAt(3)))
+  ) {
+    // ICC.1:2022, 8.10.2 selects DToB/BToD before AToB/BToA; falling back would change the transform.
+    throw new UnsupportedFeatureError('ICC multi-process element tags are unsupported', 'icc-mpet');
+  }
   const tags = new Map<string, IccTagRecord>(structure.tags.map(tag => [tag.signature, tag]));
   const xyz = (name: string): Xyz | undefined => {
     const tag = tags.get(name);
