@@ -11,6 +11,7 @@ const byteKey = (bytes: Uint8Array): string => {
 // Set only while parsedDictionaryEntries runs: parsed keys are kept as read, and they are already private interned arrays.
 let parsedKeys = false;
 
+/** Stores PDF dictionary entries keyed by raw name bytes; null entries read as absent under ISO 32000-1:2008, 7.3.7. The constructor defaults to no entries; `set` copies keys, rejects null bytes and names over 127 bytes with InvalidArgumentError without a reason, and preserves caller values. */
 export class PdfDictionaryEntries {
   private readonly values = new Map<string, { key: Uint8Array; value: PdfDirectObject }>();
 
