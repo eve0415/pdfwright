@@ -65,4 +65,13 @@ describe('production page structure', () => {
     const bytes = createProductionPage().saved.toBytes();
     expect(sharedImageMask(bytes)).toStrictEqual([1, true, true]);
   });
+
+  it('clips each painted object to the die line separately', () => {
+    const bytes = createProductionPage().saved.toBytes();
+    const pdf = ascii(bytes);
+    const start = pdf.indexOf('\nstream\n', pdf.indexOf('/Filter/FlateDecode')) + 8;
+    const end = pdf.indexOf('\nendstream', start);
+    const contents = ascii(inflateZlib(bytes.subarray(start, end)).data);
+    expect(contents.split('W\nn\n').length - 1).toBe(5);
+  });
 });

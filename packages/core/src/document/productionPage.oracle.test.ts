@@ -131,9 +131,15 @@ describe('production page oracle', () => {
       const fixture = createProductionPage();
       const file = path.join(directory, 'page.pdf');
       await writeFile(file, fixture.saved.toBytes());
-      const plates = await renderPlates(file, directory);
+      const plates = await renderPlates(file, directory, true);
       const names = [fixture.whiteName, fixture.primerName, fixture.cutName, fixture.foldName].map(value => key(value)).toSorted();
-      expect(plates.map(plate => key(plate.name)).toSorted()).toStrictEqual(names);
+      const processNames = new Set(['Cyan', 'Magenta', 'Yellow', 'Black']);
+      expect(
+        plates
+          .filter(plate => !processNames.has(ascii(plate.name)))
+          .map(plate => key(plate.name))
+          .toSorted(),
+      ).toStrictEqual(names);
       const white = await readPlate(plates, fixture.whiteName);
       const primer = await readPlate(plates, fixture.primerName);
       const cut = await readPlate(plates, fixture.cutName);
@@ -142,7 +148,9 @@ describe('production page oracle', () => {
         expect(error).toBeLessThanOrEqual(2);
       }
       expect([hasInk(cut), hasInk(fold)]).toStrictEqual([true, true]);
-      for (const plate of [white, primer, cut, fold]) {
+      const magenta = await readPlate(plates, new TextEncoder().encode('Magenta'));
+      const yellow = await readPlate(plates, new TextEncoder().encode('Yellow'));
+      for (const plate of [white, primer, cut, fold, magenta, yellow]) {
         expect([hasInkOutsideDie(plate)]).toStrictEqual([false]);
       }
     } finally {

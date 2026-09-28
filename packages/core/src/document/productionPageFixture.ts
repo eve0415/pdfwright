@@ -55,21 +55,35 @@ export const createProductionPage = (): ProductionPageFixture => {
   const privateData = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new TextEncoder().encode('print page private data') });
   page.pieceInfo({ lastModified, data: { Illustrator: { private: privateData } } });
   page.draw(content => {
-    content.save();
-    content.path(path => path.rect(mm(5), mm(5), mm(40), mm(30)));
-    content.clip('nonzero');
-    content.image(artwork, [mm(50), 0, 0, mm(40), 0, 0]);
-    content.fillColor(white, 1);
-    content.image(plateImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
-    content.group(primerGroup, [1, 0, 0, 1, mm(10), mm(20)]);
-    content.lineWidth(0);
-    content.strokeColor(cut, 1);
-    content.path(path => path.rect(mm(5), mm(5), mm(40), mm(30)));
-    content.stroke();
-    content.strokeColor(fold, 1);
-    content.path(path => path.rect(mm(6), mm(6), mm(38), mm(28)));
-    content.stroke();
-    content.restore();
+    const clipped = (render: () => void): void => {
+      content.save();
+      content.path(path => path.rect(mm(5), mm(5), mm(40), mm(30)));
+      content.clip('nonzero');
+      render();
+      content.restore();
+    };
+    clipped(() => {
+      content.image(artwork, [mm(50), 0, 0, mm(40), 0, 0]);
+    });
+    clipped(() => {
+      content.fillColor(white, 1);
+      content.image(plateImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
+    });
+    clipped(() => {
+      content.group(primerGroup, [1, 0, 0, 1, mm(10), mm(20)]);
+    });
+    clipped(() => {
+      content.lineWidth(0);
+      content.strokeColor(cut, 1);
+      content.path(path => path.rect(mm(5), mm(5), mm(40), mm(30)));
+      content.stroke();
+    });
+    clipped(() => {
+      content.lineWidth(0);
+      content.strokeColor(fold, 1);
+      content.path(path => path.rect(mm(6), mm(6), mm(38), mm(28)));
+      content.stroke();
+    });
   });
   return { saved: document.save(), lastModified, whiteName, primerName, cutName, foldName };
 };
