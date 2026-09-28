@@ -22,6 +22,10 @@ export { inflateChunks, inflateRaw, inflateZlib } from './flate/inflate.ts';
 export type { FlateWarning, InflateOptions } from './flate/inflate.ts';
 export { createPdfFunction } from './function/pdfFunction.ts';
 export type { PdfFunction } from './function/pdfFunction.ts';
+export { parseIccProfile } from './icc/iccProfile.ts';
+export type { IccProfile } from './icc/iccProfile.ts';
+export type { Curve, Matrix3 } from './icc/iccTags.ts';
+export type { DataColorSpace, IccHeader, IccWarning, ProfileClass, RenderingIntent, Xyz } from './icc/iccStructure.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
