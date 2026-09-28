@@ -44,6 +44,95 @@ export const writePrintPage = (): SavedPdf => {
 };
 ```
 
+## Colorant names and overprint
+
+A colorant name can be supplied as raw PDF name bytes, so its original byte spelling survives the save. `/All` and `/None` require matching `allow` values. Painting zero DeviceCMYK under fill overprint mode 1 raises `ValidationError` with reason `invisible-overprint` unless the caller acknowledges it.
+
+```ts
+import type { PageColorants, SavedPdf } from '@pdfwright/core';
+
+import { ValidationError, cmyk, createDocument, listColorants, loadDocument, pt, rect } from '@pdfwright/core';
+
+export interface ColorantExample {
+  readonly saved: SavedPdf;
+  readonly colorants: PageColorants['colorants'];
+  readonly whiteOverprintReason: string | undefined;
+}
+
+export const writeColorants = (): ColorantExample => {
+  const document = createDocument();
+  const rawName = Uint8Array.of(0x82, 0xa0);
+  const spot = document.separation({ name: rawName, alternate: cmyk(0, 0, 0, 0.2) });
+  const all = document.separation({ name: 'All', alternate: cmyk(0, 0, 0, 0.2), allow: 'All' });
+  const none = document.separation({ name: 'None', alternate: cmyk(0, 0, 0, 0), allow: 'None' });
+  const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(100), pt(100)) });
+  page.draw(content => {
+    for (const [plate, x] of [
+      [spot, 10],
+      [all, 40],
+      [none, 70],
+    ] as const) {
+      content.fillColor(plate, 1);
+      content.path(path => path.rect(x, 10, 20, 20));
+      content.fill('nonzero');
+    }
+  });
+  const probe = createDocument();
+  const probePage = probe.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
+  let whiteOverprintReason: string | undefined = undefined;
+  try {
+    probePage.draw(content => {
+      content.fillColor(cmyk(0, 0, 0, 0));
+      content.graphicsState({ overprintFill: true, overprintMode: 1 });
+      content.path(path => path.rect(0, 0, 10, 10));
+      content.fill('nonzero');
+    });
+  } catch (error: unknown) {
+    if (!(error instanceof ValidationError)) throw error;
+    whiteOverprintReason = error.reason;
+  }
+  const saved = document.save();
+  const colorants = listColorants(loadDocument(saved.toBytes()))[0]?.colorants ?? [];
+  return { saved, colorants, whiteOverprintReason };
+};
+```
+
+## Page-piece data
+
+A page-piece entry carries a caller-supplied LastModified date and opaque private data. Editing the page box leaves that application data intact.
+
+```ts
+import type { SavedPdf } from '@pdfwright/core';
+
+import { createDocument, loadDocument, pdfDate, pdfString, pt, rect, serializeObject } from '@pdfwright/core';
+
+export interface PieceInfoExample {
+  readonly saved: SavedPdf;
+  readonly retained: boolean;
+}
+
+export const preservePagePieceData = (): PieceInfoExample => {
+  const date = pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: 'Z' });
+  const document = createDocument();
+  const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(100), pt(100)) });
+  const applicationName = Uint8Array.of(0x82, 0xa0);
+  const privateValue = pdfString(Uint8Array.of(1, 2, 3), 'hex');
+  page.pieceInfo({
+    lastModified: date,
+    data: new Map([[applicationName, { private: privateValue }]]),
+  });
+  const loaded = loadDocument(document.save().toBytes());
+  const original = loaded.page(0).pieceInfo();
+  loaded.page(0).setBox('TrimBox', rect(pt(5), pt(5), pt(95), pt(95)));
+  const saved = loaded.save();
+  const preserved = loadDocument(saved.chunks).page(0).pieceInfo();
+  if (original === undefined || preserved === undefined) throw new Error('page-piece data is missing');
+  const before = serializeObject(original, { fractionDigits: 5 });
+  const after = serializeObject(preserved, { fractionDigits: 5 });
+  return { saved, retained: before.length === after.length && before.every((value, index) => value === after[index]) };
+};
+```
+
 ## Editing an existing file
 
 `loadDocument` reads a file without copying it and parses objects when they are used; encrypted files throw `EncryptedDocumentError`.
@@ -225,6 +314,35 @@ The returned `MetadataChange` lists the values the edit discarded (`reconciled`)
 The edit walks every object reachable from the trailer and reads every other object in use to find orphaned metadata; parsed objects are cached up to `parsedObjectCacheBytes`, so objects that do not fit are parsed again on each pass. A rewrite unpacks any object stream that holds a changed object.
 `createDocument({ info })` writes an agreeing XMP packet by default; it requires `info.modificationDate` (`ValidationError` `metadata-date-required`) and derives the DocumentID from the first file identifier unless `metadata.documentId` gives one. Pass `metadata.instanceId` to set the InstanceID, or `metadata: { xmp: false }` to write Info without XMP.
 
+The next example reads Info and XMP, updates both from one input, and checks that two saves of the same edited document produce identical bytes.
+
+```ts
+import type { DocumentMetadata, MetadataChange } from '@pdfwright/core';
+
+import { createDocument, loadDocument, pdfDate, pt, readMetadata, rect, setMetadata } from '@pdfwright/core';
+
+export interface MetadataExample {
+  readonly before: DocumentMetadata;
+  readonly after: DocumentMetadata;
+  readonly change: MetadataChange;
+  readonly identicalBytes: boolean;
+}
+
+export const updateMetadata = (): MetadataExample => {
+  const date = pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: 'Z' });
+  const created = createDocument({ info: { title: 'Original title', modificationDate: date } });
+  created.addPage({ mediaBox: rect(pt(0), pt(0), pt(100), pt(100)) });
+  const document = loadDocument(created.save().toBytes());
+  const before = readMetadata(document);
+  const change = setMetadata(document, { title: 'Revised title', modificationDate: date });
+  const first = document.save().toBytes();
+  const second = document.save().toBytes();
+  const after = readMetadata(loadDocument(first));
+  const identicalBytes = first.length === second.length && first.every((value, index) => value === second[index]);
+  return { before, after, change, identicalBytes };
+};
+```
+
 ## Colour conversion and PDF/X-4 checks
 
 `convertToCmyk` takes a caller-supplied RGB source ICC profile and a caller-supplied output-class CMYK ICC profile; no profile is bundled or assumed for DeviceRGB. It converts reachable RGB and calibrated paints in page content, forms, images, patterns, shadings, transparency groups and annotation appearances, and its report separates those changes. Exact black (every component 0) in RGB and calibrated-gray fill, stroke and annotation colours becomes K-only by default, and `pureBlack: 'convert'` converts it instead. RGB `DCTDecode` and `JPXDecode` image XObjects are kept encoded by default and listed in `images.keptRgbImages`, tagged with the source profile unless they already carry a colour space or, for JPX, name RGB in their `colr` box; compressed RGB inline images move to ICC-tagged image XObjects. Their final conversion depends on the receiving renderer. Converted Flate images are generated as the save stream is read, so `toBytes()` materializes output that `toStream()` can deliver in bounded memory.
@@ -234,8 +352,8 @@ RGB transparency groups are blended in CMYK after conversion, so transparent and
 
 `parseIccProfile` limits input to 24 MiB by default before making its own copy and throws `ResourceLimitError` past it; its `maxIccProfileBytes` option sets another limit of at least 132 bytes. `convertToCmyk`, `writeGtsPdfxOutputIntent` and `checkPdfX4` apply the 24 MiB default to every profile they parse.
 Images that `convertToCmyk` converts from FlateDecode or unfiltered data are decoded one row at a time and written as the saved stream is read; `save()` then returns `kind: 'streamed'` with `toStream()` and `measureByteLength()`, while `toBytes()`, `chunks` and each read of `byteLength` generate the output again.
-Image conversion holds three input rows, one CMYK output row and, for a colour-key mask, one mask row, and throws `ResourceLimitError` when those rows together exceed `loadDocument`'s `maxDecodedBytes` option (16 MiB by default); an image under any filter other than a lone `FlateDecode` is decoded whole within the same limit. The deflater also holds a 1 MiB input block, up to 4 MiB of LZ77 tokens and the encoded bytes of one block, and the RGB-to-CMYK cache holds 512 KiB.
-A converted image XObject has no limit on its total decoded size beyond the per-row limit, and `measureByteLength()` regenerates the encoded stream to count it without retaining it; an inline RGB image is decoded whole and limited to `maxDecodedBytes` or 4 MiB, whichever is smaller, and an image's embedded ICC profile is limited to 4 MiB.
+Image conversion holds bounded input rows, one CMYK output row and, for a colour-key mask, one mask row, and throws `ResourceLimitError` when those rows exceed `loadDocument`'s `maxDecodedBytes` option (16 MiB by default); a lone `FlateDecode` is decoded by image row, and a JPEG selected for transcoding is decoded by MCU row. Images under other filter chains are decoded whole within that limit. The deflater holds a 1 MiB input block, up to 4 MiB of LZ77 tokens and the encoded bytes of one block; a shared RGB-to-CMYK row cache holds 512 KiB per distinct transform.
+A converted image XObject has no limit on its total decoded size beyond the per-row limit, and `measureByteLength()` regenerates the encoded stream to count it without retaining it. An inline JPEG selected for transcoding also streams by MCU row; other inline RGB images are decoded whole and limited to `maxDecodedBytes` or 4 MiB, whichever is smaller. An image's embedded ICC profile is limited to 4 MiB.
 Colour conversion refuses RGB DCTDecode or JPXDecode images inside luminosity masks with reason `luminosity-compressed-rgb-image`.
 `convertToCmyk` turns RGB shading meshes of Types 4–7 into DeviceCMYK Type 4 triangles, splitting a triangle into four while its colour error exceeds 0.5 ΔE2000, at most six levels deep; shadings with triangles still above that error are listed in `meshes.approximations`, and the converted stream is limited to `maxDecodedBytes` or 4 MiB, whichever is smaller.
 Axial and radial RGB shadings use sampled CMYK functions with 2–4096 samples per segment; Type 3 stitching functions retain their boundaries, and each segment is sampled until its midpoint error is at most 0.5 ΔE2000 or the sample cap is reached.
@@ -249,13 +367,23 @@ import type { PdfDate } from '@pdfwright/core';
 
 import { checkPdfX4, convertToCmyk, loadDocument } from '@pdfwright/core';
 
-export const preparePrintPdf = (input: Uint8Array, sourceRgbProfile: Uint8Array, outputProfile: Uint8Array, metadataDate: PdfDate) => {
+export interface PrintConversionInput {
+  readonly input: Uint8Array;
+  readonly sourceRgbProfile: Uint8Array;
+  readonly outputProfile: Uint8Array;
+  readonly outputConditionIdentifier: string;
+  readonly metadataDate: PdfDate;
+  readonly documentId: string;
+}
+
+export const preparePrintPdf = ({ input, sourceRgbProfile, outputProfile, outputConditionIdentifier, metadataDate, documentId }: PrintConversionInput) => {
   const document = loadDocument(input);
   const conversion = convertToCmyk(document, {
     sourceRgbProfile,
     outputProfile,
-    outputIntent: { outputConditionIdentifier: 'FOGRA39' },
-    pdfx: { trapped: 'False', metadataDate },
+    outputIntent: { outputConditionIdentifier },
+    compressedRgbImages: 'transcode',
+    pdfx: { trapped: 'False', metadataDate, documentId },
   });
   const structure = checkPdfX4(document);
   return { conversion, structure, saved: document.save() };
