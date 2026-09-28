@@ -3,7 +3,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { NamedInlineImage } from './inlineResources.ts';
 import type { OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 
@@ -24,6 +24,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { addInlineXObjects } from './inlineResources.ts';
+import { jpxHasRgbColor } from './jpxColor.ts';
 import { deviceRgbLuminosity, rewriteDeviceRgbLuminosity } from './luminosityContent.ts';
 import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -87,9 +88,54 @@ const MASK_GROUP = pdfName('G').bytes;
 const BACKDROP = pdfName('BC').bytes;
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const COLOR_SPACE_ENTRY = pdfName('ColorSpace').bytes;
 
-const nameOf = (value: PdfDirectObject | PdfStream | undefined): string | undefined =>
-  value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined;
+const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
+
+const filterName = (value: PdfObject | undefined): string | undefined => {
+  if (value?.kind === 'name') return nameOf(value);
+  if (value?.kind === 'array') return value.items.map(item => nameOf(item)).find(name => name === 'DCTDecode' || name === 'DCT' || name === 'JPXDecode');
+  return undefined;
+};
+
+const compressedRgbFilter = (filter: string | undefined): boolean => filter === 'DCTDecode' || filter === 'DCT' || filter === 'JPXDecode';
+
+const inlineParameter = (parameters: readonly PdfDirectObject[], names: readonly string[]): PdfDirectObject | undefined => {
+  for (let index = 0; index + 1 < parameters.length; index += 2) {
+    const key = nameOf(parameters[index]);
+    if (key !== undefined && names.includes(key)) return parameters[index + 1];
+  }
+  return undefined;
+};
+
+const checkCompressedRgbImages = (scan: MaskScan, bytes: Uint8Array, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(XOBJECT));
+  for (const operation of readContent(bytes, scan.internals.maxNesting)) {
+    if (operation.operator === 'Do') {
+      const [operand] = operation.operands;
+      if (operand?.kind !== 'name' || category?.kind !== 'dictionary') continue;
+      const image = scan.internals.objects.deref(category.entries.get(operand.bytes));
+      if (image?.kind !== 'stream' || nameOf(scan.internals.objects.deref(image.dictionary.get(SUBTYPE))) !== 'Image') continue;
+      const filter = filterName(scan.internals.objects.deref(image.dictionary.get(FILTER)));
+      if (!compressedRgbFilter(filter)) continue;
+      const color = image.dictionary.get(COLOR_SPACE_ENTRY);
+      const rgb =
+        color === undefined
+          ? filter === 'JPXDecode' && jpxHasRgbColor(image.data, scan.internals.maxDecodedBytes)
+          : resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile }).kind === 'rgb';
+      if (rgb) throw new UnsupportedFeatureError('compressed RGB image in a luminosity mask', 'luminosity-compressed-rgb-image');
+    }
+    if (operation.operator === 'BI' && operation.inlineImage !== undefined) {
+      const parameters = operation.inlineImage.parameters.filter(value => value.kind !== 'stray-delimiter');
+      const filter = filterName(inlineParameter(parameters, ['F', 'Filter']));
+      const color = inlineParameter(parameters, ['CS', 'ColorSpace']);
+      if (compressedRgbFilter(filter) && color !== undefined) {
+        const rgb = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile }).kind === 'rgb';
+        if (rgb) throw new UnsupportedFeatureError('compressed RGB inline image in a luminosity mask', 'luminosity-compressed-rgb-image');
+      }
+    }
+  }
+};
 
 const numberOf = (value: PdfDirectObject): number => {
   if (value.kind === 'integer') return value.value;
@@ -178,14 +224,15 @@ const planRgbLuminosityMask = (
   const colorValue = scan.internals.objects.deref(color);
   const explicit = nameOf(colorValue);
   const cie = explicit !== 'DeviceRGB' && explicit !== 'RGB';
+  const bytes = decodedData(scan.internals, form);
+  if (typeof bytes === 'string') throw new ValidationError(`luminosity mask content cannot be read: ${bytes}`, 'color-operator');
+  checkCompressedRgbImages(scan, bytes, groupResources);
   if (cie && scan.options.luminosityGroups !== 'gray') {
     scan.kept.add(groupReference.objectNumber);
     return;
   }
   if (scan.options.blendingSpace === 'refuse') throw new ValidationError('RGB luminosity group would change blending space', 'blend-space-change');
   if (!scan.groups.has(groupReference.objectNumber)) {
-    const bytes = decodedData(scan.internals, form);
-    if (typeof bytes === 'string') throw new ValidationError(`luminosity mask content cannot be read: ${bytes}`, 'color-operator');
     const rgbSource = resolveSourceSpace(scan.document, pdfName('DeviceRGB'), { resources: groupResources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (rgbSource.kind !== 'rgb') throw new ValidationError('DeviceRGB does not resolve to an RGB profile', 'color-space');
     const paintGray = cie ? cieLuminosity(rgbSource.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;

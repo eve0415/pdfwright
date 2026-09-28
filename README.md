@@ -53,6 +53,7 @@ A rewrite that writes a cross-reference stream raises a header below 1.5 to 1.5,
 `compareDocuments` reports what differs between two documents by page, box, content, resources, fonts and page-piece data, never by object number.
 Because the input stays in memory, a 128 MB Cloudflare Workers isolate can edit files of up to about 80 MB.
 `parseIccProfile` limits input to 24 MiB by default before making its own copy; `maxIccProfileBytes` can raise or lower that limit.
+Colour conversion refuses RGB DCTDecode or JPXDecode images inside luminosity masks with reason `luminosity-compressed-rgb-image`.
 
 ```ts
 import type { PdfDifference, SavedPdf } from '@pdfwright/core';

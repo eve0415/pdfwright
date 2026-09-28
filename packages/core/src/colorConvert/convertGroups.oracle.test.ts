@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -116,6 +117,28 @@ const luminosityPdf = (color: string, subtype = 'Luminosity') =>
           number: 6,
           body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS ${color}>>/Resources<<>>`, '1 0 0 rg 0 0 10 10 re f'),
         },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]);
+
+const compressedMaskPdf = (filter: 'DCTDecode' | 'JPXDecode') =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        {
+          number: 3,
+          body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>',
+        },
+        { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+        {
+          number: 6,
+          body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</XObject<</Im 9 0 R>>>>', '/Im Do'),
+        },
+        { number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/${filter}`, 'image') },
       ],
       trailer: '/Root 1 0 R',
     },
@@ -238,5 +261,12 @@ describe('transparency group conversion', () => {
     expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceCMYK');
     expect(luminosityContent(document)).toMatch(/\bk\b/u);
     expect(report.groups).toBe(1);
+  });
+
+  it.each(['DCTDecode', 'JPXDecode'] as const)('refuses RGB %s in a luminosity mask with a typed reason', filter => {
+    const document = loadDocument(compressedMaskPdf(filter).bytes);
+    expect(() => convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(
+      expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'luminosity-compressed-rgb-image' }),
+    );
   });
 });
