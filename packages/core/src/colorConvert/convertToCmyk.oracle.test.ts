@@ -10,6 +10,7 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { createDocument } from '../document/pdfDocument.ts';
 import { rect } from '../document/rect.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
 import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
@@ -42,6 +43,21 @@ const operatorsOf = (bytes: Uint8Array): readonly string[] => {
 };
 
 describe('convert to cmyk', () => {
+  it('refuses a loaded file with page PieceInfo by default', () => {
+    const created = createDocument();
+    const page = created.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified: date, data: { Illustrator: { private: { kind: 'boolean', value: true } } } });
+    const document = loadDocument(created.save().toBytes());
+    expect(() =>
+      convertToCmyk(document, {
+        sourceRgbProfile: source,
+        outputProfile: output,
+        outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+        pdfx: { trapped: 'False', metadataDate: date },
+      }),
+    ).toThrow(ValidationError);
+  });
+
   it('composes colour conversion and PDF/X-4 output in one call', () => {
     const document = loadDocument(fixture.bytes);
     const report = convertToCmyk(document, {
