@@ -31,20 +31,30 @@ import { rect } from './rect.ts';
 import { createContentHooks, createResourceRecord, resourceDictionary } from './resourceRecord.ts';
 
 export interface DocumentOptions {
+  /** Decimal places for newly written reals; defaults to five. */
   fractionDigits?: number;
+  /** Two file identifier byte strings written to the trailer. */
   fileIdentifier?: [Uint8Array, Uint8Array];
+  /** Whether new colorant names must use printable ASCII bytes. */
   colorantPolicy?: { asciiOnly?: boolean };
+  /** Information dictionary values for the new PDF. */
   info?: DocumentInfo;
   /** Write an XMP packet that agrees with Info; info.modificationDate is then required. */
   metadata?: CreatedMetadataOptions;
 }
 
 export interface PageOptions {
+  /** Required page boundary rectangle. */
   mediaBox: PdfRect;
+  /** Optional visible page boundary. */
   cropBox?: PdfRect;
+  /** Optional bleed boundary. */
   bleedBox?: PdfRect;
+  /** Optional finished-page boundary. */
   trimBox?: PdfRect;
+  /** Optional artwork boundary. */
   artBox?: PdfRect;
+  /** Page transparency group and its compositing colour space. */
   group?: { colorSpace: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray' };
 }
 
@@ -170,6 +180,7 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
   return pdfDictionary(entries);
 };
 
+/** Creates a new PDF document with pages and resources supplied by the caller. */
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   if (options.metadata !== undefined) validateCreatedMetadata(options.info, options.metadata);
   const pages: PageRecord[] = [];

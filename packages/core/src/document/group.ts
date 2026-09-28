@@ -12,9 +12,13 @@ import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.t
 import { rect } from './rect.ts';
 
 export interface GroupOptions {
+  /** Bounding box of the transparency group form. */
   bbox: PdfRect;
+  /** Whether the group is isolated from its backdrop. */
   isolated?: boolean;
+  /** Whether later group objects knock out earlier ones. */
   knockout?: boolean;
+  /** Compositing colour space for the group. */
   colorSpace?: 'DeviceCMYK' | 'DeviceRGB' | 'DeviceGray';
 }
 

@@ -68,6 +68,7 @@ const registryRows: readonly (readonly [string, string, string, string])[] = [
   ['FOGRA38', 'Continuous stationery', 'Uncoated white offset, 115 g/m2', 'OFCOF 4 Altona'],
 ];
 
+/** The printing-condition identifiers and descriptions bundled for output-intent defaults. */
 export const registeredPrintingConditions: readonly PrintingCondition[] = registryRows.map(([identifier, process, media, designation]) => ({
   identifier,
   process,

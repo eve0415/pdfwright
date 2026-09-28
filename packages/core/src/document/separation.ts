@@ -8,8 +8,11 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfNameFromBytes, pdfReal
 import { cmyk, gray, rgb } from './color.ts';
 
 export interface SeparationOptions {
+  /** Colorant name as text or encoded PDF name bytes. */
   name: string | Uint8Array;
+  /** Alternate colour for viewers without the spot plate. */
   alternate: DeviceColor;
+  /** Explicitly permits the reserved All or None colorant name. */
   allow?: 'All' | 'None';
 }
 

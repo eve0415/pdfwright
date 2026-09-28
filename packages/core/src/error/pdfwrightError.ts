@@ -7,6 +7,7 @@ export type PdfwrightErrorCode =
   | 'validation'
   | 'resource-limit';
 
+/** Base class for errors raised by pdfwright. */
 export class PdfwrightError extends Error {
   readonly code: PdfwrightErrorCode;
 

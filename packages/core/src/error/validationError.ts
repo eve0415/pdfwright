@@ -18,6 +18,7 @@ export type ValidationReason =
   | 'blend-space-change'
   | 'pdf-extensions';
 
+/** An input or document state violates a requirement of the requested operation. */
 export class ValidationError extends PdfwrightError {
   override readonly code = 'validation' as const;
   readonly reason: ValidationReason | undefined;

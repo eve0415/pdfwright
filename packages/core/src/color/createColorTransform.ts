@@ -21,7 +21,9 @@ export interface IccColorSource {
 export type ColorSource = IccColorSource | CalRgbSource | CalGraySource;
 
 export interface ColorTransformOptions {
+  /** Rendering intent used by the transform. */
   readonly intent: RenderingIntent;
+  /** Whether to compensate for source and destination black points. */
   readonly blackPointCompensation: boolean;
   /** How a lut8 tag's Lab a and b components are scaled: `icc` (the default) by 255, as ICC.1:2022, 6.3.4.2, Table 13 gives, so neutral is 128/255; `adobe` by 256, so neutral is 128/256. */
   readonly lut8LabEncoding?: 'icc' | 'adobe';
@@ -49,6 +51,7 @@ const absolute = (input: PcsValue, sourceWhite: Xyz, destinationWhite: Xyz): Pcs
   };
 };
 
+/** Creates a colour transform from a supported source space to an ICC destination profile. */
 export const createColorTransform = (source: ColorSource, destination: IccProfile, options: ColorTransformOptions): ColorTransform => {
   const encoding = options.lut8LabEncoding ?? 'icc';
   const sourceProfile = source.kind === 'icc' ? source.profile : calibratedProfile(source);

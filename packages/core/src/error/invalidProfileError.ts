@@ -17,6 +17,7 @@ export type InvalidProfileReason =
   | 'missing-required-tag'
   | 'singular-matrix';
 
+/** An ICC profile is malformed or has unsupported profile structure. */
 export class InvalidProfileError extends PdfwrightError {
   override readonly code = 'invalid-profile' as const;
   readonly reason: InvalidProfileReason;

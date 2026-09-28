@@ -18,11 +18,17 @@ import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
 import { registeredPrintingConditions } from './printingConditions.ts';
 
 export interface OutputIntentOptions {
+  /** Output-class CMYK ICC profile embedded in the intent. */
   readonly outputProfile: Uint8Array;
+  /** Identifier of the intended printing condition. */
   readonly outputConditionIdentifier: string;
+  /** Description required for an unregistered condition. */
   readonly info?: string;
+  /** Human-readable condition, defaulting from the registry when known. */
   readonly outputCondition?: string;
+  /** Registry URI for a registered condition. */
   readonly registryName?: string;
+  /** Whether to refuse or replace a conflicting intent; defaults to refuse. */
   readonly existing?: 'refuse' | 'replace';
   /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4; defaults to true. */
   readonly pdfx?: boolean;

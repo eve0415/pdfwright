@@ -101,4 +101,5 @@ export const createMd5 = (): Md5 => {
   return hash;
 };
 
+/** Returns the 16-byte MD5 digest of the input bytes. */
 export const md5 = (data: Uint8Array): Uint8Array => createMd5().update(data).digest();

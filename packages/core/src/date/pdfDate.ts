@@ -25,6 +25,7 @@ const daysInMonth = (year: number, month: number): number => {
   return 31;
 };
 
+/** Validates calendar components and creates an immutable PDF date. */
 export const pdfDate = (components: PdfDateComponents): PdfDate => {
   // ISO 32000-1:2008, 7.9.4 gives the ranges for month, day, clock fields, and UTC offset fields.
   const { year, month, day, hour, minute, second, offset } = components;
@@ -48,6 +49,7 @@ export const pdfDate = (components: PdfDateComponents): PdfDate => {
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
 
 // ISO 32000-1:2008, 7.9.4 uses local clock fields and places an apostrophe between offset hours and minutes, with none after the minutes.
+/** Formats a PDF date with its UTC offset (ISO 32000-1:2008, 7.9.4). */
 export const pdfDateString = (date: PdfDate): string => {
   const clock = `${pad(date.year, 4)}${pad(date.month, 2)}${pad(date.day, 2)}${pad(date.hour, 2)}${pad(date.minute, 2)}${pad(date.second, 2)}`;
   const offset = date.offset === 'Z' ? 'Z' : `${date.offset.sign}${pad(date.offset.hours, 2)}'${pad(date.offset.minutes, 2)}`;
@@ -56,6 +58,7 @@ export const pdfDateString = (date: PdfDate): string => {
 
 export const pdfDateObject = (date: PdfDate): PdfDirectObject => pdfString(new TextEncoder().encode(pdfDateString(date)));
 
+/** Creates a PDF date from a JavaScript Date and a UTC offset in minutes. */
 export const pdfDateFromDate = (date: Date, offsetMinutes: number): PdfDate => {
   if (!Number.isFinite(date.getTime()) || !inRange(offsetMinutes, -1439, 1439)) throw new ValidationError('invalid date or UTC offset');
   const local = new Date(date.getTime() + offsetMinutes * 60_000);

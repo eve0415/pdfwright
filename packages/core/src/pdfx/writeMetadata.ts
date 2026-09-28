@@ -5,8 +5,11 @@ import type { MetadataChange } from '../metadata/setMetadata.ts';
 import { setMetadata } from '../metadata/setMetadata.ts';
 
 export interface PdfX4MetadataOptions {
+  /** Date written to modification and XMP metadata dates. */
   readonly metadataDate: PdfDate;
+  /** Info and XMP trapped state, True or False. */
   readonly trapped: 'True' | 'False';
+  /** xmpMM:DocumentID to write in place of an existing ID. */
   readonly documentId?: string;
 }
 

@@ -11,12 +11,19 @@ import { formatNumber } from '../number/formatNumber.ts';
 export type ContentNumber = number | Length;
 
 export interface GraphicsStateOptions {
+  /** Fill opacity from 0 to 1. */
   fillAlpha?: number;
+  /** Stroke opacity from 0 to 1. */
   strokeAlpha?: number;
+  /** Blend mode for subsequent painting. */
   blendMode?: 'Normal' | 'Multiply' | 'Screen' | 'Overlay' | 'Darken' | 'Lighten';
+  /** Whether fills overprint underlying separations. */
   overprintFill?: boolean;
+  /** Whether strokes overprint underlying separations. */
   overprintStroke?: boolean;
+  /** PDF overprint mode 0 or 1. */
   overprintMode?: 0 | 1;
+  /** None disables a previously selected soft mask. */
   softMask?: 'None';
 }
 
@@ -44,6 +51,7 @@ export interface WhiteRequirement {
 }
 
 export interface PaintOptions {
+  /** Allows painting that overprint settings may make invisible. */
   acknowledgeInvisibleOverprint?: boolean;
 }
 

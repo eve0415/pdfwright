@@ -158,6 +158,7 @@ export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: S
   writer.writeAscii('\nendstream');
 };
 
+/** Serializes a direct PDF object using the selected real-number precision. */
 export const serializeObject = (object: PdfObject, options: SerializeOptions): Uint8Array => {
   const writer = new ByteWriter();
   writePdfObject(writer, object, options);

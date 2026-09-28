@@ -15,4 +15,5 @@ export const updateAdler32 = (checksum: number, data: Uint8Array): number => {
   return second * 65536 + first;
 };
 
+/** Returns the Adler-32 checksum of the input bytes. */
 export const adler32 = (data: Uint8Array): number => updateAdler32(1, data);

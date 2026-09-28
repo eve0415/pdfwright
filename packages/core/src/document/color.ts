@@ -12,16 +12,19 @@ const validate = (components: readonly number[]): void => {
   }
 };
 
+/** Creates a DeviceCMYK colour from four components in the range 0 to 1. */
 export const cmyk = (...components: [number, number, number, number]): DeviceColor => {
   validate(components);
   return { kind: 'DeviceCMYK', components };
 };
 
+/** Creates a DeviceRGB colour from three components in the range 0 to 1. */
 export const rgb = (...components: [number, number, number]): DeviceColor => {
   validate(components);
   return { kind: 'DeviceRGB', components };
 };
 
+/** Creates a DeviceGray colour from one component in the range 0 to 1. */
 export const gray = (component: number): DeviceColor => {
   validate([component]);
   return { kind: 'DeviceGray', components: [component] };

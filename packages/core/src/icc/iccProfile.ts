@@ -33,9 +33,11 @@ export interface IccProfile {
 export type LutTag = TableLut | MultiLut;
 
 export interface ParseIccProfileOptions {
+  /** Maximum ICC profile size in bytes before parsing; defaults to 24 MiB and must be at least 132. */
   readonly maxIccProfileBytes?: number;
 }
 
+/** Parses an ICC profile, copying at most maxIccProfileBytes of input, 24 MiB by default. */
 export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOptions = {}): IccProfile => {
   const maxIccProfileBytes = options.maxIccProfileBytes ?? 24 * 1024 * 1024;
   if (!Number.isSafeInteger(maxIccProfileBytes) || maxIccProfileBytes < 132) {

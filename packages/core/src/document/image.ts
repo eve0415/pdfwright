@@ -11,12 +11,17 @@ import { separationObject } from './separation.ts';
 export type ImageColorSpace = 'DeviceRGB' | 'DeviceCMYK' | 'DeviceGray' | Separation;
 
 export interface ImageOptions {
+  /** Image width in pixels. */
   width: number;
+  /** Image height in pixels. */
   height: number;
+  /** Colour space of the supplied samples. */
   colorSpace: ImageColorSpace;
+  /** Eight bits per component for supplied samples. */
   bitsPerComponent: 8;
   /** One byte per component, width × height × components long, else ValidationError; for a Separation space each byte is an ink amount, 255 meaning tint 1 (ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4, NOTE 5). */
   samples: Uint8Array;
+  /** Optional grayscale alpha samples with the same pixel dimensions. */
   softMask?: { width: number; height: number; samples: Uint8Array };
 }
 

@@ -157,8 +157,10 @@ const decodeRaw = (data: Uint8Array, limit: number): DecodedRaw => {
   return { data: output.toUint8Array(), bytesConsumed: Math.ceil(reader.bitPosition / 8) };
 };
 
+/** Decodes a raw DEFLATE stream under the output limit. */
 export const inflateRaw = (data: Uint8Array, options?: InflateOptions): Uint8Array => decodeRaw(data, maxOutputBytes(options)).data;
 
+/** Decodes a zlib stream and reports recoverable wrapper warnings. */
 export const inflateZlib = (data: Uint8Array, options?: InflateOptions): InflatedZlib => {
   const limit = maxOutputBytes(options);
   // RFC 1950, 2.2 requires CM=8, CINFO≤7, a header divisible by 31, and a preset dictionary marker when FDICT is set.

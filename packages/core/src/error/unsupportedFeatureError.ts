@@ -9,6 +9,7 @@ export type UnsupportedFeatureReason =
   | 'device-n-components'
   | 'nchannel-process';
 
+/** An input uses a feature the requested operation cannot process. */
 export class UnsupportedFeatureError extends PdfwrightError {
   override readonly code = 'unsupported-feature' as const;
   readonly reason: UnsupportedFeatureReason | undefined;

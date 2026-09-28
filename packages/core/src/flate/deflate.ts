@@ -6,6 +6,7 @@ import { writeCompressedBlock } from './deflateBlock.ts';
 import { tokenize } from './lz77.ts';
 
 export interface DeflateOptions {
+  /** Compression level from 0 (stored blocks) to 9; defaults to 6. */
   level?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 }
 
@@ -47,6 +48,7 @@ const writeCompressed = (writer: BitWriter, data: Uint8Array, { final, level, to
   }
 };
 
+/** Compresses bytes into a raw DEFLATE stream. */
 export const deflateRaw = (data: Uint8Array, options?: DeflateOptions): Uint8Array => {
   const level = compressionLevel(options);
   const writer = new BitWriter();
@@ -159,6 +161,7 @@ export const createDeflateStream = (options?: DeflateOptions): DeflateStream => 
   };
 };
 
+/** Compresses bytes into a zlib stream with an Adler-32 trailer. */
 export const deflateZlib = (data: Uint8Array, options?: DeflateOptions): Uint8Array => {
   const deflater = new ZlibDeflater(options);
   deflater.write(data);

@@ -33,9 +33,13 @@ import { checkConversionRefusals } from './preflight.ts';
 import { rewritePageColors } from './rewritePage.ts';
 
 export interface ConvertToCmykOptions extends Omit<RewriteColorOptions, 'sourceRgbProfile' | 'outputProfile'> {
+  /** ICC profile for untagged DeviceRGB colours. */
   readonly sourceRgbProfile: Uint8Array;
+  /** Output-class CMYK profile for conversion and the output intent. */
   readonly outputProfile: Uint8Array;
+  /** Printing condition and existing-intent policy. */
   readonly outputIntent: Omit<OutputIntentOptions, 'outputProfile' | 'pdfx'>;
+  /** PDF/X-4 page and metadata options; false omits those steps. */
   readonly pdfx?: (PdfX4MetadataOptions & PdfX4PageOptions & { readonly version?: 'PDF/X-4' }) | false;
 }
 
