@@ -28,7 +28,7 @@ export const labToXyz = (lab: readonly number[]): number[] => {
 };
 
 const clamp = (value: number): number => Math.min(1, Math.max(0, value));
-const labOffset = (tag: LutTag, option: 'icc' | 'adobe'): number => (tag.kind === 'lut8' && option === 'adobe' ? 127.5 : 128);
+const adobeLut8 = (tag: LutTag, option: 'icc' | 'adobe'): boolean => tag.kind === 'lut8' && option === 'adobe';
 
 export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
   // ICC.1:2022, 6.3.4.2 Tables 11–13 and 10.10: mft2 uses legacy PCSLAB (FFFF/FF00 conversion) even inside v4 profiles.
@@ -36,13 +36,13 @@ export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config:
   if (config.tag.kind === 'lut16') {
     return [clamp(((values[0] ?? 0) * 652.8) / 65535), clamp((((values[1] ?? 0) + 128) * 256) / 65535), clamp((((values[2] ?? 0) + 128) * 256) / 65535)];
   }
-  const offset = labOffset(config.tag, config.option);
-  return [clamp((values[0] ?? 0) / 100), clamp(((values[1] ?? 0) + offset) / 255), clamp(((values[2] ?? 0) + offset) / 255)];
+  const divisor = adobeLut8(config.tag, config.option) ? 256 : 255;
+  return [clamp((values[0] ?? 0) / 100), clamp(((values[1] ?? 0) + 128) / divisor), clamp(((values[2] ?? 0) + 128) / divisor)];
 };
 
 export const decodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
   if (pcs === 'XYZ') return values.map(value => value * XYZ_SCALE);
   if (config.tag.kind === 'lut16') return [((values[0] ?? 0) * 65535) / 652.8, ((values[1] ?? 0) * 65535) / 256 - 128, ((values[2] ?? 0) * 65535) / 256 - 128];
-  const offset = labOffset(config.tag, config.option);
-  return [(values[0] ?? 0) * 100, (values[1] ?? 0) * 255 - offset, (values[2] ?? 0) * 255 - offset];
+  const multiplier = adobeLut8(config.tag, config.option) ? 256 : 255;
+  return [(values[0] ?? 0) * 100, (values[1] ?? 0) * multiplier - 128, (values[2] ?? 0) * multiplier - 128];
 };
