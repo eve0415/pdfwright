@@ -105,8 +105,8 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
     if (code === undefined || code < 32 || code > 126) throw new InvalidArgumentError('creator requires printable ASCII');
   }
   const topLeft = options.convention === 'top-left';
-  const rulerX = Math.floor(8191.5 - width / 2);
-  const rulerY = Math.floor(8191.5 - height / 2);
+  const rulerX = topLeft ? 8191.5 - width / 2 : Math.floor(8191.5 - width / 2);
+  const rulerY = topLeft ? 8191.5 + height / 2 : Math.floor(8191.5 - height / 2);
   const art = artBounds(document);
   const shifted = topLeft ? { minX: art.minX, minY: art.minY - height, maxX: art.maxX, maxY: art.maxY - height } : art;
   const [minX, minY, maxX, maxY] = integerBounds(shifted);

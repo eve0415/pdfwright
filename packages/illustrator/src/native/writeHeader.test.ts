@@ -38,8 +38,19 @@ describe('native header comments', () => {
     expect(metaDataLength).toBe(writer.finish().length);
     expect(text).toContain('%AI3_Cropmarks: 0 0 283.4645669291 198.4251968504\r');
     expect(text).toContain('%%PageOrigin:0 198.4251968504\r');
-    expect(text).toContain('%AI3_TemplateBox: 142.5 98.9251968504 142.5 98.9251968504\r');
     expect(text).toContain('%AI3_TileBox: -261.2677165354 -180.2874015748 521.7322834646 378.7125984252\r');
+  });
+
+  it('uses each convention’s ruler origin for TemplateBox', () => {
+    for (const [convention, expected] of [
+      ['bottom-left', '142.5 98.9251968504 142.5 98.9251968504'],
+      ['top-left', '141.7322834646 99.2125984252 141.7322834646 99.2125984252'],
+    ] as const) {
+      const writer = createNativeWriter();
+      writeHeader(writer, document, { convention });
+      const text = new TextDecoder().decode(writer.finish());
+      expect(text).toContain(`%AI3_TemplateBox: ${expected}\r`);
+    }
   });
 
   it('keeps neutral provenance, visible process plates and sorted spot comments', () => {
