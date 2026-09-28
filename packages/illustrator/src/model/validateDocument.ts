@@ -37,7 +37,7 @@ const knownVariant = (kind: string, names: readonly string[], context: string): 
   if (!names.includes(kind)) throw new UnsupportedFeatureError(`${context} kind is unsupported`);
 };
 
-const validateHeader = (document: IllustratorDocument): void => {
+const validateHeader = (document: IllustratorDocument, width: number, height: number): void => {
   knownFields(document.artboard, ['width', 'height', 'bleed', 'name'], 'artboard');
   if (document.artboard.name !== undefined) nativeName(document.artboard.name, 'artboard name');
   if (document.title !== undefined) {
@@ -50,8 +50,11 @@ const validateHeader = (document: IllustratorDocument): void => {
   if (bleed !== undefined) {
     const sides = typeof bleed === 'number' || 'numerator' in bleed ? [bleed] : [bleed.top, bleed.right, bleed.bottom, bleed.left];
     if (typeof bleed === 'object' && !('numerator' in bleed)) knownFields(bleed, ['top', 'right', 'bottom', 'left'], 'bleed');
-    for (const side of sides) {
-      if (coordinate(side) < 0) throw new ValidationError('bleed cannot be negative');
+    const amounts = sides.map(side => coordinate(side));
+    for (const amount of amounts) if (amount < 0) throw new ValidationError('bleed cannot be negative', 'illustrator-model');
+    const [top = 0, right = top, bottom = top, left = top] = amounts;
+    if (width + left + right > 14400 || height + top + bottom > 14400) {
+      throw new ValidationError('page dimensions including bleed cannot exceed 14400 points', 'illustrator-model');
     }
   }
 };
@@ -61,8 +64,10 @@ export const validateDocument = (document: IllustratorDocument): void => {
   knownFields(document, ['artboard', 'layers', 'lastModified', 'title'], 'document');
   const width = coordinate(document.artboard.width);
   const height = coordinate(document.artboard.height);
-  if (width <= 0 || height <= 0 || width > 16383 || height > 16383) throw new ValidationError('artboard dimensions must be in (0, 16383] points');
-  validateHeader(document);
+  if (width <= 0 || height <= 0 || width > 14400 || height > 14400) {
+    throw new ValidationError('artboard dimensions must be in (0, 14400] points', 'illustrator-model');
+  }
+  validateHeader(document, width, height);
 
   const rulerX = Math.floor(8191.5 - width / 2);
   const rulerY = Math.floor(8191.5 - height / 2);
@@ -84,6 +89,10 @@ export const validateDocument = (document: IllustratorDocument): void => {
     knownFields(spot, ['name', 'nameBytes', 'alternate'], 'spot');
     nativeName(spot.name, 'spot name');
     if (spot.nameBytes?.length === 0) throw new ValidationError('spot name bytes cannot be empty');
+    const nameBytes = spot.nameBytes ?? new TextEncoder().encode(spot.name);
+    if (nameBytes.length > 127 || nameBytes.includes(0)) {
+      throw new ValidationError('spot colorant names must have at most 127 bytes and no null byte', 'illustrator-model');
+    }
     for (const component of spot.alternate) unitInterval(component, 'spot alternate');
     const key = spotKey(spot);
     const earlierKey = spotNames.get(spot.name);
@@ -130,7 +139,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
     if (item.stroke !== undefined) {
       knownFields(item.stroke, ['paint', 'width', 'overprint'], 'stroke');
       checkPaint(item.stroke.paint);
-      positive(item.stroke.width, 'stroke width');
+      if (positive(item.stroke.width, 'stroke width') > 14400) throw new ValidationError('stroke width cannot exceed 14400 points', 'illustrator-model');
     }
   };
   const checkRaster = (item: RasterItem): void => {

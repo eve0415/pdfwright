@@ -90,6 +90,18 @@ describe('illustrator document validation', () => {
     expect(validates({ ...document, layers: [{ name: 'A', items: [{ kind: 'path', geometry: path.geometry }] }] })).toThrow(ValidationError);
   });
 
+  it('rejects oversized bleed, strokes and PDF colorant names before writing', () => {
+    expect(validates({ ...document, artboard: { width: 100, height: 100, bleed: 1e9 } })).toThrow(ValidationError);
+    expect(
+      validates({ ...document, layers: [{ name: 'A', items: [{ ...path, stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 1e14 } }] }] }),
+    ).toThrow(ValidationError);
+    for (const nameBytes of [Uint8Array.of(0), new Uint8Array(128).fill(65)]) {
+      expect(
+        validates({ ...document, layers: [{ name: 'A', items: [{ ...path, fill: { paint: { kind: 'spot', spot: { ...spot, nameBytes } } } }] }] }),
+      ).toThrow(ValidationError);
+    }
+  });
+
   it('rejects conflicting spot definitions using the same colorant bytes', () => {
     const different: SpotColor = { name: 'White', alternate: [0, 0, 0, 0.5] };
     const second: PathItem = { ...path, fill: { paint: { kind: 'spot', spot: different } } };
