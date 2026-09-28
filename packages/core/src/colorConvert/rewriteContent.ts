@@ -35,6 +35,7 @@ export interface RewrittenContent {
   readonly operators: number;
   readonly kOnly: number;
   readonly overprintAdjustments: number;
+  readonly formUses: readonly FormUse[];
 }
 
 export interface OverprintNames {
@@ -42,7 +43,7 @@ export interface OverprintNames {
   readonly on: string;
 }
 
-interface PaintState {
+export interface ColorEntryState {
   readonly fill: SourceSpace;
   readonly stroke: SourceSpace;
   readonly intent: RenderingIntent;
@@ -52,6 +53,13 @@ interface PaintState {
   readonly fillConvertedZero: boolean;
   readonly strokeConvertedZero: boolean;
   readonly textRenderMode: number;
+}
+
+export interface FormUse {
+  readonly name: Uint8Array;
+  readonly entry: ColorEntryState;
+  readonly start: number;
+  readonly end: number;
 }
 
 interface ContentEdit {
@@ -66,12 +74,13 @@ interface RewriteContext {
   readonly options: RewriteColorOptions;
   readonly transforms: Map<string, ColorTransform>;
   readonly edits: ContentEdit[];
+  readonly formUses: FormUse[];
   readonly overprintNames: OverprintNames | undefined;
   kOnly: number;
   overprintAdjustments: number;
   pathStart: number | undefined;
-  state: PaintState;
-  readonly stack: PaintState[];
+  state: ColorEntryState;
+  readonly stack: ColorEntryState[];
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -296,7 +305,10 @@ const rewriteOperation = (context: RewriteContext, operation: SpannedContentOper
   }
   if (operator === 'cs' || operator === 'CS') return setColorSpace(context, operation);
   if (operator === 'sc' || operator === 'SC' || operator === 'scn' || operator === 'SCN') return setComponents(context, operation);
-  if (operator === 'BI' && operation.inlineImage === undefined) throw new UnsupportedFeatureError('malformed inline image cannot be converted');
+  if (operator === 'Do') {
+    context.formUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), entry: context.state, start: operation.start, end: operation.end });
+    return undefined;
+  }
   return undefined;
 };
 
@@ -325,6 +337,7 @@ const neutralise = (context: RewriteContext, start: number, end: number): void =
 
 const recordPaint = (context: RewriteContext, operation: SpannedContentOperation): void => {
   const { operator } = operation;
+  if (operator === 'BI' && operation.inlineImage === undefined) throw new UnsupportedFeatureError('malformed inline image cannot be converted');
   if (PATH_CONSTRUCTION.has(operator)) {
     context.pathStart ??= operation.start;
     return;
@@ -349,7 +362,12 @@ const recordPaint = (context: RewriteContext, operation: SpannedContentOperation
 export const rewriteContentColors = (
   document: LoadedDocument,
   bytes: Uint8Array,
-  config: { resources: PdfDictionaryEntries; options: RewriteColorOptions; overprintNames?: OverprintNames | undefined },
+  config: {
+    resources: PdfDictionaryEntries;
+    options: RewriteColorOptions;
+    overprintNames?: OverprintNames | undefined;
+    initialState?: ColorEntryState | undefined;
+  },
 ): RewrittenContent => {
   const context: RewriteContext = {
     document,
@@ -357,11 +375,12 @@ export const rewriteContentColors = (
     options: config.options,
     transforms: new Map(),
     edits: [],
+    formUses: [],
     overprintNames: config.overprintNames,
     kOnly: 0,
     overprintAdjustments: 0,
     pathStart: undefined,
-    state: {
+    state: config.initialState ?? {
       fill: { kind: 'deviceGray' },
       stroke: { kind: 'deviceGray' },
       intent: 'relativeColorimetric',
@@ -383,7 +402,7 @@ export const rewriteContentColors = (
     }
     recordPaint(context, operation);
   }
-  if (context.edits.length === 0) return { bytes, operators, kOnly: context.kOnly, overprintAdjustments: 0 };
+  if (context.edits.length === 0) return { bytes, operators, kOnly: context.kOnly, overprintAdjustments: 0, formUses: context.formUses };
   const writer = new ByteWriter();
   let cursor = 0;
   for (const edit of context.edits.toSorted((left, right) => left.start - right.start || left.end - right.end)) {
@@ -393,5 +412,5 @@ export const rewriteContentColors = (
     cursor = edit.end;
   }
   writer.writeBytes(bytes.subarray(cursor));
-  return { bytes: writer.toUint8Array(), operators, kOnly: context.kOnly, overprintAdjustments: context.overprintAdjustments };
+  return { bytes: writer.toUint8Array(), operators, kOnly: context.kOnly, overprintAdjustments: context.overprintAdjustments, formUses: context.formUses };
 };

@@ -7,7 +7,7 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { rewriteContentColors } from './rewriteContent.ts';
@@ -44,12 +44,29 @@ const overprintPdf = (): Uint8Array =>
       objects: [
         { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
         { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</OP true/OPM 1>>>>>>>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources 8 0 R>>' },
         { number: 4, body: streamBody('', '/GS gs 0 0 0 RG 0 0 m 10 10 l S') },
+        { number: 8, body: '<</ExtGState<</GS<</OP true/OPM 1>>>>>>' },
       ],
       trailer: '/Root 1 0 R',
     },
   ]).bytes;
+
+const sharedOverprintPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R 5 0 R]/Count 2>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources 8 0 R>>' },
+      { number: 4, body: streamBody('', '/GS gs 0 0 0 RG 0 0 m 10 10 l S') },
+      { number: 5, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 6 0 R/Resources 8 0 R>>' },
+      { number: 6, body: streamBody('', '/GS gs 0 0 0 RG 0 0 m 10 10 l S') },
+      { number: 8, body: '<</ExtGState<</GS<</OP true/OPM 1>>>>>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
 
 const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const internals = internalsOf(document);
@@ -176,6 +193,14 @@ describe('page colour conversion', () => {
     expect(report.overprintAdjustments).toBe(1);
     expect(text).toMatch(/\/PWOPM0 gs\s+0 0 m 10 10 l S\s+\/PWOPM1 gs/u);
     expect(addedOverprintStates(document)).toStrictEqual([true, true]);
+    expect(document.get(pdfReference(8, 0)).kind).toBe('null');
+  });
+
+  it('removes one shared resource object after both pages replace it', () => {
+    const document = loadDocument(sharedOverprintPdf.bytes);
+    const report = rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.overprintAdjustments).toBe(2);
+    expect(document.get(pdfReference(8, 0)).kind).toBe('null');
   });
 
   it('sets OPM 0 around text showing inside BT and ET', () => {

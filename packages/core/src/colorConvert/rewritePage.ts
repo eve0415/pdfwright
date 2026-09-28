@@ -3,16 +3,17 @@ import type { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEnt
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 
-import { ByteWriter } from '../bytes/byteWriter.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
-import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
+import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
+import { combineContentStreams } from './combinedContent.ts';
+import { deleteDiscarded } from './discardedObjects.ts';
+import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 
@@ -36,41 +37,6 @@ const FILTER = pdfName('Filter').bytes;
 const LENGTH = pdfName('Length').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const RESOURCES = pdfName('Resources').bytes;
-const EXT_G_STATE = pdfName('ExtGState').bytes;
-const OPM = pdfName('OPM').bytes;
-
-const overprintNames = (document: LoadedDocument, resources: Entries): OverprintNames => {
-  const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const category = internals.objects.deref(resources.get(EXT_G_STATE));
-  const entries = category?.kind === 'dictionary' ? category.entries : undefined;
-  for (let index = 0; ; index += 2) {
-    const off = `PWOPM${String(index)}`;
-    const on = `PWOPM${String(index + 1)}`;
-    if (entries?.has(pdfName(off).bytes) !== true && entries?.has(pdfName(on).bytes) !== true) return { off, on };
-  }
-};
-
-const addOverprintStates = (document: LoadedDocument, resources: Entries, names: OverprintNames): void => {
-  const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const category = internals.objects.deref(resources.get(EXT_G_STATE));
-  const states = category?.kind === 'dictionary' ? new PdfDictionaryEntries(category.entries.entries()) : new PdfDictionaryEntries();
-  const off = pdfDictionary(new PdfDictionaryEntries([[OPM, pdfInteger(0)]]));
-  const on = pdfDictionary(new PdfDictionaryEntries([[OPM, pdfInteger(1)]]));
-  states.set(pdfName(names.off).bytes, off);
-  states.set(pdfName(names.on).bytes, on);
-  resources.set(EXT_G_STATE, pdfDictionary(states));
-};
-
-const combined = (streams: readonly Uint8Array[]): Uint8Array => {
-  const writer = new ByteWriter();
-  for (const [index, stream] of streams.entries()) {
-    if (index > 0) writer.writeByte(0x0a);
-    writer.writeBytes(stream);
-  }
-  return writer.toUint8Array();
-};
 
 const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | undefined): PdfReference[] => {
   const result: PdfReference[] = [];
@@ -101,13 +67,14 @@ const applyPreparedPages = (document: LoadedDocument, prepared: readonly Prepare
     const reference = document.object({ kind: 'stream', dictionary, data: item.encoded });
     page.entries.set(CONTENTS, reference);
     if (item.overprintAdjustments > 0) {
+      const oldResources = page.entries.get(RESOURCES);
+      if (oldResources?.kind === 'reference') discarded.push(oldResources);
       addOverprintStates(document, item.resources, item.overprintNames);
       page.entries.set(RESOURCES, pdfDictionary(item.resources));
     }
     document.set(item.reference, page);
   }
-  const remaining = reachableObjects(internals).objects;
-  for (const reference of discarded) if (!remaining.has(reference.objectNumber)) document.delete(reference);
+  deleteDiscarded(document, internals, discarded);
   internals.objects.requireFullRewrite('color-conversion');
 };
 
@@ -128,9 +95,9 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
     if (entry === undefined) throw new ValidationError('page entry is missing');
     const content = pageContent(internals, entry);
     if (content.problems.length > 0) throw new ValidationError(`page content cannot be converted: ${content.problems.join('; ')}`, 'color-operator');
-    const decoded = combined(content.streams);
+    const decoded = combineContentStreams(content.streams);
     const resources = document.page(index).resources();
-    const names = overprintNames(document, resources);
+    const names = chooseOverprintNames(document, resources);
     const rewritten = rewriteContentColors(document, decoded, { resources, options, overprintNames: names });
     if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) continue;
     if (rewritten.bytes.length > internals.maxDecodedBytes) {
