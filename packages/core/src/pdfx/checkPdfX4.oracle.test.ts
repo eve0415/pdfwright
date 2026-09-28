@@ -54,8 +54,8 @@ const attachContent = (document: ReturnType<typeof loadDocument>, reference: Ret
 describe('pdfx structural checker', () => {
   it('gives every listed rule one source, authority and non-conformance status', () => {
     const report = checkPdfX4(prepared());
-    expect(pdfX4Rules).toHaveLength(26);
-    expect(new Set(report.findings.map(finding => finding.rule)).size).toBe(26);
+    expect(pdfX4Rules).toHaveLength(27);
+    expect(new Set(report.findings.map(finding => finding.rule)).size).toBe(27);
     expect(report.findings.map(finding => finding.source.length)).not.toContain(0);
     expect(report.findings.find(finding => finding.rule === 'X4-VERSION')?.status).toBe('not-checked');
     expect(report.summary).toBe('no-violation-found-by-these-rules');
@@ -141,5 +141,19 @@ describe('pdfx structural checker', () => {
     });
     attachContent(document, content);
     expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
+  });
+
+  it('reports XMP media-management fields as not checked against PDF/X-4 requirements', () => {
+    const finding = checkPdfX4(loadDocument(source().bytes)).findings.find(item => item.rule === 'X4-XMP-MM');
+    expect(finding?.status).toBe('not-checked');
+    expect(finding?.detail).toContain('xmpMM:DocumentID');
+  });
+
+  it('does not call a non-JavaScript additional action JavaScript', () => {
+    const document = prepared();
+    const action = document.object({ kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('S').bytes, pdfName('URI')]]) });
+    const aa = document.object({ kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('O').bytes, action]]) });
+    attach(document, 'AA', aa);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-JS')?.status).toBe('not-checked');
   });
 });

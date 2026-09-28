@@ -56,7 +56,7 @@ const textOf = (value: PdfObject | undefined): string | undefined => (value?.kin
 const passed = (detail: string): Outcome => ({ status: 'passed', detail });
 const violation = (detail: string, location?: string): Outcome => ({ status: 'violation', detail, location });
 const unchecked = (detail: string): Outcome => ({ status: 'not-checked', detail });
-const needsClause = (clause: string): Outcome => unchecked(`ISO 15930-7:2010 ${clause} is unavailable; the PDF/X-4 requirement was not checked`);
+const needsClause = (clause: string): Outcome => unchecked(`ISO 15930-7:2010, ${clause} sets this requirement, and this rule does not check it`);
 
 const xmpText = (metadata: DocumentMetadata, namespace: string, localName: string): string | undefined => {
   const { xmp } = metadata;
@@ -89,7 +89,9 @@ const outputIntent = (context: Context): PdfDictionaryEntries | undefined => {
 
 const checkIntentEntries: Check = context => {
   const intent = outputIntent(context);
-  if (intent === undefined) return unchecked('no GTS_PDFX output intent was available to inspect');
+  if (intent === undefined) {
+    return unchecked('ISO 15930-7:2010 sets output-intent requirements, and this rule cannot check them because no GTS_PDFX intent is present');
+  }
   const identifier = resolvedText(context, intent, 'OutputConditionIdentifier');
   if (identifier === undefined || identifier.length === 0) return violation('OutputConditionIdentifier is missing or not a text string');
   const registered = registeredPrintingConditions.some(condition => condition.identifier === identifier);
@@ -97,14 +99,16 @@ const checkIntentEntries: Check = context => {
   if (!registered && (info === undefined || info.length === 0)) return violation('an unregistered output condition needs Info');
   const registry = resolvedText(context, intent, 'RegistryName');
   if (registered && registry === undefined) {
-    return passed('required entries are present; RegistryName is recommended for this registered identifier but absent');
+    return passed('required entries are present; CGATS Application Notes (2006), 3.3 recommends RegistryName for this registered identifier');
   }
   return passed('required output intent entries are present');
 };
 
 const checkProfile: Check = context => {
   const intent = outputIntent(context);
-  if (intent === undefined) return unchecked('no GTS_PDFX output intent was available to inspect');
+  if (intent === undefined) {
+    return unchecked('ISO 15930-7:2010 sets output-intent requirements, and this rule cannot check them because no GTS_PDFX intent is present');
+  }
   const value = context.internals.objects.deref(intent.get(key('DestOutputProfile')));
   if (value?.kind !== 'stream') return violation('DestOutputProfile is not an embedded ICC stream');
   const bytes = decodedData(context.internals, value);
@@ -122,12 +126,20 @@ const checkProfile: Check = context => {
     const identifier = resolvedText(context, intent, 'OutputConditionIdentifier');
     const registered = registeredPrintingConditions.some(condition => condition.identifier === identifier);
     if (!registered && profile.deviceToPcs[1] === undefined) {
-      return unchecked('CGATS 3.3 calls for AtoB1 on unregistered conditions in PDF/X-1a; the PDF/X-4 requirement in ISO 15930-7 6.4 is unavailable');
+      return unchecked(
+        'CGATS 3.3 calls for AtoB1 on unregistered conditions in PDF/X-1a; ISO 15930-7:2010, 6.4 sets the PDF/X-4 requirement, and this rule does not check it',
+      );
     }
-    if (profile.header.profileClass !== 'output') return unchecked('the output profile is not printer class; ISO 15930-7 6.4 is needed to judge this');
+    if (profile.header.profileClass !== 'output') {
+      return unchecked('the profile is not output class; ISO 15930-7:2010, 6.4 sets the applicable profile-class requirement, and this rule does not check it');
+    }
     return passed('an embedded ICC profile with an output transform was parsed');
   } catch (error: unknown) {
-    if (error instanceof ResourceLimitError) return unchecked(`profile exceeds the checker resource limit: ${error.message}`);
+    if (error instanceof ResourceLimitError) {
+      return unchecked(
+        `ISO 15930-7:2010 sets output-profile requirements, and this rule cannot check them because the profile exceeds the 24 MiB parsing limit: ${error.message}`,
+      );
+    }
     if (error instanceof PdfwrightError) return violation(`output ICC profile is invalid or unsupported: ${error.message}`);
     throw error;
   }
@@ -168,7 +180,11 @@ const visitAll = (context: Context, predicate: (value: PdfObject) => boolean): b
 };
 
 const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean, what: string): Outcome => {
-  if (context.unreadable > 0) return unchecked(`${String(context.unreadable)} reachable objects could not be inspected for ${what}`);
+  if (context.unreadable > 0) {
+    return unchecked(
+      `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(context.unreadable)} reachable objects could not be read`,
+    );
+  }
   return visitAll(context, forbidden) ? violation(`${what} was found`) : passed(`no ${what} was found in reachable objects`);
 };
 
@@ -204,7 +220,9 @@ const lzw: Check = context => {
   try {
     for (const page of context.internals.pages) {
       const content = pageContent(context.internals, page);
-      if (content.problems.length > 0) return unchecked('page content could not be read for inline-image LZW filters');
+      if (content.problems.length > 0) {
+        return unchecked('PDF/X-4 prohibits LZW, and this rule cannot check inline images because page content could not be read');
+      }
       if (inlineLzw(context, content.streams)) return violation('LZW filter was found in an inline image');
     }
     for (const [number, generation] of context.reachable) {
@@ -215,11 +233,15 @@ const lzw: Check = context => {
       const patternType = context.internals.objects.deref(object.dictionary.get(key('PatternType')));
       if (subtype !== 'Form' && (patternType?.kind !== 'integer' || patternType.value !== 1)) continue;
       const bytes = decodedData(context.internals, object);
-      if (typeof bytes === 'string') return unchecked('form or pattern content could not be read for inline-image LZW filters');
+      if (typeof bytes === 'string') {
+        return unchecked('PDF/X-4 prohibits LZW, and this rule cannot check inline images because form or pattern content could not be read');
+      }
       if (inlineLzw(context, bytes)) return violation('LZW filter was found in an inline image');
     }
   } catch (error: unknown) {
-    if (error instanceof PdfwrightError) return unchecked(`content could not be parsed for inline-image LZW filters: ${error.message}`);
+    if (error instanceof PdfwrightError) {
+      return unchecked(`PDF/X-4 prohibits LZW, and this rule cannot check inline images because content could not be parsed: ${error.message}`);
+    }
     throw error;
   }
   return passed('no LZW filter was found in reachable stream or inline-image dictionaries');
@@ -228,11 +250,10 @@ const lzw: Check = context => {
 const javascript: Check = context => {
   const names = entriesOf(context, context.catalog.get(key('Names')));
   if (names?.has(key('JavaScript')) === true) return violation('the JavaScript name tree is present');
-  return globalCheck(
-    context,
-    value => value.kind === 'dictionary' && (value.entries.has(key('AA')) || nameOf(value.entries.get(key('S'))) === 'JavaScript'),
-    'JavaScript action or additional-action dictionary',
-  );
+  const script = globalCheck(context, value => value.kind === 'dictionary' && nameOf(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
+  if (script.status !== 'passed') return script;
+  const additional = visitAll(context, value => value.kind === 'dictionary' && value.entries.has(key('AA')));
+  return additional ? unchecked('ISO 15930-7:2010, 6.18 sets restrictions on non-JavaScript additional actions, and this rule does not check them') : script;
 };
 
 const forms: Check = context => {
@@ -240,17 +261,26 @@ const forms: Check = context => {
   if (form === undefined) return passed('no AcroForm is present');
   if (form.has(key('XFA'))) return violation('an XFA form is present');
   const fields = context.internals.objects.deref(form.get(key('Fields')));
-  if (fields?.kind !== 'array') return unchecked('AcroForm Fields is not a readable array');
+  if (fields?.kind !== 'array') {
+    return unchecked('PDF/X-4 restricts form fields, and this rule cannot check them because AcroForm Fields is not a readable array');
+  }
   return fields.items.length === 0 ? passed('AcroForm has no fields') : violation('AcroForm has fields');
 };
 
 const trapped: Check = context => {
   const info = context.metadata.info?.values.get('Trapped');
   const infoName = info?.kind === 'name' ? info.name : undefined;
-  const xmp = xmpText(context.metadata, PDF_NAMESPACE, 'Trapped');
   if (infoName !== 'True' && infoName !== 'False') return violation('Info Trapped must be the name True or False');
-  if (xmp !== infoName) return violation('XMP pdf:Trapped is absent or disagrees with Info Trapped');
-  return passed('Info and XMP Trapped agree on True or False');
+  return passed('Info Trapped is True or False');
+};
+
+const trappedXmp: Check = context => {
+  const info = context.metadata.info?.values.get('Trapped');
+  const infoName = info?.kind === 'name' ? info.name : undefined;
+  const xmp = xmpText(context.metadata, PDF_NAMESPACE, 'Trapped');
+  return infoName === xmp && (xmp === 'True' || xmp === 'False')
+    ? passed('Info and XMP Trapped agree on True or False')
+    : violation('XMP pdf:Trapped is absent or disagrees with Info Trapped');
 };
 
 const xmpVersion: Check = context =>
@@ -259,29 +289,33 @@ const xmpVersion: Check = context =>
     : violation('XMP lacks a single pdfxid:GTS_PDFXVersion value of PDF/X-4');
 
 const xmpMm: Check = context => {
+  const missing: string[] = [];
   for (const name of ['DocumentID', 'VersionID', 'RenditionClass']) {
-    if (xmpText(context.metadata, XMP_MM_NAMESPACE, name) === undefined) return violation(`XMP lacks xmpMM:${name}`);
+    if (xmpText(context.metadata, XMP_MM_NAMESPACE, name) === undefined) missing.push(`xmpMM:${name}`);
   }
-  return passed('XMP has DocumentID, VersionID and RenditionClass');
+  const presence = missing.length === 0 ? 'xmpMM:DocumentID, xmpMM:VersionID and xmpMM:RenditionClass are present' : `${missing.join(', ')} absent`;
+  return unchecked(`${presence}; ISO 15930-7:2010, 6.10 sets the identification requirements, and this rule does not check them`);
 };
 
 const checks: Readonly<Record<PdfX4RuleId, Check>> = {
-  'X4-VERSION': context => unchecked(`PDF header ${context.document.structure.headerVersion}; ISO 15930-7 6.1 is unavailable, so no version limit is asserted`),
-  'X4-PDF17-KEYS': () => needsClause('6.1 and 6.25; the effect of PDF 1.7-only keys'),
+  'X4-VERSION': context =>
+    unchecked(`ISO 15930-7:2010, 6.1 sets the version requirement, and this rule does not check it; the header is ${context.document.structure.headerVersion}`),
+  'X4-PDF17-KEYS': () => unchecked('ISO 15930-7:2010, 6.1 and 6.25 set the requirements for PDF 1.7-only keys, and this rule does not check them'),
   'X4-ENCRYPT': context => (context.document.structure.trailer.has(key('Encrypt')) ? violation('Encrypt is present') : passed('no Encrypt entry')),
   'X4-OI-PRESENT': context =>
     outputIntent(context) === undefined ? violation('no GTS_PDFX output intent is present') : passed('GTS_PDFX output intent is present'),
   'X4-OI-ENTRIES': checkIntentEntries,
   'X4-OI-PROFILE': checkProfile,
-  'X4-OI-PROFILE-VERSION': () => needsClause('6.4; the permitted ICC profile versions'),
+  'X4-OI-PROFILE-VERSION': () => needsClause('6.4 (permitted ICC profile versions)'),
   'X4-XMP-VERSION': xmpVersion,
   'X4-XMP-MM': xmpMm,
   'X4-TRAPPED': trapped,
+  'X4-TRAPPED-XMP': trappedXmp,
   'X4-BOXES': checkBoxes,
   'X4-JS': javascript,
   'X4-FORMS': forms,
-  'X4-ANNOTS': () => needsClause('6.17; printable annotation types and placement'),
-  'X4-TRANSFER': () => needsClause('6.13; transfer-function restrictions'),
+  'X4-ANNOTS': () => needsClause('6.17 (print area and PrinterMark annotation placement)'),
+  'X4-TRANSFER': () => needsClause('6.13 (whether TR2 /Default is permitted)'),
   'X4-LZW': lzw,
   'X4-EMBEDDED': context =>
     globalCheck(
@@ -304,14 +338,14 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
       value => value.kind === 'stream' && (value.dictionary.has(key('Ref')) || value.dictionary.has(key('Alternates')) || value.dictionary.has(key('OPI'))),
       'reference XObject, alternate image or OPI entry',
     ),
-  'X4-FONTS': () => needsClause('6.5; font embedding and use requirements'),
-  'X4-SPOT-ALTERNATE': () => needsClause('6.4; spot colour alternate-space equality'),
-  'X4-PS': () => needsClause('6.14; PostScript XObject rule text'),
-  'X4-BXEX': () => needsClause('6.19; compatibility-operator rule text'),
-  'X4-INTENTS': () => needsClause('6.23; rendering-intent restrictions'),
-  'X4-LIMITS': () => needsClause('6.25; architectural limits'),
-  'X4-TRANSPARENCY': () => unchecked('ISO 15930-7 clause 1 permits transparency; no transparency conformance rule was checked'),
-  'X4-OC': () => needsClause('6.24; optional-content configurations'),
+  'X4-FONTS': () => needsClause('6.5 (font embedding exemptions, including invisible text)'),
+  'X4-SPOT-ALTERNATE': () => needsClause('6.4 (what counts as the same spot alternate)'),
+  'X4-PS': () => needsClause('6.14 (PostScript XObjects)'),
+  'X4-BXEX': () => needsClause('6.19 (BX/EX operators)'),
+  'X4-INTENTS': () => needsClause('6.23 (rendering intents)'),
+  'X4-LIMITS': () => needsClause('6.25 (architectural limits)'),
+  'X4-TRANSPARENCY': () => unchecked('ISO 15930-7:2010, 6.20 sets transparency requirements, and this rule does not check them'),
+  'X4-OC': () => needsClause('6.24 (optional-content configurations)'),
 };
 
 /** Reports only the listed structural checks and their limits; a clean summary is not a PDF/X-4 conformance claim. */
