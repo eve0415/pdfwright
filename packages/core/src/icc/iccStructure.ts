@@ -1,6 +1,8 @@
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
+import { iccIdentity } from './iccIdentity.ts';
+
 export type ProfileClass = 'input' | 'display' | 'output' | 'deviceLink' | 'colorSpace' | 'abstract' | 'namedColor';
 export type DataColorSpace = 'XYZ' | 'Lab' | 'Gray' | 'RGB' | 'CMYK' | 'CMY' | 'Luv' | 'YCbCr' | 'Yxy' | 'HSV' | 'HLS' | { readonly colorants: number };
 export type RenderingIntent = 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric';
@@ -35,6 +37,7 @@ export interface IccWarning {
 export interface IccStructure {
   readonly header: IccHeader;
   readonly tags: readonly IccTagRecord[];
+  readonly identity: Uint8Array;
   readonly bytes: Uint8Array;
   readonly warnings: readonly IccWarning[];
 }
@@ -145,5 +148,9 @@ export const parseIccStructure = (source: Uint8Array): IccStructure => {
   const warnings: IccWarning[] = [];
   if (copy.length > header.size) warnings.push({ code: 'trailing-data', offset: header.size });
   const tags = readTags(bytes, view, warnings);
-  return { header, tags, bytes, warnings };
+  const identity = iccIdentity(bytes);
+  if (header.profileId.some(byte => byte !== 0) && header.profileId.some((byte, index) => byte !== identity[index])) {
+    warnings.push({ code: 'profile-id-mismatch', offset: 84 });
+  }
+  return { header, tags, identity, bytes, warnings };
 };
