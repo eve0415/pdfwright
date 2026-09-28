@@ -6,19 +6,34 @@ import { escapeXmlIdentifier } from '../native/nativeString.ts';
 
 import { coordinateNumber } from './coordinateNumber.ts';
 
-const coordinate = (value: Coordinate): number => {
-  const number = coordinateNumber(value);
-  if (!Number.isFinite(number)) throw new ValidationError('coordinate must be finite');
-  if (typeof value !== 'number' && value.denominator <= 0n) throw new ValidationError('length denominator must be positive');
+const coordinate = (value: unknown): number => {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new ValidationError('coordinate must be finite', 'illustrator-model');
+    return value;
+  }
+  if (typeof value !== 'object' || value === null || !('numerator' in value) || !('denominator' in value)) {
+    throw new ValidationError('coordinate must be a number or rational length', 'illustrator-model');
+  }
+  const { numerator, denominator } = value;
+  if (typeof numerator !== 'bigint' || typeof denominator !== 'bigint') {
+    throw new ValidationError('coordinate must be a number or rational length', 'illustrator-model');
+  }
+  if (denominator <= 0n) throw new ValidationError('length denominator must be positive', 'illustrator-model');
+  const number = coordinateNumber({ numerator, denominator });
+  if (!Number.isFinite(number)) throw new ValidationError('coordinate must be finite', 'illustrator-model');
   return number;
 };
 
+const optionalBoolean = (value: unknown, name: string): void => {
+  if (value !== undefined && typeof value !== 'boolean') throw new ValidationError(`${name} must be a boolean`, 'illustrator-model');
+};
+
 const unitInterval = (value: number, name: string): void => {
-  if (!Number.isFinite(value) || value < 0 || value > 1) throw new ValidationError(`${name} must be between 0 and 1`);
+  if (!Number.isFinite(value) || value < 0 || value > 1) throw new ValidationError(`${name} must be between 0 and 1`, 'illustrator-model');
 };
 
 const nativeName = (value: string, name: string): void => {
-  if (value.length === 0) throw new ValidationError(`${name} cannot be empty`);
+  if (value.length === 0) throw new ValidationError(`${name} cannot be empty`, 'illustrator-model');
   for (const character of value) {
     const code = character.codePointAt(0);
     if (code !== undefined && (code < 32 || code === 127)) throw new ValidationError(`${name} cannot contain control characters`, 'illustrator-model');
@@ -28,7 +43,7 @@ const nativeName = (value: string, name: string): void => {
 
 const spotKey = (spot: SpotColor): string => [...(spot.nameBytes ?? new TextEncoder().encode(spot.name))].join(',');
 const knownFields = (value: unknown, names: readonly string[], context: string): void => {
-  if (typeof value !== 'object' || value === null) throw new ValidationError(`${context} must be an object`);
+  if (typeof value !== 'object' || value === null) throw new ValidationError(`${context} must be an object`, 'illustrator-model');
   for (const name of Object.keys(value)) {
     if (!names.includes(name)) throw new UnsupportedFeatureError(`${context} field ${name} is unsupported`);
   }
@@ -37,19 +52,23 @@ const knownVariant = (kind: string, names: readonly string[], context: string): 
   if (!names.includes(kind)) throw new UnsupportedFeatureError(`${context} kind is unsupported`);
 };
 
-const validateHeader = (document: IllustratorDocument, width: number, height: number): void => {
-  knownFields(document.artboard, ['width', 'height', 'bleed', 'name'], 'artboard');
-  if (document.artboard.name !== undefined) nativeName(document.artboard.name, 'artboard name');
-  if (document.title !== undefined) {
-    for (const character of document.title) {
-      const code = character.codePointAt(0);
-      if (code === undefined || code < 32 || code > 126) throw new ValidationError('title requires printable ASCII');
-    }
-  }
-  const { bleed } = document.artboard;
+const bleedSideValues = (bleed: unknown): readonly unknown[] => {
+  if (typeof bleed !== 'object' || bleed === null) throw new ValidationError('bleed sides must be an object', 'illustrator-model');
+  return [
+    'top' in bleed ? bleed.top : undefined,
+    'right' in bleed ? bleed.right : undefined,
+    'bottom' in bleed ? bleed.bottom : undefined,
+    'left' in bleed ? bleed.left : undefined,
+  ];
+};
+
+const validateBleed = (bleed: unknown, width: number, height: number): void => {
   if (bleed !== undefined) {
-    const sides = typeof bleed === 'number' || 'numerator' in bleed ? [bleed] : [bleed.top, bleed.right, bleed.bottom, bleed.left];
+    if (typeof bleed !== 'number' && (typeof bleed !== 'object' || bleed === null)) {
+      throw new ValidationError('bleed must be a coordinate or sides', 'illustrator-model');
+    }
     if (typeof bleed === 'object' && !('numerator' in bleed)) knownFields(bleed, ['top', 'right', 'bottom', 'left'], 'bleed');
+    const sides = typeof bleed === 'number' || 'numerator' in bleed ? [bleed] : bleedSideValues(bleed);
     const amounts = sides.map(side => coordinate(side));
     for (const amount of amounts) if (amount < 0) throw new ValidationError('bleed cannot be negative', 'illustrator-model');
     const [top = 0, right = top, bottom = top, left = top] = amounts;
@@ -57,6 +76,18 @@ const validateHeader = (document: IllustratorDocument, width: number, height: nu
       throw new ValidationError('page dimensions including bleed cannot exceed 14400 points', 'illustrator-model');
     }
   }
+};
+
+const validateHeader = (document: IllustratorDocument, width: number, height: number): void => {
+  knownFields(document.artboard, ['width', 'height', 'bleed', 'name'], 'artboard');
+  if (document.artboard.name !== undefined) nativeName(document.artboard.name, 'artboard name');
+  if (document.title !== undefined) {
+    for (const character of document.title) {
+      const code = character.codePointAt(0);
+      if (code === undefined || code < 32 || code > 126) throw new ValidationError('title requires printable ASCII', 'illustrator-model');
+    }
+  }
+  validateBleed(document.artboard.bleed, width, height);
 };
 
 /** Validates every model value before any output is emitted. */
@@ -75,12 +106,12 @@ export const validateDocument = (document: IllustratorDocument): void => {
     const x = coordinate(value[0]);
     const y = coordinate(value[1]);
     if (x < -rulerX || x > 16383 - rulerX || y < -rulerY || y > 16383 - rulerY) {
-      throw new ValidationError('native coordinate lies outside the Illustrator canvas');
+      throw new ValidationError('native coordinate lies outside the Illustrator canvas', 'illustrator-model');
     }
   };
   const positive = (value: Coordinate, name: string): number => {
     const number = coordinate(value);
-    if (number < 0) throw new ValidationError(`${name} cannot be negative`);
+    if (number < 0) throw new ValidationError(`${name} cannot be negative`, 'illustrator-model');
     return number;
   };
   const spots = new Map<string, SpotColor>();
@@ -88,7 +119,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
   const checkSpot = (spot: SpotColor): void => {
     knownFields(spot, ['name', 'nameBytes', 'alternate'], 'spot');
     nativeName(spot.name, 'spot name');
-    if (spot.nameBytes?.length === 0) throw new ValidationError('spot name bytes cannot be empty');
+    if (spot.nameBytes?.length === 0) throw new ValidationError('spot name bytes cannot be empty', 'illustrator-model');
     const nameBytes = spot.nameBytes ?? new TextEncoder().encode(spot.name);
     if (nameBytes.length > 127 || nameBytes.includes(0)) {
       throw new ValidationError('spot colorant names must have at most 127 bytes and no null byte', 'illustrator-model');
@@ -131,13 +162,15 @@ export const validateDocument = (document: IllustratorDocument): void => {
   const checkPath = (item: PathItem): void => {
     knownFields(item, ['kind', 'geometry', 'fill', 'stroke'], 'path');
     geometry(item.geometry);
-    if (item.fill === undefined && item.stroke === undefined) throw new ValidationError('path requires a fill or stroke');
+    if (item.fill === undefined && item.stroke === undefined) throw new ValidationError('path requires a fill or stroke', 'illustrator-model');
     if (item.fill !== undefined) {
       knownFields(item.fill, ['paint', 'overprint'], 'fill');
+      optionalBoolean(item.fill.overprint, 'fill overprint');
       checkPaint(item.fill.paint);
     }
     if (item.stroke !== undefined) {
       knownFields(item.stroke, ['paint', 'width', 'overprint'], 'stroke');
+      optionalBoolean(item.stroke.overprint, 'stroke overprint');
       checkPaint(item.stroke.paint);
       if (positive(item.stroke.width, 'stroke width') > 14400) throw new ValidationError('stroke width cannot exceed 14400 points', 'illustrator-model');
     }
@@ -146,27 +179,27 @@ export const validateDocument = (document: IllustratorDocument): void => {
     knownFields(item, ['kind', 'width', 'height', 'bounds', 'color', 'alpha'], 'raster');
     knownFields(item.bounds, ['x', 'y', 'width', 'height'], 'raster bounds');
     if (!Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height) || item.width <= 0 || item.height <= 0) {
-      throw new ValidationError('raster dimensions must be positive integers');
+      throw new ValidationError('raster dimensions must be positive integers', 'illustrator-model');
     }
     const pixels = item.width * item.height;
-    if (!Number.isSafeInteger(pixels)) throw new ValidationError('raster pixel count is too large');
+    if (!Number.isSafeInteger(pixels)) throw new ValidationError('raster pixel count is too large', 'illustrator-model');
     const x = coordinate(item.bounds.x);
     const y = coordinate(item.bounds.y);
     const rasterWidth = positive(item.bounds.width, 'raster width');
     const rasterHeight = positive(item.bounds.height, 'raster height');
-    if (rasterWidth === 0 || rasterHeight === 0) throw new ValidationError('raster placement must have positive size');
+    if (rasterWidth === 0 || rasterHeight === 0) throw new ValidationError('raster placement must have positive size', 'illustrator-model');
     point([x, y]);
     point([x + rasterWidth, y + rasterHeight]);
-    if (item.alpha.length !== pixels) throw new ValidationError('raster alpha length does not match dimensions');
+    if (item.alpha.length !== pixels) throw new ValidationError('raster alpha length does not match dimensions', 'illustrator-model');
     knownVariant(item.color.space, ['cmyk', 'spot'], 'raster color space');
     if (item.color.space === 'cmyk') {
       knownFields(item.color, ['space', 'samples'], 'CMYK raster');
-      if (item.color.samples.length !== pixels * 4) throw new ValidationError('CMYK sample length does not match dimensions');
+      if (item.color.samples.length !== pixels * 4) throw new ValidationError('CMYK sample length does not match dimensions', 'illustrator-model');
     } else {
       knownFields(item.color, ['space', 'spot', 'samples'], 'spot raster');
       checkSpot(item.color.spot);
       if (item.color.samples !== undefined && item.color.samples.length !== pixels) {
-        throw new ValidationError('spot sample length does not match dimensions');
+        throw new ValidationError('spot sample length does not match dimensions', 'illustrator-model');
       }
     }
   };
@@ -183,15 +216,16 @@ export const validateDocument = (document: IllustratorDocument): void => {
         }
         case 'clipGroup': {
           knownFields(item, ['kind', 'clip', 'items'], 'clip group');
-          if (item.items.length === 0) throw new ValidationError('clip group cannot be empty');
+          if (item.items.length === 0) throw new ValidationError('clip group cannot be empty', 'illustrator-model');
           geometry(item.clip);
           items(item.items);
           break;
         }
         case 'group': {
           knownFields(item, ['kind', 'opacity', 'isolated', 'items'], 'group');
-          if (item.items.length === 0) throw new ValidationError('group cannot be empty');
+          if (item.items.length === 0) throw new ValidationError('group cannot be empty', 'illustrator-model');
           if (item.opacity !== undefined) unitInterval(item.opacity, 'group opacity');
+          optionalBoolean(item.isolated, 'group isolated');
           items(item.items);
           break;
         }
@@ -205,6 +239,8 @@ export const validateDocument = (document: IllustratorDocument): void => {
   const layerNames = new Set<string>();
   for (const layer of document.layers) {
     knownFields(layer, ['name', 'visible', 'locked', 'opacity', 'color', 'items'], 'layer');
+    optionalBoolean(layer.visible, 'layer visible');
+    optionalBoolean(layer.locked, 'layer locked');
     nativeName(layer.name, 'layer name');
     const identifier = escapeXmlIdentifier(layer.name);
     if (layerNames.has(identifier)) throw new ValidationError('layer XML identifiers must be unique', 'illustrator-model');
@@ -213,7 +249,9 @@ export const validateDocument = (document: IllustratorDocument): void => {
     if (layer.opacity !== undefined) unitInterval(layer.opacity, 'layer opacity');
     if (layer.color !== undefined) {
       for (const component of layer.color) {
-        if (!Number.isInteger(component) || component < 0 || component > 255) throw new ValidationError('layer color channels must be bytes');
+        if (!Number.isInteger(component) || component < 0 || component > 255) {
+          throw new ValidationError('layer color channels must be bytes', 'illustrator-model');
+        }
       }
     }
     items(layer.items);

@@ -1,7 +1,7 @@
 import type { IllustratorDocument } from './model/illustratorDocument.ts';
 import type { NativeCompression } from './zstd/frame.ts';
 
-import { createDocument } from '@pdfwright/core';
+import { ValidationError, createDocument } from '@pdfwright/core';
 
 import { attachPrivateData } from './container/privateData.ts';
 import { writeNative } from './native/writeNative.ts';
@@ -16,6 +16,16 @@ export interface WriteIllustratorPdfOptions {
 
 /** Writes one visible PDF page and a matching Illustrator-native layer copy in its page-piece data. */
 export const writeIllustratorPdf = (model: IllustratorDocument, options: WriteIllustratorPdfOptions = {}): Uint8Array => {
+  const { compression } = options;
+  const supplied: unknown = compression;
+  if (
+    supplied !== undefined &&
+    supplied !== 'zstandard' &&
+    supplied !== 'zstandard-raw-blocks' &&
+    (typeof supplied !== 'object' || supplied === null || !('zstandard' in supplied) || typeof supplied.zstandard !== 'function')
+  ) {
+    throw new ValidationError('compression must be a supported mode or a Zstandard encoder', 'illustrator-model');
+  }
   const native = writeNative(model, options.creator === undefined ? {} : { creator: options.creator });
   const document = createDocument();
   const page = drawPage(document, model);

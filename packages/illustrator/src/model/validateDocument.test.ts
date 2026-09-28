@@ -3,6 +3,8 @@ import type { IllustratorDocument, Layer, PathItem, RasterItem, SpotColor } from
 import { UnsupportedFeatureError, ValidationError, mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
+
 import { validateDocument } from './validateDocument.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
@@ -38,6 +40,12 @@ const validates =
   () => {
     validateDocument(candidate);
   };
+
+const corrupt = (source: IllustratorDocument, key: keyof IllustratorDocument, value: unknown): IllustratorDocument => {
+  const candidate = { ...source };
+  Object.defineProperty(candidate, key, { value, enumerable: true });
+  return candidate;
+};
 
 describe('illustrator document validation', () => {
   it('accepts a CMYK artboard with a spot path and an alpha raster', () => {
@@ -90,6 +98,19 @@ describe('illustrator document validation', () => {
     expect(validates({ ...document, layers: [{ name: 'A', items: [{ kind: 'path', geometry: path.geometry }] }] })).toThrow(ValidationError);
   });
 
+  it('gives caller validation failures a typed reason', () => {
+    const invalid: IllustratorDocument[] = [
+      { ...document, layers: [layer, layer] },
+      { ...document, layers: [{ ...layer, opacity: 2 }] },
+      { ...document, layers: [{ ...layer, items: [{ ...raster, alpha: new Uint8Array(1) }] }] },
+    ];
+    for (const candidate of invalid) {
+      expect(() => {
+        validateDocument(candidate);
+      }).toThrow(expect.objectContaining({ reason: 'illustrator-model' }));
+    }
+  });
+
   it('rejects oversized bleed, strokes and PDF colorant names before writing', () => {
     expect(validates({ ...document, artboard: { width: 100, height: 100, bleed: 1e9 } })).toThrow(ValidationError);
     expect(
@@ -100,6 +121,24 @@ describe('illustrator document validation', () => {
         validates({ ...document, layers: [{ name: 'A', items: [{ ...path, fill: { paint: { kind: 'spot', spot: { ...spot, nameBytes } } } }] }] }),
       ).toThrow(ValidationError);
     }
+  });
+
+  it('reports malformed bleed and non-boolean flags as validation errors', () => {
+    const malformed: IllustratorDocument[] = [
+      corrupt(document, 'artboard', { width: 100, height: 100, bleed: { top: 1 } }),
+      corrupt(document, 'layers', [{ ...layer, visible: 'false' }]),
+      corrupt(document, 'layers', [{ ...layer, locked: 'true' }]),
+      corrupt(document, 'layers', [{ ...layer, items: [{ ...path, fill: { ...path.fill, overprint: 'true' } }] }]),
+      corrupt(document, 'layers', [{ ...layer, items: [{ kind: 'group', isolated: 'yes', items: [path] }] }]),
+    ];
+    for (const candidate of malformed) {
+      expect(() => {
+        validateDocument(candidate);
+      }).toThrow(ValidationError);
+    }
+    const options = { compression: 'zstandard' as const };
+    Object.defineProperty(options, 'compression', { value: 'unknown' });
+    expect(() => writeIllustratorPdf(document, options)).toThrow(ValidationError);
   });
 
   it('rejects conflicting spot definitions using the same colorant bytes', () => {
