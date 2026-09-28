@@ -69,8 +69,11 @@ const referenceAt = (rows: readonly number[][], index: number): readonly number[
   return row;
 };
 
+// CIEDE2000 compares 6,189 RGB samples: a 17³ grid, 256 greys, 20 near-edge colours and 1,000 seeded colours. The 0.05 maximum and 0.005 mean ΔE2000 limits allow rounding in independent double-precision transforms while keeping differences below visible print variation.
 const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'].flatMap(source =>
-  ['fogra28l.icc', 'fogra28l-v4.icc'].flatMap(destination => [0, 1, 2, 3].flatMap(intent => [0, 1].map(bpc => ({ source, destination, intent, bpc })))),
+  ['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc'].flatMap(destination =>
+    [0, 1, 2, 3].flatMap(intent => [0, 1].map(bpc => ({ source, destination, intent, bpc }))),
+  ),
 );
 
 describe('littlecms double transform comparison', () => {
