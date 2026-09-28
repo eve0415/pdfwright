@@ -9,6 +9,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { createDocument } from '../document/pdfDocument.ts';
 import { rect } from '../document/rect.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { pt } from '../length/length.ts';
 import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
@@ -69,5 +70,32 @@ describe('convert to cmyk', () => {
     expect(report.images.converted).toBe(1);
     expect(saved.kind).toBe('streamed');
     expect(report.metadata).toBeUndefined();
+  });
+
+  it('leaves saved bytes identical when a later compressed-image refusal occurs', () => {
+    const input = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<</XObject<</Im 5 0 R>>>>/Contents 4 0 R>>' },
+          { number: 4, body: streamBody('', '0.2 0.4 0.6 rg /Im Do') },
+          { number: 5, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/DCTDecode', 'JPEG') },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes;
+    const document = loadDocument(input);
+    const before = document.save().toBytes();
+    expect(() =>
+      convertToCmyk(document, {
+        sourceRgbProfile: source,
+        outputProfile: output,
+        outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+        compressedRgbImages: 'refuse',
+      }),
+    ).toThrow(UnsupportedFeatureError);
+    expect(document.save().toBytes()).toStrictEqual(before);
   });
 });

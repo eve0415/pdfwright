@@ -14,6 +14,7 @@ import type { SpotConversionReport } from './convertSpots.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { PageRewriteReport } from './rewritePage.ts';
 
+import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { preparePdfX4Pages } from '../pdfx/preparePages.ts';
@@ -62,17 +63,25 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
   checkConversionRefusals(document, outputProfile, { outputIntent: policy });
   const conversion: RewriteColorOptions = { ...options, sourceRgbProfile, outputProfile };
   const pdfx = options.pdfx !== undefined && options.pdfx !== false;
-  const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
-  const page = rewritePageColors(document, conversion);
-  const forms = convertForms(document, conversion);
-  const images = convertImages(document, conversion);
-  const indexed = convertIndexedSpaces(document, conversion);
-  const spots = convertSpotSpaces(document, conversion);
-  const shadings = convertShadings(document, conversion);
-  const meshes = convertMeshShadings(document, conversion);
-  const groups = convertTransparencyGroups(document, conversion);
-  const otherCarriers = convertOtherCarriers(document, conversion);
-  const pageBoxes = options.pdfx === undefined || options.pdfx === false ? undefined : preparePdfX4Pages(document, options.pdfx);
-  const metadata = options.pdfx === undefined || options.pdfx === false ? undefined : writePdfX4Metadata(document, options.pdfx);
-  return { page, forms, images, indexed, spots, shadings, meshes, groups, otherCarriers, outputIntent, pageBoxes, metadata };
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  const previous = internals.objects.fork();
+  try {
+    const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
+    const page = rewritePageColors(document, conversion);
+    const forms = convertForms(document, conversion);
+    const images = convertImages(document, conversion);
+    const indexed = convertIndexedSpaces(document, conversion);
+    const spots = convertSpotSpaces(document, conversion);
+    const shadings = convertShadings(document, conversion);
+    const meshes = convertMeshShadings(document, conversion);
+    const groups = convertTransparencyGroups(document, conversion);
+    const otherCarriers = convertOtherCarriers(document, conversion);
+    const pageBoxes = options.pdfx === undefined || options.pdfx === false ? undefined : preparePdfX4Pages(document, options.pdfx);
+    const metadata = options.pdfx === undefined || options.pdfx === false ? undefined : writePdfX4Metadata(document, options.pdfx);
+    return { page, forms, images, indexed, spots, shadings, meshes, groups, otherCarriers, outputIntent, pageBoxes, metadata };
+  } catch (error: unknown) {
+    internals.objects.adopt(previous);
+    throw error;
+  }
 };
