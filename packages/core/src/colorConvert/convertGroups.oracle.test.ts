@@ -4,10 +4,12 @@ import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
+import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -179,6 +181,39 @@ const nestedFormMaskPdf = buildPdf([
     trailer: '/Root 1 0 R',
   },
 ]);
+
+const inlineImageMaskPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>' },
+      { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+      {
+        number: 6,
+        body: streamBody(
+          '/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>',
+          `BI /W 1 /H 1 /BPC 8 /CS /RGB ID\n${String.fromCodePoint(255, 0, 0)}\nEI`,
+        ),
+      },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
+  const form = document.get(pdfReference(6, 0));
+  if (form.kind !== 'stream') throw new Error('mask form is missing');
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('internals are unavailable');
+  const data = decodedData(internals, form);
+  if (typeof data === 'string') throw new Error(data);
+  const [operation] = readContent(data, internals.maxNesting);
+  if (operation?.inlineImage === undefined) throw new Error('inline image is missing');
+  const decoded = inflateZlib(operation.inlineImage.data);
+  return decoded.data;
+};
 
 const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
   const group = document.get(pdfReference(6, 0));
@@ -355,5 +390,12 @@ describe('transparency group conversion', () => {
     expect(converted.objectNumber).not.toBe(9);
     expect(contentAt(document, converted.objectNumber)).toContain('0.3 g');
     expect(contentAt(document, 9)).toContain('1 0 0 rg');
+  });
+
+  it('converts an inline RGB image in a luminosity group to gray', () => {
+    const document = loadDocument(inlineImageMaskPdf.bytes);
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(luminosityContent(document)).toContain('/CS /G');
+    expect(maskInline(document)).toStrictEqual(Uint8Array.of(77));
   });
 });

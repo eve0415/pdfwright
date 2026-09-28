@@ -1,4 +1,4 @@
-import type { ContentOperand, SpannedContentOperation } from '../content/contentOperations.ts';
+import type { ContentOperand, InlineImage, SpannedContentOperation } from '../content/contentOperations.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { readContentSpans } from '../content/contentOperations.ts';
@@ -32,7 +32,7 @@ const name = (operand: ContentOperand | undefined): string => {
 
 interface OperationRewrite {
   readonly state: ColourState;
-  readonly replacement: string | undefined;
+  readonly replacement: string | Uint8Array | undefined;
 }
 
 const rewriteNamedSpace = (operation: SpannedContentOperation, state: ColourState): OperationRewrite => {
@@ -57,8 +57,23 @@ const rewriteSample = (operation: SpannedContentOperation, state: ColourState, r
   };
 };
 
-const rewriteOperation = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: readonly number[]) => number): OperationRewrite => {
+const rewriteInline = (
+  operation: SpannedContentOperation,
+  state: ColourState,
+  convert: ((image: InlineImage) => Uint8Array | null) | undefined,
+): OperationRewrite => {
+  if (operation.inlineImage === undefined || convert === undefined) throw new UnsupportedFeatureError('luminosity mask contains unsupported inline content');
+  const replacement = convert(operation.inlineImage);
+  return { state, replacement: replacement ?? undefined };
+};
+
+const rewriteOperation = (
+  operation: SpannedContentOperation,
+  state: ColourState,
+  config: { gray: (values: readonly number[]) => number; inline?: ((image: InlineImage) => Uint8Array | null) | undefined },
+): OperationRewrite => {
   const { operator } = operation;
+  const rgbToGray = config.gray;
   if (operator === 'rg' || operator === 'RG') {
     const gray = rgbToGray(rgb(operation.operands));
     const stroke = operator === 'RG';
@@ -74,17 +89,22 @@ const rewriteOperation = (operation: SpannedContentOperation, state: ColourState
   if (operator === 'sc' || operator === 'scn' || operator === 'SC' || operator === 'SCN') {
     return rewriteSample(operation, state, rgbToGray);
   }
-  if (operator === 'k' || operator === 'K' || operator === 'sh' || operator === 'BI') {
+  if (operator === 'BI') return rewriteInline(operation, state, config.inline);
+  if (operator === 'k' || operator === 'K' || operator === 'sh') {
     throw new UnsupportedFeatureError('luminosity mask contains unsupported coloured content');
   }
   return { state, replacement: undefined };
 };
 
 /** Rewrites a DeviceRGB luminosity group's colour operators to DeviceGray without changing its geometry. */
-export const rewriteDeviceRgbLuminosity = (bytes: Uint8Array, rgbToGray: (values: readonly number[]) => number = deviceRgbLuminosity): Uint8Array => {
+export const rewriteDeviceRgbLuminosity = (
+  bytes: Uint8Array,
+  rgbToGray: (values: readonly number[]) => number = deviceRgbLuminosity,
+  inline?: (image: InlineImage) => Uint8Array | null,
+): Uint8Array => {
   let state: ColourState = { fillRgb: false, strokeRgb: false };
   const stack: ColourState[] = [];
-  const edits: { start: number; end: number; text: string }[] = [];
+  const edits: { start: number; end: number; replacement: string | Uint8Array }[] = [];
   for (const operation of readContentSpans(bytes, 256)) {
     if (operation.operator === 'q') {
       stack.push(state);
@@ -96,16 +116,17 @@ export const rewriteDeviceRgbLuminosity = (bytes: Uint8Array, rgbToGray: (values
       state = restored;
       continue;
     }
-    const rewritten = rewriteOperation(operation, state, rgbToGray);
+    const rewritten = rewriteOperation(operation, state, { gray: rgbToGray, inline });
     ({ state } = rewritten);
-    if (rewritten.replacement !== undefined) edits.push({ start: operation.start, end: operation.end, text: rewritten.replacement });
+    if (rewritten.replacement !== undefined) edits.push({ start: operation.start, end: operation.end, replacement: rewritten.replacement });
   }
   if (edits.length === 0) return bytes;
   const writer = new ByteWriter();
   let position = 0;
   for (const edit of edits) {
     writer.writeBytes(bytes.subarray(position, edit.start));
-    writer.writeAscii(edit.text);
+    if (typeof edit.replacement === 'string') writer.writeAscii(edit.replacement);
+    else writer.writeBytes(edit.replacement);
     position = edit.end;
   }
   writer.writeBytes(bytes.subarray(position));

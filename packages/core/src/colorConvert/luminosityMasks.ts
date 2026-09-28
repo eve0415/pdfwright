@@ -27,6 +27,7 @@ import { readImageSample } from './imageRows.ts';
 import { addInlineXObjects } from './inlineResources.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { deviceRgbLuminosity, rewriteDeviceRgbLuminosity } from './luminosityContent.ts';
+import { grayInlineImage } from './luminosityInline.ts';
 import { addOverprintStates, chooseOverprintNames } from './overprintResources.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -245,7 +246,7 @@ const planGrayForm = (
   if (typeof bytes === 'string') throw new ValidationError(`luminosity form cannot be read: ${bytes}`, 'color-operator');
   checkCompressedRgbImages(scan, bytes, resources);
   const children = recurse({ bytes, resources, paintGray: walk.paintGray, active: new Set([...walk.active, reference.objectNumber]) });
-  const rewritten = rewriteDeviceRgbLuminosity(bytes, walk.paintGray);
+  const rewritten = rewriteDeviceRgbLuminosity(bytes, walk.paintGray, image => grayInlineImage(image, walk.paintGray, scan.internals.maxDecodedBytes));
   if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity form exceeds maxDecodedBytes');
   const dictionary = new Entries(form.dictionary.entries());
   const groupValue = scan.internals.objects.deref(dictionary.get(GROUP));
@@ -392,7 +393,7 @@ const planRgbLuminosityMask = (
     if (rgbSource.kind !== 'rgb') throw new ValidationError('DeviceRGB does not resolve to an RGB profile', 'color-space');
     const paintGray = cie ? cieLuminosity(rgbSource.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
     const grayXObjects = planGrayXObjects(scan, { bytes, resources: groupResources, paintGray, active: new Set([groupReference.objectNumber]) });
-    const rewritten = rewriteDeviceRgbLuminosity(bytes, paintGray);
+    const rewritten = rewriteDeviceRgbLuminosity(bytes, paintGray, image => grayInlineImage(image, paintGray, scan.internals.maxDecodedBytes));
     if (rewritten.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError('converted luminosity mask exceeds maxDecodedBytes');
     scan.groups.set(groupReference.objectNumber, {
       reference: groupReference,
