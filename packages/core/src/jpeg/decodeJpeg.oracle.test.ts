@@ -63,6 +63,17 @@ const fullyDecode = (jpeg: Uint8Array): void => {
   for (const row of decodeJpeg(jpeg).rows()) void row;
 };
 
+const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {
+  const image = decodeJpeg(jpeg, { colorTransform });
+  const output = new Uint8Array(image.width * image.height * image.components);
+  let offset = 0;
+  for (const row of image.rows()) {
+    output.set(row, offset);
+    offset += row.length;
+  }
+  return output;
+};
+
 describe('jpeg decoding against ImageMagick libjpeg', () => {
   it.each(['1x1,1x1,1x1', '2x1,1x1,1x1', '2x2,1x1,1x1'])('decodes generated RGB JPEG with sampling %s', async sampling => {
     const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-sampling-factor', sampling, '-quality', '90', 'jpeg:-'], rgb());
@@ -93,6 +104,12 @@ describe('jpeg decoding against ImageMagick libjpeg', () => {
     const adobe = withAdobe(jpeg, 1);
     expect(decodeJpeg(adobe).adobeColorTransform).toBe(1);
     expect(decoded(adobe)).toStrictEqual(decoded(jpeg));
+  });
+
+  it('uses PDF ColorTransform only when APP14 is absent', async () => {
+    const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-quality', '90', 'jpeg:-'], rgb());
+    expect(rowsWith(jpeg, 0)).not.toStrictEqual(decoded(jpeg));
+    expect(rowsWith(withAdobe(jpeg, 1), 0)).toStrictEqual(decoded(jpeg));
   });
 
   it('refuses multi-scan and Adobe YCCK markers with typed reasons', async () => {

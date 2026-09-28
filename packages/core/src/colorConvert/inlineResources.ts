@@ -38,7 +38,11 @@ export const addInlineXObjects = (document: LoadedDocument, resources: PdfDictio
       [pdfName('Filter').bytes, image.keptFilter ?? pdfName('FlateDecode')],
     ]);
     if (image.keptDecodeParms !== undefined) dictionary.set(pdfName('DecodeParms').bytes, image.keptDecodeParms);
-    mapped.set(name, document.object({ kind: 'stream', dictionary, data: image.data }));
+    const reference =
+      image.produce === undefined
+        ? document.object({ kind: 'stream', dictionary, data: image.data })
+        : internals.objects.addProduced(dictionary, image.produce);
+    mapped.set(name, reference);
   }
   resources.set(XOBJECT, pdfDictionary(mapped));
 };

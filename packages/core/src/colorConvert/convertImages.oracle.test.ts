@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { runTool } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { compareDocuments } from '../compare/compareDocuments.ts';
+import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
@@ -17,11 +18,14 @@ import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
+import { decodeJpeg } from '../jpeg/decodeJpeg.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertImages } from './convertImages.ts';
+import { convertToCmyk } from './convertToCmyk.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
+import { rewritePageColors } from './rewritePage.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
@@ -29,6 +33,20 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const displayP3 = parseIccProfile(await fixture('DisplayP3-v4.icc'));
 const pixels = Uint8Array.of(0, 0, 0, 255, 128, 64);
+
+const jpegFixture = async (): Promise<Uint8Array> => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-jpeg-'));
+  try {
+    const input = path.join(directory, 'input.ppm');
+    const output = path.join(directory, 'output.jpg');
+    await writeFile(input, Uint8Array.of(...new TextEncoder().encode('P6\n2 1\n255\n'), ...pixels));
+    const generated = await runTool('magick', [input, '-sampling-factor', '1x1,1x1,1x1', '-quality', '90', output]);
+    if (generated.code !== 0) throw new Error(generated.output);
+    return Uint8Array.from(await readFile(output));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
 
 const streamed = (saved: SavedPdf): StreamedSavedPdf => {
   if (saved.kind !== 'streamed') throw new Error('expected a streamed save');
@@ -198,6 +216,14 @@ const imageData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const data = decodedData(internals, image);
   if (typeof data === 'string') throw new Error(data);
   return data;
+};
+
+const namedImage = (document: ReturnType<typeof loadDocument>, name: string): Extract<PdfObject, { kind: 'stream' }> => {
+  const xobjects = document.page(0).resources().get(pdfName('XObject').bytes);
+  if (xobjects?.kind !== 'dictionary') throw new Error('page XObjects are missing');
+  const reference = xobjects.entries.get(pdfName(name).bytes);
+  if (reference?.kind !== 'reference') throw new Error('inline image XObject is missing');
+  return imageStream(document.get(reference));
 };
 
 const stencilData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
@@ -376,6 +402,70 @@ describe('image colour conversion', () => {
     const document = loadDocument(imagePdf('DCTDecode', Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)));
     expect(() => {
       convertImages(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'refuse' });
+    }).toThrow(expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'compressed-rgb-image' }));
+  });
+
+  it('transcodes a generated DCT RGB image to streamed Flate CMYK with PDF/X metadata', async () => {
+    const jpeg = await jpegFixture();
+    const document = loadDocument(imagePdf('DCTDecode', jpeg));
+    const report = convertToCmyk(document, {
+      sourceRgbProfile: source.bytes,
+      outputProfile: destination.bytes,
+      outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+      pdfx: {
+        trapped: 'False',
+        documentId: 'uuid:6a769151-c839-4e89-9252-371ad5926a53',
+        metadataDate: pdfDate({ year: 2024, month: 1, day: 1, hour: 0, minute: 0, second: 0, offset: 'Z' }),
+      },
+      compressedRgbImages: 'transcode',
+    });
+    expect([report.images.converted, report.images.keptRgbImages.length]).toStrictEqual([1, 0]);
+    const saved = streamed(document.save());
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    await qpdfCheck(chunks);
+    const reloaded = loadDocument(chunks);
+    const image = imageStream(reloaded.get(pdfReference(5, 0)));
+    expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('FlateDecode'));
+    expect(image.dictionary.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
+    const rgb = joined([...decodeJpeg(jpeg).rows()]);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    const expected = new Uint8Array(8);
+    transform.convertRow8(rgb, expected, 2);
+    expect(imageData(reloaded)).toStrictEqual(expected);
+  });
+
+  it('moves a transcoded inline JPEG into a streamed Flate image XObject', async () => {
+    const jpeg = await jpegFixture();
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels)));
+    const content = joined([new TextEncoder().encode('BI /W 2 /H 1 /BPC 8 /CS /RGB /F /DCT ID\n'), jpeg, new TextEncoder().encode('\nEI')]);
+    document.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
+    expect(rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' }).inlineImages).toBe(1);
+    const saved = streamed(document.save());
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    await qpdfCheck(chunks);
+    const image = namedImage(loadDocument(chunks), 'PWIM0');
+    expect(image.dictionary.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
+    expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('FlateDecode'));
+  });
+
+  it('honours DCT DecodeParms ColorTransform without Adobe APP14', async () => {
+    const jpeg = await jpegFixture();
+    const document = loadDocument(imagePdf('DCTDecode', jpeg, { decodeParms: '/DecodeParms<</ColorTransform 0>>' }));
+    expect(decodeJpeg(jpeg).adobeColorTransform).toBeUndefined();
+    convertImages(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' });
+    const rows = joined([...decodeJpeg(jpeg, { colorTransform: 0 }).rows()]);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    const expected = new Uint8Array(8);
+    transform.convertRow8(rows, expected, 2);
+    expect(imageData(document)).toStrictEqual(expected);
+  });
+
+  it('refuses JPEG 2000 under the transcode policy', () => {
+    const document = loadDocument(imagePdf('JPXDecode', jp2Color(16), { colorSpace: '' }));
+    expect(() => {
+      convertImages(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' });
     }).toThrow(expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'compressed-rgb-image' }));
   });
 

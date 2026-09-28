@@ -1,3 +1,4 @@
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
@@ -13,6 +14,8 @@ export interface DecodedJpeg {
 export interface DecodeJpegOptions {
   /** Maximum storage for one MCU row, 4 MiB by default. */
   readonly maxRowBytes?: number;
+  /** PDF DCTDecode ColorTransform when APP14 does not provide one; defaults to 1 for three components and 0 for one. */
+  readonly colorTransform?: 0 | 1;
 }
 
 interface Component {
@@ -550,8 +553,9 @@ const finishScan = (input: {
   readonly bounds: SegmentBounds;
   readonly start: number;
   readonly maxRowBytes: number;
+  readonly colorTransform: 0 | 1 | undefined;
 }): DecodedJpeg => {
-  const { state, data, bounds, start, maxRowBytes } = input;
+  const { state, data, bounds, start, maxRowBytes, colorTransform } = input;
   const { frame, quantization, dc, ac, restartInterval, adobeColorTransform } = state;
   if (frame === undefined) return invalid(bounds.start, 'scan has no frame');
   const components = scanHeader(data, bounds, { frame, quantization, dc, ac });
@@ -560,7 +564,16 @@ const finishScan = (input: {
   const rowBytes =
     mcuColumns * 64 * frame.components.reduce((sum, component) => sum + component.horizontal * component.vertical, 0) + frame.width * frame.components.length;
   if (rowBytes > maxRowBytes) throw new ResourceLimitError('JPEG MCU row exceeds maxRowBytes');
-  const scan: Scan = { data, start, end, frame, components, restartInterval, colorTransform: adobeColorTransform ?? (frame.components.length === 3 ? 1 : 0) };
+  // ISO 32000-1:2008, 7.4.8, Table 13: an Adobe marker overrides DecodeParms ColorTransform, whose absent three-component default is 1.
+  const scan: Scan = {
+    data,
+    start,
+    end,
+    frame,
+    components,
+    restartInterval,
+    colorTransform: adobeColorTransform ?? colorTransform ?? (frame.components.length === 3 ? 1 : 0),
+  };
   return {
     width: frame.width,
     height: frame.height,
@@ -582,6 +595,10 @@ export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): D
   if (byte(data, 0) !== 0xff || byte(data, 1) !== 0xd8) return invalid(0, 'missing start of image');
   const maxRowBytes = options.maxRowBytes ?? 4 * 1024 * 1024;
   if (!Number.isSafeInteger(maxRowBytes) || maxRowBytes < 1) throw new ResourceLimitError('maxRowBytes must be a positive integer');
+  const requestedTransform: unknown = options.colorTransform;
+  if (requestedTransform !== undefined && requestedTransform !== 0 && requestedTransform !== 1) {
+    throw new InvalidArgumentError('JPEG colorTransform must be 0 or 1');
+  }
   const state: ParserState = { quantization: [], dc: [], ac: [], frame: undefined, restartInterval: 0, adobeColorTransform: undefined };
   let position = 2;
   while (position < data.length) {
@@ -592,7 +609,7 @@ export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): D
     checkFrameMarker(current.marker);
     const bounds = segment(data, position);
     position = bounds.end;
-    if (current.marker === 0xda) return finishScan({ state, data, bounds, start: position, maxRowBytes });
+    if (current.marker === 0xda) return finishScan({ state, data, bounds, start: position, maxRowBytes, colorTransform: options.colorTransform });
     parseHeaderSegment({ state, data, marker: current.marker, bounds });
   }
   return invalid(position, 'missing scan');

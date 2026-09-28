@@ -1,4 +1,5 @@
 import type { InlineImage } from '../content/contentOperations.ts';
+import type { StreamProducer } from '../document/editedObjects.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
@@ -10,8 +11,9 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
-import { deflateZlib } from '../flate/deflate.ts';
+import { createDeflateStream, deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
+import { decodeJpeg } from '../jpeg/decodeJpeg.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
@@ -30,6 +32,7 @@ export interface ConvertedInlineImage {
   readonly keptProfile?: Uint8Array;
   readonly keptFilter?: PdfDirectObject | undefined;
   readonly keptDecodeParms?: PdfDirectObject | undefined;
+  readonly produce?: StreamProducer;
 }
 
 interface InlineConfig {
@@ -129,6 +132,48 @@ const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirec
   return { replacement: `BI ${tokens.join(' ')} ID\n${latin1(config.image.data)}\nEI`, width, height, bits, data: config.image.data, asXObject: false };
 };
 
+const inlineColorTransform = (values: ReadonlyMap<string, PdfDirectObject>): 0 | 1 | undefined => {
+  const decodeParameters = values.get('DP') ?? values.get('DecodeParms');
+  const dictionary = decodeParameters?.kind === 'array' ? decodeParameters.items[0] : decodeParameters;
+  if (dictionary === undefined || dictionary.kind === 'null') return undefined;
+  if (dictionary.kind !== 'dictionary') return invalid('inline JPEG DecodeParms must be a dictionary');
+  const value = dictionary.entries.get(pdfName('ColorTransform').bytes);
+  if (value === undefined) return undefined;
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) return invalid('inline JPEG ColorTransform must be 0 or 1');
+  return value.value;
+};
+
+const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>): ConvertedInlineImage => {
+  const { document, image, resources, options } = config;
+  const width = number(values.get('W') ?? values.get('Width'), 'Width');
+  const height = number(values.get('H') ?? values.get('Height'), 'Height');
+  const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
+  if (bits !== 8) return invalid('inline JPEG BitsPerComponent must be 8');
+  const internals = internalsOf(document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  const maxRowBytes = Math.min(internals.maxDecodedBytes, 4 * 1024 * 1024);
+  const colorTransform = inlineColorTransform(values);
+  // ISO 32000-1:2008, 7.4.8, Table 13: APP14 overrides an inline image's DecodeParms ColorTransform.
+  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes } : { maxRowBytes, colorTransform });
+  if (jpeg.components !== 3 || jpeg.width !== width || jpeg.height !== height) return invalid('inline JPEG frame geometry differs from its dictionary');
+  for (const row of jpeg.rows()) void row;
+  const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
+  if (space.kind !== 'rgb') return invalid('DefaultRGB is not RGB');
+  const intent = options.intent === undefined || options.intent === 'document' ? config.intent : options.intent;
+  const decode = decodeValues(values.get('D') ?? values.get('Decode'));
+  const produce: StreamProducer = function* () {
+    const transform = createColorTransform(space.source, options.outputProfile, {
+      intent,
+      blackPointCompensation: options.blackPointCompensation !== false,
+      lut8LabEncoding: options.lut8LabEncoding ?? 'icc',
+    });
+    const deflater = createDeflateStream();
+    for (const row of jpeg.rows()) yield* deflater.push(convertImageRow(row, { width, channels: 3, bits: 8, transform, decode }));
+    yield deflater.finish();
+  };
+  return { replacement: `/${config.xObjectName} Do`, width, height, bits: 8, data: new Uint8Array(), asXObject: true, produce };
+};
+
 const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>): ConvertedInlineImage | undefined => {
   const { document, image, resources, options } = config;
   const filter = values.get('F') ?? values.get('Filter');
@@ -137,8 +182,15 @@ const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDi
   else if (filter !== undefined) filters = [filter];
   const compressed = filters.find(item => item.kind === 'name' && ['DCT', 'DCTDecode', 'JPXDecode'].includes(latin1(item.bytes)));
   if (compressed?.kind !== 'name') return undefined;
-  if (options.compressedRgbImages === 'refuse' || options.compressedRgbImages === 'transcode') {
+  if (options.compressedRgbImages === 'refuse') {
     throw new UnsupportedFeatureError('compressed RGB inline image conversion is unavailable', 'compressed-rgb-image');
+  }
+  if (options.compressedRgbImages === 'transcode') {
+    const name = latin1(compressed.bytes);
+    if (filters.length !== 1 || (name !== 'DCT' && name !== 'DCTDecode')) {
+      throw new UnsupportedFeatureError('only a single DCTDecode inline filter can be transcoded', 'compressed-rgb-image');
+    }
+    return transcodeCompressedInline(config, values);
   }
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
   if (space.kind !== 'rgb' || space.source.kind !== 'icc') {

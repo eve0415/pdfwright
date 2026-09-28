@@ -21,6 +21,7 @@ import { undoPredictor } from '../filter/predictor.ts';
 import { createDeflateStream } from '../flate/deflate.ts';
 import { inflateChunks } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
+import { decodeJpeg } from '../jpeg/decodeJpeg.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
@@ -94,6 +95,7 @@ const WIDTH = pdfName('Width').bytes;
 const HEIGHT = pdfName('Height').bytes;
 const INTENT = pdfName('Intent').bytes;
 const N = pdfName('N').bytes;
+const COLOR_TRANSFORM = pdfName('ColorTransform').bytes;
 const MAX_IMAGE_WORKING_BYTES = 4 * 1024 * 1024;
 
 const invalid = (detail: string): never => {
@@ -356,6 +358,52 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
   return { data, bits: outputBits, stencil };
 };
 
+const jpegColorTransform = (scan: ImageScan, image: PdfStream): 0 | 1 | undefined => {
+  const parameters = deref(scan, image.dictionary.get(DECODE_PARMS));
+  const dictionary = parameters?.kind === 'array' ? deref(scan, parameters.items[0]) : parameters;
+  if (dictionary === undefined || dictionary.kind === 'null') return undefined;
+  if (dictionary.kind !== 'dictionary') return invalid('JPEG DecodeParms must be a dictionary');
+  const value = deref(scan, dictionary.entries.get(COLOR_TRANSFORM));
+  if (value === undefined) return undefined;
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) return invalid('JPEG ColorTransform must be 0 or 1');
+  return value.value;
+};
+
+const transcodeJpegImage = (
+  scan: ImageScan,
+  input: { readonly reference: PdfReference; readonly image: PdfStream; readonly space: SourceSpace },
+): EncodedImageData => {
+  const { reference, image, space } = input;
+  if (space.kind !== 'rgb') throw new UnsupportedFeatureError('compressed non-RGB JPEG conversion is unavailable', 'compressed-rgb-image');
+  const geometry = imageGeometry(scan, image, space);
+  if (geometry.bits !== 8) return invalid('JPEG image BitsPerComponent must be 8');
+  // ISO 32000-1:2008, 7.4.8, Table 13: DecodeParms ColorTransform applies only when Adobe APP14 does not override it.
+  const maxRowBytes = Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES);
+  const colorTransform = jpegColorTransform(scan, image);
+  const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes } : { maxRowBytes, colorTransform });
+  if (jpeg.components !== 3 || jpeg.width !== geometry.width || jpeg.height !== geometry.height) {
+    return invalid('JPEG frame geometry differs from the image dictionary');
+  }
+  for (const row of jpeg.rows()) void row;
+  const transform = transformFor(scan, image, { source: space.source, reference });
+  const decode = decodeArray(scan, image, 3);
+  const data: StreamProducer = function* () {
+    const deflater = createDeflateStream();
+    for (const row of jpeg.rows()) yield* deflater.push(convertImageRow(row, { width: geometry.width, channels: 3, bits: 8, transform, decode }));
+    yield deflater.finish();
+  };
+  const { ranges } = geometry;
+  const stencil: StreamProducer | undefined =
+    ranges === undefined
+      ? undefined
+      : function* () {
+          const deflater = createDeflateStream();
+          for (const row of jpeg.rows()) yield* deflater.push(stencilRow(row, { width: geometry.width, channels: 3, bits: 8, ranges }));
+          yield deflater.finish();
+        };
+  return { data, bits: 8, stencil };
+};
+
 const planUntaggedJpx = (scan: ImageScan, target: { reference: PdfReference; image: PdfStream }): void => {
   const { reference, image } = target;
   if (!jpxHasRgbColor(image.data, Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES))) {
@@ -386,10 +434,28 @@ const planCompressedRgb = (
     filter: 'DCTDecode' | 'JPXDecode';
     color: PdfDirectObject;
     resources: PdfDictionaryEntries;
+    filters: readonly string[];
   },
 ): void => {
-  if (scan.options.compressedRgbImages === 'refuse' || scan.options.compressedRgbImages === 'transcode') {
+  if (scan.options.compressedRgbImages === 'refuse') {
     throw new UnsupportedFeatureError('compressed RGB image conversion is unavailable', 'compressed-rgb-image');
+  }
+  if (scan.options.compressedRgbImages === 'transcode') {
+    if (input.filter !== 'DCTDecode' || input.filters.length !== 1) {
+      throw new UnsupportedFeatureError('only a single DCTDecode filter can be transcoded', 'compressed-rgb-image');
+    }
+    const converted = transcodeJpegImage(scan, input);
+    scan.plans.push({
+      reference: input.reference,
+      image: input.image,
+      source: input.space,
+      filter: undefined,
+      converted: converted.data,
+      stencil: converted.stencil,
+      outputBits: converted.bits,
+      explicitColorSpace: undefined,
+    });
+    return;
   }
   if (input.space.kind === 'rgb' && input.space.source.kind === 'icc' && input.space.source.profile.bytes.length > MAX_IMAGE_WORKING_BYTES) {
     throw new ResourceLimitError(`RGB image profile exceeds the in-memory ceiling (${String(MAX_IMAGE_WORKING_BYTES)} bytes)`);
@@ -435,7 +501,7 @@ const planImage = (scan: ImageScan, target: { reference: PdfReference; image: Pd
   if (previous !== undefined) return;
   scan.seen.set(reference.objectNumber, key);
   if (compressed !== undefined) {
-    planCompressedRgb(scan, { reference, image, space, filter: compressed, color, resources });
+    planCompressedRgb(scan, { reference, image, space, filter: compressed, color, resources, filters });
     return;
   }
   const converted = convertPixels(scan, image, { space, reference });
