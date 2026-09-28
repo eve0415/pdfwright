@@ -123,6 +123,22 @@ describe('illustrator document validation', () => {
     }
   });
 
+  it('rejects empty paths and raster scales that serialize as zero', () => {
+    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { start: [0, 0], segments: [] } }] }] })).toThrow(ValidationError);
+    expect(validates({ ...document, layers: [{ name: 'A', items: [{ kind: 'clipGroup', clip: { start: [0, 0], segments: [] }, items: [path] }] }] })).toThrow(
+      ValidationError,
+    );
+    const tiny = {
+      ...raster,
+      width: 1000,
+      height: 1,
+      bounds: { x: 0, y: 0, width: 1e-8, height: 1 },
+      color: { space: 'cmyk' as const, samples: new Uint8Array(4000) },
+      alpha: new Uint8Array(1000),
+    };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [tiny] }] })).toThrow(ValidationError);
+  });
+
   it('reports malformed bleed and non-boolean flags as validation errors', () => {
     const malformed: IllustratorDocument[] = [
       corrupt(document, 'artboard', { width: 100, height: 100, bleed: { top: 1 } }),

@@ -2,6 +2,7 @@ import type { Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathIt
 
 import { UnsupportedFeatureError, ValidationError } from '@pdfwright/core';
 
+import { formatNativeNumber } from '../native/formatNativeNumber.ts';
 import { escapeXmlIdentifier } from '../native/nativeString.ts';
 
 import { coordinateNumber } from './coordinateNumber.ts';
@@ -149,6 +150,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
   const geometry = (value: PathGeometry): void => {
     knownFields(value, ['start', 'segments'], 'path geometry');
     point(value.start);
+    if (value.segments.length === 0) throw new ValidationError('path requires at least one segment', 'illustrator-model');
     for (const segment of value.segments) {
       knownVariant(segment.kind, ['line', 'curve'], 'path segment');
       point(segment.to);
@@ -188,6 +190,9 @@ export const validateDocument = (document: IllustratorDocument): void => {
     const rasterWidth = positive(item.bounds.width, 'raster width');
     const rasterHeight = positive(item.bounds.height, 'raster height');
     if (rasterWidth === 0 || rasterHeight === 0) throw new ValidationError('raster placement must have positive size', 'illustrator-model');
+    if (formatNativeNumber(rasterWidth / item.width) === '0' || formatNativeNumber(rasterHeight / item.height) === '0') {
+      throw new ValidationError('raster scale rounds to zero in native data', 'illustrator-model');
+    }
     point([x, y]);
     point([x + rasterWidth, y + rasterHeight]);
     if (item.alpha.length !== pixels) throw new ValidationError('raster alpha length does not match dimensions', 'illustrator-model');
