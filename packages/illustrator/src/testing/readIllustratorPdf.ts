@@ -24,6 +24,7 @@ export interface ContainerFacts {
 export interface ReadResult extends ContainerFacts {
   readonly document: ReturnType<typeof readNative>['document'];
   readonly header: ReadonlyMap<string, string>;
+  readonly unknownBlocks: readonly string[];
 }
 
 const decoder = new TextDecoder();
@@ -125,5 +126,5 @@ const dateFrom = (bytes: Uint8Array): PdfDate => {
 export const readIllustratorPdf = (pdf: Uint8Array): ReadResult => {
   const facts = readIllustratorContainer(pdf);
   const read = readNative(facts.native, dateFrom(facts.pageDate));
-  return { ...facts, document: read.document, header: read.header };
+  return { ...facts, document: read.document, header: read.header, unknownBlocks: read.unknownBlocks };
 };

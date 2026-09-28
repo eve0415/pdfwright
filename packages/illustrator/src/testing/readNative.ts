@@ -72,7 +72,7 @@ const point = (values: readonly number[]): Point => {
 const parseGeometry = (cursor: Cursor): PathGeometry => {
   const first = cursor.takeLine();
   const firstTokens = first.split(' ');
-  if (firstTokens.at(-1) !== 'm') throw new Error('native path must start with m');
+  if (firstTokens.at(-1) !== 'm') throw new Error(`native path must start with m, got ${first}`);
   const start = point(numbers(firstTokens.slice(0, 2).join(' ')));
   const segments: PathGeometry['segments'][number][] = [];
   while (!cursor.done()) {
@@ -108,29 +108,52 @@ const parsePaint = (line: string): Paint => {
   return { kind: 'spot', spot: color, tint: 1 - Number(spot[6]) };
 };
 
-const parsePath = (cursor: Cursor): PathItem => {
+interface PaintState {
+  fillPaint: Paint | undefined;
+  strokePaint: Paint | undefined;
+  overprintFill: boolean;
+  overprintStroke: boolean;
+  strokeWidth: number;
+}
+
+const isFillPaint = (line: string): boolean => line.endsWith(' k') || line.endsWith(' x');
+const isStrokePaint = (line: string): boolean => line.endsWith(' K') || line.endsWith(' X');
+
+const readPathState = (cursor: Cursor, state: PaintState): void => {
+  while (!cursor.done()) {
+    const line = peekLine(cursor);
+    if (line === undefined) break;
+    const width = /^0 J 0 j (\S+) w 10 M \[\]0 d$/u.exec(line);
+    const shortWidth = /^(\S+) w$/u.exec(line);
+    if (/^[01] O$/u.test(line)) state.overprintFill = cursor.takeLine() === '1 O';
+    else if (/^[01] R$/u.test(line)) state.overprintStroke = cursor.takeLine() === '1 R';
+    else if (isFillPaint(line)) state.fillPaint = parsePaint(cursor.takeLine());
+    else if (isStrokePaint(line)) state.strokePaint = parsePaint(cursor.takeLine());
+    else if (/^0 \S+ [01] \S+ 0 Xy$/u.test(line) || line === '0 XR') cursor.takeLine();
+    else if (width === null) {
+      if (shortWidth === null) break;
+      state.strokeWidth = Number(shortWidth[1]);
+      cursor.takeLine();
+    } else {
+      state.strokeWidth = Number(width[1]);
+      cursor.takeLine();
+    }
+  }
+};
+
+const parsePath = (cursor: Cursor, state: PaintState): PathItem => {
   const count = cursor.takeLine();
   if (!/^\d+ As$/u.test(count)) throw new Error('path anchor count is missing');
-  let fill: Fill | undefined = undefined;
-  let strokePaint: Paint | undefined = undefined;
-  let overprintStroke = false;
-  if (/^[01] O$/u.test(peekLine(cursor) ?? '')) {
-    const overprint = cursor.takeLine() === '1 O';
-    fill = { paint: parsePaint(cursor.takeLine()), overprint };
-  }
-  if (/^[01] R$/u.test(peekLine(cursor) ?? '')) {
-    overprintStroke = cursor.takeLine() === '1 R';
-    strokePaint = parsePaint(cursor.takeLine());
-  }
-  expectLine(cursor, '0 1 0 0 0 Xy');
-  const strokeState = cursor.takeLine();
-  const width = /^0 J 0 j (\S+) w 10 M \[\]0 d$/u.exec(strokeState);
-  if (width === null) throw new Error('unsupported native stroke state');
-  expectLine(cursor, '0 XR');
+  readPathState(cursor, state);
   const geometry = parseGeometry(cursor);
   const operator = cursor.takeLine();
   if (operator !== 'f' && operator !== 's' && operator !== 'b') throw new Error('unsupported native path operator');
-  const stroke: Stroke | undefined = strokePaint === undefined ? undefined : { paint: strokePaint, width: Number(width[1]), overprint: overprintStroke };
+  const fill: Fill | undefined =
+    (operator === 'f' || operator === 'b') && state.fillPaint !== undefined ? { paint: state.fillPaint, overprint: state.overprintFill } : undefined;
+  const stroke: Stroke | undefined =
+    (operator === 's' || operator === 'b') && state.strokePaint !== undefined
+      ? { paint: state.strokePaint, width: state.strokeWidth, overprint: state.overprintStroke }
+      : undefined;
   if (fill !== undefined && stroke !== undefined) return { kind: 'path', geometry, fill, stroke };
   if (fill !== undefined) return { kind: 'path', geometry, fill };
   if (stroke !== undefined) return { kind: 'path', geometry, stroke };
@@ -144,19 +167,20 @@ const skipArtDictionary = (cursor: Cursor): void => {
   expectLine(cursor, '%_');
 };
 
-const parseRaster = (cursor: Cursor): RasterItem => {
+const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
   let spotPaint: Paint | undefined = undefined;
   if (peekLine(cursor) === '0 O') {
     cursor.takeLine();
     spotPaint = parsePaint(cursor.takeLine());
+    state.fillPaint = spotPaint;
   }
-  expectLine(cursor, '0 1 0 0 0 Xy');
-  expectLine(cursor, '0 J 0 j 1 w 10 M []0 d');
-  expectLine(cursor, '0 XR');
+  if (peekLine(cursor) === '0 1 0 0 0 Xy') cursor.takeLine();
+  if (peekLine(cursor) === '0 J 0 j 1 w 10 M []0 d') cursor.takeLine();
+  if (peekLine(cursor) === '0 XR') cursor.takeLine();
   expectLine(cursor, '%AI5_File:');
   expectLine(cursor, '%AI5_BeginRaster');
   const source = cursor.takeLine();
-  if (source !== '() 0 XG' && source !== '() 1 XG') throw new Error('unsupported raster source');
+  if (!/^\(.*\) [01] XG$/u.test(source)) throw new Error('unsupported raster source');
   const colorDeclaration = cursor.takeLine();
   const matrix = /^\[ (\S+) 0 0 (\S+) (\S+) (\S+) \] (\d+) (\d+) [03] Xh$/u.exec(cursor.takeLine());
   if (matrix === null) throw new Error('unsupported native raster matrix');
@@ -188,14 +212,23 @@ const parseRaster = (cursor: Cursor): RasterItem => {
 const isClipPath = (cursor: Cursor): boolean => {
   const line = peekLine(cursor);
   if (line === undefined || !/^\d+ As$/u.test(line)) return false;
-  const next = cursor.peekOffset(1);
-  return next?.kind === 'line' && next.text.endsWith(' m');
+  for (let offset = 1; offset < 10_000; offset++) {
+    const record = cursor.peekOffset(offset);
+    if (record?.kind !== 'line') return false;
+    if (record.text === 'f' || record.text === 's' || record.text === 'b') return false;
+    if (record.text === 'h') {
+      const next = cursor.peekOffset(offset + 1);
+      return next?.kind === 'line' && next.text === 'W';
+    }
+  }
+  return false;
 };
 
 const isLayerTrailer = (line: string | undefined): boolean => /^0 \S+ 0 2 0 Xy$/u.test(line ?? '');
 
 const finishClip = (cursor: Cursor, items: readonly Item[]): ClipGroup => {
   cursor.takeLine();
+  while (/^\S+ w$/u.test(peekLine(cursor) ?? '') || peekLine(cursor) === '0 XR') cursor.takeLine();
   const clip = parseGeometry(cursor);
   expectLine(cursor, 'h');
   expectLine(cursor, 'W');
@@ -220,7 +253,7 @@ const finishGroup = (cursor: Cursor, items: readonly Item[]): Group => {
   return { kind: 'group', items, opacity, isolated };
 };
 
-const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip'): Item[] => {
+const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip', state: PaintState): Item[] => {
   const items: Item[] = [];
   while (!cursor.done()) {
     const line = peekLine(cursor);
@@ -228,16 +261,18 @@ const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip'): Item[] 
     if ((ending === 'layer' && (line === 'LB' || isLayerTrailer(line))) || (ending === 'group' && line === 'U') || (ending === 'clip' && isClipPath(cursor))) {
       break;
     }
-    if (line === '0 Ae') {
+    if (line === '0 Ap' || line === '1 Ap') {
+      cursor.takeLine();
+    } else if (line === '0 Ae') {
       cursor.takeLine();
       const opening = cursor.takeLine();
-      if (opening === 'q') items.push(finishClip(cursor, parseItems(cursor, 'clip')));
-      else if (opening === 'u') items.push(finishGroup(cursor, parseItems(cursor, 'group')));
+      if (opening === 'q') items.push(finishClip(cursor, parseItems(cursor, 'clip', { ...state })));
+      else if (opening === 'u') items.push(finishGroup(cursor, parseItems(cursor, 'group', { ...state })));
       else throw new Error('unknown native group opener');
     } else if (/^\d+ As$/u.test(line)) {
-      items.push(parsePath(cursor));
-    } else if (line === '0 O' || line === '0 1 0 0 0 Xy') {
-      items.push(parseRaster(cursor));
+      items.push(parsePath(cursor, state));
+    } else if (line === '0 O' || line === '0 1 0 0 0 Xy' || line === '%AI5_File:') {
+      items.push(parseRaster(cursor, state));
     } else {
       throw new Error(`unknown native layer operator: ${line}`);
     }
@@ -272,7 +307,7 @@ const parseLayer = (records: readonly NativeRecord[]): Layer => {
   expectLine(cursor, '0 A');
   if (lb[0] === '0') expectLine(cursor, '1 Xw');
   expectLine(cursor, '0 Xw');
-  const items = parseItems(cursor, 'layer');
+  const items = parseItems(cursor, 'layer', { fillPaint: undefined, strokePaint: undefined, overprintFill: false, overprintStroke: false, strokeWidth: 1 });
   let opacity = 1;
   if (isLayerTrailer(peekLine(cursor))) {
     opacity = Number(cursor.takeLine().split(' ')[1]);
@@ -315,6 +350,21 @@ const parseArtboard = (records: readonly NativeRecord[], header: ReadonlyMap<str
   return name === undefined ? artboard : { ...artboard, name };
 };
 
+const unknownSetupBlocks = (records: readonly NativeRecord[]): string[] => {
+  const blocks = new Set<string>();
+  let inSetup = false;
+  for (const record of records) {
+    if (record.kind !== 'line') continue;
+    if (record.text === '%%BeginSetup') inSetup = true;
+    else if (record.text === '%%EndSetup') inSetup = false;
+    else if (inSetup) {
+      const marker = /^%AI\d+_Begin\S*/u.exec(record.text)?.[0];
+      if (marker !== undefined && marker !== '%AI5_BeginPalette' && marker !== '%AI9_BeginDocumentData') blocks.add(marker);
+    }
+  }
+  return [...blocks];
+};
+
 /** Reads the supported native layer grammar; the full PDF page date supplies lost seconds and zone. */
 export const readNative = (native: Uint8Array, lastModified: PdfDate): NativeReadResult => {
   const records = tokenizeNative(native);
@@ -330,5 +380,5 @@ export const readNative = (native: Uint8Array, lastModified: PdfDate): NativeRea
   }
   const titleLine = header.get('%%Title') ?? '()';
   const document: IllustratorDocument = { artboard: parseArtboard(records, header), layers, lastModified, title: parseNativeLiteral(titleLine) };
-  return { document, header, unknownBlocks: [] };
+  return { document, header, unknownBlocks: unknownSetupBlocks(records) };
 };

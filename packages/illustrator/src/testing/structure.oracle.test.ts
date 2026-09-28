@@ -1,4 +1,5 @@
 import type { NativeRecord } from './nativeTokenizer.ts';
+import type { ContainerFacts } from './readIllustratorPdf.ts';
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -7,8 +8,11 @@ import { env, stdout } from 'node:process';
 import { mm } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
+
 import { tokenizeNative } from './nativeTokenizer.ts';
-import { readIllustratorContainer } from './readIllustratorPdf.ts';
+import { normalizeModel } from './normalizeModel.ts';
+import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
 if (exportsDirectory === undefined) stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
@@ -33,6 +37,7 @@ const localSource = async (file: string): Promise<Uint8Array> => {
   return readFile(path.join(exportsDirectory, file));
 };
 const textLines = (records: readonly NativeRecord[]): string[] => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
+const stableKeys = (facts: ContainerFacts): string[] => facts.privateKeys.filter(name => !/^AIPDFPrivateData\d+$/u.test(name));
 const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: number): number => {
   const crop = lines
     .find(line => line.startsWith('%AI3_Cropmarks: '))
@@ -80,5 +85,21 @@ describe('local Illustrator structure comparison', () => {
     ]).toStrictEqual(sample.paint);
     expect(lines.filter(line => line === 'q')).toHaveLength(lines.filter(line => line === 'Q').length);
     expect(lines.filter(line => line === 'u')).toHaveLength(lines.filter(line => line === 'U').length);
+  });
+
+  it.skipIf(exportsDirectory === undefined).each(samples)('$file restores its native layers through the reader', async sample => {
+    const read = readIllustratorPdf(await localSource(sample.file));
+    expect(read.document.layers).toHaveLength(sample.layers);
+    expect(read.unknownBlocks.length).toBeGreaterThan(0);
+  });
+
+  it.skipIf(exportsDirectory === undefined).each(samples)('$file rewrites its recovered artwork with the same structure', async sample => {
+    const observed = readIllustratorPdf(await localSource(sample.file));
+    const reproduced = readIllustratorPdf(writeIllustratorPdf(observed.document));
+    expect(reproduced.document).toStrictEqual(normalizeModel(observed.document));
+    expect(stableKeys(reproduced)).toStrictEqual(stableKeys(observed));
+    expect([reproduced.containerVersion, reproduced.creatorVersion, reproduced.roundtripStreamType, reproduced.roundtripVersion]).toStrictEqual([9, 30, 2, 30]);
+    expect([reproduced.frameHeaderDescriptor, reproduced.windowDescriptor]).toStrictEqual([observed.frameHeaderDescriptor, observed.windowDescriptor]);
+    expect(reproduced.pageDate).toStrictEqual(reproduced.applicationDate);
   });
 });
