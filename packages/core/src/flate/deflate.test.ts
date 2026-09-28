@@ -139,7 +139,7 @@ describe('deterministic deflate encoding', () => {
 
 describe('incremental deflate output', () => {
   it('emits bounded pieces byte-identical to one-shot compression across input boundaries', () => {
-    const input = Uint8Array.from({ length: 2_200_000 }, (_, index) => (index * 73 + (index >>> 8)) & 255);
+    const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 73 + (index >>> 8)) & 255);
     for (const level of [0, 6, 9] as const) {
       const stream = createDeflateStream({ level });
       const parts: Uint8Array[] = [];

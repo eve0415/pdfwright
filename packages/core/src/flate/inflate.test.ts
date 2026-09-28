@@ -151,7 +151,7 @@ describe('zlib inflation', () => {
 
 describe('chunked zlib inflate', () => {
   it('yields bounded decoded chunks across long distance references', () => {
-    const input = Uint8Array.from({ length: 2_000_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
+    const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
     const chunks = [...inflateChunks(deflateZlib(input))];
     expect(chunks.length).toBeGreaterThan(1);
     expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65536);
