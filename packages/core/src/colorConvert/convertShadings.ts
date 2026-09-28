@@ -494,7 +494,7 @@ const applyDirectForms = (document: LoadedDocument, plans: readonly FormShadingP
   return discarded;
 };
 
-/** Converts function, axial and radial shading functions while preserving geometry and stops. */
+/** Converts function, axial and radial shading functions while preserving geometry and stops. ISO 32000-1:2008, 8.7.4.5.2–4 and Tables 79–81 define their domains, coordinates and functions. */
 export const convertShadings = (document: LoadedDocument, options: RewriteColorOptions): ShadingConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);

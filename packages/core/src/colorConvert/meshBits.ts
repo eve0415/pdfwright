@@ -4,6 +4,7 @@ export const validateMeshBits = (bits: number): void => {
   if (!Number.isInteger(bits) || bits < 1 || bits > 32) throw new ParseError('mesh field width must be from 1 to 32 bits', 0);
 };
 
+// ISO 32000-1:2008, 8.7.4.5.5: a mesh vertex is read from higher-order to lower-order bit positions and padded to a whole byte.
 export class MeshBitReader {
   private readonly data: Uint8Array;
   private position = 0;

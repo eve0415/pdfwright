@@ -55,7 +55,7 @@ const headerRgb = (bytes: Uint8Array, header: Box, maxProfileBytes: number): boo
   return false;
 };
 
-/** Reads the first JP2 colr box and accepts only an explicit sRGB enumeration or RGB ICC profile. */
+/** Reads the first JP2 colr box and accepts only an explicit sRGB enumeration or RGB ICC profile. ISO 32000-1:2008, 7.4.9 says JPX colour data is used when an image dictionary has no ColorSpace and may contain enumerated spaces or ICC profiles. */
 export const jpxHasRgbColor = (bytes: Uint8Array, maxProfileBytes: number): boolean => {
   const signature = boxAt(bytes, 0, bytes.length);
   if (signature?.type !== 'jP  ' || signature.end - signature.content !== 4) return false;

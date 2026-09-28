@@ -692,6 +692,7 @@ const applyResources = (scan: MaskScan, discarded: PdfReference[]): void => {
 };
 
 /** Prepares RGB luminosity masks before any document edits are made. */
+// ISO 32000-1:2008, 11.6.5.2, Table 144: a Luminosity soft mask derives values from its transparency group and the BC backdrop colour.
 export const prepareLuminosityMasks = (document: LoadedDocument, options: RewriteColorOptions): LuminosityPreparation => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');

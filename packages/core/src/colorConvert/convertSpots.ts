@@ -328,7 +328,7 @@ const applyImage = (document: LoadedDocument, plan: ImagePlan): PdfReference[] =
   return [...plan.spot.discarded];
 };
 
-/** Converts RGB or calibrated-gray alternates while preserving every colorant name object. */
+/** Converts RGB or calibrated-gray alternates while preserving every colorant name object. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
 export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColorOptions): SpotConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);

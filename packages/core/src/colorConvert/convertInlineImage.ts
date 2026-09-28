@@ -54,6 +54,7 @@ const invalid = (detail: string): never => {
 };
 
 const parameters = (image: InlineImage): Map<string, PdfDirectObject> => {
+  // ISO 32000-1:2008, 8.9.7, Table 93: inline image keys have the meanings of image dictionary keys and may use the listed abbreviations.
   const values = new Map<string, PdfDirectObject>();
   if (image.parameters.length % 2 !== 0) return invalid('inline image parameters are unpaired');
   for (let index = 0; index < image.parameters.length; index += 2) {

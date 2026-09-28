@@ -359,7 +359,7 @@ const scanResources = (scan: MeshScan, visit: ResourceVisit): void => {
   }
 };
 
-/** Converts unfunctioned Type 4–7 meshes to adaptively refined CMYK triangles. */
+/** Converts unfunctioned Type 4–7 meshes to adaptively refined CMYK triangles. ISO 32000-1:2008, 8.7.4.5.5–8 and Tables 82–86 define their stream fields and patch connections. */
 export const convertMeshShadings = (document: LoadedDocument, options: RewriteColorOptions): MeshConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);

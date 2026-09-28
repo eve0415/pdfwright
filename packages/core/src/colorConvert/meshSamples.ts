@@ -43,6 +43,7 @@ const copyCoordinates = (reader: MeshBitReader, writer: MeshBitWriter, config: {
 };
 
 const vertexRecord = (reader: MeshBitReader, writer: MeshBitWriter, options: MeshSampleOptions): void => {
+  // ISO 32000-1:2008, 8.7.4.5.5–6, Tables 82–83: mesh vertices carry coordinates and colour fields, with an edge flag in Type 4.
   if (options.type === 4) {
     const flag = reader.read(options.flagBits);
     if (flag % 4 > 2) throw new ParseError('Type 4 mesh edge flag is invalid', 0);
@@ -55,6 +56,7 @@ const vertexRecord = (reader: MeshBitReader, writer: MeshBitWriter, options: Mes
 };
 
 const patchRecord = (reader: MeshBitReader, writer: MeshBitWriter, config: { options: MeshSampleOptions; first: boolean }): void => {
+  // ISO 32000-1:2008, 8.7.4.5.7–8, Tables 85–86: a shared edge omits coordinates and two corner colours from a new patch.
   const { options, first } = config;
   const flag = reader.read(options.flagBits);
   const edge = flag % 4;
