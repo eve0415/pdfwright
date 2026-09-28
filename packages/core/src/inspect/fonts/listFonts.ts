@@ -37,11 +37,11 @@ const FONT_FILES = ['FontFile', 'FontFile2', 'FontFile3'] as const;
 export type FontEmbedding =
   | {
       readonly state: 'embedded';
-      /** The font descriptor entry that holds the program (ISO 32000-1:2008, Table 126). */
+      /** The font descriptor entry that holds the program (ISO 32000-1:2008, ISO 32000-1:2008, Table 126). */
       readonly file: 'FontFile' | 'FontFile2' | 'FontFile3';
       /** The Subtype of a FontFile3 stream: Type1C, CIDFontType0C or OpenType; undefined for the other entries. */
       readonly fileSubtype: Uint8Array | undefined;
-      /** False when Table 126 does not allow the program for the font's type, such as a TrueType program under a Type 1 font. */
+      /** False when ISO 32000-1:2008, Table 126 does not allow the program for the font's type, such as a TrueType program under a Type 1 font. */
       readonly matchesFontType: boolean;
     }
   | { readonly state: 'not-embedded'; readonly standard14: boolean }
@@ -88,10 +88,10 @@ export interface FontEntry {
   readonly reference: PdfReference | undefined;
   readonly subtype: FontSubtype;
   readonly subtypeBytes: Uint8Array;
-  /** BaseFont as stored, or for a Type 3 font the descriptor's FontName, which Table 112 does not require. */
+  /** BaseFont as stored, or for a Type 3 font the descriptor's FontName, which ISO 32000-1:2008, Table 112 does not require. */
   readonly name: Uint8Array | undefined;
   readonly descendant: FontDescendant | undefined;
-  /** The font descriptor, a Type 0 font's descendant's, when it is an indirect object; fonts sharing one descriptor are parts of one font, as with the Type 3 fonts Chromium writes for each 256 glyphs of a font. */
+  /** The font descriptor, a Type 0 font's descendant's, when it is an indirect object; fonts sharing one descriptor are parts of one font, such as Type 3 fonts that each hold up to 256 of its glyphs. */
   readonly descriptor: PdfReference | undefined;
   readonly embedding: FontEmbedding;
   readonly subset: FontSubset;
@@ -128,7 +128,7 @@ interface Reached {
   readonly pageResources: PdfDictionaryEntries | undefined;
 }
 
-// ISO 32000-1:2008, Table 126: the programs each font type's descriptor may hold.
+// ISO 32000-1:2008, ISO 32000-1:2008, Table 126: the programs each font type's descriptor may hold.
 const ACCEPTED: ReadonlyMap<string, readonly string[]> = new Map([
   ['Type1', ['FontFile', 'FontFile3/Type1C', 'FontFile3/OpenType']],
   ['MMType1', ['FontFile', 'FontFile3/Type1C']],
@@ -246,14 +246,17 @@ interface Described {
 const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described, damage: readonly FontProblem[]): FontProblem[] => {
   const problems: FontProblem[] = [...damage];
   if (program.embedding.state === 'embedded' && !program.embedding.matchesFontType) {
-    problems.push({ code: 'embedding-type-mismatch', detail: `${program.embedding.file} is not a program Table 126 allows for this font type` });
+    problems.push({
+      code: 'embedding-type-mismatch',
+      detail: `${program.embedding.file} is not a program ISO 32000-1:2008, Table 126 allows for this font type`,
+    });
   }
   if (malformed) problems.push({ code: 'subset-tag-malformed', detail: 'the name has a plus sign after six characters that are not all uppercase letters' });
-  // Table 111, FontDescriptor: "Required except for the standard 14 fonts", which 9.6.2.2 names as Type 1 fonts; Table 117 requires it of every CIDFont; Table 112 only in Tagged PDF.
+  // Table 111, FontDescriptor: "Required except for the standard 14 fonts", which 9.6.2.2 names as Type 1 fonts; Table 117 requires it of every CIDFont; ISO 32000-1:2008, Table 112 only in Tagged PDF.
   const standard14 = model.baseFont !== undefined && STANDARD_14.has(latin1(model.baseFont)) && model.subtype === 'Type1';
   const required = model.subtype === 'Type0' ? model.descendant !== undefined : model.subtype !== 'Type3' && !standard14;
   if (descriptor === undefined && required) problems.push({ code: 'descriptor-missing', detail: 'the font has no font descriptor' });
-  // Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
+  // ISO 32000-1:2008, Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
   if (glyphs?.namesResources === true && glyphs.inheritsPageResources) {
     problems.push({
       code: 'type3-resources-inherited',

@@ -12,7 +12,7 @@ import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries as Entries, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
 export interface PdfX4PageOptions {
-  /** The default writes a missing TrimBox from MediaBox when the page has no ArtBox. */
+  /** `trim-from-media` (the default) writes a TrimBox equal to the MediaBox on a page that sets neither TrimBox nor ArtBox; `refuse` throws ValidationError for such a page. */
   readonly pageBoxes?: 'trim-from-media' | 'refuse';
 }
 
@@ -153,7 +153,7 @@ const pageUsesTransparency = (document: LoadedDocument, internals: DocumentInter
   return scan.operations(content.streams, resources) || scan.annotations(object.entries.get(key('Annots')), resources);
 };
 
-/** ISO 32000-1:2008, Table 30 defines page boxes; 11.4.7 permits an explicit colour space for page compositing. */
+/** Adds a TrimBox equal to the MediaBox to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. */
 export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOptions = {}): PdfX4PageChange => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable', 'unreadable-resource');

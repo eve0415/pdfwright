@@ -87,10 +87,6 @@ const compareFonts = (
   if (added.length > 0 || removed.length > 0) differences.push({ kind: 'font-set', page, added, removed });
 };
 
-/**
- * Compares two loaded documents by what they show and carry, never by object numbers: page count, boxes, content, resources, fonts, page-piece data and the remaining page and document entries.
- * Each difference means the documents differ there; a caller decides which kinds an edit was allowed to produce.
- */
 class Comparison {
   private readonly sides: GraphContext;
   private readonly include: ReadonlySet<DifferenceArea>;
@@ -248,6 +244,10 @@ class Comparison {
   }
 }
 
+/**
+ * Compares two loaded documents by what they show and carry, never by object numbers: page count, boxes, content, resources, fonts, page-piece data and the remaining page and document entries.
+ * Each difference means the documents differ there; a caller decides which kinds an edit was allowed to produce.
+ */
 export const compareDocuments = (a: LoadedDocument, b: LoadedDocument, options: CompareOptions = {}): DocumentComparison => {
   const sides: Sides = { a: internals(a, 'a'), b: internals(b, 'b') };
   const include = new Set(options.include ?? AREAS);

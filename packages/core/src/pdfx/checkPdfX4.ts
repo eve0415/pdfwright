@@ -348,7 +348,7 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-OC': () => needsClause('6.24 (optional-content configurations)'),
 };
 
-/** Reports only the listed structural checks and their limits; a clean summary is not a PDF/X-4 conformance claim. */
+/** Runs each rule of `pdfX4Rules` and reports it as `violation`, `passed` or `not-checked` with its source and authority; `summary` is `violations-found` when any rule reports a violation, else `no-violation-found-by-these-rules`, which is not a claim of PDF/X-4 conformance. */
 export const checkPdfX4 = (document: LoadedDocument): PdfX4Report => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new TypeError('checkPdfX4 needs a document from loadDocument');

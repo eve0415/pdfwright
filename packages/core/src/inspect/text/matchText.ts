@@ -35,7 +35,7 @@ export interface MatchTextOptions {
    */
   readonly actualText?: 'checked' | 'ignore';
   /**
-   * `collapse` (the default): when the selected glyphs are two or more consecutive runs of the same codes in the same fonts, each an exact translation of the first by less than a quarter of the font size and half the run's advance, as Chromium draws text with text-shadow, -webkit-text-stroke or mask-image, only the last run drawn is compared.
+   * `collapse` (the default): when the selected glyphs are two or more consecutive runs of the same codes in the same fonts, each a translation of the first, to within 0.005 of the font size, by less than a quarter of the font size and half the run's advance, only the last run drawn is compared.
    * `keep`: every run is compared.
    */
   readonly duplicates?: 'collapse' | 'keep';
@@ -65,7 +65,7 @@ export type TextDifference =
   /**
    * A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn, `expectedGid`.
    * `expectedGid` is undefined when the cmap does not list the glyph's folded text but maps its own text, before folds, to the glyph drawn: the font tells the two characters apart.
-   * The glyph also disagrees when the cmap cannot confirm it and its width is half an em while its ToUnicode character is full-width or wide, the width of a half-width form such as Chromium's hwid draws.
+   * The glyph also disagrees when the cmap cannot confirm it and its width is half an em while its ToUnicode character is full-width or wide, the width of a half-width form such as a half-width form.
    */
   | {
       readonly kind: 'glyph-disagrees';
@@ -76,7 +76,6 @@ export type TextDifference =
     }
   /**
    * Glyphs of a Type 0 font with a CIDFontType2 descendant whose embedded TrueType program has no usable Unicode cmap, so that the program gives no evidence that the glyph drawn is the one the text names.
-   * Chromium's hwid substitution changes the glyph without an ActualText span, and a subset whose only glyphs are such alternates keeps a cmap table without subtables.
    */
   | { readonly kind: 'glyph-unchecked'; readonly font: string; readonly glyphs: readonly number[] }
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
@@ -691,16 +690,16 @@ const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] =
 };
 
 /**
- * Compares the text a page shows with the text it is meant to show, such as a customer's name on a proof, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
+ * Compares the text a page shows with an intended text, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
  * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
  * A mode option (`order`, `whitespace`, `folds`, `actualText`, `variationSelectors`, `duplicates`) outside its type throws InvalidArgumentError.
  * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
  * Known limits, where `match` can be returned for text that does not print:
  * - Text under a soft mask counts as visible, so a mask that hides it entirely, such as a fully transparent mask image, is not detected.
- * - Glyphs are measured by boxes, not outlines, tested at a grid of points: a clip or rectangle that hides ink only between the points, or outside the core box of a glyph whose font gives no ink box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
+ * - Glyphs are measured by boxes, not outlines, tested at a 5 × 5 grid of points: a clip or rectangle that hides ink only between the points, or outside the core box of a glyph whose font gives no ink box, such as a Latin descender, is not detected, and neither is an even-odd clip whose hole holds the ink.
  * - A Type 3 glyph procedure counts as painting when it contains a painting operator, even one that paints a zero-area or clipped-away path.
  * - A painting glyph whose text is white space is ignored with `whitespace: 'ignore'`, whatever it shows, unless its font's embedded cmap maps that character to another glyph.
- * - A glyph whose ToUnicode claims another character than the one it shows, as Chromium's hwid, pwid and similar features draw without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too; only a half-width form of a full-width or wide character is caught then, by its width, and not in a font that shows such characters at proportional widths.
+ * - A glyph whose ToUnicode claims another character than the one it shows, without an ActualText span, is not detected when the font's embedded cmap does not list that character, since a subset drops the characters of glyphs it does not keep and vertical text leaves many characters unlisted too; only a half-width form of a full-width or wide character is caught then, by its width, and not in a font that shows such characters at proportional widths.
  * - Optional content is not evaluated: text and covering fills in an optional content group count as printed whether the group is on or off.
  * - Annotations drawn over the text count only when the page was extracted with `annotations: 'printable'`, which a caller checking a print proof passes to `extractText`; with the default `'none'` they are not read.
  * - Alpha is tested only for 0: text at an alpha near zero counts as visible. `PageGlyph.fillAlpha` and `strokeAlpha` give the alpha of each glyph for a caller to set its own bound.

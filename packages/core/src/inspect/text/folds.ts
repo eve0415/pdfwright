@@ -1,7 +1,7 @@
 import { EQUIVALENT_UNIFIED_IDEOGRAPHS } from './equivalentIdeographs.ts';
 
 /**
- * A fold matchText applies to the text a page shows, never to the intended text, for characters that fonts and Chromium put in place of the intended ones:
+ * A fold matchText applies to the text a page shows, never to the intended text, for characters a font can draw in place of the intended ones.
  * `radicals` reads CJK radicals and strokes as their equivalent unified ideographs, `vertical-forms` reads vertical presentation forms as the characters they stand for, `ligatures` reads Latin ligatures as their letters, and `shared-glyphs` reads U+2027 HYPHENATION POINT as U+30FB KATAKANA MIDDLE DOT.
  */
 export type TextFold = 'radicals' | 'vertical-forms' | 'ligatures' | 'shared-glyphs';

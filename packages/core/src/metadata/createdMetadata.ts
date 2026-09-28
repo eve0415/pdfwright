@@ -51,7 +51,7 @@ const managedValues = (info: DocumentInfo, modified: string, { documentId, insta
 const SAMPLE_ID = 'uuid:00000000-0000-0000-0000-000000000000';
 
 /**
- * Checks, when a document is created, what its packet will need: throws ValidationError metadata-date-required without the date the packet takes its dates from, since no metadata date is read from a clock, and xmp-unrepresentable for a value XML 1.0 cannot carry.
+ * Checks, when a document is created, what its packet needs: throws ValidationError metadata-date-required without the date the packet takes its dates from, since no metadata date is read from a clock, and xmp-unrepresentable for a value XML 1.0 cannot carry.
  */
 export const validateCreatedMetadata = (info: DocumentInfo | undefined, options: CreatedMetadataOptions): void => {
   const modified = xmpDateString(requireMetadataDate(info));

@@ -95,7 +95,7 @@ const writeNew: PacketWriter = values => ({ bytes: newPacket(values), removedLeg
 
 // The packet is spliced when it can be read; one that cannot be read, or whose edit does not read back, is replaced only when the caller allows it.
 interface PacketSample {
-  /** Values of the form the packet will hold, to check that they can be written. */
+  /** Values of the form the packet holds, to check that they can be written. */
   readonly sample: ManagedValues;
   /** The keys whose properties the splice leaves as they are. */
   readonly kept: ReadonlySet<MappedKey>;

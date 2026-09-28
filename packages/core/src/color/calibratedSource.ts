@@ -12,7 +12,7 @@ export interface CalRgbSource {
   readonly kind: 'calRGB';
   readonly whitePoint: Xyz;
   readonly gamma: readonly [number, number, number];
-  /** ISO 32000-1:2008, 8.6.5.3 Table 64 stores the three XYZ columns consecutively. */
+  /** The CalRGB Matrix in the order of ISO 32000-1:2008, 8.6.5.3, Table 64: XA YA ZA XB YB ZB XC YC ZC; a non-finite entry throws InvalidArgumentError. */
   readonly matrix: Matrix3;
 }
 

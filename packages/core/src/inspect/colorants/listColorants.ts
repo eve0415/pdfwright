@@ -38,17 +38,17 @@ export type SelectedBy = 'colour-space-only' | 'invisible-text' | 'clip-only';
 export type DeclaredOnlyReason =
   /** Named in a reachable resource dictionary and never painted on the page. */
   | 'resources'
-  /** Painted or selected only inside a soft mask's group: 11.7.3 substitutes the alternate space there. */
+  /** Painted or selected only inside a soft mask's group: ISO 32000-1:2008, 11.7.3 substitutes the alternate space there. */
   | 'soft-mask'
-  /** Set inside a d1 glyph procedure, where 8.6.8 says colour operators are ignored. */
+  /** Set inside a d1 glyph procedure, where ISO 32000-1:2008, 8.6.8 says colour operators are ignored. */
   | 'd1-glyph'
   /** Set inside an uncoloured tiling pattern's cell, where colour operators are likewise ignored. */
   | 'uncoloured-pattern'
-  /** In the appearance of an annotation that does not print (Table 165). */
+  /** In the appearance of an annotation that does not print (ISO 32000-1:2008, Table 165). */
   | 'annotation-not-printed'
-  /** Listed in an NChannel space's Colorants dictionary without being a component of the space (Table 71). */
+  /** Listed in an NChannel space's Colorants dictionary without being a component of the space (ISO 32000-1:2008, Table 71). */
   | 'nchannel-colorants'
-  /** Named by the page's SeparationInfo (14.11.4). */
+  /** Named by the page's SeparationInfo (ISO 32000-1:2008, 14.11.4). */
   | 'separation-info';
 
 export interface ColorantUse {

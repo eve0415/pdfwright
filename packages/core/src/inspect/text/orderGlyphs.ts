@@ -48,7 +48,7 @@ const LAYOUTS: readonly GlyphLayout[] = ['content', 'rows', 'columns-rtl'];
 const byIndex = (a: Placed, b: Placed): number => a.glyph.index - b.glyph.index;
 
 /**
- * Orders glyphs for reading. `content` keeps the order the content stream draws them in, which is the logical order of Chromium's print output.
+ * Orders glyphs for reading. `content` keeps the order the content stream draws them in.
  * `rows` groups glyphs whose boxes' vertical extents overlap by at least half the smaller extent into rows, orders the rows top to bottom and each row left to right.
  * `columns-rtl` groups by horizontal overlap into columns, orders the columns right to left and each column top to bottom, glyphs that share a top (a tate-chu-yoko pair) left to right.
  * A layout outside GlyphLayout throws InvalidArgumentError.

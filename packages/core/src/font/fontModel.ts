@@ -7,7 +7,7 @@ import type { GlyphBoundsReading } from './trueType/glyphBounds.ts';
 /** The font subtypes of ISO 32000-1:2008, Table 110, and `other` for any other value. */
 export type FontSubtype = 'Type0' | 'Type1' | 'MMType1' | 'TrueType' | 'Type3' | 'other';
 
-/** The CIDFont subtypes of Table 117, and `other` for any other value. */
+/** The CIDFont subtypes of ISO 32000-1:2008, Table 117, and `other` for any other value. */
 export type CidFontSubtype = 'CIDFontType0' | 'CIDFontType2' | 'other';
 
 /** Why part of a font could not be read; the codes are the font subset of the inspection warnings. */
@@ -34,7 +34,7 @@ export interface Type3Parts {
   readonly charProcs: PdfDictionaryEntries | undefined;
   /** The font's Resources entry as stored; absent when the glyph procedures take the page's resources. */
   readonly resources: PdfDirectObject | undefined;
-  /** Whether the font has Chromium's shape: a font descriptor and every Differences name `g` followed by uppercase hexadecimal digits. */
+  /** Whether the font has a font descriptor and every Differences name is `g` followed by uppercase hexadecimal digits. */
   readonly chromium: boolean;
   /** The font dictionary's FontBBox in glyph space, normalised (ISO 32000-1:2008, 7.9.5); undefined when absent or all zero, which Table 112 says gives no size. */
   readonly fontBBox: Rectangle | undefined;
@@ -71,7 +71,7 @@ export interface FontGlyph {
   readonly gid: number | undefined;
   /** The glyph name a simple or Type 3 font's encoding gives the code. */
   readonly glyphName: string | undefined;
-  /** Whether the code selects the font's .notdef glyph: CID 0, GID 0, the name `.notdef`, a Type 3 name without a glyph procedure, or `g0` in a Chromium-shaped Type 3 font. */
+  /** Whether the code selects the font's .notdef glyph: CID 0, GID 0, the name `.notdef`, a Type 3 name without a glyph procedure, or `g0` in a Type 3 font whose `chromium` is true. */
   readonly notdef: boolean;
   /** Whether a Type 3 glyph procedure paints nothing: no painting, text-showing, `Do` or inline-image operator. */
   readonly empty: boolean;

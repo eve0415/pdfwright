@@ -77,13 +77,13 @@ export interface PageGlyph {
   readonly actualText: number | undefined;
   /** The font's writing mode, as stored. */
   readonly writingMode: 0 | 1;
-  /** Where the glyph is painted: in horizontal writing, origin 0. */
+  /** Where the glyph is painted: origin 0 in horizontal writing, origin 1 in vertical writing (ISO 32000-1:2008, 9.2.4). */
   readonly origin: readonly [number, number];
   /** The glyph's own displacement, without the TJ numbers after it. */
   readonly advance: readonly [number, number];
   /** The horizontal displacement w0 the font gives the code (ISO 32000-1:2008, 9.2.4), in text space, where the em is 1; undefined when the font gives none. */
   readonly width: number | undefined;
-  /** The advance box's corners: origin side bottom, far side bottom, far side top, origin side top. */
+  /** The advance box's corners in painting order: origin side bottom, far side bottom, far side top, origin side top in horizontal writing; origin side right, far side right, far side left, origin side left in vertical writing. */
   readonly quad: Quad;
   /** The length of the text-space unit along the glyph's vertical axis on the page, which is Tfs scaled by the text matrix and the CTM. */
   readonly fontSize: number;
@@ -101,19 +101,19 @@ export interface PageGlyph {
   readonly strokeAlpha: number;
   /** Whether a soft mask was active where the glyph was painted, by an ExtGState SMask or on an enclosing transparency group. */
   readonly softMasked: boolean;
-  /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a grid of points. Fills of other shapes, images and shadings are not considered. */
+  /** Whether later opaque fills of rectangles with sides parallel to the page axes cover the advance box where the clip shows it, tested at a 5 × 5 grid of points. Fills of other shapes, images and shadings are not considered. */
   readonly covered: boolean;
   /**
-   * How much of the glyph's ink box the clip or later opaque rectangle fills hide, tested at a grid of points: `entirely`; `partly` when they cut more than CORE_BOX_TOLERANCE (0.1 em) into it from some side; otherwise `none`, as also where the clip's shape is unknown.
-   * The ink box is the bounding box of an embedded TrueType glyph or the d1 box of a Type 3 glyph, so that a cut through the blank part of a glyph's em, as Chromium's trimmed punctuation at the start of a line shows, does not count.
-   * Where the font gives no ink box (other font programs, d0 glyphs, glyphs without outlines, damaged programs), the core box stands in: the advance box limited, in horizontal writing, to the ideographic em box from 0.12 em below the baseline to 0.88 em above it, and in vertical writing to one em across the column centred on the glyph. An ascent above the em box, which Chromium's page-margin clip routinely cuts, and Latin descenders below 0.12 em lie outside it.
+   * How much of the glyph's ink box the clip or later opaque rectangle fills hide, tested at a 5 × 5 grid of points: `entirely`; `partly` when they cut more than CORE_BOX_TOLERANCE (0.1 em) into it from some side; otherwise `none`, as also where the clip's shape is unknown.
+   * The ink box is the bounding box of an embedded TrueType glyph or the d1 box of a Type 3 glyph, so that a cut through the blank part of a glyph's em, such as the space beside a punctuation mark, does not count.
+   * Where the font gives no ink box (other font programs, d0 glyphs, glyphs without outlines, damaged programs), the core box stands in: the advance box limited, in horizontal writing, to the ideographic em box from 0.12 em below the baseline to 0.88 em above it, and in vertical writing to one em across the column centred on the glyph. An ascent above the em box and a Latin descender below 0.12 em lie outside it.
    */
   readonly coreHidden: 'none' | 'partly' | 'entirely';
-  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's vertex limit, under a clip made from glyph outlines (render modes 4 to 7), which are not read, and in a tiling pattern's cell, whose placement depends on where the pattern is painted. */
+  /** How the advance box lies against the clipping path it was painted under; `unknown` past the clip's limit of 10,000 vertices, under a clip made from glyph outlines (render modes 4 to 7), which are not read, and in a tiling pattern's cell, whose placement depends on where the pattern is painted. */
   readonly clip: ClipClass;
   /** False after a glyph whose width is unknown or a string that could not be split, until a text-positioning operator sets the position again. */
   readonly positionKnown: boolean;
-  /** Whether the box's vertical extent is the default guess, because neither the font descriptor nor a bounding box gives one. */
+  /** Whether the box's vertical extent is the default of −200 to 800 in glyph space, because neither the font descriptor's Descent and Ascent nor a FontBBox gives one. */
   readonly extentEstimated: boolean;
   readonly source: GlyphSource;
   /** The open marked-content sequences, outermost first. */
@@ -151,7 +151,7 @@ export interface PageText {
 }
 
 export interface ExtractTextOptions {
-  /** Which annotations' normal appearances are read after the page content: none (the default, as pdftotext and mutool do), those that print (Table 165), or all. */
+  /** Which annotations' normal appearances are read after the page content: none (the default), those that print (ISO 32000-1:2008, 12.5.3, Table 165), or all. */
   readonly annotations?: 'printable' | 'none' | 'all';
   /** Supplies predefined CMaps other than Identity-H and Identity-V, and registry–ordering–UCS2 maps. */
   readonly cmapProvider?: CMapProvider;

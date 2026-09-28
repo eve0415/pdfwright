@@ -24,7 +24,7 @@ export interface OutputIntentOptions {
   readonly outputCondition?: string;
   readonly registryName?: string;
   readonly existing?: 'refuse' | 'replace';
-  /** Whether to lower a later PDF version for PDF/X-4; defaults to true. */
+  /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4; defaults to true. */
   readonly pdfx?: boolean;
 }
 
@@ -162,7 +162,7 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   return catalogLowered;
 };
 
-/** ISO 32000-1:2008, 14.11.5, Table 365 defines the entries in an output intent dictionary. */
+/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict` unless `existing` is `replace`. */
 export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: OutputIntentOptions): OutputIntentChange => {
   const prepared = prepare(document, options);
   const { existing, internals } = prepared;

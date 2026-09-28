@@ -10,7 +10,7 @@ export interface PdfX4MetadataOptions {
   readonly documentId?: string;
 }
 
-/** Writes the PDF/X-4 identification alongside synchronized Info and XMP values, using the metadata editor's deterministic identifiers. */
+/** Calls setMetadata with the PDF/X-4 identification, `trapped`, and `metadataDate` as the modification and metadata date, keeping xmpMM:DocumentID unless `documentId` is given. */
 export const writePdfX4Metadata = (document: LoadedDocument, options: PdfX4MetadataOptions): MetadataChange =>
   setMetadata(
     document,

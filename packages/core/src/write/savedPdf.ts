@@ -15,7 +15,7 @@ export interface BufferedSavedPdf {
 
 export interface StreamedSavedPdf extends SaveDetails {
   readonly kind: 'streamed';
-  /** Materializes the output for callers that use the buffered API. */
+  /** Generates the whole output again on every read, as one array of chunks. */
   readonly chunks: readonly Uint8Array[];
   readonly byteLength: number;
   readonly toBytes: () => Uint8Array;

@@ -23,7 +23,7 @@ export interface InflateOptions {
 export interface ChunkedInflateOptions extends InflateOptions {
   /** Receives trailer warnings before the first decoded chunk is yielded. */
   onWarning?: (warning: FlateWarning) => void;
-  /** Keep the caller's input buffer while decoding; the caller must not mutate it until iteration ends. */
+  /** Whether to decode from a copy of the input; defaults to true. With false the caller's buffer is read directly and must not change until iteration ends. */
   copyInput?: boolean;
 }
 

@@ -27,9 +27,9 @@ export interface LegacyValue {
 
 export interface MappedProperty {
   readonly key: MappedKey;
-  /** The XMP property Table 20 maps the key to, as its conventional prefix and name. */
+  /** The XMP property XMP Specification Part 3, Table 20 maps the key to, as its conventional prefix and name. */
   readonly property: string;
-  /** The Info value as text, or undefined when it is absent, empty or not of the kind Table 317 requires. */
+  /** The Info value as text, or undefined when it is absent, empty or not of the kind ISO 32000-1:2008, Table 317 requires. */
   readonly info: string | undefined;
   /** The value of the first occurrence of the XMP property, or undefined when it is absent or empty. */
   readonly xmp: XmpValue | undefined;

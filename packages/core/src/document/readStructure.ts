@@ -19,8 +19,8 @@ import { readSectionChain, searchOrder } from '../xref/sectionChain.ts';
 import { ObjectStore } from './objectStore.ts';
 
 /**
- * How the file's structure was read. `intact`: as written, or with deviations no common reader reports.
- * `tolerated`: with deviations at least one common reader reports. `reconstructed`: the cross-reference data was rebuilt by scanning the file.
+ * How the file's structure was read. `intact`: as written, with no load warnings other than `dangling-reference`, `resources-missing`, `generation-mismatch`, `page-count-mismatch` and `xref-entry-length` for 19-byte entries.
+ * `tolerated`: as written, with at least one other load warning. `reconstructed`: the cross-reference data was rebuilt by scanning the file.
  * It describes the cross-reference data and the objects read while loading, the catalog and the page tree; a deviation found in an object read later is added to the warnings without changing it.
  */
 export type StructureStatus = 'intact' | 'tolerated' | 'reconstructed';
@@ -209,7 +209,7 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
   throw new ParseError('unreadable cross-reference data', startxref.keyword);
 };
 
-/** Rebuilds the cross-reference data by scanning the file; ISO 32000-1:2008, Annex C.2 says a reader "may attempt to rebuild the table by scanning all the objects in the file" without defining how, and this follows what common readers do. */
+/** Rebuilds the cross-reference data by scanning the file; ISO 32000-1:2008, Annex C.2 says a reader "may attempt to rebuild the table by scanning all the objects in the file" without defining how. */
 export const reconstruct = (session: LoadSession, reason: string, header: HeaderLocation): ReadStructure => {
   const context = logged(session);
   const reconstruction = reconstructIndex(session.source, context);

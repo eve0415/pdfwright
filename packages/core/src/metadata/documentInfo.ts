@@ -16,7 +16,7 @@ export interface DocumentInfo {
   producer?: string;
   creationDate?: PdfDate;
   modificationDate?: PdfDate;
-  /** Whether the document has been trapped (Table 317); written as a name. */
+  /** Whether the document has been trapped (ISO 32000-1:2008, Table 317); written as a name. */
   trapped?: 'True' | 'False' | 'Unknown';
 }
 

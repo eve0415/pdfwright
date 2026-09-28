@@ -84,7 +84,7 @@ export interface ContentBuilder {
   stroke: (options?: PaintOptions) => void;
   fillAndStroke: (rule: 'nonzero' | 'evenodd', options?: PaintOptions) => void;
   clip: (rule: 'nonzero' | 'evenodd') => void;
-  /** ISO 32000-1:2008, 8.4.3.2: "Since the results of rendering such zero-width lines are device-dependent, they should not be used." */
+  /** Sets the line width with the w operator (ISO 32000-1:2008, 8.4.3.2); a negative width throws ValidationError, and 0 is written as given, which 8.4.3.2 defines as the thinnest line the device can render. */
   lineWidth: (width: ContentNumber) => void;
   lineJoin: (join: 'miter' | 'round' | 'bevel') => void;
   lineCap: (cap: 'butt' | 'round' | 'square') => void;

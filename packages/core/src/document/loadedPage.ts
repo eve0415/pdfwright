@@ -25,7 +25,7 @@ export type BoxName = 'MediaBox' | 'CropBox' | 'BleedBox' | 'TrimBox' | 'ArtBox'
 export interface EffectiveBox {
   /** Normalised to lower-left and upper-right corners. */
   readonly rect: readonly [number, number, number, number];
-  /** Whether the page or an ancestor sets the box, rather than a Table 30 default applying. */
+  /** Whether the page or an ancestor sets the box, rather than an ISO 32000-1:2008, Table 30 default applying. */
   readonly explicit: boolean;
   /** The page tree node the value is inherited from. */
   readonly inheritedFrom?: PdfReference;
@@ -41,7 +41,7 @@ export interface LoadedPage {
   /** The effective resource dictionary, own or inherited, as a fresh copy. */
   resources: () => PdfDictionaryEntries;
   /**
-   * Sets one of the page's own boxes, or removes it with undefined so that the inherited value or the Table 30 default applies.
+   * Sets one of the page's own boxes, or removes it with undefined so that the inherited value or the ISO 32000-1:2008, Table 30 default applies.
    * Only the page object changes, never an ancestor it inherits from; the box must have non-zero area and lie within the effective MediaBox.
    */
   setBox: (box: BoxName, rect: PdfRect | undefined) => void;

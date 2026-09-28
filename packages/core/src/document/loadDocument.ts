@@ -71,7 +71,9 @@ export interface SaveOptions {
 }
 
 export interface LoadedDocument {
+  /** A copy of the structure, so that changing it cannot change what a save writes. */
   readonly structure: DocumentStructure;
+  /** The warnings so far; objects read after loading can add more. */
   readonly warnings: readonly LoadWarning[];
   readonly pageCount: number;
   /** The page at a 0-based index; InvalidArgumentError when out of range. */
@@ -166,7 +168,6 @@ class LoadedPdf implements LoadedDocument {
     });
   }
 
-  /** A copy of the structure, so that changing it cannot change what a save writes. */
   get structure(): DocumentStructure {
     const { read } = this;
     return {
@@ -176,7 +177,6 @@ class LoadedPdf implements LoadedDocument {
     };
   }
 
-  /** The warnings so far; objects read after loading can add more. */
   get warnings(): readonly LoadWarning[] {
     return [...this.log];
   }
@@ -312,7 +312,7 @@ class LoadedPdf implements LoadedDocument {
 
 /**
  * Reads a PDF from its bytes, held as one array or as the segments of an earlier save, without copying them.
- * Objects are parsed on demand. Damage that common readers tolerate is repaired with a warning; cross-reference data that does not describe the file is rebuilt by scanning it.
+ * Objects are parsed on demand. Damage of the kinds `LoadWarningCode` names is repaired and reported as a load warning; cross-reference data that does not describe the file is rebuilt by scanning it.
  * Encrypted documents throw EncryptedDocumentError.
  */
 export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options: LoadOptions = {}): LoadedDocument => {

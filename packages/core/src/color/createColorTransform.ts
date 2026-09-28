@@ -23,7 +23,7 @@ export type ColorSource = IccColorSource | CalRgbSource | CalGraySource;
 export interface ColorTransformOptions {
   readonly intent: RenderingIntent;
   readonly blackPointCompensation: boolean;
-  /** ICC.1:2022, 6.3.4.2 Table 13 uses 128/255 for neutral a and b components. */
+  /** How a lut8 tag's Lab a and b components are scaled: `icc` (the default) by 255, as ICC.1:2022, 6.3.4.2, Table 13 gives, so neutral is 128/255; `adobe` by 256, so neutral is 128/256. */
   readonly lut8LabEncoding?: 'icc' | 'adobe';
 }
 

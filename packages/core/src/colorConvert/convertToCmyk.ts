@@ -54,7 +54,7 @@ export interface ConversionReport {
   readonly metadata: MetadataChange | undefined;
 }
 
-/** Converts reachable RGB and calibrated colours to the caller's CMYK profile, then writes the output condition and optional PDF/X-4 identification. */
+/** Writes the output intent for the caller's CMYK profile, converts reachable RGB and calibrated colours to that profile, and with `pdfx` set adds missing TrimBoxes, page groups and PDF/X-4 identification. */
 export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOptions): ConversionReport => {
   const sourceRgbProfile = parseIccProfile(options.sourceRgbProfile);
   const outputProfile = parseIccProfile(options.outputProfile);

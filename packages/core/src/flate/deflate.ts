@@ -136,7 +136,7 @@ export interface DeflateStream {
   finish: () => Uint8Array;
 }
 
-/** Emits complete zlib bytes after each input block while retaining only the current block and pending bits. */
+/** Emits complete zlib bytes after each input block while retaining only the current block and pending bits; it holds at most one block of input: 1 MiB, or 1,048,560 bytes at level 0. */
 export const createDeflateStream = (options?: DeflateOptions): DeflateStream => {
   const encoder = new ZlibDeflater(options);
   let finished = false;

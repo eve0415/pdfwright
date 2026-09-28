@@ -15,7 +15,7 @@ export interface ImageOptions {
   height: number;
   colorSpace: ImageColorSpace;
   bitsPerComponent: 8;
-  /** ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4 NOTE 5: Separation samples are ink amounts; 255 means tint 1. */
+  /** One byte per component, width × height × components long, else ValidationError; for a Separation space each byte is an ink amount, 255 meaning tint 1 (ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4, NOTE 5). */
   samples: Uint8Array;
   softMask?: { width: number; height: number; samples: Uint8Array };
 }

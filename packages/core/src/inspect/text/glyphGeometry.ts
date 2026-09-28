@@ -135,7 +135,6 @@ const inkOf = (font: FontModel, glyph: FontGlyph | undefined): TextRectangle | u
 
 /**
  * How deep, in ems, a clip or cover must cut into a glyph's ink box, or its core box where the font gives no ink box, from any side before the glyph counts as partly hidden.
- * Chromium's page-margin clip cuts 0.02 to 0.04 em into the core boxes of correct proofs (the first line of IPAGothic text at 0.84 to 0.86 em above the baseline, and the column side of full-width glyphs set vertically), while a CSS overflow clip or a covering box that shows half a character cuts 0.5 em or more.
  */
 export const CORE_BOX_TOLERANCE = 0.1;
 

@@ -11,7 +11,7 @@ const LANG = pdfName('Lang').bytes;
 
 /** A marked-content sequence whose ActualText replaces the text of the glyphs shown inside it (ISO 32000-1:2008, 14.9.4). */
 export interface ActualTextSpan {
-  /** The replacement text, with language escapes removed (7.9.2.2). */
+  /** The replacement text, with language escapes removed (ISO 32000-1:2008, 7.9.2.2). */
   readonly text: string;
   /** The language of the first language escape in the text, as `ja` or `ja-JP`, else the property list's Lang entry; undefined when neither gives one. */
   readonly language: string | undefined;
