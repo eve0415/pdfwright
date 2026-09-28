@@ -51,6 +51,12 @@ const unreadable = (metadata: DocumentMetadata): string | undefined =>
 const codes = (metadata: DocumentMetadata): readonly string[] => metadata.findings.map(finding => finding.code);
 
 describe('reading document metadata', () => {
+  it('finds an orphan XML metadata stream without a Type entry', () => {
+    const metadata = read('', [{ number: 9, body: streamBody('/Subtype/XML', packet('')) }], '');
+    expect(metadata.packets.orphans).toStrictEqual([pdfReference(9, 0)]);
+    expect(codes(metadata)).toContain('orphan-metadata');
+  });
+
   it('reports an extra packet inside the catalog metadata stream', () => {
     const metadata = read('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', `${PRODUCER}${PRODUCER}`) }], '');
     expect(codes(metadata)).toContain('extra-xmp-packet');

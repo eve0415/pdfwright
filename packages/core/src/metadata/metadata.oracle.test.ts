@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { env } from 'node:process';
 import { text as streamText } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
@@ -178,8 +179,11 @@ const expectedErrors = async (): Promise<ReadonlySet<string>> => {
 const corpusFiles = async (directory: string): Promise<readonly string[]> => {
   try {
     const names = await readdir(directory);
-    return names.filter(name => name.endsWith('.pdf')).toSorted();
+    const files = names.filter(name => name.endsWith('.pdf')).toSorted();
+    if (directory === GOVDOCS && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+    return files;
   } catch {
+    if (directory === GOVDOCS && env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
     return [];
   }
 };
@@ -233,9 +237,6 @@ const corpusSummary = async (): Promise<CorpusSummary> => {
   return { sets: listed.filter(({ names }) => names.length > 0).map(({ set }) => set), files };
 };
 
-// Five govdocs1 files have a catalog packet that an incremental update replaced under the same object number; the sixth file with such a packet, an Illustrator sample, is not in this corpus.
-const SUPERSEDED: ReadonlySet<string> = new Set(['000011.pdf', '000140.pdf', '000142.pdf', '000755.pdf', '000817.pdf']);
-
 // The summary entries of the sets that are present.
 const recordedSummary = async (sets: readonly string[]): Promise<ReadonlyMap<string, unknown>> => {
   const recorded: unknown = JSON.parse(await readFile(SUMMARY, 'utf8'));
@@ -288,9 +289,10 @@ describe('metadata in the corpus', () => {
     );
   });
 
-  it('leaves one document packet and no superseded packet after setting metadata and rewriting', { timeout: 120_000 }, async () => {
+  it('leaves one document packet and no superseded or orphan packet after rewriting each affected file', { timeout: 120_000 }, async () => {
     const names = await corpusFiles(GOVDOCS);
-    const present = names.filter(name => SUPERSEDED.has(name));
+    const summary = await recordedSummary(['govdocs1']);
+    const present = names.filter(name => summary.has(`govdocs1/${name}`));
     const results = await Promise.all(present.map(async name => [name, await rewritten(name)] as const));
     expect(Object.fromEntries(results)).toStrictEqual(Object.fromEntries(present.map(name => [name, { document: 1, superseded: 0, orphans: 0 }])));
   });

@@ -194,7 +194,7 @@ export class MetadataReader {
     );
   }
 
-  // An in-use object whose value has Type Metadata and that nothing reachable from the trailer references.
+  // An in-use metadata object that nothing reachable from the trailer references, including a malformed XML stream missing the Type required by ISO 32000-1:2008, Table 315.
   orphans(reachable: ReadonlyMap<number, number>): PdfReference[] {
     const { objects } = this.document;
     const numbers = new Set([...objects.store.index.inUse(), ...objects.changes.keys()]);
@@ -203,7 +203,9 @@ export class MetadataReader {
       const generation = objects.generationOf(objectNumber);
       if (generation === undefined || reachable.has(objectNumber)) continue;
       const reference: PdfReference = { kind: 'reference', objectNumber, generation };
-      if (!nameIs(entriesOf(this.resolve(reference))?.get(TYPE), 'Metadata')) continue;
+      const value = this.resolve(reference);
+      const entries = entriesOf(value);
+      if (!nameIs(entries?.get(TYPE), 'Metadata') && !(value?.kind === 'stream' && nameIs(entries?.get(SUBTYPE), 'XML'))) continue;
       orphans.push(reference);
       this.report('orphan-metadata', `the metadata object ${String(objectNumber)} is in use but nothing reachable from the trailer references it`);
     }
