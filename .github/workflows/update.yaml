@@ -100,10 +100,8 @@ jobs:
             -c user.name='github-actions[bot]' \
             -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m 'chore: update dependencies'
-          git -c core.hooksPath=/dev/null \
-            -c credential.helper= \
-            -c credential.helper='!f() { echo username=x-access-token; echo "password=${GH_TOKEN}"; }; f' \
-            push --force origin HEAD:refs/heads/chore/update-dependencies
+          gh auth setup-git
+          git push --force origin HEAD:refs/heads/chore/update-dependencies
           pr_title='chore: update dependencies'
           pr_body='Automated dependency updates verified by the full gate.'
           pr_number="$(gh pr list --head chore/update-dependencies --state open --json number --jq '.[0].number // empty')"
