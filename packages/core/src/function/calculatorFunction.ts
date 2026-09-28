@@ -1,6 +1,15 @@
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 
+import {
+  deterministicAtanDegrees,
+  deterministicCosDegrees,
+  deterministicExp,
+  deterministicLog,
+  deterministicLog10,
+  deterministicSinDegrees,
+} from './deterministicMath.ts';
+
 interface Procedure {
   readonly kind: 'procedure';
   readonly tokens: readonly Token[];
@@ -98,16 +107,16 @@ const unary = (operator: string, value: number): number | undefined => {
       return Math.sqrt(value);
     }
     case 'sin': {
-      return Math.sin((value * Math.PI) / 180);
+      return deterministicSinDegrees(value);
     }
     case 'cos': {
-      return Math.cos((value * Math.PI) / 180);
+      return deterministicCosDegrees(value);
     }
     case 'ln': {
-      return Math.log(value);
+      return deterministicLog(value);
     }
     case 'log': {
-      return Math.log10(value);
+      return deterministicLog10(value);
     }
     default: {
       return undefined;
@@ -136,10 +145,10 @@ const binary = (operator: string, left: number, right: number): number | boolean
       return int(left) % int(right);
     }
     case 'exp': {
-      return left ** right;
+      return deterministicExp(left, right);
     }
     case 'atan': {
-      return ((Math.atan2(left, right) * 180) / Math.PI + 360) % 360;
+      return deterministicAtanDegrees(left, right);
     }
     case 'lt': {
       return left < right;

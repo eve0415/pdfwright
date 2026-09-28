@@ -5,6 +5,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { createCalculatorFunction } from './calculatorFunction.ts';
+import { deterministicExp } from './deterministicMath.ts';
 
 export type PdfFunction = (input: readonly number[]) => number[];
 export type FunctionResolver = (value: PdfDirectObject) => PdfObject;
@@ -113,7 +114,8 @@ const evaluateExponential = (entries: PdfDictionaryEntries, domain: number[]): P
   const c1 = optionalArray(entries, 'C1', [1]);
   const exponent = numeric(get(entries, 'N'), 'N');
   if (c0.length !== c1.length) throw new ParseError('exponential function output dimensions differ', 0);
-  return input => c0.map((start, index) => start + clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0) ** exponent * ((c1[index] ?? 0) - start));
+  return input =>
+    c0.map((start, index) => start + deterministicExp(clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0), exponent) * ((c1[index] ?? 0) - start));
 };
 
 const evaluateStitched = (

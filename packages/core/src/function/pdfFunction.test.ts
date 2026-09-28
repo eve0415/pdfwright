@@ -2,6 +2,7 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { md5 } from '../hash/md5.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
 import { createPdfFunction } from './pdfFunction.ts';
@@ -52,6 +53,15 @@ describe('pdf functions', () => {
     expect(createPdfFunction(left)([0.5])).toStrictEqual([0.25]);
     expect(createPdfFunction(stitched)([0.25])).toStrictEqual([0.25]);
     expect(createPdfFunction(stitched)([0.75])).toStrictEqual([0.5]);
+  });
+
+  it('keeps fractional exponential outputs identical across runtimes', () => {
+    const evaluate = createPdfFunction(functionObject(2, { N: pdfReal(0.73) }));
+    const bytes = new Uint8Array(4096 * 8);
+    const view = new DataView(bytes.buffer);
+    for (let index = 0; index < 4096; index++) view.setFloat64(index * 8, Number(evaluate([(index + 0.5) / 4096])[0]), true);
+    const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    expect(digest).toBe('99d1177a420226d463c2d956854aa51e');
   });
 
   it('resolves indirect stitching entries and subfunctions', () => {
