@@ -5,7 +5,7 @@ const clip = (value: number): number => Math.min(1, Math.max(0, value));
 const node = (clut: Clut, coordinates: readonly number[], channel: number): number => {
   let index = 0;
   for (let axis = 0; axis < clut.inputChannels; axis++) index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
-  return clut.values[index * clut.outputChannels + channel] ?? 0;
+  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (clut.values instanceof Uint8Array ? 255 : 65535);
 };
 
 const interpolateThree = (clut: Clut, state: { lower: number[]; fractions: number[]; first: number; mode: 'trilinear' | 'tetrahedral' }): number[] => {

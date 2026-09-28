@@ -93,8 +93,8 @@ const clutPart = (
   }
   const width = view.getUint8(at + 16);
   if ((width !== 1 && width !== 2) || 20 + count * width > config.end - at) fail(at + 16);
-  const values = new Float64Array(count);
-  for (let index = 0; index < count; index++) values[index] = width === 1 ? view.getUint8(at + 20 + index) / 255 : view.getUint16(at + 20 + index * 2) / 65535;
+  const values = width === 1 ? new Uint8Array(view.buffer, view.byteOffset + at + 20, count) : new Uint16Array(count);
+  if (width === 2) for (let index = 0; index < count; index++) values[index] = view.getUint16(at + 20 + index * 2);
   return { gridPoints, inputChannels: config.inputChannels, outputChannels: config.outputChannels, values };
 };
 

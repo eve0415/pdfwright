@@ -9,7 +9,7 @@ export interface Clut {
   readonly gridPoints: readonly number[];
   readonly inputChannels: number;
   readonly outputChannels: number;
-  readonly values: Float64Array;
+  readonly values: Uint8Array | Uint16Array;
 }
 
 export interface TableLut {
@@ -23,11 +23,9 @@ export interface TableLut {
 const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Curve[] => {
   const result: Curve[] = [];
   for (let channel = 0; channel < config.channels; channel++) {
-    const values = new Float64Array(config.count);
-    for (let index = 0; index < config.count; index++) {
-      const offset = config.offset + (channel * config.count + index) * config.width;
-      values[index] = config.width === 1 ? view.getUint8(offset) / 255 : view.getUint16(offset) / 65535;
-    }
+    const start = config.offset + channel * config.count * config.width;
+    const values = config.width === 1 ? new Uint8Array(view.buffer, view.byteOffset + start, config.count) : new Uint16Array(config.count);
+    if (config.width === 2) for (let index = 0; index < config.count; index++) values[index] = view.getUint16(start + index * 2);
     result.push({ kind: 'table', values });
   }
   return result;
@@ -81,10 +79,8 @@ export const readLut = (bytes: Uint8Array, offset: number, limit: number): Table
   const inputStart = offset + headerSize;
   const clutStart = inputStart + inputBytes;
   const outputStart = clutStart + clutBytes;
-  const values = new Float64Array(clutEntries);
-  for (let index = 0; index < clutEntries; index++) {
-    values[index] = width === 1 ? view.getUint8(clutStart + index) / 255 : view.getUint16(clutStart + index * 2) / 65535;
-  }
+  const values = width === 1 ? bytes.subarray(clutStart, clutStart + clutEntries) : new Uint16Array(clutEntries);
+  if (width === 2) for (let index = 0; index < clutEntries; index++) values[index] = view.getUint16(clutStart + index * 2);
   return {
     kind: width === 1 ? 'lut8' : 'lut16',
     matrix,

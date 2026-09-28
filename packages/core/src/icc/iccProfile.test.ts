@@ -1,8 +1,48 @@
 import { describe, expect, it } from 'vitest';
 
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+
 import { parseIccProfile } from './iccProfile.ts';
 
+const sharedLutProfile = (): Uint8Array => {
+  const offset = 204;
+  const length = 48 + 3 * 256 + 2 ** 3 * 3 + 3 * 256;
+  const bytes = new Uint8Array(offset + length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, bytes.length);
+  bytes[8] = 2;
+  bytes.set(new TextEncoder().encode('mntrRGB Lab '), 12);
+  bytes.set(new TextEncoder().encode('acsp'), 36);
+  view.setUint32(128, 6);
+  for (let index = 0; index < 6; index++) {
+    bytes.set(new TextEncoder().encode(index < 3 ? `A2B${index}` : `B2A${index - 3}`), 132 + index * 12);
+    view.setUint32(136 + index * 12, offset);
+    view.setUint32(140 + index * 12, length);
+  }
+  bytes.set(new TextEncoder().encode('mft1'), offset);
+  bytes[offset + 8] = 3;
+  bytes[offset + 9] = 3;
+  bytes[offset + 10] = 2;
+  return bytes;
+};
+
 describe('icc profile basic tags', () => {
+  it('shares one decoded LUT across six intent tags', () => {
+    const profile = parseIccProfile(sharedLutProfile());
+    for (const intent of [0, 1, 2] as const) {
+      expect(profile.deviceToPcs[intent]).toBe(profile.deviceToPcs[0]);
+      expect(profile.pcsToDevice[intent]).toBe(profile.deviceToPcs[0]);
+    }
+    expect(profile.deviceToPcs[0]?.clut?.values).toBeInstanceOf(Uint8Array);
+  });
+
+  it('limits profile bytes before parsing and accepts an explicit larger limit', () => {
+    const bytes = sharedLutProfile();
+    expect(() => parseIccProfile(bytes, { maxIccProfileBytes: bytes.length - 1 })).toThrow(ResourceLimitError);
+    expect(parseIccProfile(bytes, { maxIccProfileBytes: bytes.length }).header.size).toBe(bytes.length);
+    expect(() => parseIccProfile(new Uint8Array(24 * 1024 * 1024 + 1))).toThrow(ResourceLimitError);
+  });
+
   it('exposes gray TRC and media white point from a complete profile', () => {
     const bytes = new Uint8Array(192);
     const view = new DataView(bytes.buffer);

@@ -4,11 +4,12 @@ import { deterministicPow } from './ieeeMath.ts';
 
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
-const table = (values: Float64Array, input: number): number => {
+const table = (values: Uint8Array | Uint16Array, input: number): number => {
   const position = clip(input) * (values.length - 1);
   const low = Math.min(Math.floor(position), values.length - 2);
   const fraction = position - low;
-  return (values[low] ?? 0) + fraction * ((values[low + 1] ?? 0) - (values[low] ?? 0));
+  const scale = values instanceof Uint8Array ? 255 : 65535;
+  return (values[low] ?? 0) / scale + fraction * ((values[low + 1] ?? 0) / scale - (values[low] ?? 0) / scale);
 };
 
 const parametric = (curve: Extract<Curve, { kind: 'parametric' }>, input: number): number => {

@@ -54,7 +54,7 @@ describe('icc multi-process lut tags', () => {
     const lut = readMultiLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lutBtoA');
     expect(lut.clut?.gridPoints).toStrictEqual([2, 2, 2]);
-    expect(lut.clut?.values[31]).toBe(31 / 255);
+    expect(lut.clut?.values[31]).toBe(31);
     bytes[84] = 3;
     expect(() => readMultiLut(bytes, 0, bytes.length)).toThrow(InvalidProfileError);
   });

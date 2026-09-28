@@ -3,7 +3,9 @@ import type { MultiLut } from './iccMultiLut.ts';
 import type { IccHeader, IccTagRecord, IccWarning, Xyz } from './iccStructure.ts';
 import type { Curve, Matrix3 } from './iccTags.ts';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { readLut } from './iccLut.ts';
@@ -30,7 +32,16 @@ export interface IccProfile {
 
 export type LutTag = TableLut | MultiLut;
 
-export const parseIccProfile = (source: Uint8Array): IccProfile => {
+export interface ParseIccProfileOptions {
+  readonly maxIccProfileBytes?: number;
+}
+
+export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOptions = {}): IccProfile => {
+  const maxIccProfileBytes = options.maxIccProfileBytes ?? 24 * 1024 * 1024;
+  if (!Number.isSafeInteger(maxIccProfileBytes) || maxIccProfileBytes < 132) {
+    throw new InvalidArgumentError('maxIccProfileBytes must be an integer of at least 132');
+  }
+  if (source.length > maxIccProfileBytes) throw new ResourceLimitError('ICC profile exceeds maxIccProfileBytes');
   const structure = parseIccStructure(source);
   if (
     structure.tags.some(tag => (tag.signature.startsWith('D2B') || tag.signature.startsWith('B2D')) && ['0', '1', '2', '3'].includes(tag.signature.charAt(3)))
@@ -39,6 +50,7 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
     throw new UnsupportedFeatureError('ICC multi-process element tags are unsupported', 'icc-mpet');
   }
   const tags = new Map<string, IccTagRecord>(structure.tags.map(tag => [tag.signature, tag]));
+  const decodedLuts = new Map<string, LutTag>();
   const xyz = (name: string): Xyz | undefined => {
     const tag = tags.get(name);
     return tag === undefined ? undefined : readXyz(structure.bytes, tag.offset, tag.offset + tag.size);
@@ -68,10 +80,16 @@ export const parseIccProfile = (source: Uint8Array): IccProfile => {
       if ((type === 'mAB ' && prefix === 'B2A') || (type === 'mBA ' && prefix === 'A2B')) {
         throw new InvalidProfileError('ICC LUT type disagrees with direction', 'tag-type-mismatch', { offset: tag.offset, tag: tag.signature });
       }
-      const lut =
-        type === 'mAB ' || type === 'mBA '
-          ? readMultiLut(structure.bytes, tag.offset, tag.offset + tag.size)
-          : readLut(structure.bytes, tag.offset, tag.offset + tag.size);
+      const key = `${tag.offset}:${tag.size}`;
+      let lut = decodedLuts.get(key);
+      if (lut === undefined) {
+        // ICC.1:2022, 7.3.1 allows tags to share an element when both its offset and size match.
+        lut =
+          type === 'mAB ' || type === 'mBA '
+            ? readMultiLut(structure.bytes, tag.offset, tag.offset + tag.size)
+            : readLut(structure.bytes, tag.offset, tag.offset + tag.size);
+        decodedLuts.set(key, lut);
+      }
       const input = prefix === 'A2B' ? colorSpaceChannels(structure.header.colorSpace) : colorSpaceChannels(structure.header.pcs);
       const output = prefix === 'A2B' ? colorSpaceChannels(structure.header.pcs) : colorSpaceChannels(structure.header.colorSpace);
       if (structure.bytes[tag.offset + 8] !== input || structure.bytes[tag.offset + 9] !== output) {

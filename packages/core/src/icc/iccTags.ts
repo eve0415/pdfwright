@@ -9,7 +9,7 @@ export type Matrix3 = readonly [number, number, number, number, number, number, 
 export type Curve =
   | { readonly kind: 'identity' }
   | { readonly kind: 'gamma'; readonly gamma: number }
-  | { readonly kind: 'table'; readonly values: Float64Array }
+  | { readonly kind: 'table'; readonly values: Uint8Array | Uint16Array }
   | { readonly kind: 'parametric'; readonly functionType: 0 | 1 | 2 | 3 | 4; readonly params: readonly number[] };
 
 export interface ReadCurve {
@@ -32,8 +32,8 @@ const readSampledCurve = (view: DataView, offset: number, limit: number): ReadCu
   if (count > Math.floor((limit - offset - 12) / 2)) throw new InvalidProfileError('truncated ICC curve table', 'bad-tag-data', { offset });
   if (count === 0) return { curve: { kind: 'identity' }, consumed: 12 };
   if (count === 1) return { curve: { kind: 'gamma', gamma: view.getUint16(offset + 12) / 256 }, consumed: 14 };
-  const values = new Float64Array(count);
-  for (let index = 0; index < count; index++) values[index] = view.getUint16(offset + 12 + index * 2) / 65535;
+  const values = new Uint16Array(count);
+  for (let index = 0; index < count; index++) values[index] = view.getUint16(offset + 12 + index * 2);
   return { curve: { kind: 'table', values }, consumed: 12 + count * 2 };
 };
 

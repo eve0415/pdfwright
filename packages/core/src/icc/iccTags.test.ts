@@ -26,7 +26,7 @@ describe('icc basic tags', () => {
     tableView.setUint16(12, 0);
     tableView.setUint16(14, 32768);
     tableView.setUint16(16, 65535);
-    expect(readCurve(table, 0, table.length).curve).toStrictEqual({ kind: 'table', values: Float64Array.of(0, 32768 / 65535, 1) });
+    expect(readCurve(table, 0, table.length).curve).toStrictEqual({ kind: 'table', values: Uint16Array.of(0, 32768, 65535) });
     const parametric = new Uint8Array(32);
     type(parametric, 'para');
     const paramView = new DataView(parametric.buffer);

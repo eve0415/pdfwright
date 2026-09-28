@@ -45,17 +45,17 @@ const source = (): IccProfile => ({
 });
 
 const destination = (): IccProfile => {
-  const values = new Float64Array(32);
+  const values = new Uint8Array(32);
   let index = 0;
   for (let l = 0; l < 2; l++) {
     for (let a = 0; a < 2; a++) {
       for (let b = 0; b < 2; b++) {
-        values.set([a, b, l, 0], index);
+        values.set([a * 255, b * 255, l * 255, 0], index);
         index += 4;
       }
     }
   }
-  const table = { kind: 'table' as const, values: Float64Array.from({ length: 256 }, (_, sample) => sample / 255) };
+  const table = { kind: 'table' as const, values: Uint8Array.from({ length: 256 }, (_, sample) => sample) };
   const lut: TableLut = {
     kind: 'lut8',
     matrix,
@@ -110,9 +110,9 @@ describe('icc colour transforms', () => {
   });
 
   it('reads lut8 Lab output with both neutral a and b midpoints', () => {
-    const table = { kind: 'table' as const, values: Float64Array.from({ length: 256 }, (_, sample) => sample / 255) };
-    const values = new Float64Array(24);
-    for (let index = 0; index < 8; index++) values.set([0.5, 0.5, 0.5], index * 3);
+    const table = { kind: 'table' as const, values: Uint8Array.from({ length: 256 }, (_, sample) => sample) };
+    const values = new Uint8Array(24);
+    for (let index = 0; index < 8; index++) values.set([128, 128, 128], index * 3);
     const lut: TableLut = {
       kind: 'lut8',
       matrix,

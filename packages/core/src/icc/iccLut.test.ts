@@ -24,9 +24,9 @@ describe('icc lut8 and lut16 tags', () => {
     bytes[305] = 255;
     const lut = readLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lut8');
-    expect(lut.input[0]).toStrictEqual({ kind: 'table', values: Float64Array.from({ length: 256 }, (_, index) => index / 255) });
+    expect(lut.input[0]).toStrictEqual({ kind: 'table', values: Uint8Array.from({ length: 256 }, (_, index) => index) });
     expect(lut.clut.gridPoints).toStrictEqual([2]);
-    expect([...lut.clut.values]).toStrictEqual([0, 1]);
+    expect([...lut.clut.values]).toStrictEqual([0, 255]);
   });
 
   it('reads lut16 tables and rejects an undersized CLUT', () => {
@@ -47,7 +47,7 @@ describe('icc lut8 and lut16 tags', () => {
     view.setUint16(62, 65535);
     const lut = readLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lut16');
-    expect([...lut.clut.values]).toStrictEqual([0, 1]);
+    expect([...lut.clut.values]).toStrictEqual([0, 65535]);
     expect(() => readLut(bytes, 0, 58)).toThrow(InvalidProfileError);
   });
 });
