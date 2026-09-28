@@ -3,6 +3,8 @@ import type { IllustratorDocument, PathGeometry } from '../model/illustratorDocu
 import { mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { writeNative } from '../native/writeNative.ts';
+
 import { artBounds, integerBounds } from './bounds.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 0, minute: 0, second: 0, offset: 'Z' });
@@ -16,6 +18,86 @@ const rectangle: PathGeometry = {
 };
 
 describe('native art bounds', () => {
+  it('includes the miter tip of a stroked triangle', () => {
+    const document: IllustratorDocument = {
+      artboard: { width: 120, height: 100 },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Triangle',
+          items: [
+            {
+              kind: 'path',
+              geometry: {
+                start: [10, 10],
+                segments: [
+                  { kind: 'line', to: [60, 60] },
+                  { kind: 'line', to: [110, 10] },
+                ],
+              },
+              stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
+            },
+          ],
+        },
+      ],
+    };
+    expect(artBounds(document).maxY).toBeCloseTo(60 + 5 * Math.SQRT2);
+    expect(integerBounds(artBounds(document))).toStrictEqual([-3, 5, 123, 68]);
+    expect(new TextDecoder().decode(writeNative(document).bytes)).toContain('%%BoundingBox: -3 5 123 68');
+  });
+
+  it('bevels a miter above the default limit of 10', () => {
+    const document: IllustratorDocument = {
+      artboard: { width: 120, height: 100 },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Sharp',
+          items: [
+            {
+              kind: 'path',
+              geometry: {
+                start: [10, 10],
+                segments: [
+                  { kind: 'line', to: [60, 60] },
+                  { kind: 'line', to: [12, 10] },
+                ],
+              },
+              stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
+            },
+          ],
+        },
+      ],
+    };
+    expect(artBounds(document).maxY).toBe(65);
+  });
+
+  it('uses a curve end tangent at a miter join', () => {
+    const document: IllustratorDocument = {
+      artboard: { width: 120, height: 100 },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Curve',
+          items: [
+            {
+              kind: 'path',
+              geometry: {
+                start: [10, 10],
+                segments: [
+                  { kind: 'curve', control1: [25, 25], control2: [45, 45], to: [60, 60] },
+                  { kind: 'line', to: [110, 10] },
+                ],
+              },
+              stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
+            },
+          ],
+        },
+      ],
+    };
+    expect(artBounds(document).maxY).toBeCloseTo(60 + 5 * Math.SQRT2);
+  });
+
   it('uses exact cubic extrema and expands stroked paths by half their width', () => {
     const document: IllustratorDocument = {
       artboard: { width: 100, height: 100 },

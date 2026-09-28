@@ -1,3 +1,4 @@
+import type { Plate } from '../../../../scripts/plateOracle.ts';
 import type { Fill, IllustratorDocument, PathItem, SpotColor } from '../model/illustratorDocument.ts';
 
 import { spawn } from 'node:child_process';
@@ -6,7 +7,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { pdfDate } from '@pdfwright/core';
+import { loadDocument, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
 import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
@@ -48,7 +49,59 @@ const checkQpdf = async (file: string): Promise<number> => {
   return child.exitCode ?? -1;
 };
 
+const renderedInk = (plate: Plate, [minX, minY, maxX, maxY]: readonly [number, number, number, number]) => {
+  let ink = 0;
+  let escaped = 0;
+  for (let y = 0; y < plate.height; y++) {
+    for (let x = 0; x < plate.width; x++) {
+      if (plate.inkAt(x, y) < 128) continue;
+      ink++;
+      if (x + 1 < minX || x > maxX || plate.height - y < minY || plate.height - y - 1 > maxY) escaped++;
+    }
+  }
+  return { ink, escaped };
+};
+
 describe('visible-page render oracle', () => {
+  it('keeps a rendered mitered triangle within its written ArtBox', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-miter-'));
+    try {
+      const file = path.join(directory, 'triangle.pdf');
+      const triangle: IllustratorDocument = {
+        artboard: { width: 120, height: 100 },
+        lastModified: date,
+        layers: [
+          {
+            name: 'Triangle',
+            items: [
+              {
+                kind: 'path',
+                geometry: {
+                  start: [10, 10],
+                  segments: [
+                    { kind: 'line', to: [60, 60] },
+                    { kind: 'line', to: [110, 10] },
+                  ],
+                },
+                stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
+              },
+            ],
+          },
+        ],
+      };
+      const bytes = writeIllustratorPdf(triangle);
+      await writeFile(file, bytes);
+      const artBox = loadDocument(bytes).page(0).boxes().ArtBox.rect;
+      const files = await renderPlates(file, path.join(directory, 'plates'), true);
+      const black = await readPlate(files, new TextEncoder().encode('Black'));
+      const { ink, escaped } = renderedInk(black, artBox);
+      expect(ink).toBeGreaterThan(0);
+      expect(escaped).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('matches independently composed spot and process pixels', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-page-'));
     try {

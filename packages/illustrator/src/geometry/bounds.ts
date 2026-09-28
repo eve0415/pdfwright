@@ -72,12 +72,80 @@ export const pathBounds = (geometry: PathGeometry): Bounds => {
   return bounds;
 };
 
+type Vector = readonly [number, number];
+
+interface SegmentTangents {
+  readonly start: Vector;
+  readonly entering: Vector | undefined;
+  readonly leaving: Vector | undefined;
+}
+
+const direction = (from: Vector, to: Vector): Vector | undefined => {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const length = Math.hypot(dx, dy);
+  return length === 0 ? undefined : [dx / length, dy / length];
+};
+
+const firstDirection = (from: Vector, points: readonly Vector[]): Vector | undefined => {
+  for (const point of points) {
+    const tangent = direction(from, point);
+    if (tangent !== undefined) return tangent;
+  }
+  return undefined;
+};
+
+const segmentTangents = (geometry: PathGeometry): SegmentTangents[] => {
+  const start = xy(geometry.start);
+  let current = start;
+  const segments: SegmentTangents[] = [];
+  for (const segment of geometry.segments) {
+    const end = xy(segment.to);
+    const control1 = segment.kind === 'curve' ? xy(segment.control1) : end;
+    const control2 = segment.kind === 'curve' ? xy(segment.control2) : current;
+    const reverse = firstDirection(end, [control2, control1, current]);
+    segments.push({
+      start: current,
+      leaving: firstDirection(current, [control1, control2, end]),
+      entering: reverse === undefined ? undefined : [-reverse[0], -reverse[1]],
+    });
+    current = end;
+  }
+  if (current[0] !== start[0] || current[1] !== start[1]) {
+    segments.push({ start: current, leaving: direction(current, start), entering: direction(current, start) });
+  }
+  return segments;
+};
+
+const strokedBounds = (geometry: PathGeometry, radius: number): Bounds => {
+  const bounds = pathBounds(geometry);
+  let stroked: Bounds = { minX: bounds.minX - radius, minY: bounds.minY - radius, maxX: bounds.maxX + radius, maxY: bounds.maxY + radius };
+  if (radius === 0) return stroked;
+  const segments = segmentTangents(geometry);
+  for (let index = 0; index < segments.length; index++) {
+    const previous = segments[(index + segments.length - 1) % segments.length];
+    const next = segments[index];
+    const incoming = previous?.entering;
+    const outgoing = next?.leaving;
+    if (incoming === undefined || outgoing === undefined || next === undefined) continue;
+    const dot = Math.max(-1, Math.min(1, incoming[0] * outgoing[0] + incoming[1] * outgoing[1]));
+    const sinHalf = Math.sqrt((1 + dot) / 2);
+    // ISO 32000-1:2008, 8.4.3.4-8.4.3.5: miter joins bevel when the full miter length / line width exceeds 10.
+    if (sinHalf === 0 || 1 / sinHalf > 10) continue;
+    const cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0];
+    if (cross === 0) continue;
+    const side = cross < 0 ? 1 : -1;
+    const scale = (side * radius) / (1 + dot);
+    stroked = includePoint(stroked, next.start[0] + scale * (-incoming[1] - outgoing[1]), next.start[1] + scale * (incoming[0] + outgoing[0]));
+  }
+  return stroked;
+};
+
 const itemBounds = (item: Item): Bounds | undefined => {
   switch (item.kind) {
     case 'path': {
-      const bounds = pathBounds(item.geometry);
       const radius = item.stroke === undefined ? 0 : number(item.stroke.width) / 2;
-      return { minX: bounds.minX - radius, minY: bounds.minY - radius, maxX: bounds.maxX + radius, maxY: bounds.maxY + radius };
+      return strokedBounds(item.geometry, radius);
     }
     case 'raster': {
       const x = number(item.bounds.x);
