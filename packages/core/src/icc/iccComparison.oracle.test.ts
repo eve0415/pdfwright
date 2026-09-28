@@ -76,7 +76,7 @@ const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 
   ),
 );
 
-describe('littlecms double transform comparison', () => {
+describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
   it('agrees with transicc on a printed RGB black sample', async () => {
     const output = await execute('transicc', ['-n', `-i${fixturePath('sRGB.icm')}`, `-o${fixturePath('fogra28l.icc')}`, '-t1', '-c0'], '0 0 0\n');
     expect(output.trim()).toBe('99.9863 62.8260 37.1252 100.0000');
