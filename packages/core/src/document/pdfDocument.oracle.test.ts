@@ -110,6 +110,9 @@ describe('qpdf document oracle', () => {
       document.addPage(boxes);
       const file = path.join(directory, 'boxes.pdf');
       await writeFile(file, document.save().toBytes());
+      const check = await qpdf(['--check', file]);
+      expect(check.stderr).toBe('');
+      expect(check.stdout.toLowerCase()).not.toContain('warning');
       const report = await qpdf(['--json', file]);
       const json: unknown = JSON.parse(report.stdout);
       const { page, entries } = pageBoxEntries(json);
