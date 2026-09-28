@@ -16,7 +16,11 @@ export type ValidationReason =
   | 'color-operator'
   | 'overprint-mode-change'
   | 'blend-space-change'
-  | 'pdf-extensions';
+  | 'pdf-extensions'
+  | 'colorant-ascii-only'
+  | 'reserved-colorant'
+  | 'invisible-overprint'
+  | 'raw-content-unchecked';
 
 /** An input or document state violates a requirement of the requested operation. */
 export class ValidationError extends PdfwrightError {

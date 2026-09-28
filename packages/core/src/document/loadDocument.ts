@@ -53,6 +53,8 @@ export interface LoadOptions {
   generationMismatch?: 'error' | 'null';
   /** A reconstruction that finds differing copies of one object: throw ('refuse-ambiguous', the default) or use the latest copy. */
   recovery?: 'refuse-ambiguous' | 'latest';
+  /** Whether newly added colorant names must use printable ASCII bytes. */
+  colorantPolicy?: { asciiOnly?: boolean };
 }
 
 export interface SaveOptions {
@@ -142,6 +144,7 @@ interface LoadedParts {
   readonly pages: readonly PageEntry[];
   readonly maxNesting: number;
   readonly maxDecodedBytes: number;
+  readonly asciiOnlyColorants: boolean;
 }
 
 const VERSION = pdfName('Version').bytes;
@@ -151,7 +154,7 @@ class LoadedPdf implements LoadedDocument {
   private readonly log: readonly LoadWarning[];
   private readonly objects: EditedObjects;
   private readonly pages: readonly PageEntry[];
-  private readonly handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: false });
+  private readonly handles: ReturnType<typeof createDocumentHandles>;
   private readonly placed: ResourceNumbers = { imageNumbers: new Map(), groupNumbers: new Map() };
   private readonly features = { transparency: false };
   private readonly base: SaveBase | undefined;
@@ -161,6 +164,7 @@ class LoadedPdf implements LoadedDocument {
   private pdfx4CatalogLowered = false;
 
   constructor(parts: LoadedParts) {
+    this.handles = createDocumentHandles({ fractionDigits: DEFAULT_FRACTION_DIGITS, asciiOnlyColorants: parts.asciiOnlyColorants });
     this.base = parts.read.base;
     this.maxNesting = parts.maxNesting;
     this.maxDecodedBytes = parts.maxDecodedBytes;
@@ -384,5 +388,6 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     pages,
     maxNesting: session.options.maxNesting,
     maxDecodedBytes: session.options.maxDecodedBytes,
+    asciiOnlyColorants: options.colorantPolicy?.asciiOnly === true,
   });
 };

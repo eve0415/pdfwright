@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
+import { buildPdf } from '../testing/pdfBuilder.ts';
 
 import { cmyk, gray, rgb } from './color.ts';
+import { loadDocument } from './loadDocument.ts';
 import { createDocument } from './pdfDocument.ts';
 import { rect } from './rect.ts';
 
@@ -40,6 +42,23 @@ describe('separation colour spaces', () => {
     expect(ascii(document.save().toBytes())).toContain('/Separation /None /DeviceGray');
     document.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 0.2) });
     expect(() => document.separation({ name: 'Spot', alternate: cmyk(0, 0, 0, 0.3) })).toThrow(ValidationError);
+  });
+
+  it('enforces the ASCII policy when a loaded document adds a plate, with typed errors', () => {
+    const { bytes } = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const document = loadDocument(bytes, { colorantPolicy: { asciiOnly: true } });
+    expect(() => document.separation({ name: 'é', alternate: gray(1) })).toThrow(expect.objectContaining({ reason: 'colorant-ascii-only' }));
+    expect(() => document.separation({ name: 'All', alternate: gray(1) })).toThrow(expect.objectContaining({ reason: 'reserved-colorant' }));
+    expect(() => document.separation({ name: 'None', alternate: gray(1) })).toThrow(expect.objectContaining({ reason: 'reserved-colorant' }));
   });
 
   it('accepts only separations the same document created, as opaque frozen handles', () => {

@@ -38,11 +38,15 @@ export const createSeparationRecord = (options: SeparationOptions, asciiOnly: bo
   // ISO 32000-1:2008, 7.3.5 treats name bytes as UTF-8 text; callers can pass encoded bytes for a different naming convention.
   const name = typeof options.name === 'string' ? new TextEncoder().encode(options.name) : Uint8Array.from(options.name);
   pdfNameFromBytes(name);
-  if (asciiOnly && [...name].some(byte => byte < 0x21 || byte > 0x7e)) throw new ValidationError('colorant policy requires printable ASCII name bytes');
+  if (asciiOnly && [...name].some(byte => byte < 0x21 || byte > 0x7e)) {
+    throw new ValidationError('colorant policy requires printable ASCII name bytes', 'colorant-ascii-only');
+  }
   const text = new TextDecoder().decode(name);
   // ISO 32000-1:2008, 8.6.6.4 reserves All and None as special colorant names with defined output semantics.
-  if ((text === 'All' || text === 'None') && options.allow !== text) throw new ValidationError(`${text} requires an explicit allow option`);
-  if (options.allow !== undefined && text !== options.allow) throw new ValidationError('allow must match the special colorant name');
+  if ((text === 'All' || text === 'None') && options.allow !== text) {
+    throw new ValidationError(`${text} requires an explicit allow option`, 'reserved-colorant');
+  }
+  if (options.allow !== undefined && text !== options.allow) throw new ValidationError('allow must match the special colorant name', 'reserved-colorant');
   return { name, alternate: copyColor(options.alternate) };
 };
 

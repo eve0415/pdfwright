@@ -5,7 +5,10 @@ import type { ResourceAddition, ResourceCategory, ResourceContext } from './page
 import type { PageEntry } from './pageTree.ts';
 import type { RegisteredResource, ResourceNumbers, ResourcePrefix, ResourceRecord } from './resourceRecord.ts';
 
+import { readContent } from '../content/contentOperations.ts';
+import { checkOperands } from '../content/operands.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { deepEqual } from '../object/deepEqual.ts';
@@ -39,6 +42,30 @@ const CONTENTS = pdfName('Contents').bytes;
 const GROUP = pdfName('Group').bytes;
 const CS = pdfName('CS').bytes;
 const CATEGORY: Readonly<Record<ResourcePrefix, ResourceCategory>> = { GS: 'ExtGState', CS: 'ColorSpace', Im: 'XObject', Fm: 'XObject' };
+const PAINT = new Set(['f', 'F', 'f*', 'S', 's', 'B', 'B*', 'b', 'b*', 'Do', 'sh', 'BI', 'Tj', 'TJ', "'", '"']);
+
+// Raw content has no builder state. A resource graphics state or an inherited state can make a white paint invisible, so those paths need the builder instead.
+const checkRawContent = (data: Uint8Array, isolate: boolean): void => {
+  let depth = 0;
+  try {
+    for (const operation of readContent(data, 256)) {
+      const { operator, operands } = operation;
+      if (checkOperands(operator, operands).kind !== 'known' || operator === 'gs' || operator === 'Do' || operator === 'sh') {
+        throw new ValidationError(`raw content operator ${operator} cannot be checked for invisible overprint`, 'raw-content-unchecked');
+      }
+      if (operator === 'q') depth++;
+      if (operator === 'Q' && --depth < 0) throw new ValidationError('raw content leaves its graphics state scope', 'raw-content-unchecked');
+      if (!isolate && PAINT.has(operator)) {
+        throw new ValidationError(`raw content paint ${operator} can inherit overprint settings`, 'raw-content-unchecked');
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof ParseError || error instanceof ResourceLimitError) {
+      throw new ValidationError('raw content cannot be parsed for invisible overprint', 'raw-content-unchecked');
+    }
+    throw error;
+  }
+};
 
 const label = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
 
@@ -169,6 +196,7 @@ const existingContents = (context: ContentContext, page: PageEntry): PdfDirectOb
  * ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "If the value is an array, the effect shall be as if all of the streams in the array were concatenated, in order, to form a single stream."
  */
 export const appendPageContent = (context: ContentContext, page: PageEntry, request: AppendRequest): void => {
+  if (request.content instanceof Uint8Array) checkRawContent(request.content, request.isolate);
   const data = typeof request.content === 'function' ? built(context, page, request.content) : request.content;
   const existing = existingContents(context, page);
   const appended = existing.length > 0 && !request.isolate ? new Uint8Array(data.length + 1) : data;

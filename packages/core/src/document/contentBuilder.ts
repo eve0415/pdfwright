@@ -240,7 +240,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const settle = (...[requirement, options, message]: [WhiteRequirement, PaintOptions | undefined, string]): void => {
     const conditions = [requirement.color, requirement.overprint, requirement.mode, requirement.space];
     if (conditions.includes(false) || options?.acknowledgeInvisibleOverprint === true) return;
-    if (conditions.every(condition => condition === true)) throw new ValidationError(message);
+    if (conditions.every(condition => condition === true)) throw new ValidationError(message, 'invisible-overprint');
     whiteRequirements.set(JSON.stringify(requirement), requirement);
   };
   const checkWhiteOverprint = (stroking: boolean, options?: PaintOptions): void => {

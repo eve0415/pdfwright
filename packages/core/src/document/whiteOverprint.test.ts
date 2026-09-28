@@ -41,7 +41,7 @@ describe('white overprint guard', () => {
     content.graphicsState({ overprintFill: true, overprintMode: 1 });
     expect(() => {
       content.fill('nonzero');
-    }).toThrow(ValidationError);
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'invisible-overprint' }));
     expect(() => {
       content.fill('nonzero', { acknowledgeInvisibleOverprint: true });
     }).not.toThrow();

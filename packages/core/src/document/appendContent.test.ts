@@ -37,6 +37,16 @@ const content = (document: LoadedDocument, number: number): string => {
 };
 
 describe('appending page content', () => {
+  it('refuses raw content whose overprint state cannot be checked', () => {
+    const document = load(page('/Resources<<>>'));
+    expect(() => {
+      document.page(0).appendContent(latin1Bytes('/GS1 gs 0 0 0 0 k 0 0 10 10 re f'));
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
+    expect(() => {
+      document.page(0).appendContent(latin1Bytes('0 0 0 0 k 0 0 10 10 re f'), { isolate: false });
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
+  });
+
   it('separates appended operators from a stream without trailing whitespace', () => {
     const isolated = load(page('/Contents 4 0 R/Resources<<>>'));
     isolated.page(0).appendContent(latin1Bytes('n'));
