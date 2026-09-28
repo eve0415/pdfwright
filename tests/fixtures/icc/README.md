@@ -11,3 +11,5 @@
 `sRGB.icm` comes from ArgyllCMS `ref/`; its embedded copyright tag says Graeme W. Gill released it into the public domain. SHA-256: `1c5f1948454f34199b8a497611b6a25d23d542f93a6939cee5da86f20845328a`.
 
 `sRGB-v4.icc` and `DisplayP3-v4.icc` come from [Compact ICC Profiles](https://github.com/saucecontrol/Compact-ICC-Profiles) at commit `bdd84663061bc4ae95ca70decff54f581e27f702` under [CC0 1.0](https://github.com/saucecontrol/Compact-ICC-Profiles/blob/bdd84663061bc4ae95ca70decff54f581e27f702/license). Their SHA-256 values are `c56e1685d888f5edb92fe07f2750f387f8fe8e91b32ff8fb0b56bfbbb9458353` and `cb51de38e482ee974c0c76b9689e16aad04bad16e226fed2f30c842d15ff3a3d` respectively.
+
+`lcmsOracle.c` compares float64 RGB to CMYK conversion with LittleCMS 2.16 and measures each output in Lab through the destination profile. It is source code in this repository under MIT OR Apache-2.0.
