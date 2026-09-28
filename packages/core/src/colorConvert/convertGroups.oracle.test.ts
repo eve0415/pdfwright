@@ -55,6 +55,51 @@ const formPdf = buildPdf([
   },
 ]);
 
+const appearancePdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [6 0 R] /Resources << >> >>' },
+      { number: 4, body: streamBody('', '') },
+      {
+        number: 5,
+        body: streamBody(
+          '/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceRGB >> /Resources << /XObject << /Nested 7 0 R >> /ExtGState << /GS << /SMask << /S /Luminosity /G 8 0 R >> >> >> >>',
+          '/GS gs /Nested Do 0 1 1 rg 0 0 100 100 re f',
+        ),
+      },
+      { number: 6, body: '<< /Type /Annot /Subtype /Square /Rect [0 0 100 100] /F 4 /AP << /N 5 0 R >> >>' },
+      { number: 7, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 100 100]/Group<</S/Transparency/CS/DeviceRGB>>', '1 0 0 rg 0 0 10 10 re f') },
+      { number: 8, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 100 100]/Group<</S/Transparency/CS/DeviceRGB>>', '0 1 0 rg 0 0 10 10 re f') },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
+const patternPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Pattern<</P 5 0 R>>>>>>' },
+      { number: 4, body: streamBody('', '/Pattern cs /P scn 0 0 100 100 re f') },
+      {
+        number: 5,
+        body: streamBody(
+          '/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << /XObject << /Fm 7 0 R >> /ExtGState << /GS << /SMask << /S /Luminosity /G 8 0 R >> >> >> >>',
+          '/GS gs /Fm Do',
+        ),
+      },
+      { number: 7, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>', '1 0 0 rg 0 0 10 10 re f') },
+      { number: 8, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>', '0 1 0 rg 0 0 10 10 re f') },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const luminosityPdf = (color: string, subtype = 'Luminosity') =>
   buildPdf([
     {
@@ -134,6 +179,23 @@ describe('transparency group conversion', () => {
     const report = convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(groupSpace(document, pdfReference(5, 0))).toBe('DeviceCMYK');
     expect(report.blendingSpaceChanges.blendMode).toBe(1);
+  });
+
+  it('converts appearance and nested form groups and the appearance soft mask', () => {
+    const document = loadDocument(appearancePdf.bytes);
+    const report = convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(groupSpace(document, pdfReference(5, 0))).toBe('DeviceCMYK');
+    expect(groupSpace(document, pdfReference(7, 0))).toBe('DeviceCMYK');
+    expect(groupSpace(document, pdfReference(8, 0))).toBe('DeviceGray');
+    expect(report.groups).toBe(3);
+  });
+
+  it('converts a pattern-reached form group and the pattern soft mask', () => {
+    const document = loadDocument(patternPdf.bytes);
+    const report = convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(groupSpace(document, pdfReference(7, 0))).toBe('DeviceCMYK');
+    expect(groupSpace(document, pdfReference(8, 0))).toBe('DeviceGray');
+    expect(report.groups).toBe(2);
   });
 
   it('keeps a DeviceRGB luminosity mask unchanged in gray', () => {

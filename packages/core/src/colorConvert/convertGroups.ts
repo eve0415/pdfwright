@@ -1,7 +1,7 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 
 import { readContent } from '../content/contentOperations.ts';
@@ -11,6 +11,7 @@ import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.ts';
 import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
+import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { prepareLuminosityMasks } from './luminosityMasks.ts';
 import { checkConversionRefusals } from './preflight.ts';
@@ -42,6 +43,7 @@ interface Scan {
   readonly options: RewriteColorOptions;
   readonly plans: GroupPlan[];
   readonly seenForms: Set<number>;
+  readonly seenCarriers: Set<number>;
   readonly luminosityGroups: ReadonlySet<number>;
 }
 
@@ -52,6 +54,12 @@ const XOBJECT = pdfName('XObject').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const GROUP_SUBTYPE = pdfName('S').bytes;
 const EXT_G_STATE = pdfName('ExtGState').bytes;
+const PATTERN = pdfName('Pattern').bytes;
+const PATTERN_TYPE = pdfName('PatternType').bytes;
+const FONT = pdfName('Font').bytes;
+const CHAR_PROCS = pdfName('CharProcs').bytes;
+const ANNOTS = pdfName('Annots').bytes;
+const AP = pdfName('AP').bytes;
 
 const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 
@@ -103,6 +111,8 @@ const compositing = (scan: Scan, bytes: Uint8Array | readonly Uint8Array[], reso
 
 const planGroup = (scan: Scan, input: { owner: PdfReference; dictionary: PdfDictionaryEntries; resources: PdfDictionaryEntries; flags: Compositing }): void => {
   const { owner, dictionary, resources, flags } = input;
+  if (scan.seenCarriers.has(owner.objectNumber)) return;
+  scan.seenCarriers.add(owner.objectNumber);
   if (scan.luminosityGroups.has(owner.objectNumber)) return;
   const entry = dictionary.get(GROUP);
   const value = scan.internals.objects.deref(entry);
@@ -138,6 +148,72 @@ const scanForms = (scan: Scan, resources: PdfDictionaryEntries): void => {
   }
 };
 
+const scanCarrier = (scan: Scan, reference: PdfReference, fallback: PdfDictionaryEntries): void => {
+  if (scan.seenCarriers.has(reference.objectNumber)) return;
+  const stream = scan.internals.objects.deref(reference);
+  if (stream?.kind !== 'stream') return;
+  const own = scan.internals.objects.deref(stream.dictionary.get(RESOURCES));
+  const resources = own?.kind === 'dictionary' ? own.entries : fallback;
+  const bytes = decodedData(scan.internals, stream);
+  if (typeof bytes === 'string') throw new ValidationError(`carrier content cannot be read: ${bytes}`, 'color-operator');
+  planGroup(scan, { owner: reference, dictionary: stream.dictionary, resources, flags: compositing(scan, bytes, resources) });
+  scanForms(scan, resources);
+};
+
+const scanPatterns = (scan: Scan, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(PATTERN));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    if (value.kind !== 'reference') continue;
+    const pattern = scan.internals.objects.deref(value);
+    if (pattern?.kind !== 'stream') continue;
+    const type = pattern.dictionary.get(PATTERN_TYPE);
+    if (type?.kind === 'integer' && type.value === 1) scanCarrier(scan, value, resources);
+  }
+};
+
+const scanGlyphs = (scan: Scan, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(FONT));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    const font = scan.internals.objects.deref(value);
+    if (font?.kind !== 'dictionary' || nameOf(scan.internals.objects.deref(font.entries.get(SUBTYPE))) !== 'Type3') continue;
+    const own = scan.internals.objects.deref(font.entries.get(RESOURCES));
+    const effective = own?.kind === 'dictionary' ? own.entries : resources;
+    const glyphs = scan.internals.objects.deref(font.entries.get(CHAR_PROCS));
+    if (glyphs?.kind !== 'dictionary') continue;
+    for (const [, glyph] of glyphs.entries.entries()) {
+      if (glyph.kind !== 'reference') continue;
+      const stream = scan.internals.objects.deref(glyph);
+      if (stream?.kind !== 'stream') continue;
+      const bytes = decodedData(scan.internals, stream);
+      if (typeof bytes === 'string') throw new ValidationError(`glyph content cannot be read: ${bytes}`, 'color-operator');
+      const [first] = readContent(bytes, scan.internals.maxNesting);
+      if (first?.operator === 'd0') scanCarrier(scan, glyph, effective);
+    }
+  }
+};
+
+const scanAppearances = (scan: Scan, page: PdfReference, resources: PdfDictionaryEntries): void => {
+  const owner = scan.internals.objects.deref(page);
+  if (owner?.kind !== 'dictionary') return;
+  const annotations = scan.internals.objects.deref(owner.entries.get(ANNOTS));
+  if (annotations?.kind !== 'array') return;
+  for (const annotation of annotations.items) {
+    const item = scan.internals.objects.deref(annotation);
+    if (item?.kind !== 'dictionary') continue;
+    const appearances = scan.internals.objects.deref(item.entries.get(AP));
+    if (appearances?.kind !== 'dictionary') continue;
+    for (const state of ['N', 'R', 'D']) {
+      const entry = appearances.entries.get(pdfName(state).bytes);
+      if (entry?.kind === 'reference') scanCarrier(scan, entry, resources);
+      const variants = scan.internals.objects.deref(entry);
+      if (variants?.kind !== 'dictionary') continue;
+      for (const [, value] of variants.entries.entries()) if (value.kind === 'reference') scanCarrier(scan, value, resources);
+    }
+  }
+};
+
 const applyGroup = (scan: Scan, plan: GroupPlan): void => {
   const group = new Entries(plan.group.entries());
   // ISO 32000-1:2008, 11.4.7 and Table 147: an explicit group CS governs blending, so it follows the converted paints.
@@ -163,7 +239,7 @@ export const convertTransparencyGroups = (document: LoadedDocument, options: Rew
   const masks = prepareLuminosityMasks(document, options);
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const scan: Scan = { document, internals, options, plans: [], seenForms: new Set(), luminosityGroups: masks.groupNumbers };
+  const scan: Scan = { document, internals, options, plans: [], seenForms: new Set(), seenCarriers: new Set(), luminosityGroups: masks.groupNumbers };
   for (let page = 0; page < document.pageCount; page++) {
     const { reference } = document.page(page);
     const owner = document.get(reference);
@@ -175,6 +251,19 @@ export const convertTransparencyGroups = (document: LoadedDocument, options: Rew
     if (content.problems.length > 0) throw new ValidationError('page content cannot be read', 'color-operator');
     planGroup(scan, { owner: reference, dictionary: owner.entries, resources, flags: compositing(scan, content.streams, resources) });
     scanForms(scan, resources);
+    scanPatterns(scan, resources);
+    scanGlyphs(scan, resources);
+    scanAppearances(scan, reference, resources);
+    const root: PdfDirectObject = pdfDictionary(resources);
+    const unreadable = walkResources(internals, entry, {
+      resources: root,
+      visit: visit => {
+        scanForms(scan, visit.resources);
+        scanPatterns(scan, visit.resources);
+        scanGlyphs(scan, visit.resources);
+      },
+    });
+    if (unreadable.length > 0) throw new ValidationError('group carriers cannot be read', 'unreadable-resource');
   }
   for (const plan of scan.plans) applyGroup(scan, plan);
   masks.apply();

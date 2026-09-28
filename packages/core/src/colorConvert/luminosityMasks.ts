@@ -20,6 +20,7 @@ import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.ts';
+import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { addInlineXObjects } from './inlineResources.ts';
@@ -65,9 +66,16 @@ interface MaskScan {
   readonly kept: Set<number>;
   readonly approximated: Set<number>;
   readonly seenForms: Set<number>;
+  readonly seenCarriers: Set<number>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
+const PATTERN = pdfName('Pattern').bytes;
+const PATTERN_TYPE = pdfName('PatternType').bytes;
+const FONT = pdfName('Font').bytes;
+const CHAR_PROCS = pdfName('CharProcs').bytes;
+const ANNOTS = pdfName('Annots').bytes;
+const AP = pdfName('AP').bytes;
 const XOBJECT = pdfName('XObject').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const RESOURCES = pdfName('Resources').bytes;
@@ -237,6 +245,73 @@ const scanForms = (scan: MaskScan, resources: PdfDictionaryEntries): void => {
   }
 };
 
+const scanCarrier = (scan: MaskScan, reference: PdfReference, fallback: PdfDictionaryEntries): void => {
+  if (scan.seenCarriers.has(reference.objectNumber)) return;
+  scan.seenCarriers.add(reference.objectNumber);
+  const stream = scan.internals.objects.deref(reference);
+  if (stream?.kind !== 'stream') return;
+  const own = scan.internals.objects.deref(stream.dictionary.get(RESOURCES));
+  const resources = own?.kind === 'dictionary' ? own.entries : fallback;
+  const bytes = decodedData(scan.internals, stream);
+  if (typeof bytes === 'string') throw new ValidationError(`carrier content cannot be read: ${bytes}`, 'color-operator');
+  scanContent(scan, { owner: reference, resources, content: bytes });
+  scanForms(scan, resources);
+};
+
+const scanPatterns = (scan: MaskScan, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(PATTERN));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    if (value.kind !== 'reference') continue;
+    const pattern = scan.internals.objects.deref(value);
+    if (pattern?.kind !== 'stream') continue;
+    const type = pattern.dictionary.get(PATTERN_TYPE);
+    if (type?.kind === 'integer' && type.value === 1) scanCarrier(scan, value, resources);
+  }
+};
+
+const scanGlyphs = (scan: MaskScan, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(FONT));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    const font = scan.internals.objects.deref(value);
+    if (font?.kind !== 'dictionary' || nameOf(scan.internals.objects.deref(font.entries.get(SUBTYPE))) !== 'Type3') continue;
+    const own = scan.internals.objects.deref(font.entries.get(RESOURCES));
+    const effective = own?.kind === 'dictionary' ? own.entries : resources;
+    const glyphs = scan.internals.objects.deref(font.entries.get(CHAR_PROCS));
+    if (glyphs?.kind !== 'dictionary') continue;
+    for (const [, glyph] of glyphs.entries.entries()) {
+      if (glyph.kind !== 'reference') continue;
+      const stream = scan.internals.objects.deref(glyph);
+      if (stream?.kind !== 'stream') continue;
+      const bytes = decodedData(scan.internals, stream);
+      if (typeof bytes === 'string') throw new ValidationError(`glyph content cannot be read: ${bytes}`, 'color-operator');
+      const [first] = readContent(bytes, scan.internals.maxNesting);
+      if (first?.operator === 'd0') scanCarrier(scan, glyph, effective);
+    }
+  }
+};
+
+const scanAppearances = (scan: MaskScan, page: PdfReference, resources: PdfDictionaryEntries): void => {
+  const owner = scan.internals.objects.deref(page);
+  if (owner?.kind !== 'dictionary') return;
+  const annotations = scan.internals.objects.deref(owner.entries.get(ANNOTS));
+  if (annotations?.kind !== 'array') return;
+  for (const annotation of annotations.items) {
+    const item = scan.internals.objects.deref(annotation);
+    if (item?.kind !== 'dictionary') continue;
+    const appearances = scan.internals.objects.deref(item.entries.get(AP));
+    if (appearances?.kind !== 'dictionary') continue;
+    for (const state of ['N', 'R', 'D']) {
+      const entry = appearances.entries.get(pdfName(state).bytes);
+      if (entry?.kind === 'reference') scanCarrier(scan, entry, resources);
+      const variants = scan.internals.objects.deref(entry);
+      if (variants?.kind !== 'dictionary') continue;
+      for (const [, value] of variants.entries.entries()) if (value.kind === 'reference') scanCarrier(scan, value, resources);
+    }
+  }
+};
+
 const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
   for (const plan of scan.groups.values()) {
     const dictionary = new Entries(plan.form.dictionary.entries());
@@ -307,7 +382,17 @@ const applyResources = (scan: MaskScan, discarded: PdfReference[]): void => {
 export const prepareLuminosityMasks = (document: LoadedDocument, options: RewriteColorOptions): LuminosityPreparation => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const scan: MaskScan = { document, internals, options, groups: new Map(), resources: [], kept: new Set(), approximated: new Set(), seenForms: new Set() };
+  const scan: MaskScan = {
+    document,
+    internals,
+    options,
+    groups: new Map(),
+    resources: [],
+    kept: new Set(),
+    approximated: new Set(),
+    seenForms: new Set(),
+    seenCarriers: new Set(),
+  };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
@@ -316,6 +401,18 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
     const resources = document.page(page).resources();
     scanContent(scan, { owner: entry.reference, resources, content: content.streams });
     scanForms(scan, resources);
+    scanPatterns(scan, resources);
+    scanGlyphs(scan, resources);
+    scanAppearances(scan, entry.reference, resources);
+    const unreadable = walkResources(internals, entry, {
+      resources: pdfDictionary(resources),
+      visit: visit => {
+        scanForms(scan, visit.resources);
+        scanPatterns(scan, visit.resources);
+        scanGlyphs(scan, visit.resources);
+      },
+    });
+    if (unreadable.length > 0) throw new ValidationError('mask carriers cannot be read', 'unreadable-resource');
   }
   return {
     groupNumbers: new Set([...scan.groups.keys(), ...scan.kept]),
