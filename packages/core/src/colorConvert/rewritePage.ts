@@ -1,5 +1,4 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 
@@ -21,7 +20,7 @@ interface PreparedPage {
   readonly reference: PdfReference;
   readonly encoded: Uint8Array;
   readonly oldContent: PdfDirectObject | undefined;
-  readonly resources: Entries;
+  readonly resources: PdfDictionaryEntries;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
 }

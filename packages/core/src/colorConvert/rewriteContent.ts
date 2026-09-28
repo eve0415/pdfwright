@@ -28,6 +28,7 @@ export interface RewriteColorOptions {
   readonly deviceGray?: 'keep' | 'promote-to-cmyk';
   readonly lut8LabEncoding?: 'icc' | 'adobe';
   readonly overprintMode?: 'preserve-appearance' | 'refuse';
+  readonly compressedRgbImages?: 'keep-icc-tagged' | 'refuse' | 'transcode';
 }
 
 export interface RewrittenContent {

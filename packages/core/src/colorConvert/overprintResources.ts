@@ -1,10 +1,9 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { OverprintNames } from './rewriteContent.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
-import { PdfDictionaryEntries as DictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -26,9 +25,9 @@ export const addOverprintStates = (document: LoadedDocument, resources: PdfDicti
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
   const category = internals.objects.deref(resources.get(EXT_G_STATE));
-  const states = category?.kind === 'dictionary' ? new DictionaryEntries(category.entries.entries()) : new DictionaryEntries();
-  const off = pdfDictionary(new DictionaryEntries([[OPM, pdfInteger(0)]]));
-  const on = pdfDictionary(new DictionaryEntries([[OPM, pdfInteger(1)]]));
+  const states = category?.kind === 'dictionary' ? new PdfDictionaryEntries(category.entries.entries()) : new PdfDictionaryEntries();
+  const off = pdfDictionary(new PdfDictionaryEntries([[OPM, pdfInteger(0)]]));
+  const on = pdfDictionary(new PdfDictionaryEntries([[OPM, pdfInteger(1)]]));
   states.set(pdfName(names.off).bytes, off);
   states.set(pdfName(names.on).bytes, on);
   resources.set(EXT_G_STATE, pdfDictionary(states));

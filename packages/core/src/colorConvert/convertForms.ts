@@ -1,7 +1,6 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfReference } from '../object/pdfObject.ts';
 import type { ColorEntryState, FormUse, OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
@@ -13,7 +12,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { PdfDictionaryEntries as DictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
@@ -262,7 +261,7 @@ class FormPlanner {
   private mappedResources(scope: Scope): PdfDictionaryEntries | undefined {
     const category = this.internals.objects.deref(scope.resources.get(XOBJECT));
     if (category?.kind !== 'dictionary') return undefined;
-    const mapped = new DictionaryEntries(category.entries.entries());
+    const mapped = new PdfDictionaryEntries(category.entries.entries());
     let changed = false;
     for (const { name, plan } of scope.assignments.values()) {
       const reference = outputReference(plan);
@@ -272,7 +271,7 @@ class FormPlanner {
       changed = true;
     }
     if (!changed) return undefined;
-    const resources = new DictionaryEntries(scope.resources.entries());
+    const resources = new PdfDictionaryEntries(scope.resources.entries());
     resources.set(XOBJECT, pdfDictionary(mapped));
     return resources;
   }
@@ -293,13 +292,13 @@ class FormPlanner {
   }
 
   private writeForm(plan: FormPlan, data: Uint8Array): PdfReference | undefined {
-    const dictionary = new DictionaryEntries(plan.stream.dictionary.entries());
+    const dictionary = new PdfDictionaryEntries(plan.stream.dictionary.entries());
     const mapped = this.mappedResources(plan);
     let discarded: PdfReference | undefined = undefined;
     if (mapped !== undefined || plan.overprintAdjustments > 0) {
       const old = dictionary.get(RESOURCES);
       if (old?.kind === 'reference') discarded = old;
-      const resources = new DictionaryEntries((mapped ?? plan.resources).entries());
+      const resources = new PdfDictionaryEntries((mapped ?? plan.resources).entries());
       if (plan.overprintAdjustments > 0) addOverprintStates(this.document, resources, plan.overprintNames);
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
@@ -327,7 +326,7 @@ class FormPlanner {
       if (old?.kind === 'array') for (const item of old.items) if (item.kind === 'reference') discarded.push(item);
       const stream = this.document.object({
         kind: 'stream',
-        dictionary: new DictionaryEntries([[FILTER, pdfName('FlateDecode')]]),
+        dictionary: new PdfDictionaryEntries([[FILTER, pdfName('FlateDecode')]]),
         data: deflateZlib(renamed),
       });
       page.entries.set(CONTENTS, stream);

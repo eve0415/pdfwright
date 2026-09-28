@@ -1,0 +1,561 @@
+import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
+import type { DocumentInternals } from '../document/documentInternals.ts';
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfStream } from '../font/fontValues.ts';
+import type { IccProfile } from '../icc/iccProfile.ts';
+import type { RenderingIntent } from '../icc/iccStructure.ts';
+import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { ResourceVisit } from '../resourceGraph/walkResources.ts';
+import type { FormUse, RewriteColorOptions } from './rewriteContent.ts';
+import type { SourceSpace } from './sourceSpace.ts';
+
+import { ByteWriter } from '../bytes/byteWriter.ts';
+import { createColorTransform } from '../color/createColorTransform.ts';
+import { pageContent } from '../content/pageContent.ts';
+import { internalsOf } from '../document/documentInternals.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
+import { ValidationError } from '../error/validationError.ts';
+import { createDeflateStream } from '../flate/deflate.ts';
+import { decodedData } from '../font/fontValues.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
+import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { walkResources } from '../resourceGraph/walkResources.ts';
+
+import { combineContentStreams } from './combinedContent.ts';
+import { jpxHasRgbColor } from './jpxColor.ts';
+import { checkConversionRefusals } from './preflight.ts';
+import { rewriteContentColors } from './rewriteContent.ts';
+import { resolveSourceSpace } from './sourceSpace.ts';
+
+export interface ImageConversionReport {
+  readonly converted: number;
+  readonly keptRgbImages: readonly {
+    readonly ref: PdfReference;
+    readonly filter: 'DCTDecode' | 'JPXDecode';
+    readonly tagged: 'added' | 'existing' | 'jpx-colr';
+  }[];
+}
+
+interface ImagePlan {
+  readonly reference: PdfReference;
+  readonly image: PdfStream;
+  readonly source: SourceSpace;
+  readonly filter: 'DCTDecode' | 'JPXDecode' | undefined;
+  readonly converted: Uint8Array | undefined;
+  readonly stencil: Uint8Array | undefined;
+  readonly outputBits: number | undefined;
+  readonly explicitColorSpace: PdfDirectObject | undefined;
+}
+
+interface ImageScan {
+  readonly document: LoadedDocument;
+  readonly internals: DocumentInternals;
+  readonly options: RewriteColorOptions;
+  readonly plans: ImagePlan[];
+  readonly seen: Map<number, string>;
+  readonly uses: Map<number, RenderingIntent>;
+  readonly activeForms: Set<number>;
+}
+
+interface EncodedImageData {
+  readonly data: Uint8Array;
+  readonly bits: number;
+  readonly stencil: Uint8Array | undefined;
+}
+
+interface RowParameters {
+  readonly width: number;
+  readonly channels: number;
+  readonly bits: number;
+  readonly transform: ColorTransform;
+  readonly decode: readonly number[] | undefined;
+}
+
+interface ImageGeometry {
+  readonly width: number;
+  readonly height: number;
+  readonly bits: number;
+  readonly channels: number;
+  readonly inputRow: number;
+  readonly outputBits: number;
+  readonly ranges: readonly number[] | undefined;
+}
+
+const XOBJECT = pdfName('XObject').bytes;
+const SUBTYPE = pdfName('Subtype').bytes;
+const COLOR_SPACE = pdfName('ColorSpace').bytes;
+const DEFAULT_RGB = pdfName('DefaultRGB').bytes;
+const FILTER = pdfName('Filter').bytes;
+const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const DECODE = pdfName('Decode').bytes;
+const IMAGE_MASK = pdfName('ImageMask').bytes;
+const MASK = pdfName('Mask').bytes;
+const TYPE = pdfName('Type').bytes;
+const BITS = pdfName('BitsPerComponent').bytes;
+const WIDTH = pdfName('Width').bytes;
+const HEIGHT = pdfName('Height').bytes;
+const INTENT = pdfName('Intent').bytes;
+const N = pdfName('N').bytes;
+const MAX_IMAGE_WORKING_BYTES = 4 * 1024 * 1024;
+
+const invalid = (detail: string): never => {
+  throw new ValidationError(detail, 'color-space');
+};
+
+const deref = (scan: ImageScan, value: PdfDirectObject | undefined): PdfDirectObject | PdfStream | undefined => scan.internals.objects.deref(value);
+
+const imageNumber = (scan: ImageScan, image: PdfStream, key: Uint8Array): number => {
+  const value = deref(scan, image.dictionary.get(key));
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) return invalid('image dimensions or bit depth are invalid');
+  return value.value;
+};
+
+const filterNames = (scan: ImageScan, image: PdfStream): string[] => {
+  const value = deref(scan, image.dictionary.get(FILTER));
+  let entries: readonly PdfDirectObject[] = [];
+  if (value?.kind === 'array') entries = value.items;
+  else if (value !== undefined) {
+    if (value.kind !== 'name') return invalid('image filter is not a name');
+    entries = [value];
+  }
+  return entries.map(item => {
+    const resolved = deref(scan, item);
+    if (resolved?.kind !== 'name') return invalid('image filter is not a name');
+    const name = new TextDecoder('latin1').decode(resolved.bytes);
+    if (name === 'DCT') return 'DCTDecode';
+    if (name === 'Fl') return 'FlateDecode';
+    return name;
+  });
+};
+
+const compressedFilter = (names: readonly string[]): 'DCTDecode' | 'JPXDecode' | undefined => {
+  if (names.includes('JPXDecode')) return 'JPXDecode';
+  if (names.includes('DCTDecode')) return 'DCTDecode';
+  return undefined;
+};
+
+const colorSource = (space: SourceSpace): ColorSource | undefined => (space.kind === 'rgb' || space.kind === 'gray' ? space.source : undefined);
+
+const explicitDefaultRgb = (scan: ImageScan, resources: PdfDictionaryEntries): PdfDirectObject => {
+  const category = deref(scan, resources.get(COLOR_SPACE));
+  if (category?.kind !== 'dictionary') return invalid('DefaultRGB resource is missing');
+  const value = category.entries.get(DEFAULT_RGB);
+  if (value === undefined) return invalid('DefaultRGB resource is missing');
+  const resolved = deref(scan, value);
+  if (resolved?.kind === 'array') return resolved;
+  if (value.kind === 'reference') return value;
+  return invalid('DefaultRGB cannot be made explicit on an image');
+};
+
+const sourceKey = (space: SourceSpace): string => {
+  const source = colorSource(space);
+  if (source === undefined) return space.kind;
+  return source.kind === 'icc' ? [...source.profile.identity].join(',') : JSON.stringify(source);
+};
+
+const intentName = (value: PdfDirectObject | PdfStream | undefined): RenderingIntent | undefined => {
+  if (value?.kind !== 'name') return undefined;
+  const name = new TextDecoder('latin1').decode(value.bytes);
+  if (name === 'Perceptual') return 'perceptual';
+  if (name === 'Saturation') return 'saturation';
+  if (name === 'AbsoluteColorimetric') return 'absoluteColorimetric';
+  return 'relativeColorimetric';
+};
+
+const transformFor = (scan: ImageScan, image: PdfStream, selection: { source: ColorSource; reference: PdfReference }): ColorTransform => {
+  const intent =
+    scan.options.intent === undefined || scan.options.intent === 'document'
+      ? (intentName(deref(scan, image.dictionary.get(INTENT))) ?? scan.uses.get(selection.reference.objectNumber) ?? 'relativeColorimetric')
+      : scan.options.intent;
+  return createColorTransform(selection.source, scan.options.outputProfile, {
+    intent,
+    blackPointCompensation: scan.options.blackPointCompensation !== false,
+    lut8LabEncoding: scan.options.lut8LabEncoding ?? 'icc',
+  });
+};
+
+const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): number[] | undefined => {
+  const value = deref(scan, image.dictionary.get(DECODE));
+  if (value === undefined) return undefined;
+  if (value.kind !== 'array' || value.items.length !== channels * 2) return invalid('image Decode array has the wrong length');
+  const values: number[] = [];
+  for (const item of value.items) {
+    const component = deref(scan, item);
+    if (component?.kind !== 'integer' && component?.kind !== 'real') return invalid('image Decode entry is not numeric');
+    if (typeof component.value !== 'number') return invalid('image Decode entry is not numeric');
+    values.push(component.value);
+  }
+  return values;
+};
+
+const sample = (row: Uint8Array, index: number, bits: number): number => {
+  if (bits === 8) return row[index] ?? 0;
+  if (bits === 16) return (row[index * 2] ?? 0) * 256 + (row[index * 2 + 1] ?? 0);
+  const bit = index * bits;
+  const shift = 8 - bits - (bit % 8);
+  return Math.floor((row[Math.floor(bit / 8)] ?? 0) / 2 ** shift) % 2 ** bits;
+};
+
+const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: number; bits: number }): readonly number[] | undefined => {
+  const { channels, bits } = config;
+  const mask = deref(scan, image.dictionary.get(MASK));
+  if (mask?.kind !== 'array') return undefined;
+  if (mask.items.length !== channels * 2) return invalid('image colour-key mask has the wrong number of ranges');
+  const maximum = 2 ** bits - 1;
+  const ranges: number[] = [];
+  for (const item of mask.items) {
+    const value = deref(scan, item);
+    if (value?.kind !== 'integer' || value.value < 0 || value.value > maximum) return invalid('image colour-key mask range is invalid');
+    ranges.push(value.value);
+  }
+  return ranges;
+};
+
+const stencilRow = (row: Uint8Array, config: { width: number; channels: number; bits: number; ranges: readonly number[] }): Uint8Array => {
+  const { width, channels, bits, ranges } = config;
+  // ISO 32000-1:2008, 8.9.6.4 tests the raw samples before Decode; 8.9.6.2 makes stencil bit 1 transparent by default.
+  const stencil = new Uint8Array(Math.ceil(width / 8));
+  for (let pixel = 0; pixel < width; pixel++) {
+    let keyed = true;
+    for (let channel = 0; channel < channels; channel++) {
+      const value = sample(row, pixel * channels + channel, bits);
+      if (value < (ranges[channel * 2] ?? 0) || value > (ranges[channel * 2 + 1] ?? -1)) keyed = false;
+    }
+    if (keyed) stencil[Math.floor(pixel / 8)] = (stencil[Math.floor(pixel / 8)] ?? 0) + 2 ** (7 - (pixel % 8));
+  }
+  return stencil;
+};
+
+const outputRow = (input: Uint8Array, parameters: RowParameters): Uint8Array => {
+  const { width, channels, bits, transform, decode } = parameters;
+  const outputBits = bits === 16 ? 16 : 8;
+  const result = new Uint8Array(width * 4 * (outputBits / 8));
+  if (decode === undefined && bits === 8) {
+    transform.convertRow8(input, result, width);
+    return result;
+  }
+  if (decode === undefined && bits === 16) {
+    const source = new Uint16Array(width * channels);
+    const converted = new Uint16Array(width * 4);
+    for (let index = 0; index < source.length; index++) source[index] = sample(input, index, 16);
+    transform.convertRow16(source, converted, width);
+    for (let index = 0; index < converted.length; index++) {
+      result[index * 2] = Math.floor((converted[index] ?? 0) / 256);
+      result[index * 2 + 1] = (converted[index] ?? 0) % 256;
+    }
+    return result;
+  }
+  const source = new Float64Array(channels);
+  const converted = new Float64Array(4);
+  const maximum = 2 ** bits - 1;
+  for (let pixel = 0; pixel < width; pixel++) {
+    for (let channel = 0; channel < channels; channel++) {
+      const value = sample(input, pixel * channels + channel, bits) / maximum;
+      const start = decode?.[channel * 2] ?? 0;
+      const end = decode?.[channel * 2 + 1] ?? 1;
+      source[channel] = start + value * (end - start);
+    }
+    transform.convert(source, converted);
+    for (let channel = 0; channel < 4; channel++) {
+      const value = Math.round((converted[channel] ?? 0) * (2 ** outputBits - 1));
+      const index = pixel * 4 + channel;
+      if (outputBits === 8) result[index] = value;
+      else {
+        result[index * 2] = Math.floor(value / 256);
+        result[index * 2 + 1] = value % 256;
+      }
+    }
+  }
+  return result;
+};
+
+const geometry = (scan: ImageScan, image: PdfStream, space: SourceSpace): ImageGeometry => {
+  const width = imageNumber(scan, image, WIDTH);
+  const height = imageNumber(scan, image, HEIGHT);
+  const bits = imageNumber(scan, image, BITS);
+  if (![1, 2, 4, 8, 16].includes(bits)) return invalid('image BitsPerComponent is unsupported');
+  const channels = space.kind === 'rgb' ? 3 : 1;
+  const inputRow = Math.ceil((width * channels * bits) / 8);
+  const outputBits = bits === 16 ? 16 : 8;
+  const outputRowBytes = width * 4 * (outputBits / 8);
+  const ranges = maskRanges(scan, image, { channels, bits });
+  const maskRowBytes = ranges === undefined ? 0 : Math.ceil(width / 8);
+  const ceiling = Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES);
+  if (!Number.isSafeInteger((inputRow + outputRowBytes + maskRowBytes) * height) || (inputRow + outputRowBytes + maskRowBytes) * height > ceiling) {
+    throw new ResourceLimitError(`RGB image conversion exceeds the in-memory ceiling (${String(ceiling)} decoded bytes); streamed saving is required`);
+  }
+  return { width, height, bits, channels, inputRow, outputBits, ranges };
+};
+
+const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
+  const { space, reference } = target;
+  const source = colorSource(space);
+  if (source === undefined) return invalid('image colour space cannot be converted');
+  const { width, height, bits, channels, inputRow, outputBits, ranges } = geometry(scan, image, space);
+  const data = decodedData(scan.internals, image);
+  if (typeof data === 'string') throw new ValidationError(`image data cannot be decoded: ${data}`, 'color-space');
+  if (data.length !== inputRow * height) return invalid('decoded image length does not match its dimensions');
+  const transform = transformFor(scan, image, { source, reference });
+  const decode = decodeArray(scan, image, channels);
+  const deflater = createDeflateStream();
+  const writer = new ByteWriter();
+  const maskDeflater = ranges === undefined ? undefined : createDeflateStream();
+  const maskWriter = ranges === undefined ? undefined : new ByteWriter();
+  for (let row = 0; row < height; row++) {
+    const input = data.subarray(row * inputRow, (row + 1) * inputRow);
+    const converted = outputRow(input, { width, channels, bits, transform, decode });
+    for (const chunk of deflater.push(converted)) writer.writeBytes(chunk);
+    if (ranges !== undefined && maskDeflater !== undefined && maskWriter !== undefined) {
+      for (const chunk of maskDeflater.push(stencilRow(input, { width, channels, bits, ranges }))) maskWriter.writeBytes(chunk);
+    }
+  }
+  writer.writeBytes(deflater.finish());
+  if (maskDeflater !== undefined && maskWriter !== undefined) maskWriter.writeBytes(maskDeflater.finish());
+  return { data: writer.toUint8Array(), bits: outputBits, stencil: maskWriter?.toUint8Array() };
+};
+
+const planUntaggedJpx = (scan: ImageScan, target: { reference: PdfReference; image: PdfStream }): void => {
+  const { reference, image } = target;
+  if (!jpxHasRgbColor(image.data, Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES))) {
+    throw new UnsupportedFeatureError('JPX image has no classifiable RGB colour space', 'jpx-color-space');
+  }
+  if (scan.options.compressedRgbImages === 'refuse' || scan.options.compressedRgbImages === 'transcode') {
+    throw new UnsupportedFeatureError('compressed RGB image conversion is unavailable', 'compressed-rgb-image');
+  }
+  scan.seen.set(reference.objectNumber, 'jpx-colr');
+  scan.plans.push({
+    reference,
+    image,
+    source: { kind: 'untouched' },
+    filter: 'JPXDecode',
+    converted: undefined,
+    stencil: undefined,
+    outputBits: undefined,
+    explicitColorSpace: undefined,
+  });
+};
+
+const planCompressedRgb = (
+  scan: ImageScan,
+  input: {
+    reference: PdfReference;
+    image: PdfStream;
+    space: SourceSpace;
+    filter: 'DCTDecode' | 'JPXDecode';
+    color: PdfDirectObject;
+    resources: PdfDictionaryEntries;
+  },
+): void => {
+  if (scan.options.compressedRgbImages === 'refuse' || scan.options.compressedRgbImages === 'transcode') {
+    throw new UnsupportedFeatureError('compressed RGB image conversion is unavailable', 'compressed-rgb-image');
+  }
+  if (input.space.kind === 'rgb' && input.space.source.kind === 'icc' && input.space.source.profile.bytes.length > MAX_IMAGE_WORKING_BYTES) {
+    throw new ResourceLimitError(`RGB image profile exceeds the in-memory ceiling (${String(MAX_IMAGE_WORKING_BYTES)} bytes)`);
+  }
+  const explicitColorSpace =
+    input.color.kind === 'name' && input.space.kind === 'rgb' && input.space.source.kind === 'calRGB' ? explicitDefaultRgb(scan, input.resources) : undefined;
+  scan.plans.push({
+    reference: input.reference,
+    image: input.image,
+    source: input.space,
+    filter: input.filter,
+    converted: undefined,
+    stencil: undefined,
+    outputBits: undefined,
+    explicitColorSpace,
+  });
+};
+
+const planImage = (scan: ImageScan, target: { reference: PdfReference; image: PdfStream }, resources: PdfDictionaryEntries): void => {
+  const { reference, image } = target;
+  // ISO 32000-1:2008, 8.9.5 Table 89: ColorSpace is required except for JPXDecode images and forbidden for image masks.
+  const masked = deref(scan, image.dictionary.get(IMAGE_MASK));
+  if (masked?.kind === 'boolean' && masked.value) return;
+  const filters = filterNames(scan, image);
+  const compressed = compressedFilter(filters);
+  const color = image.dictionary.get(COLOR_SPACE);
+  if (color === undefined) {
+    if (compressed === 'JPXDecode') {
+      planUntaggedJpx(scan, target);
+      return;
+    }
+    return invalid('image ColorSpace is missing');
+  }
+  const space = resolveSourceSpace(scan.document, color, {
+    resources,
+    sourceRgbProfile: scan.options.sourceRgbProfile,
+    options: { iccGray: scan.options.iccGray ?? 'convert' },
+  });
+  if (space.kind !== 'rgb' && space.kind !== 'gray') return;
+  const key = sourceKey(space);
+  const previous = scan.seen.get(reference.objectNumber);
+  if (previous !== undefined && previous !== key) throw new ValidationError('shared image has conflicting source colour spaces', 'color-space');
+  if (previous !== undefined) return;
+  scan.seen.set(reference.objectNumber, key);
+  if (compressed !== undefined) {
+    planCompressedRgb(scan, { reference, image, space, filter: compressed, color, resources });
+    return;
+  }
+  const converted = convertPixels(scan, image, { space, reference });
+  scan.plans.push({
+    reference,
+    image,
+    source: space,
+    filter: undefined,
+    converted: converted.data,
+    stencil: converted.stencil,
+    outputBits: converted.bits,
+    explicitColorSpace: undefined,
+  });
+};
+
+const scanResources = (scan: ImageScan, visit: ResourceVisit): void => {
+  const category = deref(scan, visit.resources.get(XOBJECT));
+  if (category?.kind !== 'dictionary') return;
+  for (const [, value] of category.entries.entries()) {
+    const image = deref(scan, value);
+    if (image?.kind !== 'stream') continue;
+    const subtype = deref(scan, image.dictionary.get(SUBTYPE));
+    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Image') continue;
+    if (value.kind !== 'reference') return invalid('image XObject must be indirect');
+    planImage(scan, { reference: value, image }, visit.resources);
+  }
+};
+
+const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: readonly FormUse[]): void => {
+  const category = deref(scan, resources.get(XOBJECT));
+  if (category?.kind !== 'dictionary') return;
+  for (const use of uses) {
+    const value = category.entries.get(use.name);
+    const stream = deref(scan, value);
+    if (stream?.kind !== 'stream' || value?.kind !== 'reference') continue;
+    const subtype = deref(scan, stream.dictionary.get(SUBTYPE));
+    if (subtype?.kind !== 'name') continue;
+    const kind = new TextDecoder('latin1').decode(subtype.bytes);
+    if (kind === 'Image' && stream.dictionary.get(INTENT) === undefined) {
+      const previous = scan.uses.get(value.objectNumber);
+      if (previous !== undefined && previous !== use.entry.intent) {
+        throw new ValidationError('shared image is used under different rendering intents', 'color-space');
+      }
+      scan.uses.set(value.objectNumber, use.entry.intent);
+    }
+    if (kind !== 'Form') continue;
+    if (scan.activeForms.has(value.objectNumber)) throw new ResourceLimitError('recursive form image walk is unsupported');
+    const own = deref(scan, stream.dictionary.get(pdfName('Resources').bytes));
+    const formResources = own?.kind === 'dictionary' ? own.entries : resources;
+    const bytes = decodedData(scan.internals, stream);
+    if (typeof bytes === 'string') throw new ValidationError(`form content cannot be read: ${bytes}`, 'color-operator');
+    scan.activeForms.add(value.objectNumber);
+    try {
+      const rewritten = rewriteContentColors(scan.document, bytes, {
+        resources: formResources,
+        options: scan.options,
+        initialState: use.entry,
+        overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
+      });
+      scanUses(scan, formResources, rewritten.formUses);
+    } finally {
+      scan.activeForms.delete(value.objectNumber);
+    }
+  }
+};
+
+const scanPageUses = (scan: ImageScan, page: number): void => {
+  const entry = scan.internals.pages[page];
+  if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+  const content = pageContent(scan.internals, entry);
+  if (content.problems.length > 0) throw new ValidationError(`page content cannot be read: ${content.problems.join('; ')}`, 'color-operator');
+  const resources = scan.document.page(page).resources();
+  const rewritten = rewriteContentColors(scan.document, combineContentStreams(content.streams), {
+    resources,
+    options: scan.options,
+    overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
+  });
+  scanUses(scan, resources, rewritten.formUses);
+};
+
+const addStencil = (scan: ImageScan, plan: ImagePlan): PdfReference | undefined => {
+  if (plan.stencil === undefined) return undefined;
+  const dictionary = new PdfDictionaryEntries([
+    [TYPE, pdfName('XObject')],
+    [SUBTYPE, pdfName('Image')],
+    [IMAGE_MASK, { kind: 'boolean', value: true }],
+    [WIDTH, pdfInteger(imageNumber(scan, plan.image, WIDTH))],
+    [HEIGHT, pdfInteger(imageNumber(scan, plan.image, HEIGHT))],
+    [BITS, pdfInteger(1)],
+    [FILTER, pdfName('FlateDecode')],
+  ]);
+  return scan.document.object({ kind: 'stream', dictionary, data: plan.stencil });
+};
+
+const applyPlans = (scan: ImageScan): ImageConversionReport => {
+  const profileReferences = new Map<string, PdfReference>();
+  const keptRgbImages: { ref: PdfReference; filter: 'DCTDecode' | 'JPXDecode'; tagged: 'added' | 'existing' | 'jpx-colr' }[] = [];
+  let converted = 0;
+  let changed = false;
+  for (const plan of scan.plans) {
+    const dictionary = new PdfDictionaryEntries(plan.image.dictionary.entries());
+    if (plan.filter !== undefined) {
+      let tagged: 'added' | 'existing' | 'jpx-colr' = 'existing';
+      if (plan.source.kind === 'rgb' && plan.source.source.kind === 'icc' && dictionary.get(COLOR_SPACE)?.kind === 'name') {
+        const profile: IccProfile = plan.source.source.profile;
+        const key = sourceKey(plan.source);
+        let profileReference = profileReferences.get(key);
+        if (profileReference === undefined) {
+          profileReference = scan.document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries([[N, pdfInteger(3)]]), data: profile.bytes });
+          profileReferences.set(key, profileReference);
+        }
+        dictionary.set(COLOR_SPACE, pdfArray([pdfName('ICCBased'), profileReference]));
+        scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.image.data });
+        changed = true;
+        tagged = 'added';
+      } else if (plan.explicitColorSpace !== undefined) {
+        dictionary.set(COLOR_SPACE, plan.explicitColorSpace);
+        scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.image.data });
+        changed = true;
+        tagged = 'added';
+      }
+      if (dictionary.get(COLOR_SPACE) === undefined) tagged = 'jpx-colr';
+      keptRgbImages.push({ ref: plan.reference, filter: plan.filter, tagged });
+      continue;
+    }
+    if (plan.converted === undefined || plan.outputBits === undefined) throw new ValidationError('converted image has no data', 'color-space');
+    dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
+    dictionary.set(BITS, pdfInteger(plan.outputBits));
+    dictionary.set(FILTER, pdfName('FlateDecode'));
+    dictionary.delete(DECODE_PARMS);
+    dictionary.delete(DECODE);
+    const stencil = addStencil(scan, plan);
+    if (stencil !== undefined) dictionary.set(MASK, stencil);
+    scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.converted });
+    converted++;
+    changed = true;
+  }
+  if (changed) scan.internals.objects.requireFullRewrite('color-conversion');
+  return { converted, keptRgbImages };
+};
+
+/** Converts bounded RGB and calibrated gray image data and tags compressed RGB images with their source profile. */
+export const convertImages = (document: LoadedDocument, options: RewriteColorOptions): ImageConversionReport => {
+  checkConversionRefusals(document, options.outputProfile);
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  const scan: ImageScan = { document, internals, options, plans: [], seen: new Map(), uses: new Map(), activeForms: new Set() };
+  if (options.intent === undefined || options.intent === 'document') {
+    for (let page = 0; page < document.pageCount; page++) scanPageUses(scan, page);
+  }
+  for (let page = 0; page < document.pageCount; page++) {
+    const entry = internals.pages[page];
+    if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+    const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
+    const unreadable = walkResources(internals, entry, {
+      resources,
+      visit: visit => {
+        scanResources(scan, visit);
+      },
+    });
+    if (unreadable.length > 0) throw new ValidationError('image resources cannot be read', 'unreadable-resource');
+  }
+  return applyPlans(scan);
+};
