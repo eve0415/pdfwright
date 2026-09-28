@@ -243,6 +243,8 @@ interface Prepared {
   readonly resolved: ResolvedInput;
   readonly documentId: string;
   readonly previous: string | undefined;
+  readonly versionId: string | undefined;
+  readonly renditionClass: string | undefined;
   readonly write: PacketWriter;
   readonly plan: Plan;
   readonly graph: Graph;
@@ -256,16 +258,18 @@ const prepare = (document: DocumentInternals, input: MetadataInput, options: Set
   const packet = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet : undefined;
   const { objects } = document;
   const previous = previousInstanceIds.has(objects) ? previousInstanceIds.get(objects) : packetText(packet, 'InstanceID');
+  const versionId = packetText(packet, 'VersionID');
+  const renditionClass = packetText(packet, 'RenditionClass');
   const documentId = documentIdOf(document, packet, options.documentId);
   const write = packetWriter(state.xmp, options, {
-    sample: managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }),
+    sample: managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID, versionId, renditionClass }),
     kept: resolved.kept,
   });
   const info = infoDictionary(state.info?.entries, resolved, input);
   const reachable = reachableObjects(document).objects;
   const components = state.reader.components(reachable, state.catalog?.reference.objectNumber);
   const target = packetTarget(state, components);
-  return { state, resolved, documentId, previous, write, plan: { info, target }, graph: { reachable, components, target } };
+  return { state, resolved, documentId, previous, versionId, renditionClass, write, plan: { info, target }, graph: { reachable, components, target } };
 };
 
 /**
@@ -278,7 +282,7 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   const internals = internalsOf(document);
   if (internals === undefined) throw new InvalidArgumentError('setMetadata needs a document from loadDocument');
   const keep = options.revisions === 'keep';
-  const { state, resolved, documentId, previous, write, plan, graph } = prepare(internals, input, options);
+  const { state, resolved, documentId, previous, versionId, renditionClass, write, plan, graph } = prepare(internals, input, options);
   const supersededPackets = keep ? supersededCount(internals, state, graph) : undefined;
   // Every edit is made on a fork of the document's edits, and adopted only once all of them, and the packet, have been made without an error.
   const objects = internals.objects.fork();
@@ -294,13 +298,13 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
     const serializeOptions = { store: objects.store, maxNesting: internals.maxNesting, fractionDigits };
     const serialize = ({ objectNumber, value }: { readonly objectNumber: number; readonly value: PdfObject }): Uint8Array =>
       changedObjectBytes(objectNumber, value, serializeOptions);
-    const draft = write(managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID }));
+    const draft = write(managedValues(resolved, input, { documentId, instanceId: SAMPLE_INSTANCE_ID, versionId, renditionClass }));
     const digest = createMd5()
       .update(changesDigest(changes, excluded, serialize))
       .update(draft.bytes)
       .digest();
     const instanceId = deriveInstanceId({ documentId, metadataDate, previous, changes: digest });
-    const written = write(managedValues(resolved, input, { documentId, instanceId }));
+    const written = write(managedValues(resolved, input, { documentId, instanceId, versionId, renditionClass }));
     return { value: { kind: 'stream', dictionary: placement.dictionary, data: written.bytes }, instanceId, written };
   };
   const current = produce(objects.changes, DEFAULT_FRACTION_DIGITS);

@@ -3,7 +3,7 @@ import type { ReadPacket, XmpValue } from './readXmp.ts';
 import type { ManagedValues } from './writeXmp.ts';
 
 import { ValidationError } from '../../error/validationError.ts';
-import { MAPPED_ROWS, XMP_MM_NAMESPACE, XMP_NAMESPACE } from '../mapping.ts';
+import { MAPPED_ROWS, PDFX_ID_NAMESPACE, XMP_MM_NAMESPACE, XMP_NAMESPACE } from '../mapping.ts';
 
 import { readXmp } from './readXmp.ts';
 import { managedDescription } from './writeXmp.ts';
@@ -53,12 +53,18 @@ const expectedValues = (packet: ReadPacket, values: ManagedValues, kept: Readonl
   } as const satisfies Record<MappedKey, XmpValue | undefined>;
   const value = (row: (typeof MAPPED_ROWS)[number]): XmpValue | undefined =>
     kept.has(row.key) ? packet.properties.find(property => property.namespace === row.namespace && property.localName === row.name)?.value : byKey[row.key];
-  return new Map([
+  const expected = new Map([
     ...MAPPED_ROWS.map(row => [key(row.namespace, row.name), value(row)] as const),
     [key(XMP_NAMESPACE, 'MetadataDate'), textValue(values.metadataDate)],
     [key(XMP_MM_NAMESPACE, 'DocumentID'), textValue(values.documentId)],
     [key(XMP_MM_NAMESPACE, 'InstanceID'), textValue(values.instanceId)],
   ]);
+  if (values.pdfxVersion !== undefined) {
+    expected.set(key(XMP_MM_NAMESPACE, 'VersionID'), textValue(values.versionId));
+    expected.set(key(XMP_MM_NAMESPACE, 'RenditionClass'), textValue(values.renditionClass));
+    expected.set(key(PDFX_ID_NAMESPACE, 'GTS_PDFXVersion'), textValue(values.pdfxVersion));
+  }
+  return expected;
 };
 
 const LEGACY: ReadonlyMap<string, string> = new Map(

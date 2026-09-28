@@ -34,6 +34,8 @@ export { registeredPrintingConditions } from './pdfx/printingConditions.ts';
 export type { PrintingCondition } from './pdfx/printingConditions.ts';
 export { writeGtsPdfxOutputIntent } from './pdfx/writeOutputIntent.ts';
 export type { OutputIntentChange, OutputIntentOptions } from './pdfx/writeOutputIntent.ts';
+export { writePdfX4Metadata } from './pdfx/writeMetadata.ts';
+export type { PdfX4MetadataOptions } from './pdfx/writeMetadata.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,

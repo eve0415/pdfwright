@@ -12,6 +12,7 @@ export const DC_NAMESPACE = 'http://purl.org/dc/elements/1.1/';
 export const XMP_NAMESPACE = 'http://ns.adobe.com/xap/1.0/';
 export const PDF_NAMESPACE = 'http://ns.adobe.com/pdf/1.3/';
 export const XMP_MM_NAMESPACE = 'http://ns.adobe.com/xap/1.0/mm/';
+export const PDFX_ID_NAMESPACE = 'http://www.npes.org/pdfx/ns/id/';
 
 /** The document information keys XMP Part 3 Table 20 maps to XMP properties. */
 export type MappedKey = 'Title' | 'Author' | 'Subject' | 'Keywords' | 'Creator' | 'Producer' | 'CreationDate' | 'ModDate' | 'Trapped';

@@ -1,5 +1,5 @@
 import { ValidationError } from '../../error/validationError.ts';
-import { DC_NAMESPACE, PDF_NAMESPACE, XMP_MM_NAMESPACE, XMP_NAMESPACE } from '../mapping.ts';
+import { DC_NAMESPACE, PDFX_ID_NAMESPACE, PDF_NAMESPACE, XMP_MM_NAMESPACE, XMP_NAMESPACE } from '../mapping.ts';
 
 import { RDF_NAMESPACE } from './readXmp.ts';
 
@@ -17,6 +17,9 @@ export interface ManagedValues {
   readonly metadataDate: string;
   readonly documentId: string;
   readonly instanceId: string;
+  readonly pdfxVersion?: 'PDF/X-4' | undefined;
+  readonly versionId?: string | undefined;
+  readonly renditionClass?: string | undefined;
 }
 
 // XML 1.0 (Fifth Edition), 2.2, production [2] Char: C0 controls other than tab, line feed and carriage return, surrogates, U+FFFE and U+FFFF cannot appear in XML text, even as references.
@@ -61,6 +64,9 @@ const managedProperties = (values: ManagedValues): string[] => [
   ...simple('xmp:MetadataDate', values.metadataDate),
   ...simple('xmpMM:DocumentID', values.documentId),
   ...simple('xmpMM:InstanceID', values.instanceId),
+  ...simple('xmpMM:VersionID', values.versionId),
+  ...simple('xmpMM:RenditionClass', values.renditionClass),
+  ...simple('pdfxid:GTS_PDFXVersion', values.pdfxVersion),
 ];
 
 export interface DescriptionOptions {
@@ -81,6 +87,7 @@ export const managedDescription = (values: ManagedValues, options: DescriptionOp
     `xmlns:xmp="${XMP_NAMESPACE}"`,
     `xmlns:pdf="${PDF_NAMESPACE}"`,
     `xmlns:xmpMM="${XMP_MM_NAMESPACE}"`,
+    ...(values.pdfxVersion === undefined ? [] : [`xmlns:pdfxid="${PDFX_ID_NAMESPACE}"`]),
     ...(options.resetLanguage ? ['xml:lang=""'] : []),
   ];
   return [`<rdf:Description rdf:about="${escapeAttribute(options.about)}" ${declarations.join(' ')}>`, ...managedProperties(values), '</rdf:Description>'].join(

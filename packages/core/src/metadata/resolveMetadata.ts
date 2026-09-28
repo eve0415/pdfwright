@@ -33,6 +33,8 @@ export interface MetadataInput {
   modificationDate: PdfDate;
   /** Info Trapped and pdf:Trapped; Unknown has no XMP form, since pdf:Trapped is Boolean (XMP Part 2 3.1). */
   trapped?: 'True' | 'False' | 'Unknown' | null;
+  /** Adds PDF/X-4 identification in XMP and Info. It does not assert conformance. */
+  pdfxVersion?: 'PDF/X-4';
 }
 
 /** A value the edit discarded: one side's value where Info and XMP differed and the other side's was taken ('info' or 'xmp'), or a packet item that one written value replaces ('input' when the caller set the key). */
@@ -347,6 +349,8 @@ export const resolveValues = (state: MetadataState, input: MetadataInput): Resol
 export interface Identifiers {
   readonly documentId: string;
   readonly instanceId: string;
+  readonly versionId?: string | undefined;
+  readonly renditionClass?: string | undefined;
 }
 
 const written = (plan: KeyPlan): string | undefined => (plan.xmp.kind === 'write' ? plan.xmp.value : undefined);
@@ -368,6 +372,9 @@ export const managedValues = (resolved: ResolvedInput, input: MetadataInput, ide
     metadataDate: xmpDateString(input.modificationDate),
     documentId: identifiers.documentId,
     instanceId: identifiers.instanceId,
+    pdfxVersion: input.pdfxVersion,
+    versionId: input.pdfxVersion === undefined ? undefined : (identifiers.versionId ?? '1'),
+    renditionClass: input.pdfxVersion === undefined ? undefined : (identifiers.renditionClass ?? 'default'),
   };
 };
 
@@ -382,5 +389,6 @@ export const infoDictionary = (existing: PdfDictionaryEntries | undefined, resol
   for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate'] as const) apply(key, plans[key].info);
   apply('ModDate', { kind: 'set', value: pdfDateObject(input.modificationDate) });
   apply('Trapped', plans.Trapped.info);
+  if (input.pdfxVersion !== undefined) entries.set(pdfName('GTS_PDFXVersion').bytes, pdfTextString(input.pdfxVersion));
   return entries;
 };
