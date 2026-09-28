@@ -3,6 +3,7 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { md5 } from '../hash/md5.ts';
 
@@ -129,5 +130,46 @@ describe('icc colour transforms', () => {
     }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('cacc8d97316e725b4d13f347e0acdae6');
+  });
+
+  it('converts 8 and 16 bit rows like scalar calls across cache collisions', () => {
+    const transform = createColorTransform({ kind: 'icc', profile: source() }, destination(), {
+      intent: 'relativeColorimetric',
+      blackPointCompensation: false,
+    });
+    const input8 = Uint8Array.of(0, 0, 17, 0, 1, 0, 0, 0, 17, 128, 128, 128);
+    const output8 = new Uint8Array(16);
+    transform.convertRow8(input8, output8, 4);
+    const scalar = new Float64Array(4);
+    for (let pixel = 0; pixel < 4; pixel++) {
+      transform.convert(
+        Float64Array.from(input8.subarray(pixel * 3, pixel * 3 + 3), value => value / 255),
+        scalar,
+      );
+      for (let channel = 0; channel < 4; channel++) expect(output8[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 255));
+    }
+    const input16 = Uint16Array.of(0, 0, 0, 32768, 32768, 32768, 65535, 65535, 65535);
+    const output16 = new Uint16Array(12);
+    transform.convertRow16(input16, output16, 3);
+    for (let pixel = 0; pixel < 3; pixel++) {
+      transform.convert(
+        Float64Array.from(input16.subarray(pixel * 3, pixel * 3 + 3), value => value / 65535),
+        scalar,
+      );
+      for (let channel = 0; channel < 4; channel++) expect(output16[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 65535));
+    }
+  });
+
+  it('rejects row buffers shorter than their requested pixel count', () => {
+    const transform = createColorTransform({ kind: 'icc', profile: source() }, destination(), {
+      intent: 'relativeColorimetric',
+      blackPointCompensation: false,
+    });
+    expect(() => {
+      transform.convertRow8(new Uint8Array(2), new Uint8Array(4), 1);
+    }).toThrow(InvalidArgumentError);
+    expect(() => {
+      transform.convertRow16(new Uint16Array(3), new Uint16Array(3), 1);
+    }).toThrow(InvalidArgumentError);
   });
 });

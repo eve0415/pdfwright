@@ -2,6 +2,7 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent, Xyz } from '../icc/iccStructure.ts';
 import type { CalGraySource, CalRgbSource } from './calibratedSource.ts';
 import type { PcsValue } from './profilePipeline.ts';
+import type { RowConverters } from './rowConversion.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { colorSpaceChannels } from '../icc/iccStructure.ts';
@@ -10,6 +11,7 @@ import { blackPointCompensation } from './blackPoint.ts';
 import { calibratedProfile } from './calibratedSource.ts';
 import { D50, labToXyz } from './pcs.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
+import { createRowConverters } from './rowConversion.ts';
 
 export interface IccColorSource {
   readonly kind: 'icc';
@@ -25,7 +27,7 @@ export interface ColorTransformOptions {
   readonly lut8LabEncoding?: 'icc' | 'adobe';
 }
 
-export interface ColorTransform {
+export interface ColorTransform extends RowConverters {
   readonly inputChannels: number;
   readonly outputChannels: number;
   convert: (input: Float64Array, output: Float64Array) => void;
@@ -61,19 +63,16 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
     requested: options.blackPointCompensation,
     option: encoding,
   });
-  return {
-    inputChannels,
-    outputChannels,
-    convert(input, output) {
-      if (input.length !== inputChannels || output.length < outputChannels) {
-        throw new InvalidArgumentError('colour transform buffer dimensions differ from profile channels');
-      }
-      for (const value of input) if (!Number.isFinite(value)) throw new InvalidArgumentError('colour components must be finite');
-      const pcsValue = fromDevice(input);
-      const corrected = compensate === undefined ? pcsValue : compensate(pcsValue);
-      const connected = options.intent === 'absoluteColorimetric' ? absolute(corrected, sourceWhite, destinationWhite) : corrected;
-      const values = toDevice(connected);
-      for (let index = 0; index < outputChannels; index++) output[index] = Math.min(1, Math.max(0, values[index] ?? 0));
-    },
+  const convert = (input: Float64Array, output: Float64Array): void => {
+    if (input.length !== inputChannels || output.length < outputChannels) {
+      throw new InvalidArgumentError('colour transform buffer dimensions differ from profile channels');
+    }
+    for (const value of input) if (!Number.isFinite(value)) throw new InvalidArgumentError('colour components must be finite');
+    const pcsValue = fromDevice(input);
+    const corrected = compensate === undefined ? pcsValue : compensate(pcsValue);
+    const connected = options.intent === 'absoluteColorimetric' ? absolute(corrected, sourceWhite, destinationWhite) : corrected;
+    const values = toDevice(connected);
+    for (let index = 0; index < outputChannels; index++) output[index] = Math.min(1, Math.max(0, values[index] ?? 0));
   };
+  return { inputChannels, outputChannels, convert, ...createRowConverters(convert, inputChannels, outputChannels) };
 };
