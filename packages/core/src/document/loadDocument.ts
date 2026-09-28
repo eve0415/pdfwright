@@ -16,10 +16,12 @@ import type { Separation, SeparationOptions } from './separation.ts';
 import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { cloneDirect } from '../object/cloneObject.ts';
 import { parsedDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { fullRewrite } from '../save/fullRewrite.ts';
 import { incrementalSave } from '../save/incrementalSave.ts';
@@ -77,6 +79,8 @@ export interface LoadedDocument {
   get: (reference: PdfReference) => PdfObject;
   /** Replaces an object in use, keeping its number and generation; the value is copied, except a stream's data, which must not change afterwards. */
   set: (reference: PdfReference, value: PdfObject) => void;
+  /** Replaces a stream's decoded bytes and writes its data with FlateDecode, keeping its reference and unrelated dictionary entries. */
+  replaceStreamData: (reference: PdfReference, data: Uint8Array, options: { readonly filter: 'FlateDecode' }) => void;
   /** Deletes an object in use; saving marks its entry free. */
   delete: (reference: PdfReference) => void;
   /** Adds a new object, numbered above every number the file uses; the value is copied as by set. */
@@ -95,6 +99,10 @@ export interface LoadedDocument {
 
 const ROOT = pdfName('Root').bytes;
 const PAGES = pdfName('Pages').bytes;
+const FILTER = pdfName('Filter').bytes;
+const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const LENGTH = pdfName('Length').bytes;
+const EXTERNAL_FILE = pdfName('F').bytes;
 
 const count = (value: number | undefined, fallback: number, name: string): number => {
   const result = value ?? fallback;
@@ -131,10 +139,12 @@ class LoadedPdf implements LoadedDocument {
   private readonly features = { transparency: false };
   private readonly base: SaveBase | undefined;
   private readonly maxNesting: number;
+  private readonly maxDecodedBytes: number;
 
   constructor(parts: LoadedParts) {
     this.base = parts.read.base;
     this.maxNesting = parts.maxNesting;
+    this.maxDecodedBytes = parts.maxDecodedBytes;
     this.read = parts.read.structure;
     this.objects = new EditedObjects(parts.read.store);
     this.log = parts.warnings;
@@ -205,6 +215,21 @@ class LoadedPdf implements LoadedDocument {
 
   set(reference: PdfReference, value: PdfObject): void {
     this.objects.set(reference, value);
+  }
+
+  replaceStreamData(reference: PdfReference, data: Uint8Array, options: { readonly filter: 'FlateDecode' }): void {
+    const stream = this.objects.get(reference);
+    if (stream.kind !== 'stream') throw new InvalidArgumentError('replaceStreamData requires a stream object');
+    if (stream.dictionary.has(EXTERNAL_FILE)) throw new InvalidArgumentError('an external-file stream cannot have its local data replaced');
+    if (data.length > this.maxDecodedBytes) {
+      throw new ResourceLimitError(`replacement stream exceeds maxDecodedBytes (${String(this.maxDecodedBytes)} bytes)`);
+    }
+    const compressed = deflateZlib(data);
+    const { dictionary } = stream;
+    dictionary.set(FILTER, pdfName(options.filter));
+    dictionary.delete(DECODE_PARMS);
+    dictionary.set(LENGTH, pdfInteger(compressed.length));
+    this.objects.set(reference, { kind: 'stream', dictionary, data: compressed });
   }
 
   delete(reference: PdfReference): void {
