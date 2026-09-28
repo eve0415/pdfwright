@@ -87,7 +87,7 @@ The reference structure was recorded from PDFs saved by Illustrator 30.8.2 with 
 
 - CMYK documents, bleed, visible and hidden layers, layer and group opacity, closed filled or stroked paths, spot colors and tints, overprint, clipping groups, and CMYK or spot rasters with alpha are supported.
 - `locked: true` raises `UnsupportedFeatureError` because the available 30.8.2 files do not establish the lock encoding.
-- RGB documents, text, gradients, open or compound paths, and custom stroke caps, joins and dashes are outside `IllustratorDocument`. TypeScript rejects these fields in document literals.
+- RGB documents, text, gradients, open or compound paths, and custom stroke caps, joins and dashes are outside `IllustratorDocument`. TypeScript rejects these fields in document literals; `UnsupportedFeatureError` rejects extra fields if they reach runtime.
 - Page colorant names default to UTF-8. Illustrator on a Japanese system writes Shift_JIS bytes for some names; pass `SpotColor.nameBytes` to choose the bytes on the visible page. Native names remain UTF-8.
 - The default Zstandard encoder uses raw literals and predefined FSE sequence tables. On two inspected 30.8.2 native payloads, its frames measured about 1.1 and 1.3 times the size of Illustrator's frames. A caller-supplied compressor's frame header is normalized; compressed payload corruption is not detected by this package.
 
