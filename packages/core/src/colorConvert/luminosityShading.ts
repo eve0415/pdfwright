@@ -21,8 +21,12 @@ const BACKGROUND = pdfName('Background').bytes;
 
 export interface GrayFunctionShading {
   readonly dictionary: PdfDictionaryEntries;
-  readonly functionStream: PdfStream;
+  readonly functionPlan: GrayFunctionPlan;
 }
+
+export type GrayFunctionPlan =
+  | { readonly kind: 'sampled'; readonly stream: PdfStream }
+  | { readonly kind: 'stitched'; readonly dictionary: PdfDictionaryEntries; readonly children: readonly GrayFunctionPlan[] };
 
 const numeric = (value: PdfDirectObject): number => {
   if (value.kind === 'integer') return value.value;
@@ -44,6 +48,12 @@ const resolvedFunction = (internals: DocumentInternals, value: PdfDirectObject):
   const data = decodedData(internals, object);
   if (typeof data === 'string') throw new ValidationError(`luminosity shading function cannot be decoded: ${data}`, 'color-space');
   return { kind: 'stream', dictionary: object.dictionary, data };
+};
+
+const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
+  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'stream') return value.dictionary;
+  return undefined;
 };
 
 const evaluator = (internals: DocumentInternals, value: PdfDirectObject): PdfFunction => {
@@ -91,6 +101,34 @@ const sampleGray = (config: {
   return { kind: 'stream', dictionary, data: deflateZlib(writer.toUint8Array()) };
 };
 
+const grayFunction = (
+  internals: DocumentInternals,
+  config: { value: PdfDirectObject; domain: readonly number[]; dimensions: number; gray: (values: readonly number[]) => number; depth: number },
+): GrayFunctionPlan => {
+  if (config.depth > internals.maxNesting) throw new ResourceLimitError('luminosity function nesting exceeds maxNesting');
+  const source = config.value.kind === 'array' ? undefined : resolvedFunction(internals, config.value);
+  const dictionary = entriesOf(source);
+  const type = dictionary?.get(pdfName('FunctionType').bytes);
+  if (type?.kind === 'integer' && type.value === 3 && config.dimensions === 1 && dictionary !== undefined) {
+    const functions = dictionary.get(pdfName('Functions').bytes);
+    if (functions?.kind !== 'array' || functions.items.length === 0) throw new ValidationError('luminosity stitching function has no children', 'color-space');
+    const children = functions.items.map(value => {
+      const child = resolvedFunction(internals, value);
+      const entries = entriesOf(child);
+      if (entries === undefined) throw new ValidationError('luminosity stitching child is invalid', 'color-space');
+      return grayFunction(internals, { value, domain: domain(entries, 1), dimensions: 1, gray: config.gray, depth: config.depth + 1 });
+    });
+    const mapped = new PdfDictionaryEntries(dictionary.entries());
+    // ISO 32000-1:2008, 7.10.4 Table 41: Bounds and Encode continue to select the stitched subfunctions.
+    mapped.set(pdfName('Range').bytes, pdfArray([pdfInteger(0), pdfInteger(1)]));
+    return { kind: 'stitched', dictionary: mapped, children };
+  }
+  return {
+    kind: 'sampled',
+    stream: sampleGray({ internals, functionValue: config.value, dimensions: config.dimensions, domain: config.domain, gray: config.gray }),
+  };
+};
+
 export const grayFunctionShading = (internals: DocumentInternals, shading: PdfObject, gray: (values: readonly number[]) => number): GrayFunctionShading => {
   if (shading.kind !== 'dictionary') throw new UnsupportedFeatureError('luminosity mesh shading is unsupported');
   const type = shading.entries.get(SHADING_TYPE);
@@ -98,7 +136,7 @@ export const grayFunctionShading = (internals: DocumentInternals, shading: PdfOb
   const functionValue = shading.entries.get(FUNCTION);
   if (functionValue === undefined) throw new ValidationError('luminosity shading Function is missing', 'color-space');
   const dimensions = type.value === 1 ? 2 : 1;
-  const sampled = sampleGray({ internals, functionValue, dimensions, domain: domain(shading.entries, dimensions), gray });
+  const functionPlan = grayFunction(internals, { value: functionValue, dimensions, domain: domain(shading.entries, dimensions), gray, depth: 0 });
   const dictionary = new PdfDictionaryEntries(shading.entries.entries());
   dictionary.set(COLOR_SPACE, pdfName('DeviceGray'));
   const background = dictionary.get(BACKGROUND);
@@ -108,5 +146,5 @@ export const grayFunctionShading = (internals: DocumentInternals, shading: PdfOb
     const luminance = gray(components);
     dictionary.set(BACKGROUND, pdfArray([pdfReal(luminance)]));
   }
-  return { dictionary, functionStream: sampled };
+  return { dictionary, functionPlan };
 };

@@ -222,6 +222,27 @@ const axialMaskPdf = buildPdf([
   },
 ]);
 
+const stitchedMaskPdf = buildPdf([
+  {
+    xref: 'classic',
+    objects: [
+      { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>' },
+      { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+      {
+        number: 6,
+        body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</Shading<</Sh1 9 0 R>>>>', '/Sh1 sh'),
+      },
+      { number: 9, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function 10 0 R>>' },
+      { number: 10, body: '<</FunctionType 3/Domain[0 1]/Functions[11 0 R 12 0 R]/Bounds[0.5]/Encode[0 1 0 1]>>' },
+      { number: 11, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[1 0 0]/N 1>>' },
+      { number: 12, body: '<</FunctionType 2/Domain[0 1]/C0[0 0 1]/C1[0 0 1]/N 1>>' },
+    ],
+    trailer: '/Root 1 0 R',
+  },
+]);
+
 const maskShading = (document: ReturnType<typeof loadDocument>) => {
   const group = document.get(pdfReference(6, 0));
   if (group.kind !== 'stream') throw new Error('mask group is missing');
@@ -232,6 +253,28 @@ const maskShading = (document: ReturnType<typeof loadDocument>) => {
   const reference = shadings.entries.get(pdfName('Sh1').bytes);
   if (reference?.kind !== 'reference') throw new Error('mask shading reference is missing');
   return document.get(reference);
+};
+
+const maskFunction = (document: ReturnType<typeof loadDocument>) => {
+  const shading = maskShading(document);
+  if (shading.kind !== 'dictionary') throw new Error('mask shading is not a dictionary');
+  const reference = shading.entries.get(pdfName('Function').bytes);
+  if (reference?.kind !== 'reference') throw new Error('gray function is missing');
+  const internals = internalsOf(document);
+  if (internals === undefined) throw new Error('internals are unavailable');
+  const decoded = (value: ReturnType<typeof document.get>) => {
+    if (value.kind !== 'stream') return value;
+    const data = decodedData(internals, value);
+    if (typeof data === 'string') throw new Error(data);
+    return { kind: 'stream' as const, dictionary: value.dictionary, data };
+  };
+  const root = decoded(document.get(reference));
+  const evaluate = createPdfFunction(root, child => {
+    const object = internals.objects.deref(child);
+    if (object === undefined) throw new Error('gray child function is missing');
+    return decoded(object);
+  });
+  return { root, evaluate };
 };
 
 const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
@@ -453,5 +496,14 @@ describe('transparency group conversion', () => {
     expect(values.color).toStrictEqual(pdfName('DeviceGray'));
     expect(values.start).toBeCloseTo(0.3, 3);
     expect(values.end).toBeCloseTo(0.11, 3);
+  });
+
+  it('preserves a hard colour stop in a luminosity shading', () => {
+    const document = loadDocument(stitchedMaskPdf.bytes);
+    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    const result = maskFunction(document);
+    expect(result.root.kind).toBe('dictionary');
+    expect(result.evaluate([0.499])[0]).toBeCloseTo(0.3, 3);
+    expect(result.evaluate([0.501])[0]).toBeCloseTo(0.11, 3);
   });
 });

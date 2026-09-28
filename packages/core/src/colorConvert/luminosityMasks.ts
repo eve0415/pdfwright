@@ -5,6 +5,7 @@ import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { NamedInlineImage } from './inlineResources.ts';
+import type { GrayFunctionPlan } from './luminosityShading.ts';
 import type { OverprintNames, RewriteColorOptions } from './rewriteContent.ts';
 
 import { calibratedProfile } from '../color/calibratedSource.ts';
@@ -58,7 +59,7 @@ interface GrayXObjectPlan {
 interface GrayShadingPlan {
   readonly name: Uint8Array;
   readonly dictionary: PdfDictionaryEntries;
-  readonly functionStream: PdfStream;
+  readonly functionPlan: GrayFunctionPlan;
 }
 
 interface MaskResource {
@@ -567,13 +568,21 @@ const scanAppearances = (scan: MaskScan, page: PdfReference, resources: PdfDicti
   }
 };
 
+const writeGrayFunction = (scan: MaskScan, plan: GrayFunctionPlan): PdfReference => {
+  if (plan.kind === 'sampled') return scan.document.object(plan.stream);
+  const children = plan.children.map(child => writeGrayFunction(scan, child));
+  const dictionary = new Entries(plan.dictionary.entries());
+  dictionary.set(pdfName('Functions').bytes, pdfArray(children));
+  return scan.document.object(pdfDictionary(dictionary));
+};
+
 const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayShadingPlan[]): PdfDictionaryEntries => {
   const original = scan.internals.objects.deref(resources.get(SHADING));
   if (original?.kind !== 'dictionary') throw new ValidationError('luminosity Shading resources are missing', 'color-space');
   const shadings = new Entries(original.entries.entries());
   for (const plan of plans) {
     const dictionary = new Entries(plan.dictionary.entries());
-    dictionary.set(pdfName('Function').bytes, scan.document.object(plan.functionStream));
+    dictionary.set(pdfName('Function').bytes, writeGrayFunction(scan, plan.functionPlan));
     shadings.set(plan.name, scan.document.object(pdfDictionary(dictionary)));
   }
   const mapped = new Entries(resources.entries());
