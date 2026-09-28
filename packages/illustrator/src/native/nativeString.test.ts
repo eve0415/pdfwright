@@ -25,6 +25,11 @@ describe('native strings', () => {
     expect(escapeXmlIdentifier('3 plates')).toBe('_x33__plates');
   });
 
+  it('keeps spaces and literal escape sequences distinct', () => {
+    expect(escapeXmlIdentifier('A B')).not.toBe(escapeXmlIdentifier('A_B'));
+    expect(escapeXmlIdentifier('A%')).not.toBe(escapeXmlIdentifier('A_x25_'));
+  });
+
   it('writes CR-terminated lines and raw raster bytes at exact offsets', () => {
     const writer = createNativeWriter();
     writer.line('(', { utf8: '非表示' }, ') Ln');

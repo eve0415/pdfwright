@@ -65,6 +65,21 @@ describe('illustrator document validation', () => {
     expect(validates({ ...document, layers: [{ name: 'Bad\nname', items: [path] }] })).toThrow(ValidationError);
   });
 
+  it('keeps layer XML identifiers unique and rejects lone surrogates', () => {
+    expect(
+      validates({
+        ...document,
+        layers: [
+          { name: 'A B', items: [] },
+          { name: 'A_B', items: [] },
+          { name: 'A%', items: [] },
+          { name: 'A_x25_', items: [] },
+        ],
+      }),
+    ).not.toThrow();
+    expect(validates({ ...document, layers: [{ name: '\uD800', items: [] }] })).toThrow(ValidationError);
+  });
+
   it('rejects invalid geometry, opacity, color components and raster sizes', () => {
     expect(validates({ ...document, artboard: { width: 16384, height: 10 } })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', opacity: 1.1, items: [path] }] })).toThrow(ValidationError);

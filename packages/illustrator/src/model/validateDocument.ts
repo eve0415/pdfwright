@@ -2,6 +2,8 @@ import type { Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathIt
 
 import { UnsupportedFeatureError, ValidationError } from '@pdfwright/core';
 
+import { escapeXmlIdentifier } from '../native/nativeString.ts';
+
 import { coordinateNumber } from './coordinateNumber.ts';
 
 const coordinate = (value: Coordinate): number => {
@@ -19,7 +21,8 @@ const nativeName = (value: string, name: string): void => {
   if (value.length === 0) throw new ValidationError(`${name} cannot be empty`);
   for (const character of value) {
     const code = character.codePointAt(0);
-    if (code !== undefined && (code < 32 || code === 127)) throw new ValidationError(`${name} cannot contain control characters`);
+    if (code !== undefined && (code < 32 || code === 127)) throw new ValidationError(`${name} cannot contain control characters`, 'illustrator-model');
+    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) throw new ValidationError(`${name} cannot contain lone surrogates`, 'illustrator-model');
   }
 };
 
@@ -194,8 +197,9 @@ export const validateDocument = (document: IllustratorDocument): void => {
   for (const layer of document.layers) {
     knownFields(layer, ['name', 'visible', 'locked', 'opacity', 'color', 'items'], 'layer');
     nativeName(layer.name, 'layer name');
-    if (layerNames.has(layer.name)) throw new ValidationError('layer names must be unique');
-    layerNames.add(layer.name);
+    const identifier = escapeXmlIdentifier(layer.name);
+    if (layerNames.has(identifier)) throw new ValidationError('layer XML identifiers must be unique', 'illustrator-model');
+    layerNames.add(identifier);
     if (layer.locked === true) throw new UnsupportedFeatureError('locked layers are not supported by the observed native format');
     if (layer.opacity !== undefined) unitInterval(layer.opacity, 'layer opacity');
     if (layer.color !== undefined) {

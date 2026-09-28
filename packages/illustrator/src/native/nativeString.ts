@@ -4,6 +4,10 @@ const encoder = new TextEncoder();
 
 /** Encodes a PostScript literal string, preserving UTF-8 bytes in name fields. */
 export const escapeNativeString = (value: string, encoding: 'utf8' | 'ascii' = 'utf8'): Uint8Array => {
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) throw new ValidationError('native strings cannot contain lone surrogates', 'illustrator-model');
+  }
   const bytes = encoder.encode(value);
   const escaped: number[] = [40];
   for (const byte of bytes) {
@@ -22,6 +26,8 @@ export const escapeXmlIdentifier = (name: string): string => {
   for (const character of name) {
     if (character === ' ') {
       output += '_';
+    } else if (character === '_') {
+      output += '_x5f_';
     } else if (character === '%') {
       output += '_x25_';
     } else if (output.length === 0 ? /^[\p{L}_]$/u.test(character) : /^[\p{L}\p{M}\p{N}_.-]$/u.test(character)) {
