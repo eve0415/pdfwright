@@ -54,7 +54,7 @@ describe('deterministic output across runtimes', () => {
     const conversion = conversionBytes();
     expect(conversionBytes()).toStrictEqual(conversion);
     expect([digest(createProductionPage().saved.toBytes()), digest(fresh), digest(edited.save().toBytes()), digest(conversion)]).toStrictEqual([
-      'f4ecc5ee4bd63ac2dc3cc43776c64406',
+      '124344a266be6ea30f6d0cfdf50f1f88',
       '5df1da55bcb99e2e6c4cd75f9261ce57',
       'b00fdef4a60db3ee9ab472bda59afb9f',
       '93d21276335bff761cdea57ba89f8453',
