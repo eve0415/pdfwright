@@ -1,4 +1,4 @@
-import type { IllustratorDocument, Layer, PathItem, RasterItem, SpotColor } from './illustratorDocument.ts';
+import type { IllustratorDocument, Item, Layer, PathItem, RasterItem, SpotColor } from './illustratorDocument.ts';
 
 import { UnsupportedFeatureError, ValidationError, mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
@@ -137,6 +137,12 @@ describe('illustrator document validation', () => {
       alpha: new Uint8Array(1000),
     };
     expect(validates({ ...document, layers: [{ name: 'A', items: [tiny] }] })).toThrow(ValidationError);
+  });
+
+  it('reports deeply nested groups as a validation error', () => {
+    let item: Item = path;
+    for (let index = 0; index < 20_000; index++) item = { kind: 'group', items: [item] };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [item] }] })).toThrow(ValidationError);
   });
 
   it('reports malformed bleed and non-boolean flags as validation errors', () => {

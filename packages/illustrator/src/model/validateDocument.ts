@@ -208,7 +208,8 @@ export const validateDocument = (document: IllustratorDocument): void => {
       }
     }
   };
-  const items = (values: readonly Item[]): void => {
+  const items = (values: readonly Item[], depth: number): void => {
+    if (depth > 128) throw new ValidationError('group nesting cannot exceed 128 levels', 'illustrator-model');
     for (const item of values) {
       switch (item.kind) {
         case 'path': {
@@ -223,7 +224,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
           knownFields(item, ['kind', 'clip', 'items'], 'clip group');
           if (item.items.length === 0) throw new ValidationError('clip group cannot be empty', 'illustrator-model');
           geometry(item.clip);
-          items(item.items);
+          items(item.items, depth + 1);
           break;
         }
         case 'group': {
@@ -231,7 +232,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
           if (item.items.length === 0) throw new ValidationError('group cannot be empty', 'illustrator-model');
           if (item.opacity !== undefined) unitInterval(item.opacity, 'group opacity');
           optionalBoolean(item.isolated, 'group isolated');
-          items(item.items);
+          items(item.items, depth + 1);
           break;
         }
         default: {
@@ -259,6 +260,6 @@ export const validateDocument = (document: IllustratorDocument): void => {
         }
       }
     }
-    items(layer.items);
+    items(layer.items, 0);
   }
 };
