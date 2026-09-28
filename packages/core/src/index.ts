@@ -30,6 +30,8 @@ export type { MultiLut } from './icc/iccMultiLut.ts';
 export type { DataColorSpace, IccHeader, IccWarning, ProfileClass, RenderingIntent, Xyz } from './icc/iccStructure.ts';
 export { createColorTransform } from './color/createColorTransform.ts';
 export type { ColorSource, ColorTransform, ColorTransformOptions } from './color/createColorTransform.ts';
+export { registeredPrintingConditions } from './pdfx/printingConditions.ts';
+export type { PrintingCondition } from './pdfx/printingConditions.ts';
 export {
   PdfDictionaryEntries,
   pdfArray,
