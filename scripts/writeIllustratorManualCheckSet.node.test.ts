@@ -20,16 +20,7 @@ describe('illustrator manual-check file set', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
     try {
       const files = await writeManualCheckSet(directory);
-      expect(files).toStrictEqual([
-        '01-standard.pdf',
-        '02-content-size.pdf',
-        '04-raw-blocks.pdf',
-        '05-top-left.pdf',
-        '06-unequal-dates.pdf',
-        '07-open-to-view.pdf',
-        '08-creator.pdf',
-        '09-plain.pdf',
-      ]);
+      expect(files).toStrictEqual(['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf']);
       await expect(readdir(directory)).resolves.toStrictEqual([...files, 'CHECKLIST.md']);
       const standard = await readFile(path.join(directory, '01-standard.pdf'));
       expect(new TextDecoder().decode(standard.subarray(0, 8))).toBe('%PDF-1.7');
@@ -57,11 +48,10 @@ describe('illustrator manual-check file set', () => {
     }
   });
 
-  it('isolates view, creator and plain-document diagnostics', async () => {
+  it('includes the artboard view in every retained file', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
     try {
-      await writeManualCheckSet(directory);
-      const names = ['01-standard.pdf', '07-open-to-view.pdf', '08-creator.pdf', '09-plain.pdf'];
+      const names = await writeManualCheckSet(directory);
       const native = await Promise.all(
         names.map(async name => {
           const bytes = await readFile(path.join(directory, name));
@@ -69,15 +59,12 @@ describe('illustrator manual-check file set', () => {
           return new TextDecoder('latin1').decode(container.native);
         }),
       );
-      const [standard, view, creator, plain] = native;
-      expect([standard?.includes('OpenToView'), view?.includes('OpenToView'), creator?.includes('OpenToView'), plain?.includes('OpenToView')]).toStrictEqual([
-        false,
-        true,
-        true,
-        false,
-      ]);
-      expect([view?.includes('%%Creator: @pdfwright/illustrator'), creator?.includes('%%Creator: Adobe Illustrator(R) 24.0')]).toStrictEqual([true, true]);
-      expect([standard?.includes('%AI5_BeginRaster'), plain?.includes('%AI5_BeginRaster'), plain?.includes('(非表示) Ln')]).toStrictEqual([true, false, false]);
+      for (const text of native) {
+        expect(text).toContain('%AI9_OpenToView:');
+        expect(text).toContain('%AI5_BeginRaster');
+      }
+      const checklist = await readFile(path.join(directory, 'CHECKLIST.md'), 'utf8');
+      expect(checklist).toContain('Every file must open with the artboard in view.');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

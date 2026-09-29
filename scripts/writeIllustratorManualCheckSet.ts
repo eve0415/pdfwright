@@ -1,5 +1,5 @@
 import type { NativeData, PrivateDataOptions } from '../packages/illustrator/src/container/privateData.ts';
-import type { Coordinate, IllustratorDocument, Layer } from '../packages/illustrator/src/model/illustratorDocument.ts';
+import type { Coordinate, IllustratorDocument } from '../packages/illustrator/src/model/illustratorDocument.ts';
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -16,28 +16,16 @@ import { readIllustratorContainer } from '../packages/illustrator/src/testing/re
 import { writeIllustratorPdf } from '../packages/illustrator/src/writeIllustratorPdf.ts';
 import { encodeZstandardFrame } from '../packages/illustrator/src/zstd/frame.ts';
 
-const FILENAMES = [
-  '01-standard.pdf',
-  '02-content-size.pdf',
-  '04-raw-blocks.pdf',
-  '05-top-left.pdf',
-  '06-unequal-dates.pdf',
-  '07-open-to-view.pdf',
-  '08-creator.pdf',
-  '09-plain.pdf',
-] as const;
+const FILENAMES = ['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf'] as const;
 const CHECKLIST = `# Illustrator 30.8.2 manual check
 
-For each file, record the initial artboard view and zoom, the result and zoom of View → Fit Artboard in Window, and whether \`app.activeDocument.geometricBounds\` and \`app.activeDocument.artboards.getActiveArtboardIndex()\` return values. Inspect the Layers panel, the Design raster's soft ellipse and horizontal alpha ramp, the White and Primer raster edges, and the Cut, White, Primer and ＣＵＴ spot swatches. Record any warning or changed appearance.
+Every file must open with the artboard in view. For each file, record the initial artboard view and zoom, the result and zoom of View → Fit Artboard in Window, and whether \`app.activeDocument.geometricBounds\` and \`app.activeDocument.artboards.getActiveArtboardIndex()\` return values. Inspect the Layers panel, the Design raster's soft ellipse and horizontal alpha ramp, the White and Primer raster edges, and the Cut, White, Primer and ＣＵＴ spot swatches. Record any warning or changed appearance.
 
 - \`01-standard.pdf\`: Check six editable layers in panel order: Die (outer), Spot shapes, White, Primer 30%, Design, 非表示. Check hidden 非表示, 30% Primer opacity, a 100 × 70 mm artboard with 3 mm bleed, soft edges and the ramp, all four swatches, the initial view, Fit Artboard, and both bounds queries. The die strokes and fill-plus-stroke rectangle should each remain one path.
 - \`02-content-size.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries with the frame content-size variant.
 - \`04-raw-blocks.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries with raw Zstandard blocks.
 - \`05-top-left.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries. Compare artboard size, bleed, and artwork positions with 01.
 - \`06-unequal-dates.pdf\`: Record the date-mismatch dialog. For the default keep-editing choice, check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries. Reopen and choose accept changes; check the imported page's Layers panel, soft edges and ramp, initial view, Fit Artboard, both bounds queries, swatches, and whether the White and Primer plates survive page import.
-- \`07-open-to-view.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries with the OpenToView record added.
-- \`08-creator.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries with the Illustrator Creator line added to 07.
-- \`09-plain.pdf\`: Check the Layers panel without 非表示 and without raster items, the absence of raster soft edges and ramp, the remaining spot swatches, initial view, Fit Artboard, and both bounds queries. Compare its view behavior with 01.
 `;
 
 const contentSizeFrame = (native: Uint8Array): Uint8Array => {
@@ -87,22 +75,6 @@ const artboardSpan = (bytes: Buffer): Buffer => {
 };
 const nativeData = (bytes: Buffer): NativeData => ({ bytes, metaDataLength: requireIndex(bytes, '%%EndComments\r') + Buffer.byteLength('%%EndComments\r') });
 
-const withOpenToView = (native: NativeData, model: IllustratorDocument): NativeData => {
-  const centerX = coordinate(model.artboard.width) / 2;
-  const centerY = coordinate(model.artboard.height) / 2;
-  const left = Math.round(centerX - 954);
-  const top = Math.round(centerY + 474);
-  const prefix = `${String(left)} ${String(top)} 1`;
-  const view = `%AI17_Begin_Content_if_version_gt:24 4\r%AI10_OpenToVie: ${prefix} 0 0 0 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_Alternate_Content\r%AI9_OpenToView: ${prefix} 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_End_Versioned_Content\r`;
-  const withView = insertBefore(Buffer.from(native.bytes), '%AI5_OpenViewLayers:', marker(view));
-  const layerLine = blockThrough(withView, ['%AI5_OpenViewLayers:', '\r']);
-  const emptyTwin = '%AI17_Begin_Content_if_version_gt:24 4\r%AI17_Alternate_Content\r%AI17_End_Versioned_Content\r';
-  const replacement = Buffer.concat([layerLine, marker(emptyTwin)]);
-  return nativeData(replaceOnce(withView, layerLine, replacement));
-};
-
-const stripRasterLayer = (layer: Layer): Layer => ({ ...layer, items: layer.items.filter(item => item.kind !== 'clipGroup') });
-
 /** Writes the Illustrator open-test candidates and their checklist to an external directory. */
 export const writeManualCheckSet = async (directory: string): Promise<readonly string[]> => {
   const destination = path.resolve(directory);
@@ -118,14 +90,7 @@ export const writeManualCheckSet = async (directory: string): Promise<readonly s
   const changed = loadDocument(standard);
   changed.page(0).setLastModified(pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 1, second: 0, offset: 'Z' }));
   const unequal = changed.save({ mode: 'incremental' }).toBytes();
-  const openToView = makePdf(model, withOpenToView(native, model), { compression: 'zstandard' });
-  const creator = makePdf(model, withOpenToView(writeNative(model, { creator: 'Adobe Illustrator(R) 24.0' }), model), { compression: 'zstandard' });
-  const plainModel = {
-    ...model,
-    layers: model.layers.filter(layer => layer.visible !== false).map(layer => stripRasterLayer(layer)),
-  };
-  const plain = writeIllustratorPdf(plainModel);
-  const outputs = [standard, contentSize, rawBlocks, topLeft, unequal, openToView, creator, plain];
+  const outputs = [standard, contentSize, rawBlocks, topLeft, unequal];
   await Promise.all(
     FILENAMES.map(async (filename, index) => {
       const bytes = outputs[index];
