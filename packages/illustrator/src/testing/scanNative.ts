@@ -1,4 +1,4 @@
-import { tokenizeNative } from './nativeTokenizer.ts';
+import { tokenizeNative } from '../read/nativeTokenizer.ts';
 
 const EXPONENT = /(?<![A-Za-z0-9_.])[-+]?(?:\d+(?:\.\d*)?|\.\d+)[eE][-+]?\d+(?![A-Za-z0-9_.])/gu;
 

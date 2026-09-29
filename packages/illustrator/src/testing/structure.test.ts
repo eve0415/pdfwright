@@ -17,11 +17,15 @@ const model: IllustratorDocument = {
         {
           kind: 'path',
           geometry: {
-            start: [10, 10],
-            segments: [
-              { kind: 'line', to: [20, 10] },
-              { kind: 'line', to: [20, 20] },
-              { kind: 'line', to: [10, 20] },
+            subpaths: [
+              {
+                start: [10, 10],
+                segments: [
+                  { kind: 'line', to: [20, 10] },
+                  { kind: 'line', to: [20, 20] },
+                  { kind: 'line', to: [10, 20] },
+                ],
+              },
             ],
           },
           stroke: { paint: { kind: 'spot', spot: { name: 'Cut', alternate: [0, 1, 0, 0] } }, width: 0.25 },
@@ -53,6 +57,6 @@ describe('illustrator PDF structure', () => {
     const read = readIllustratorPdf(writeIllustratorPdf(model));
     expect(read.document.layers.map(layer => layer.name)).toStrictEqual(['Cut']);
     expect(read.header.get('%AI3_Cropmarks')).toBe('0 0 283.4645669291 198.4251968504');
-    expect(read.native.slice(0, read.metaData.length)).toStrictEqual(read.metaData);
+    expect(read.native.slice(0, read.metaData?.length)).toStrictEqual(read.metaData);
   });
 });

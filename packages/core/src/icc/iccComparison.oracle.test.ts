@@ -1,3 +1,5 @@
+import type { IccColorSource } from '../color/createColorTransform.ts';
+
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -10,10 +12,15 @@ import { describe, expect, it } from 'vitest';
 
 import { samples } from '../../../../tests/fixtures/icc/samples.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
+import { srgbColorSource } from '../color/srgbSource.ts';
 
 import { parseIccProfile } from './iccProfile.ts';
 
 const fixturePath = (name: string): string => fileURLToPath(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url));
+
+// sRGB2014.icc is converted through the built-in `srgbColorSource()`, whose bytes srgbSource.test.ts holds equal to the fixture that LittleCMS reads.
+const rgbSource = async (name: string): Promise<IccColorSource> =>
+  name === 'sRGB2014.icc' ? srgbColorSource() : { kind: 'icc', profile: parseIccProfile(await readFile(fixturePath(name))) };
 
 const intentName = (value: number): 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric' => {
   if (value === 0) return 'perceptual';
@@ -70,7 +77,7 @@ const referenceAt = (rows: readonly number[][], index: number): readonly number[
 };
 
 // CIEDE2000 compares 6,189 RGB samples: a 17³ grid, 256 greys, 20 near-edge colours and 1,000 seeded colours. The 0.05 maximum and 0.005 mean ΔE2000 limits allow rounding in independent double-precision transforms while keeping differences below visible print variation.
-const cases = ['sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'].flatMap(source =>
+const cases = ['sRGB2014.icc', 'sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'].flatMap(source =>
   ['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc'].flatMap(destination =>
     [0, 1, 2, 3].flatMap(intent => [0, 1].map(bpc => ({ source, destination, intent, bpc }))),
   ),
@@ -83,9 +90,9 @@ describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
   });
 
   it.each(cases.filter(item => item.intent !== 3))('maps $source paper white to exact no ink in $destination intent $intent bpc $bpc', async item => {
-    const source = parseIccProfile(await readFile(fixturePath(item.source)));
+    const source = await rgbSource(item.source);
     const destination = parseIccProfile(await readFile(fixturePath(item.destination)));
-    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, {
+    const transform = createColorTransform(source, destination, {
       intent: intentName(item.intent),
       blackPointCompensation: item.bpc === 1,
     });
@@ -97,10 +104,10 @@ describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
   it.each(cases)(
     '$source → $destination intent $intent bpc $bpc',
     async ({ source, destination, intent, bpc }) => {
-      const rgb = parseIccProfile(await readFile(fixturePath(source)));
+      const rgb = await rgbSource(source);
       const cmyk = parseIccProfile(await readFile(fixturePath(destination)));
       const renderingIntent = intentName(intent);
-      const transform = createColorTransform({ kind: 'icc', profile: rgb }, cmyk, { intent: renderingIntent, blackPointCompensation: bpc === 1 });
+      const transform = createColorTransform(rgb, cmyk, { intent: renderingIntent, blackPointCompensation: bpc === 1 });
       const output = new Float64Array(4);
       const rows = samples().map(([red, green, blue]) => {
         transform.convert(Float64Array.of(red / 255, green / 255, blue / 255), output);
@@ -113,6 +120,37 @@ describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
       expect(count).toBe(6189);
       expect(maximum).toBeLessThanOrEqual(0.05);
       expect(mean).toBeLessThanOrEqual(0.005);
+      expect(channelMaximum).toBeLessThanOrEqual(0.5);
+    },
+    60_000,
+  );
+});
+
+// The built-in source against LittleCMS reading another vendor's sRGB profile, so the difference includes those profiles' own quantisation of IEC 61966-2-1 and the 0.005 mean limit above is relaxed to 0.01.
+const crossVendorCases = ['sRGB.icm', 'sRGB-v4.icc'].flatMap(reference =>
+  ['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc'].flatMap(destination =>
+    [0, 1, 2, 3].flatMap(intent => [0, 1].map(bpc => ({ reference, destination, intent, bpc }))),
+  ),
+);
+
+describe('built-in sRGB source against other sRGB profiles in LittleCMS', () => {
+  it.each(crossVendorCases)(
+    'built-in sRGB vs $reference → $destination intent $intent bpc $bpc',
+    async ({ reference, destination, intent, bpc }) => {
+      const cmyk = parseIccProfile(await readFile(fixturePath(destination)));
+      const transform = createColorTransform(srgbColorSource(), cmyk, { intent: intentName(intent), blackPointCompensation: bpc === 1 });
+      const output = new Float64Array(4);
+      const rows = samples().map(([red, green, blue]) => {
+        transform.convert(Float64Array.of(red / 255, green / 255, blue / 255), output);
+        return [red / 255, green / 255, blue / 255, ...output.map(value => value * 100)].map(value => value.toPrecision(17)).join(' ');
+      });
+      const [count, maximum, mean, channelMaximum] = await runOracle({ source: reference, destination, intent, bpc, rows });
+      process.stdout.write(
+        `built-in sRGB vs ${reference} ${destination} intent=${String(intent)} bpc=${String(bpc)} n=${String(count)} max=${String(maximum)} mean=${String(mean)} channel=${String(channelMaximum)}\n`,
+      );
+      expect(count).toBe(6189);
+      expect(maximum).toBeLessThanOrEqual(0.05);
+      expect(mean).toBeLessThanOrEqual(0.01);
       expect(channelMaximum).toBeLessThanOrEqual(0.5);
     },
     60_000,

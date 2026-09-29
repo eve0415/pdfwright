@@ -1,4 +1,5 @@
 import type { Coordinate, IllustratorDocument } from '../model/illustratorDocument.ts';
+import type { NativeOrigin } from './nativeOrigin.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
 import { coordinateNumber } from '../model/coordinateNumber.ts';
@@ -7,7 +8,7 @@ import { createSerializedDictionaryWriter } from './serializedDictionary.ts';
 
 export interface DocumentDataOptions {
   readonly artboardUuid: string;
-  readonly convention?: 'bottom-left' | 'top-left';
+  readonly nativeOrigin?: NativeOrigin;
 }
 
 const number = coordinateNumber;
@@ -23,7 +24,7 @@ const bleedSides = (
 export const writeDocumentData = (writer: NativeWriter, document: IllustratorDocument, options: DocumentDataOptions): void => {
   const width = number(document.artboard.width);
   const height = number(document.artboard.height);
-  const topLeft = options.convention === 'top-left';
+  const topLeft = options.nativeOrigin === 'artboard-top-left';
   const rulerX = topLeft ? 8191.5 - width / 2 : Math.floor(8191.5 - width / 2);
   const rulerY = topLeft ? 8191.5 + height / 2 : Math.floor(8191.5 - height / 2);
   const data = createSerializedDictionaryWriter(writer);

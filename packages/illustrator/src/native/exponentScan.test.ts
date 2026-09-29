@@ -36,7 +36,7 @@ describe('native exponent scanner', () => {
           items: [
             {
               kind: 'path',
-              geometry: { start: [5e-324, -0], segments: [{ kind: 'line', to: [10, -1e-12] }] },
+              geometry: { subpaths: [{ start: [5e-324, -0], segments: [{ kind: 'line', to: [10, -1e-12] }] }] },
               fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
             },
           ],

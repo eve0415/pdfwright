@@ -1,7 +1,8 @@
 import { PdfwrightError } from './pdfwrightError.ts';
 
-/** Typed reasons for unsupported ICC, compressed image, JPEG process, and DeviceN or NChannel behaviour; `jpeg-*` reasons follow ITU-T T.81:1992, Annex B process markers. */
+/** Typed reasons for unsupported ICC, compressed image, JPEG process, PNG chunk, and DeviceN or NChannel behaviour; `jpeg-*` reasons follow ITU-T T.81:1992, Annex B process markers, and `png-critical-chunk` is an unknown critical chunk under PNG Third Edition, 5.4. */
 export type UnsupportedFeatureReason =
+  | 'png-critical-chunk'
   | 'icc-version-5'
   | 'icc-mpet'
   | 'compressed-rgb-image'

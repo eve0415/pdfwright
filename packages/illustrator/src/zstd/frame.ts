@@ -5,7 +5,9 @@ import { createMatchFinder } from './matchFinder.ts';
 
 const BLOCK_SIZE = 128 * 1024;
 
+/** Encodes the native data as one complete Zstandard frame (RFC 8878, 3.1.1); the writer normalizes the frame's header. */
 export type ZstandardCompressor = (data: Uint8Array) => Uint8Array;
+/** The package's predefined-table encoder, its raw-block encoder, or a caller-supplied Zstandard encoder. */
 export type NativeCompression = 'zstandard' | 'zstandard-raw-blocks' | { readonly zstandard: ZstandardCompressor };
 
 const readByte = (bytes: Uint8Array, position: number): number => {

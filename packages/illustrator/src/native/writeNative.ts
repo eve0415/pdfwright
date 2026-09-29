@@ -1,6 +1,7 @@
 import type { NativeData } from '../container/privateData.ts';
 import type { IllustratorDocument } from '../model/illustratorDocument.ts';
 import type { PreparedDocument } from '../model/prepareDocument.ts';
+import type { NativeOrigin } from './nativeOrigin.ts';
 
 import { coordinateNumber } from '../model/coordinateNumber.ts';
 import { prepareDocument } from '../model/prepareDocument.ts';
@@ -14,7 +15,7 @@ import { writePalette } from './writePalette.ts';
 
 export interface WriteNativeOptions {
   readonly creator?: string;
-  readonly convention?: 'bottom-left' | 'top-left';
+  readonly nativeOrigin?: NativeOrigin;
 }
 
 const number = coordinateNumber;
@@ -26,7 +27,7 @@ export const writeNative = (
   prepared: PreparedDocument = prepareDocument(document),
 ): NativeData => {
   const layerWriter = createNativeWriter();
-  const yOffset = options.convention === 'top-left' ? -number(document.artboard.height) : 0;
+  const yOffset = options.nativeOrigin === 'artboard-top-left' ? -number(document.artboard.height) : 0;
   for (const [index, layer] of document.layers.entries()) writeLayer(layerWriter, layer, { index, yOffset });
   const layers = layerWriter.finish();
   const artboardUuid = nameBasedUuid('artboard', layers);
@@ -36,7 +37,7 @@ export const writeNative = (
   writer.line('%%EndProlog');
   writer.line('%%BeginSetup');
   writePalette(writer, document, prepared.colors.spots);
-  writeDocumentData(writer, document, options.convention === undefined ? { artboardUuid } : { artboardUuid, convention: options.convention });
+  writeDocumentData(writer, document, options.nativeOrigin === undefined ? { artboardUuid } : { artboardUuid, nativeOrigin: options.nativeOrigin });
   writer.line('%%EndSetup');
   writer.raw(layers);
   writer.line('%%PageTrailer');

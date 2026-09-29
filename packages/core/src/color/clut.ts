@@ -2,6 +2,26 @@ import type { Clut } from '../icc/iccLut.ts';
 
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
+// ECMA-262, Number::exponentiate: the exponentiation operator is implementation-approximated, so corner counts and corner bits come from exact integer doubling and halving, computed once for the at most three axes an interpolation step spans.
+const cornerCount = (dimensions: number): number => {
+  let count = 1;
+  for (let axis = 0; axis < dimensions; axis++) count *= 2;
+  return count;
+};
+
+const cornerBits = (corner: number): readonly number[] => {
+  const bits: number[] = [];
+  let rest = corner;
+  for (let axis = 0; axis < 3; axis++) {
+    const bit = rest % 2;
+    bits.push(bit);
+    rest = (rest - bit) / 2;
+  }
+  return bits;
+};
+
+const CORNER_BITS: readonly (readonly number[])[] = Array.from({ length: 8 }, (_, corner) => cornerBits(corner));
+
 const node = (clut: Clut, coordinates: readonly number[], channel: number): number => {
   let index = 0;
   for (let axis = 0; axis < clut.inputChannels; axis++) index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
@@ -15,9 +35,10 @@ const interpolateThree = (clut: Clut, state: { lower: number[]; fractions: numbe
   if (mode === 'trilinear') {
     for (let corner = 0; corner < 8; corner++) {
       const coordinate = [...lower];
+      const bits = CORNER_BITS[corner];
       let weight = 1;
       for (let axis = 0; axis < 3; axis++) {
-        const bit = Math.floor(corner / 2 ** axis) % 2;
+        const bit = bits?.[axis] ?? 0;
         coordinate[first + axis] = (lower[first + axis] ?? 0) + bit;
         weight *= bit === 1 ? (fractions[first + axis] ?? 0) : 1 - (fractions[first + axis] ?? 0);
       }
@@ -42,11 +63,13 @@ const interpolateSmall = (clut: Clut, state: { lower: number[]; fractions: numbe
   const { lower, fractions, first } = state;
   const dimensions = clut.inputChannels - first;
   const result = Array.from({ length: clut.outputChannels }, () => 0);
-  for (let corner = 0; corner < 2 ** dimensions; corner++) {
+  const corners = cornerCount(dimensions);
+  for (let corner = 0; corner < corners; corner++) {
     const coordinate = [...lower];
+    const bits = CORNER_BITS[corner];
     let weight = 1;
     for (let axis = 0; axis < dimensions; axis++) {
-      const bit = Math.floor(corner / 2 ** axis) % 2;
+      const bit = bits?.[axis] ?? 0;
       coordinate[first + axis] = (lower[first + axis] ?? 0) + bit;
       weight *= bit === 1 ? (fractions[first + axis] ?? 0) : 1 - (fractions[first + axis] ?? 0);
     }

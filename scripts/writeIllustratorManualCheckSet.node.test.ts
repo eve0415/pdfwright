@@ -20,7 +20,15 @@ describe('illustrator manual-check file set', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
     try {
       const files = await writeManualCheckSet(directory);
-      expect(files).toStrictEqual(['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf', '07-locked.pdf']);
+      expect(files).toStrictEqual([
+        '01-standard.pdf',
+        '02-content-size.pdf',
+        '04-raw-blocks.pdf',
+        '05-top-left.pdf',
+        '06-unequal-dates.pdf',
+        '07-locked.pdf',
+        '08-compound.pdf',
+      ]);
       await expect(readdir(directory)).resolves.toStrictEqual([...files, 'CHECKLIST.md']);
       const standard = await readFile(path.join(directory, '01-standard.pdf'));
       expect(new TextDecoder().decode(standard.subarray(0, 8))).toBe('%PDF-1.7');
@@ -45,6 +53,24 @@ describe('illustrator manual-check file set', () => {
       const checklist = await readFile(path.join(directory, 'CHECKLIST.md'), 'utf8');
       expect(checklist).toContain('07-locked.pdf');
       expect(checklist).toContain('Reopen the PDF and check that all three locks survive.');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the compound-path variant and its fill-rule checks', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
+    try {
+      await writeManualCheckSet(directory);
+      const compound = readIllustratorPdf(await readFile(path.join(directory, '08-compound.pdf')));
+      expect(compound.document.layers).toMatchObject([
+        { name: 'Even-odd clip', items: [{ kind: 'clipGroup', clip: { fillRule: 'evenodd' } }] },
+        { name: 'Compound fills', items: [{ geometry: { fillRule: 'nonzero' } }, { geometry: { fillRule: 'evenodd' } }] },
+        { name: 'Compound die', items: [{ kind: 'path', geometry: { fillRule: 'nonzero' } }] },
+      ]);
+      const checklist = await readFile(path.join(directory, 'CHECKLIST.md'), 'utf8');
+      expect(checklist).toContain('08-compound.pdf');
+      expect(checklist).toContain('Record the fill rule the Attributes panel shows');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -1,4 +1,4 @@
-import type { IllustratorDocument, PathGeometry, Point, SpotColor } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, PathGeometry, Point, RasterItem, SpotColor, Subpath } from '../model/illustratorDocument.ts';
 
 import { mm, pdfDate } from '@pdfwright/core';
 
@@ -6,44 +6,52 @@ const point = (x: number, y: number): Point => [mm(x), mm(y)];
 const CURVE = 0.5522847498;
 
 const rectangle = ([left, bottom, right, top]: readonly [number, number, number, number]): PathGeometry => ({
-  start: point(left, bottom),
-  segments: [
-    { kind: 'line', to: point(right, bottom) },
-    { kind: 'line', to: point(right, top) },
-    { kind: 'line', to: point(left, top) },
+  subpaths: [
+    {
+      start: point(left, bottom),
+      segments: [
+        { kind: 'line', to: point(right, bottom) },
+        { kind: 'line', to: point(right, top) },
+        { kind: 'line', to: point(left, top) },
+      ],
+    },
   ],
 });
 
 const circle = (centerX: number, centerY: number, radius: number): PathGeometry => ({
-  start: point(centerX + radius, centerY),
-  segments: [
+  subpaths: [
     {
-      kind: 'curve',
-      control1: point(centerX + radius, centerY + CURVE * radius),
-      control2: point(centerX + CURVE * radius, centerY + radius),
-      to: point(centerX, centerY + radius),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX - CURVE * radius, centerY + radius),
-      control2: point(centerX - radius, centerY + CURVE * radius),
-      to: point(centerX - radius, centerY),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX - radius, centerY - CURVE * radius),
-      control2: point(centerX - CURVE * radius, centerY - radius),
-      to: point(centerX, centerY - radius),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX + CURVE * radius, centerY - radius),
-      control2: point(centerX + radius, centerY - CURVE * radius),
-      to: point(centerX + radius, centerY),
-      anchor: 'smooth',
+      start: point(centerX + radius, centerY),
+      segments: [
+        {
+          kind: 'curve',
+          control1: point(centerX + radius, centerY + CURVE * radius),
+          control2: point(centerX + CURVE * radius, centerY + radius),
+          to: point(centerX, centerY + radius),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX - CURVE * radius, centerY + radius),
+          control2: point(centerX - radius, centerY + CURVE * radius),
+          to: point(centerX - radius, centerY),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX - radius, centerY - CURVE * radius),
+          control2: point(centerX - CURVE * radius, centerY - radius),
+          to: point(centerX, centerY - radius),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX + CURVE * radius, centerY - radius),
+          control2: point(centerX + radius, centerY - CURVE * radius),
+          to: point(centerX + radius, centerY),
+          anchor: 'smooth',
+        },
+      ],
     },
   ],
 });
@@ -56,39 +64,43 @@ const roundedDie = (): PathGeometry => {
   const radius = 5;
   const tangent = CURVE * radius;
   return {
-    start: point(left + radius, bottom),
-    segments: [
-      { kind: 'line', to: point(right - radius, bottom) },
+    subpaths: [
       {
-        kind: 'curve',
-        control1: point(right - radius + tangent, bottom),
-        control2: point(right, bottom + radius - tangent),
-        to: point(right, bottom + radius),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(right, top - radius) },
-      {
-        kind: 'curve',
-        control1: point(right, top - radius + tangent),
-        control2: point(right - radius + tangent, top),
-        to: point(right - radius, top),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(left + radius, top) },
-      {
-        kind: 'curve',
-        control1: point(left + radius - tangent, top),
-        control2: point(left, top - radius + tangent),
-        to: point(left, top - radius),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(left, bottom + radius) },
-      {
-        kind: 'curve',
-        control1: point(left, bottom + radius - tangent),
-        control2: point(left + radius - tangent, bottom),
-        to: point(left + radius, bottom),
-        anchor: 'smooth',
+        start: point(left + radius, bottom),
+        segments: [
+          { kind: 'line', to: point(right - radius, bottom) },
+          {
+            kind: 'curve',
+            control1: point(right - radius + tangent, bottom),
+            control2: point(right, bottom + radius - tangent),
+            to: point(right, bottom + radius),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(right, top - radius) },
+          {
+            kind: 'curve',
+            control1: point(right, top - radius + tangent),
+            control2: point(right - radius + tangent, top),
+            to: point(right - radius, top),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(left + radius, top) },
+          {
+            kind: 'curve',
+            control1: point(left + radius - tangent, top),
+            control2: point(left, top - radius + tangent),
+            to: point(left, top - radius),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(left, bottom + radius) },
+          {
+            kind: 'curve',
+            control1: point(left, bottom + radius - tangent),
+            control2: point(left + radius - tangent, bottom),
+            to: point(left + radius, bottom),
+            anchor: 'smooth',
+          },
+        ],
       },
     ],
   };
@@ -198,6 +210,41 @@ export const manualCheckModel = (): IllustratorDocument => {
     ],
     lastModified: pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' }),
     title: 'Illustrator manual check',
+  };
+};
+
+// A 10 mm square around a 4 mm square, both drawn counterclockwise, so the inner one is filled by the nonzero rule and empty by the even-odd rule.
+const nested = (left: number): readonly Subpath[] => [...rectangle([left, 10, left + 10, 20]).subpaths, ...rectangle([left + 3, 13, left + 7, 17]).subpaths];
+
+/** Builds compound paths and clips under both fill rules for the Illustrator compound-path check. */
+export const compoundManualCheckModel = (): IllustratorDocument => {
+  const cut: SpotColor = { name: 'Cut', alternate: [0, 1, 0, 0] };
+  const outlineWithHole = [...roundedDie().subpaths, ...circle(50, 35, 12).subpaths];
+  const arch: Subpath = { start: point(10, 25), segments: [{ kind: 'quadratic', control: point(15, 38), to: point(20, 25) }] };
+  const black = { paint: { kind: 'process', cmyk: [0, 0, 0, 0.6] } } as const;
+  const paleCyan: RasterItem = {
+    kind: 'raster',
+    width: 2,
+    height: 2,
+    bounds: { x: mm(0), y: mm(0), width: mm(100), height: mm(70) },
+    color: { space: 'cmyk', samples: new Uint8Array(16).map((_, index) => (index % 4 === 0 ? 77 : 0)) },
+    alpha: new Uint8Array(4).fill(255),
+  };
+  return {
+    artboard: { width: mm(100), height: mm(70), bleed: mm(3) },
+    layers: [
+      { name: 'Even-odd clip', items: [{ kind: 'clipGroup', clip: { subpaths: outlineWithHole, fillRule: 'evenodd' }, items: [paleCyan] }] },
+      {
+        name: 'Compound fills',
+        items: [
+          { kind: 'path', geometry: { subpaths: [...nested(10), arch] }, fill: black },
+          { kind: 'path', geometry: { subpaths: nested(80), fillRule: 'evenodd' }, fill: black },
+        ],
+      },
+      { name: 'Compound die', items: [{ kind: 'path', geometry: { subpaths: outlineWithHole }, stroke: { paint: { kind: 'spot', spot: cut }, width: 0.25 } }] },
+    ],
+    lastModified: pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' }),
+    title: 'Illustrator compound path check',
   };
 };
 

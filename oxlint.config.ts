@@ -109,6 +109,7 @@ export default defineConfig({
       files: [
         'packages/core/src/hash/md5.ts',
         'packages/core/src/flate/**/*.ts',
+        'packages/core/src/png/crc32.ts',
         'packages/illustrator/src/zstd/**/*.ts',
         'packages/illustrator/src/native/nameBasedUuid.ts',
       ],

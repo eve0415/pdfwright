@@ -9,11 +9,15 @@ import { readNative } from './readNative.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 56, offset: 'Z' });
 const geometry = {
-  start: [0, 0],
-  segments: [
-    { kind: 'line', to: [10, 0] },
-    { kind: 'line', to: [10, 10] },
-    { kind: 'line', to: [0, 10] },
+  subpaths: [
+    {
+      start: [0, 0],
+      segments: [
+        { kind: 'line', to: [10, 0] },
+        { kind: 'line', to: [10, 10] },
+        { kind: 'line', to: [0, 10] },
+      ],
+    },
   ],
 } as const;
 const document: IllustratorDocument = {

@@ -1,4 +1,4 @@
-import type { IllustratorDocument, Item, Layer, PathItem, RasterItem, SpotColor } from './illustratorDocument.ts';
+import type { IllustratorDocument, Item, Layer, PathItem, RasterItem, SpotColor, Subpath } from './illustratorDocument.ts';
 
 import { UnsupportedFeatureError, ValidationError, mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
@@ -9,18 +9,15 @@ import { validateDocument } from './validateDocument.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
 const spot: SpotColor = { name: 'White', alternate: [0, 0, 0, 0] };
-const path: PathItem = {
-  kind: 'path',
-  geometry: {
-    start: [0, 0],
-    segments: [
-      { kind: 'line', to: [10, 0] },
-      { kind: 'line', to: [10, 10] },
-      { kind: 'line', to: [0, 10] },
-    ],
-  },
-  fill: { paint: { kind: 'spot', spot } },
+const square: Subpath = {
+  start: [0, 0],
+  segments: [
+    { kind: 'line', to: [10, 0] },
+    { kind: 'line', to: [10, 10] },
+    { kind: 'line', to: [0, 10] },
+  ],
 };
+const path: PathItem = { kind: 'path', geometry: { subpaths: [square] }, fill: { paint: { kind: 'spot', spot } } };
 const raster: RasterItem = {
   kind: 'raster',
   width: 2,
@@ -59,7 +56,7 @@ describe('illustrator document validation', () => {
       validates({
         ...document,
         artboard: { width: ten, height: ten },
-        layers: [{ name: 'Artwork', items: [{ ...path, geometry: { ...path.geometry, start: [ten, 0] } }] }],
+        layers: [{ name: 'Artwork', items: [{ ...path, geometry: { subpaths: [{ ...square, start: [ten, 0] }] } }] }],
       }),
     ).not.toThrow();
   });
@@ -91,7 +88,7 @@ describe('illustrator document validation', () => {
   it('rejects invalid geometry, opacity, color components and raster sizes', () => {
     expect(validates({ ...document, artboard: { width: 16384, height: 10 } })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', opacity: 1.1, items: [path] }] })).toThrow(ValidationError);
-    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { ...path.geometry, start: [Infinity, 0] } }] }] })).toThrow(
+    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { subpaths: [{ ...square, start: [Infinity, 0] }] } }] }] })).toThrow(
       ValidationError,
     );
     expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...raster, alpha: new Uint8Array(1) }] }] })).toThrow(ValidationError);
@@ -124,10 +121,12 @@ describe('illustrator document validation', () => {
   });
 
   it('rejects empty paths and raster scales that serialize as zero', () => {
-    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { start: [0, 0], segments: [] } }] }] })).toThrow(ValidationError);
-    expect(validates({ ...document, layers: [{ name: 'A', items: [{ kind: 'clipGroup', clip: { start: [0, 0], segments: [] }, items: [path] }] }] })).toThrow(
+    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { subpaths: [{ start: [0, 0], segments: [] }] } }] }] })).toThrow(
       ValidationError,
     );
+    expect(
+      validates({ ...document, layers: [{ name: 'A', items: [{ kind: 'clipGroup', clip: { subpaths: [{ start: [0, 0], segments: [] }] }, items: [path] }] }] }),
+    ).toThrow(ValidationError);
     const tiny = {
       ...raster,
       width: 1000,
@@ -137,6 +136,25 @@ describe('illustrator document validation', () => {
       alpha: new Uint8Array(1000),
     };
     expect(validates({ ...document, layers: [{ name: 'A', items: [tiny] }] })).toThrow(ValidationError);
+  });
+
+  it('accepts several subpaths, either fill rule and quadratic segments', () => {
+    const hole: Subpath = { start: [2, 2], segments: [{ kind: 'quadratic', control: [5, 8], to: [8, 2] }] };
+    const compound: PathItem = { ...path, geometry: { subpaths: [square, hole], fillRule: 'evenodd' } };
+    const clip: Item = { kind: 'clipGroup', clip: { subpaths: [square, hole], fillRule: 'nonzero' }, items: [path] };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [compound, clip] }] })).not.toThrow();
+  });
+
+  it('rejects a path without subpaths, an unknown fill rule and unknown subpath fields', () => {
+    expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { subpaths: [] } }] }] })).toThrow(ValidationError);
+    const badRule = corrupt(document, 'layers', [{ name: 'A', items: [{ ...path, geometry: { subpaths: [square], fillRule: 'winding' } }] }]);
+    expect(validates(badRule)).toThrow(ValidationError);
+    const openSubpath = { ...path, geometry: { subpaths: [{ ...square, open: true }] } };
+    expect(validates({ ...document, layers: [{ name: 'A', items: [openSubpath] }] })).toThrow(UnsupportedFeatureError);
+    const arc = corrupt(document, 'layers', [
+      { name: 'A', items: [{ ...path, geometry: { subpaths: [{ start: [0, 0], segments: [{ kind: 'arc', to: [1, 1] }] }] } }] },
+    ]);
+    expect(validates(arc)).toThrow(UnsupportedFeatureError);
   });
 
   it('reports deeply nested groups as a validation error', () => {

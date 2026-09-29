@@ -1,5 +1,6 @@
 import type { Item, Layer } from '../model/illustratorDocument.ts';
 import type { NativeWriter } from './nativeWriter.ts';
+import type { FillRuleState } from './writePath.ts';
 
 import { formatNativeNumber } from './formatNativeNumber.ts';
 import { escapeNativeString, escapeXmlIdentifier } from './nativeString.ts';
@@ -16,6 +17,8 @@ interface ItemPosition {
   readonly path: string;
   readonly yOffset: number;
   readonly lockState: { value: boolean };
+  // Every clip group holds a path or raster, and both write XR, so a clipping path always follows an XR written earlier in its own layer.
+  readonly fillRuleState: FillRuleState;
 }
 
 const encoder = new TextEncoder();
@@ -35,20 +38,22 @@ const writeItem = (writer: NativeWriter, item: Item, position: ItemPosition): vo
   }
   let childIndex = 0;
   const writeChild = (child: Item): void => {
-    writeItem(writer, child, { path: `${position.path}/${String(childIndex)}`, yOffset: position.yOffset, lockState: position.lockState });
+    writeItem(writer, child, { ...position, path: `${position.path}/${String(childIndex)}` });
     childIndex++;
   };
   switch (item.kind) {
     case 'path': {
-      writePath(writer, item, { yOffset: position.yOffset });
+      writePath(writer, item, { yOffset: position.yOffset, fillRuleState: position.fillRuleState });
       break;
     }
     case 'raster': {
       writeRaster(writer, item, { itemPath: position.path, yOffset: position.yOffset });
+      // The raster's state lines end with 0 XR.
+      position.fillRuleState.value = 'nonzero';
       break;
     }
     case 'clipGroup': {
-      writeClipGroup(writer, item, { writeItem: writeChild, yOffset: position.yOffset });
+      writeClipGroup(writer, item, { writeItem: writeChild, yOffset: position.yOffset, fillRuleState: position.fillRuleState });
       break;
     }
     case 'group': {
@@ -86,8 +91,9 @@ export const writeLayer = (writer: NativeWriter, layer: Layer, options: NativeLa
   }
   writer.line('0 Xw');
   const lockState = { value: locked && (visible !== 0 || layer.items.length === 0) };
+  const fillRuleState: FillRuleState = { value: 'nonzero' };
   for (const [index, item] of layer.items.entries()) {
-    writeItem(writer, item, { path: `${String(options.index)}/${String(index)}`, yOffset: options.yOffset ?? 0, lockState });
+    writeItem(writer, item, { path: `${String(options.index)}/${String(index)}`, yOffset: options.yOffset ?? 0, lockState, fillRuleState });
   }
   if (layer.opacity !== undefined && layer.opacity !== 1) {
     writer.line(`0 ${formatNativeNumber(layer.opacity)} 0 2 0 Xy`);

@@ -9,11 +9,15 @@ import { artBounds, integerBounds } from './bounds.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 0, minute: 0, second: 0, offset: 'Z' });
 const rectangle: PathGeometry = {
-  start: [0, 0],
-  segments: [
-    { kind: 'line', to: [10, 0] },
-    { kind: 'line', to: [10, 10] },
-    { kind: 'line', to: [0, 10] },
+  subpaths: [
+    {
+      start: [0, 0],
+      segments: [
+        { kind: 'line', to: [10, 0] },
+        { kind: 'line', to: [10, 10] },
+        { kind: 'line', to: [0, 10] },
+      ],
+    },
   ],
 };
 
@@ -29,10 +33,14 @@ describe('native art bounds', () => {
             {
               kind: 'path',
               geometry: {
-                start: [10, 10],
-                segments: [
-                  { kind: 'line', to: [60, 60] },
-                  { kind: 'line', to: [110, 10] },
+                subpaths: [
+                  {
+                    start: [10, 10],
+                    segments: [
+                      { kind: 'line', to: [60, 60] },
+                      { kind: 'line', to: [110, 10] },
+                    ],
+                  },
                 ],
               },
               stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
@@ -57,10 +65,14 @@ describe('native art bounds', () => {
             {
               kind: 'path',
               geometry: {
-                start: [10, 10],
-                segments: [
-                  { kind: 'line', to: [60, 60] },
-                  { kind: 'line', to: [12, 10] },
+                subpaths: [
+                  {
+                    start: [10, 10],
+                    segments: [
+                      { kind: 'line', to: [60, 60] },
+                      { kind: 'line', to: [12, 10] },
+                    ],
+                  },
                 ],
               },
               stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
@@ -83,10 +95,14 @@ describe('native art bounds', () => {
             {
               kind: 'path',
               geometry: {
-                start: [10, 10],
-                segments: [
-                  { kind: 'curve', control1: [25, 25], control2: [45, 45], to: [60, 60] },
-                  { kind: 'line', to: [110, 10] },
+                subpaths: [
+                  {
+                    start: [10, 10],
+                    segments: [
+                      { kind: 'curve', control1: [25, 25], control2: [45, 45], to: [60, 60] },
+                      { kind: 'line', to: [110, 10] },
+                    ],
+                  },
                 ],
               },
               stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
@@ -108,7 +124,7 @@ describe('native art bounds', () => {
           items: [
             {
               kind: 'path',
-              geometry: { start: [0, 0], segments: [{ kind: 'curve', control1: [0, 2], control2: [1, 2], to: [1, 0] }] },
+              geometry: { subpaths: [{ start: [0, 0], segments: [{ kind: 'curve', control1: [0, 2], control2: [1, 2], to: [1, 0] }] }] },
               stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 1 },
             },
           ],
@@ -131,11 +147,15 @@ describe('native art bounds', () => {
             {
               kind: 'clipGroup',
               clip: {
-                start: [20, 30],
-                segments: [
-                  { kind: 'line', to: [40, 30] },
-                  { kind: 'line', to: [40, 50] },
-                  { kind: 'line', to: [20, 50] },
+                subpaths: [
+                  {
+                    start: [20, 30],
+                    segments: [
+                      { kind: 'line', to: [40, 30] },
+                      { kind: 'line', to: [40, 50] },
+                      { kind: 'line', to: [20, 50] },
+                    ],
+                  },
                 ],
               },
               items: [{ kind: 'path', geometry: rectangle, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } } }],

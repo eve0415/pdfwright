@@ -13,6 +13,7 @@ import { D50, labToXyz } from './pcs.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
 import { createRowConverters } from './rowConversion.ts';
 
+/** A colour-transform source defined by a parsed ICC profile; `srgbColorSource()` returns one for sRGB. */
 export interface IccColorSource {
   readonly kind: 'icc';
   readonly profile: IccProfile;

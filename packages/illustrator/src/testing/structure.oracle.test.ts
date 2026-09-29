@@ -1,5 +1,5 @@
 import type { IllustratorDocument, PathItem } from '../model/illustratorDocument.ts';
-import type { NativeRecord } from './nativeTokenizer.ts';
+import type { NativeRecord } from '../read/nativeTokenizer.ts';
 import type { ContainerFacts } from './readIllustratorPdf.ts';
 
 import { readFile } from 'node:fs/promises';
@@ -7,12 +7,14 @@ import path from 'node:path';
 import { env, stdout } from 'node:process';
 
 import { mm, pdfDate } from '@pdfwright/core';
+import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
 import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
+import { readIllustratorPdf as readPublicIllustratorPdf } from '../index.ts';
+import { tokenizeNative } from '../read/nativeTokenizer.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
-import { tokenizeNative } from './nativeTokenizer.ts';
 import { normalizeModel } from './normalizeModel.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 
@@ -60,11 +62,15 @@ const lockFields = (lines: readonly string[]): Map<string, { readonly layer: str
 const rectangle: PathItem = {
   kind: 'path',
   geometry: {
-    start: [0, 0],
-    segments: [
-      { kind: 'line', to: [10, 0] },
-      { kind: 'line', to: [10, 10] },
-      { kind: 'line', to: [0, 10] },
+    subpaths: [
+      {
+        start: [0, 0],
+        segments: [
+          { kind: 'line', to: [10, 0] },
+          { kind: 'line', to: [10, 10] },
+          { kind: 'line', to: [0, 10] },
+        ],
+      },
     ],
   },
   fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
@@ -117,7 +123,7 @@ describe('local Illustrator structure comparison', () => {
       sample.layers,
       sample.rasters,
     ]);
-    expect(facts.native.slice(0, facts.metaData.length)).toStrictEqual(facts.metaData);
+    expect(facts.native.slice(0, facts.metaData?.length)).toStrictEqual(facts.metaData);
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file keeps observed geometry and object grammar', async sample => {
@@ -139,6 +145,16 @@ describe('local Illustrator structure comparison', () => {
     const read = readIllustratorPdf(await localSource(sample.file));
     expect(read.document.layers).toHaveLength(sample.layers);
     expect(read.unknownBlocks.length).toBeGreaterThan(0);
+  });
+
+  it.skipIf(exportsDirectory === undefined).each(samples)('$file reads through the public reader', async sample => {
+    const bytes = await localSource(sample.file);
+    const read = readPublicIllustratorPdf(bytes, { zstandard: decompress });
+    expect(read.document).toStrictEqual(readIllustratorPdf(bytes).document);
+    expect(read.nativeOrigin).toBe('artboard-bottom-left');
+    expect(read.compression).toStrictEqual({ kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: 0x58 });
+    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(read.lastModified.page).toStrictEqual(read.lastModified.application);
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file rewrites its recovered artwork with the same structure', async sample => {

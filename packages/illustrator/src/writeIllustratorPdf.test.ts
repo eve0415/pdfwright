@@ -1,9 +1,10 @@
+import type { WriteIllustratorPdfOptions } from './index.ts';
 import type { IllustratorDocument } from './model/illustratorDocument.ts';
 
-import { loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
+import { InvalidArgumentError, ValidationError, compareDocuments, loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
-import { readIllustratorContainer } from './testing/readIllustratorPdf.ts';
+import { readIllustratorContainer, readIllustratorPdf } from './testing/readIllustratorPdf.ts';
 import { writeIllustratorPdfExample } from './writeIllustratorPdfExample.ts';
 
 import { writeIllustratorPdf } from './index.ts';
@@ -18,11 +19,15 @@ const model: IllustratorDocument = {
         {
           kind: 'path',
           geometry: {
-            start: [0, 0],
-            segments: [
-              { kind: 'line', to: [10, 0] },
-              { kind: 'line', to: [10, 10] },
-              { kind: 'line', to: [0, 10] },
+            subpaths: [
+              {
+                start: [0, 0],
+                segments: [
+                  { kind: 'line', to: [10, 0] },
+                  { kind: 'line', to: [10, 10] },
+                  { kind: 'line', to: [0, 10] },
+                ],
+              },
             ],
           },
           stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 0 },
@@ -83,9 +88,96 @@ describe('illustrator PDF writer', () => {
     };
     const counted: IllustratorDocument = {
       ...model,
-      layers: [{ name: 'Ink', items: [{ kind: 'path', geometry: { start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }, fill: { paint: process } }] }],
+      layers: [
+        {
+          name: 'Ink',
+          items: [{ kind: 'path', geometry: { subpaths: [{ start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }] }, fill: { paint: process } }],
+        },
+      ],
     };
     writeIllustratorPdf(counted);
     expect(reads).toBe(4);
+  });
+});
+
+const declarations = (options: WriteIllustratorPdfOptions = {}): readonly string[] => {
+  const read = readIllustratorPdf(writeIllustratorPdf(model, options));
+  const native = new TextDecoder().decode(read.native);
+  const artboard = /%_(\S+ \S+) \/RealPointRelToROrigin\r%_ \(PositionPoint1\) ,\r%_(\S+ \S+) \/RealPointRelToROrigin\r%_ \(PositionPoint2\) ,\r/u.exec(native);
+  const ruler = /%_(\S+ \S+) \/RealPoint\r%_ \(RulerOrigin\) ,\r/u.exec(native);
+  const firstMove = /\r(\S+ \S+) m\r/u.exec(native);
+  return [
+    read.header.get('%AI3_Cropmarks') ?? '',
+    read.header.get('%%PageOrigin') ?? '',
+    artboard?.[1] ?? '',
+    artboard?.[2] ?? '',
+    ruler?.[1] ?? '',
+    firstMove?.[1] ?? '',
+  ];
+};
+
+describe('native coordinate origin', () => {
+  it('keeps the artboard-bottom-left declarations by default', () => {
+    const expected = ['0 0 100 70', '0 70', '0 70', '100 0', '8141 8156', '0 0'];
+    expect(declarations()).toStrictEqual(expected);
+    expect(declarations({ nativeOrigin: 'artboard-bottom-left' })).toStrictEqual(expected);
+    expect(writeIllustratorPdf(model, { nativeOrigin: 'artboard-bottom-left' })).toStrictEqual(writeIllustratorPdf(model));
+  });
+
+  it('writes the artboard-top-left header, artboard and artwork declarations', () => {
+    // Cropmarks 0 −H W 0, PageOrigin 0 0, PositionPoint1 (0, 0), PositionPoint2 (W, −H), RulerOrigin (8191.5 − W/2, 8191.5 + H/2), and artwork moved down by H.
+    expect(declarations({ nativeOrigin: 'artboard-top-left' })).toStrictEqual(['0 -70 100 0', '0 0', '0 0', '100 -70', '8141.5 8226.5', '0 -70']);
+  });
+
+  it('leaves the visible page unchanged and stays deterministic', () => {
+    const bottomLeft = writeIllustratorPdf(model);
+    const topLeft = writeIllustratorPdf(model, { nativeOrigin: 'artboard-top-left' });
+    expect(writeIllustratorPdf(model, { nativeOrigin: 'artboard-top-left' })).toStrictEqual(topLeft);
+    const comparison = compareDocuments(loadDocument(bottomLeft), loadDocument(topLeft));
+    expect(comparison.differences.length).toBeGreaterThan(0);
+    expect(comparison.differences.filter(difference => difference.kind !== 'piece-info')).toStrictEqual([]);
+  });
+
+  it('refuses an unknown native origin', () => {
+    const options: WriteIllustratorPdfOptions = {};
+    Object.defineProperty(options, 'nativeOrigin', { value: 'top-left' });
+    expect(() => writeIllustratorPdf(model, options)).toThrow(ValidationError);
+  });
+});
+
+const spotModel: IllustratorDocument = {
+  ...model,
+  layers: model.layers.map(layer => ({
+    ...layer,
+    items: layer.items.map(item =>
+      item.kind === 'path' ? { ...item, stroke: { paint: { kind: 'spot', spot: { name: 'Cut', alternate: [0.960571, 0, 0, 0] } }, width: 0 } } : item,
+    ),
+  })),
+};
+
+const latin1 = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
+
+describe('document information and page precision', () => {
+  it('writes no Info dictionary unless asked', () => {
+    expect(latin1(writeIllustratorPdf(model))).not.toContain('/Info');
+  });
+
+  it('writes Info with the model date as ModDate by default, and an agreeing XMP packet', () => {
+    const pdf = latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet' } }));
+    expect(pdf).toMatch(/\/Title ?\(Die sheet\)/u);
+    expect(pdf).toContain(`(${pdfDateString(date)})`);
+    expect(pdf).toContain('<dc:title>');
+    const later = pdfDate({ year: 2026, month: 9, day: 29, hour: 1, minute: 2, second: 3, offset: 'Z' });
+    expect(latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet', modificationDate: later } }))).toContain(`(${pdfDateString(later)})`);
+  });
+
+  it('keeps spot alternate components at the requested precision', () => {
+    expect(latin1(writeIllustratorPdf(spotModel))).toMatch(/\[0\.96057 0 0 0\]/u);
+    expect(latin1(writeIllustratorPdf(spotModel, { fractionDigits: 6 }))).toMatch(/\[0\.960571 0 0 0\]/u);
+    expect(writeIllustratorPdf(spotModel, { fractionDigits: 6 })).toStrictEqual(writeIllustratorPdf(spotModel, { fractionDigits: 6 }));
+  });
+
+  it.each([-1, 11, 2.5, Number.NaN])('refuses fractionDigits %s', fractionDigits => {
+    expect(() => writeIllustratorPdf(model, { fractionDigits })).toThrow(InvalidArgumentError);
   });
 });
