@@ -24,6 +24,8 @@ export type { FlateWarning, InflateOptions } from './flate/inflate.ts';
 export { decodeJpeg } from './jpeg/decodeJpeg.ts';
 export type { DecodeJpegOptions, DecodedJpeg } from './jpeg/decodeJpeg.ts';
 export type { ExifOrientation } from './jpeg/jpegMetadata.ts';
+export { decodePng, pngToRgba8 } from './png/decodePng.ts';
+export type { DecodePngOptions, DecodedPng, PngBitDepth, PngChromaticities, PngColorType, PngIccProfile, PngRenderingIntent } from './png/decodePng.ts';
 export { createPdfFunction } from './function/pdfFunction.ts';
 export type { PdfFunction } from './function/pdfFunction.ts';
 export { parseIccProfile } from './icc/iccProfile.ts';
