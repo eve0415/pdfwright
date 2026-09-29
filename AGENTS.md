@@ -5,7 +5,7 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 ## Layout
 
 - `packages/core` is `@pdfwright/core`, the core package.
-- `packages/illustrator` is `@pdfwright/illustrator`, the Adobe Illustrator interoperability package.
+- `packages/illustrator` is `@pdfwright/illustrator`, which writes Illustrator-layered PDFs from a print-production artwork model.
 - `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names and that every package entry loads there.
 - `scripts/` holds repository scripts, which run on Node.
 - `tools/oxlint/anti-slop` is a git submodule, the [anti-slop](https://github.com/dmmulroy/anti-slop) oxlint plugin (MIT), loaded as a JS plugin.
@@ -31,7 +31,7 @@ oxlint fails to start without the anti-slop submodule. In a clone made without `
 pnpm exec oxlint
 pnpm exec oxfmt --check
 pnpm run check:type-aware-coverage
-pnpm test            # the node, browser (headless Chromium) and workers (workerd) projects
+pnpm test            # the node, browser (headless Chromium), workers (workerd) and oracle projects
 pnpm run test:bun
 pnpm run test:deno
 pnpm run build
@@ -46,9 +46,11 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 - **oxlint does not report `isolatedDeclarations` errors (TS9xxx).** The tsdown build reports them when it emits declarations, so a change to an exported signature is checked only once `pnpm run build` passes.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
+The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS, Argyll, free ICC profiles and the Noto CJK fonts for external checks.
+
 ## Runtime rules
 
-- **Library source uses web-standard APIs only**: no Node built-ins, no WebAssembly, no native code. oxlint's `import/no-nodejs-modules` rejects `node:` imports in `packages/*/src` and `tests/`, the root tsconfig sets `types: []` so Node globals such as `process` and `Buffer` do not type-check, and the browser project runs the suite where neither exists.
+- **Library source uses web-standard APIs only**: no Node built-ins, no WebAssembly, no native code. oxlint's `import/no-nodejs-modules` rejects `node:` imports in `packages/*/src` and `tests/` except oracle tests, the root tsconfig sets `types: []` so Node globals such as `process` and `Buffer` do not type-check, and the browser project runs the suite where neither exists.
 - **The workers project cannot prove the absence of Node APIs**, because `@cloudflare/vitest-plugin` enables `nodejs_compat`. The lint rule, the tsconfigs and the browser project are what enforce the rule above.
 - **`scripts/` and `*.config.ts` run on Node** and may import `node:` modules.
 
@@ -60,9 +62,11 @@ Narrow `unknown` with `typeof`, `in` and equality checks, and validate untrusted
 
 ## Specifications
 
-Code that implements behaviour a specification defines cites the clause in a comment, for example `// ISO 32000-2:2020, 7.3.4.2`. The specifications are ISO 32000-1 and ISO 32000-2 (PDF), ISO 15930-7 (PDF/X-4) and ICC.1 (ICC profiles). A citation lets a reviewer check the code against the text rather than against memory.
+Code that implements behaviour a specification defines cites the clause in a comment, for example `// ISO 32000-1:2008, 7.3.4.2`. The specifications are ISO 32000-1 and ISO 32000-2 (PDF), ISO 15930-7 (PDF/X-4) and ICC.1 (ICC profiles). A citation lets a reviewer check the code against the text rather than against memory.
 
 ## Dependencies
+
+Publish packages with pnpm. npm ignores `publishConfig.exports` and would package source export paths that are absent from the tarball.
 
 - **Pin exact versions** with `pnpm add -E` (`saveExact` is on). A loose range lets a compromised release in on the next install.
 - **Commit `pnpm-lock.yaml` in the same commit as the manifest change**, or the commit does not install as it was tested.

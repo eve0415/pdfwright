@@ -1,0 +1,38 @@
+/** Typed codes for unreadable, inconsistent, duplicate, orphaned, or legacy metadata; `readMetadata` reports these findings rather than throwing for each packet defect under ISO 32000-1:2008, 14.3. */
+export type MetadataFindingCode =
+  | 'info-xmp-mismatch'
+  | 'info-xmp-indeterminate'
+  | 'xmp-missing'
+  | 'info-missing'
+  | 'info-not-indirect'
+  | 'legacy-property-mismatch'
+  | 'duplicate-property'
+  | 'orphan-metadata'
+  | 'superseded-packets'
+  | 'metadata-not-stream'
+  | 'metadata-dictionary'
+  | 'metadata-filtered'
+  | 'xmp-unreadable'
+  | 'xmp-doctype'
+  | 'xmp-not-utf8'
+  | 'extra-xmp-packet'
+  | 'rdf-about-unprefixed'
+  | 'rdf-about-mismatch'
+  | 'trapped-not-name'
+  | 'info-not-text-string'
+  | 'info-empty-string'
+  | 'xmp-empty-value'
+  | 'info-text-undecodable'
+  | 'date-unparseable'
+  | 'date-zone-unknown'
+  | 'modification-after-metadata'
+  | 'xmp-transcoded'
+  | 'opaque-property-kept'
+  | 'info-value-kept'
+  | 'xmp-value-kept';
+
+/** Something about the document's metadata that a reader or a preflight may need to know. */
+export interface MetadataFinding {
+  readonly code: MetadataFindingCode;
+  readonly detail: string;
+}

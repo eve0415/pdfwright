@@ -10,8 +10,10 @@
   },
   "files": [
     "dist",
+    "README.md",
     "LICENSE-APACHE",
-    "LICENSE-MIT"
+    "LICENSE-MIT",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "type": "module",
   "sideEffects": false,
@@ -27,7 +29,8 @@
     }
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown",
+    "prepublishOnly": "node ../../scripts/requirePnpmPublisher.ts"
   },
   "devDependencies": {
     "tsdown": "catalog:"

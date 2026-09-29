@@ -1,7 +1,7 @@
 {
   "name": "@pdfwright/illustrator",
   "version": "0.0.0",
-  "description": "The Adobe Illustrator interoperability package of pdfwright, a TypeScript PDF library for print production.",
+  "description": "Write Illustrator-layered PDFs from print-production artwork.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
@@ -10,6 +10,7 @@
   },
   "files": [
     "dist",
+    "README.md",
     "LICENSE-APACHE",
     "LICENSE-MIT"
   ],
@@ -27,7 +28,11 @@
     }
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown",
+    "prepublishOnly": "node ../../scripts/requirePnpmPublisher.ts"
+  },
+  "dependencies": {
+    "@pdfwright/core": "workspace:*"
   },
   "devDependencies": {
     "tsdown": "catalog:"

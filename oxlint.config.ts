@@ -106,7 +106,18 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ['scripts/**/*.ts', '**/*.config.ts'],
+      files: [
+        'packages/core/src/hash/md5.ts',
+        'packages/core/src/flate/**/*.ts',
+        'packages/illustrator/src/zstd/**/*.ts',
+        'packages/illustrator/src/native/nameBasedUuid.ts',
+      ],
+      rules: {
+        'no-bitwise': 'off',
+      },
+    },
+    {
+      files: ['scripts/**/*.ts', '**/*.config.ts', '**/*.oracle.test.ts'],
       rules: {
         'import/no-nodejs-modules': 'off',
       },

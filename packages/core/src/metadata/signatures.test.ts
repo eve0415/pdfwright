@@ -1,0 +1,54 @@
+import type { TestObject } from '../testing/pdfBuilder.ts';
+
+import { describe, expect, it } from 'vitest';
+
+import { internalsOf } from '../document/documentInternals.ts';
+import { loadDocument } from '../document/loadDocument.ts';
+import { buildPdf } from '../testing/pdfBuilder.ts';
+
+import { signatureProtection } from './signatures.ts';
+
+const protection = (catalog: string, objects: readonly TestObject[] = []): string | undefined => {
+  const document = loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [{ number: 1, body: `<</Type/Catalog/Pages 2 0 R${catalog}>>` }, { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }, ...objects],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+  const internals = internalsOf(document);
+  return internals === undefined ? 'no internals' : signatureProtection(internals);
+};
+
+describe('signature protection', () => {
+  it('finds the SignaturesExist and AppendOnly flags of the interactive form and a permissions dictionary', () => {
+    expect([
+      protection(''),
+      protection('/AcroForm<</Fields[]/SigFlags 1>>'),
+      protection('/AcroForm<</Fields[]/SigFlags 3>>'),
+      protection('/AcroForm 3 0 R', [
+        { number: 3, body: '<</Fields[]/SigFlags 4 0 R>>' },
+        { number: 4, body: '2' },
+      ]),
+      protection('/Perms<</DocMDP 3 0 R>>', [{ number: 3, body: '<<>>' }]),
+      protection('/AcroForm<</SigFlags 2.0>>'),
+    ]).toStrictEqual([undefined, 'signatures-exist', 'append-only', 'append-only', 'permissions', 'append-only']);
+  });
+
+  it('treats flags it cannot read as an integer as protection', () => {
+    expect([
+      protection('/AcroForm<</SigFlags 2.5>>'),
+      protection('/AcroForm<</SigFlags(2)>>'),
+      protection('/AcroForm<</SigFlags 3 0 R>>', [{ number: 3, body: '<</Not(an integer)>>' }]),
+      protection('/AcroForm<</SigFlags 0.0>>'),
+      protection('/AcroForm<</SigFlags null>>'),
+    ]).toStrictEqual(['unreadable-flags', 'unreadable-flags', 'unreadable-flags', undefined, undefined]);
+  });
+
+  it('finds a populated signature field without SigFlags', () => {
+    const field = { number: 3, body: '<</FT/Sig/V<</Type/Sig/ByteRange[0 10 20 10]/Contents<00>>>>>' };
+    expect(protection('/AcroForm<</Fields[3 0 R]>>', [field])).toBe('signatures-exist');
+  });
+});

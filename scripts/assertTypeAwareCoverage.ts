@@ -30,7 +30,21 @@ const targetFiles = async (): Promise<string[]> => {
   const packages = entries.filter(entry => entry.isDirectory()).map(entry => path.join('packages', entry.name));
   const candidates = [...packages.map(dir => path.join(dir, 'src')), ...FLAT_DIRS];
   const checked = await Promise.all(candidates.map(async dir => ((await isDirectory(dir)) ? path.join(dir, 'coverageCanary.ts') : null)));
-  return [...checked.filter(file => file !== null), 'coverageCanary.config.ts', ...packages.map(dir => path.join(dir, 'coverageCanary.config.ts'))];
+  return [
+    ...checked.filter(file => file !== null),
+    'packages/core/src/document/coverageCanary.oracle.test.ts',
+    'packages/core/src/save/coverageCanary.oracle.test.ts',
+    'packages/core/src/inspect/coverageCanary.oracle.test.ts',
+    'packages/core/src/inspect/fonts/coverageCanary.oracle.test.ts',
+    'packages/core/src/inspect/colorants/coverageCanary.oracle.test.ts',
+    'packages/core/src/inspect/text/coverageCanary.oracle.test.ts',
+    'packages/core/src/metadata/coverageCanary.oracle.test.ts',
+    'packages/illustrator/src/zstd/coverageCanary.oracle.test.ts',
+    'packages/illustrator/src/page/coverageCanary.oracle.test.ts',
+    'packages/illustrator/src/testing/coverageCanary.oracle.test.ts',
+    'coverageCanary.config.ts',
+    ...packages.map(dir => path.join(dir, 'coverageCanary.config.ts')),
+  ];
 };
 
 const lintReport = async (files: readonly string[]): Promise<string> => {

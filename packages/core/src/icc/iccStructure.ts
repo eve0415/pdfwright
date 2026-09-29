@@ -1,0 +1,176 @@
+import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
+
+import { iccIdentity } from './iccIdentity.ts';
+import { iccSignature } from './iccSignature.ts';
+
+/** The ICC profile device or abstract class decoded from the header signature under ICC.1:2022, 7.2.1. */
+export type ProfileClass = 'input' | 'display' | 'output' | 'deviceLink' | 'colorSpace' | 'abstract' | 'namedColor';
+/** An ICC PCS or device colour-space signature, including 2–15 colourants for nCLR spaces under ICC.1:2022, 7.2.2. */
+export type DataColorSpace = 'XYZ' | 'Lab' | 'Gray' | 'RGB' | 'CMYK' | 'CMY' | 'Luv' | 'YCbCr' | 'Yxy' | 'HSV' | 'HLS' | { readonly colorants: number };
+/** The four ICC rendering intents used to choose profile transforms under ICC.1:2022, 6.2.2. */
+export type RenderingIntent = 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric';
+/** Three PCS tristimulus coordinates under ICC.1:2022, 6.3.2; values are carried as parsed without a default. */
+export interface Xyz {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/** The declared ICC size, version, class, colour spaces, intent, illuminant, and profile ID under ICC.1:2022, 7.2; invalid fields raise InvalidProfileError during parsing. */
+export interface IccHeader {
+  readonly size: number;
+  readonly version: { readonly major: number; readonly minor: number; readonly bugfix: number };
+  readonly profileClass: ProfileClass;
+  readonly colorSpace: DataColorSpace;
+  readonly pcs: DataColorSpace;
+  readonly renderingIntent: RenderingIntent;
+  readonly illuminant: Xyz;
+  readonly profileId: Uint8Array;
+}
+
+export interface IccTagRecord {
+  readonly signature: string;
+  readonly offset: number;
+  readonly size: number;
+}
+
+/** A nonfatal ICC trailing-data, alignment, or profile-ID finding with its byte offset under ICC.1:2022, 7.2–7.3. */
+export interface IccWarning {
+  readonly code: 'trailing-data' | 'tag-misaligned' | 'profile-id-mismatch';
+  readonly offset: number;
+}
+
+export interface IccStructure {
+  readonly header: IccHeader;
+  readonly tags: readonly IccTagRecord[];
+  readonly identity: Uint8Array;
+  readonly bytes: Uint8Array;
+  readonly warnings: readonly IccWarning[];
+}
+
+export const colorSpaceChannels = (space: DataColorSpace): number => {
+  if (typeof space === 'object') return space.colorants;
+  if (space === 'Gray') return 1;
+  if (space === 'CMYK') return 4;
+  return 3;
+};
+
+const classes = new Map<string, ProfileClass>([
+  ['scnr', 'input'],
+  ['mntr', 'display'],
+  ['prtr', 'output'],
+  ['link', 'deviceLink'],
+  ['spac', 'colorSpace'],
+  ['abst', 'abstract'],
+  ['nmcl', 'namedColor'],
+]);
+const spaces = new Map<string, DataColorSpace>([
+  ['XYZ ', 'XYZ'],
+  ['Lab ', 'Lab'],
+  ['GRAY', 'Gray'],
+  ['RGB ', 'RGB'],
+  ['CMYK', 'CMYK'],
+  ['CMY ', 'CMY'],
+  ['Luv ', 'Luv'],
+  ['YCbr', 'YCbCr'],
+  ['Yxy ', 'Yxy'],
+  ['HSV ', 'HSV'],
+  ['HLS ', 'HLS'],
+]);
+const intents: readonly RenderingIntent[] = ['perceptual', 'relativeColorimetric', 'saturation', 'absoluteColorimetric'];
+
+const space = (text: string, offset: number): DataColorSpace => {
+  const known = spaces.get(text);
+  if (known !== undefined) return known;
+  if (text.length === 4 && text.endsWith('CLR')) {
+    const channels = Number.parseInt(text.charAt(0), 16);
+    if (channels >= 2 && channels <= 15) return { colorants: channels };
+  }
+  throw new InvalidProfileError(`unknown ICC colour space ${text}`, 'unknown-color-space', { offset });
+};
+
+const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65536;
+
+const readHeader = (bytes: Uint8Array, view: DataView): IccHeader => {
+  // ICC.1:2022, 7.2.1 Table 17 fixes all header field positions and the 128-byte header length.
+  const size = view.getUint32(0);
+  if (size < 132 || size > bytes.length) throw new InvalidProfileError('ICC profile size exceeds supplied bytes', 'size-mismatch', { offset: 0 });
+  if (iccSignature(bytes, 36) !== 'acsp') throw new InvalidProfileError('missing ICC acsp signature', 'bad-signature', { offset: 36 });
+  const major = bytes[8] ?? 0;
+  if (major === 5) throw new UnsupportedFeatureError('ICC version 5 is unsupported', 'icc-version-5');
+  if (major !== 2 && major !== 4) throw new InvalidProfileError('unsupported ICC version', 'unsupported-version', { offset: 8 });
+  const profileClass = classes.get(iccSignature(bytes, 12));
+  if (profileClass === undefined) throw new InvalidProfileError('unknown ICC profile class', 'unknown-class', { offset: 12 });
+  const colorSpace = space(iccSignature(bytes, 16), 16);
+  const pcs = space(iccSignature(bytes, 20), 20);
+  if (profileClass !== 'deviceLink' && pcs !== 'XYZ' && pcs !== 'Lab') throw new InvalidProfileError('invalid ICC PCS', 'unknown-color-space', { offset: 20 });
+  const renderingIntent = intents[view.getUint32(64)];
+  if (renderingIntent === undefined) throw new InvalidProfileError('invalid ICC rendering intent', 'bad-tag-data', { offset: 64 });
+  return {
+    size,
+    version: { major, minor: Math.floor((bytes[9] ?? 0) / 16), bugfix: (bytes[9] ?? 0) % 16 },
+    profileClass,
+    colorSpace,
+    pcs,
+    renderingIntent,
+    illuminant: { x: fixed(view, 68), y: fixed(view, 72), z: fixed(view, 76) },
+    profileId: bytes.slice(84, 100),
+  };
+};
+
+const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): IccTagRecord[] => {
+  // ICC.1:2022, 7.3.1 Table 24 gives 12-byte records; 7.3.1 permits complete sharing but forbids partial overlap and duplicate signatures.
+  const count = view.getUint32(128);
+  if (count > 8192) throw new ResourceLimitError('ICC tag count exceeds 8192');
+  if (count > Math.floor((bytes.length - 132) / 12)) {
+    throw new InvalidProfileError('ICC tag table exceeds profile size', 'tag-table-out-of-bounds', { offset: 128 });
+  }
+  const tableEnd = 132 + 12 * count;
+  const tags: IccTagRecord[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < count; index++) {
+    const record = 132 + index * 12;
+    const name = iccSignature(bytes, record);
+    const offset = view.getUint32(record + 4);
+    const size = view.getUint32(record + 8);
+    if (seen.has(name)) throw new InvalidProfileError('duplicate ICC tag', 'duplicate-tag', { offset: record, tag: name });
+    seen.add(name);
+    if (offset < tableEnd || size < 8 || offset > bytes.length || size > bytes.length - offset) {
+      throw new InvalidProfileError('ICC tag exceeds profile size', 'tag-out-of-bounds', { offset: record + 4, tag: name });
+    }
+    // ICC.1:2022, 7.3.4 requires four-byte alignment; misaligned tags are kept with a warning for interoperability.
+    if (offset % 4 !== 0) warnings.push({ code: 'tag-misaligned', offset: record + 4 });
+    tags.push({ signature: name, offset, size });
+  }
+  const byOffset = tags.map((tag, index) => ({ tag, record: 132 + index * 12 })).toSorted((a, b) => a.tag.offset - b.tag.offset || a.tag.size - b.tag.size);
+  for (let index = 1; index < byOffset.length; index++) {
+    const previous = byOffset[index - 1];
+    const current = byOffset[index];
+    if (previous === undefined || current === undefined) continue;
+    if (
+      current.tag.offset < previous.tag.offset + previous.tag.size &&
+      (current.tag.offset !== previous.tag.offset || current.tag.size !== previous.tag.size)
+    ) {
+      throw new InvalidProfileError('ICC tags overlap', 'tag-overlap', { offset: current.record + 4, tag: current.tag.signature });
+    }
+  }
+  return tags;
+};
+
+export const parseIccStructure = (source: Uint8Array): IccStructure => {
+  if (source.length < 132) throw new InvalidProfileError('truncated ICC profile', 'truncated', { offset: source.length });
+  const copy = Uint8Array.from(source);
+  const view = new DataView(copy.buffer, copy.byteOffset, copy.byteLength);
+  const header = readHeader(copy, view);
+  const bytes = copy.subarray(0, header.size);
+  const warnings: IccWarning[] = [];
+  if (copy.length > header.size) warnings.push({ code: 'trailing-data', offset: header.size });
+  const tags = readTags(bytes, view, warnings);
+  const identity = iccIdentity(bytes);
+  if (header.profileId.some(byte => byte !== 0) && header.profileId.some((byte, index) => byte !== identity[index])) {
+    warnings.push({ code: 'profile-id-mismatch', offset: 84 });
+  }
+  return { header, tags, identity, bytes, warnings };
+};
