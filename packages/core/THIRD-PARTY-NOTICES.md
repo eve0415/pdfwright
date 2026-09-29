@@ -107,6 +107,17 @@ ZapfDingbats.afm: Notice Copyright (c) 1985, 1987, 1988, 1989, 1997 Adobe System
 This file and the 14 PostScript(R) AFM files it accompanies may be used, copied, and distributed for any purpose and without charge, with or without modification, provided that all copyright notices are retained; that the AFM files are not distributed without this file; that all modifications to this file or any of the AFM files are prominently noted in the modified file(s); and that this paragraph is not modified. Adobe Systems has no responsibility or obligation to support the use of the AFM files.
 ```
 
+## ICC sRGB profile
+
+- Source: `sRGB2014.icc` from <https://registry.color.org/rgb-registry/profiles/sRGB2014.icc> (sha256 `384b832de3412066743b52a75ee906b6fb9fb8d9e09e936fc2c43223815c6e0a`), retrieved 2026-09-29.
+- Use: the built-in sRGB source of `srgbProfileBytes()` and `srgbColorSource()`, embedded unmodified as hexadecimal in `src/color/srgbProfileData.ts` by `scripts/generateSrgbProfile.ts`.
+- Copyright: "Copyright International Color Consortium, 2015", as the profile's `cprt` tag states.
+- Licence: the terms at <https://registry.color.org/profile-library/#license>:
+
+```text
+This profile is made available by the International Color Consortium, and may be copied, distributed, embedded, made, used, and sold without restriction. Altered versions of this profile shall have the original identification and copyright information removed and shall not be misrepresented as the original profile.
+```
+
 ## Unicode Equivalent_Unified_Ideograph, Vertical_Orientation and East_Asian_Width data
 
 - Source: <https://www.unicode.org/Public/18.0.0/ucd/EquivalentUnifiedIdeograph.txt>, Unicode 18.0.0 (sha256 `c86c80f6a0d1d47c9a5aadfbf1c26f1a732d662d9ccb0ed2d397919ecc47bf72`).
