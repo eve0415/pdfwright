@@ -1,3 +1,5 @@
+import type { ParseReason } from '../error/parseError.ts';
+
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -96,8 +98,8 @@ const COSINE = [
   [1, 0.19509032201612833, -0.92387953251128674, -0.55557023301960218, Math.SQRT1_2, 0.83146961230254546, -0.38268343236508989, -0.98078528040323065],
 ];
 
-const invalid = (offset: number, detail: string): never => {
-  throw new ParseError(`invalid JPEG: ${detail}`, offset);
+const invalid = (offset: number, detail: string, reason: ParseReason = 'image-invalid'): never => {
+  throw new ParseError(`invalid JPEG: ${detail}`, offset, reason);
 };
 
 const unsupported = (
@@ -115,7 +117,7 @@ const unsupported = (
   throw new UnsupportedFeatureError(`JPEG feature is unsupported: ${reason}`, reason);
 };
 
-const byte = (data: Uint8Array, offset: number): number => data[offset] ?? invalid(offset, 'truncated marker segment');
+const byte = (data: Uint8Array, offset: number): number => data[offset] ?? invalid(offset, 'truncated marker segment', 'image-truncated');
 const word = (data: Uint8Array, offset: number): number => byte(data, offset) * 256 + byte(data, offset + 1);
 
 const markerAt = (data: Uint8Array, position: number): MarkerLocation => {
@@ -129,7 +131,8 @@ const markerAt = (data: Uint8Array, position: number): MarkerLocation => {
 
 const segment = (data: Uint8Array, position: number): SegmentBounds => {
   const length = word(data, position);
-  if (length < 2 || position + length > data.length) return invalid(position, 'marker segment length is invalid');
+  if (length < 2) return invalid(position, 'marker segment length is invalid');
+  if (position + length > data.length) return invalid(position, 'marker segment is truncated', 'image-truncated');
   return { start: position + 2, end: position + length };
 };
 
@@ -309,7 +312,7 @@ const scanEnd = (data: Uint8Array, start: number): number => {
     if (marker === 0xda) return unsupported('jpeg-multi-scan');
     return invalid(position, 'unexpected marker after entropy data');
   }
-  return invalid(data.length, 'missing end of image');
+  return invalid(data.length, 'missing end of image', 'image-truncated');
 };
 
 class EntropyReader {
@@ -328,7 +331,7 @@ class EntropyReader {
   bit(): number {
     if (this.count === 0) {
       const { position } = this;
-      if (position >= this.end) return invalid(position, 'truncated entropy data');
+      if (position >= this.end) return invalid(position, 'truncated entropy data', 'image-truncated');
       this.bits = byte(this.data, this.position++);
       if (this.bits === 0xff && byte(this.data, this.position++) !== 0) return invalid(position, 'marker inside entropy code');
       this.count = 8;
@@ -631,5 +634,5 @@ export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): D
     }
     parseHeaderSegment({ state, data, marker: current.marker, bounds });
   }
-  return invalid(position, 'missing scan');
+  return invalid(position, 'missing scan', 'image-truncated');
 };

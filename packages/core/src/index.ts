@@ -9,6 +9,7 @@ export { ValidationError } from './error/validationError.ts';
 export type { PdfwrightErrorCode } from './error/pdfwrightError.ts';
 export type { InvalidArgumentReason } from './error/invalidArgumentError.ts';
 export type { InvalidProfileReason } from './error/invalidProfileError.ts';
+export type { ParseReason } from './error/parseError.ts';
 export type { UnsupportedFeatureReason } from './error/unsupportedFeatureError.ts';
 export type { ValidationReason } from './error/validationError.ts';
 export { add, compare, equals, formatLength, inch, mm, multiply, negate, pt, subtract } from './length/length.ts';
