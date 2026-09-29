@@ -88,7 +88,7 @@ In Illustrator 30.8.2, package output opened as editable layers with the artboar
 ## Supported features and limits
 
 - CMYK documents, bleed, visible and hidden layers, layer and group opacity, layer and object locks, closed filled or stroked paths, spot colors and tints, overprint, clipping groups, and CMYK or spot rasters with alpha are supported.
-- Layer and object locks are written in native data and round-trip through the test reader. Package-generated locked files have not yet been opened in Illustrator.
+- Layer and object locks are written in native data and round-trip through the test reader. In Illustrator 30.8.2, a package-generated file with a locked layer, a locked object on an unlocked layer, and a locked hidden layer opened with those locks set, and they remained set after the file was reopened.
 - RGB documents, text, gradients, open or compound paths, and custom stroke caps, joins and dashes are outside `IllustratorDocument`. TypeScript rejects these fields in document literals; `UnsupportedFeatureError` rejects extra fields if they reach runtime.
 - Page colorant names default to UTF-8. Illustrator on a Japanese system writes Shift_JIS bytes for some names; pass `SpotColor.nameBytes` to choose the bytes on the visible page. Native names remain UTF-8.
 - Group and clipping-group nesting is limited to 128 levels; deeper artwork raises `ValidationError`.
