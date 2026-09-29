@@ -42,6 +42,27 @@ describe('native data assembly', () => {
     expect(text).toContain('%_; (ArtboardArray) ,\r%_0 /Int (CropAreaActive) ,\r');
   });
 
+  it('writes locked and hidden layer state independently', () => {
+    const locked = {
+      ...document,
+      layers: [
+        { ...hiddenLayer, locked: true },
+        { ...baseLayer, locked: true, visible: false },
+      ],
+    };
+    const text = new TextDecoder().decode(writeNative(locked).bytes);
+    expect(text).toContain('%AI5_OpenViewLayers: 22\r');
+    expect(text).toContain('0 1 0 1 0 0 0 0 79 128 255 0 50 0 Lb\r');
+    expect(text).toContain('1 A\r1 Xw\r0 A\r0 Xw\r');
+  });
+
+  it('places item lock state before a path and resets it for the next item', () => {
+    const locked = { ...document, layers: [{ name: 'Objects', items: [{ ...path, locked: true }, path] }] };
+    const text = new TextDecoder().decode(writeNative(locked).bytes);
+    expect(text).toContain('0 A\r0 Xw\r1 A\r4 As\r');
+    expect(text).toMatch(/f\r0 A\r4 As\r/u);
+  });
+
   it.each([
     ['bottom-left', -904, 509],
     ['top-left', -904, 439],

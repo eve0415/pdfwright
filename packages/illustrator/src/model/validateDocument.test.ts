@@ -64,8 +64,8 @@ describe('illustrator document validation', () => {
     ).not.toThrow();
   });
 
-  it('rejects unobserved locked layers', () => {
-    expect(validates({ ...document, layers: [{ ...layer, locked: true }] })).toThrow(UnsupportedFeatureError);
+  it('accepts layer and item locks', () => {
+    expect(validates({ ...document, layers: [{ ...layer, locked: true, items: [{ ...path, locked: true }] }] })).not.toThrow();
   });
 
   it('rejects duplicate and control-character layer names', () => {

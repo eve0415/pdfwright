@@ -162,7 +162,8 @@ export const validateDocument = (document: IllustratorDocument): void => {
     }
   };
   const checkPath = (item: PathItem): void => {
-    knownFields(item, ['kind', 'geometry', 'fill', 'stroke'], 'path');
+    knownFields(item, ['kind', 'locked', 'geometry', 'fill', 'stroke'], 'path');
+    optionalBoolean(item.locked, 'path locked');
     geometry(item.geometry);
     if (item.fill === undefined && item.stroke === undefined) throw new ValidationError('path requires a fill or stroke', 'illustrator-model');
     if (item.fill !== undefined) {
@@ -178,7 +179,8 @@ export const validateDocument = (document: IllustratorDocument): void => {
     }
   };
   const checkRaster = (item: RasterItem): void => {
-    knownFields(item, ['kind', 'width', 'height', 'bounds', 'color', 'alpha'], 'raster');
+    knownFields(item, ['kind', 'locked', 'width', 'height', 'bounds', 'color', 'alpha'], 'raster');
+    optionalBoolean(item.locked, 'raster locked');
     knownFields(item.bounds, ['x', 'y', 'width', 'height'], 'raster bounds');
     if (!Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height) || item.width <= 0 || item.height <= 0) {
       throw new ValidationError('raster dimensions must be positive integers', 'illustrator-model');
@@ -221,14 +223,16 @@ export const validateDocument = (document: IllustratorDocument): void => {
           break;
         }
         case 'clipGroup': {
-          knownFields(item, ['kind', 'clip', 'items'], 'clip group');
+          knownFields(item, ['kind', 'locked', 'clip', 'items'], 'clip group');
+          optionalBoolean(item.locked, 'clip group locked');
           if (item.items.length === 0) throw new ValidationError('clip group cannot be empty', 'illustrator-model');
           geometry(item.clip);
           items(item.items, depth + 1);
           break;
         }
         case 'group': {
-          knownFields(item, ['kind', 'opacity', 'isolated', 'items'], 'group');
+          knownFields(item, ['kind', 'locked', 'opacity', 'isolated', 'items'], 'group');
+          optionalBoolean(item.locked, 'group locked');
           if (item.items.length === 0) throw new ValidationError('group cannot be empty', 'illustrator-model');
           if (item.opacity !== undefined) unitInterval(item.opacity, 'group opacity');
           optionalBoolean(item.isolated, 'group isolated');
@@ -251,7 +255,6 @@ export const validateDocument = (document: IllustratorDocument): void => {
     const identifier = escapeXmlIdentifier(layer.name);
     if (layerNames.has(identifier)) throw new ValidationError('layer XML identifiers must be unique', 'illustrator-model');
     layerNames.add(identifier);
-    if (layer.locked === true) throw new UnsupportedFeatureError('locked layers are not supported by the observed native format');
     if (layer.opacity !== undefined) unitInterval(layer.opacity, 'layer opacity');
     if (layer.color !== undefined) {
       for (const component of layer.color) {

@@ -71,6 +71,7 @@ export interface Stroke {
 
 export interface PathItem {
   readonly kind: 'path';
+  readonly locked?: boolean;
   readonly geometry: PathGeometry;
   readonly fill?: Fill;
   readonly stroke?: Stroke;
@@ -78,6 +79,7 @@ export interface PathItem {
 
 export interface RasterItem {
   readonly kind: 'raster';
+  readonly locked?: boolean;
   readonly width: number;
   readonly height: number;
   readonly bounds: { readonly x: Coordinate; readonly y: Coordinate; readonly width: Coordinate; readonly height: Coordinate };
@@ -90,12 +92,14 @@ export interface RasterItem {
 
 export interface ClipGroup {
   readonly kind: 'clipGroup';
+  readonly locked?: boolean;
   readonly clip: PathGeometry;
   readonly items: readonly Item[];
 }
 
 export interface Group {
   readonly kind: 'group';
+  readonly locked?: boolean;
   readonly opacity?: number;
   readonly isolated?: boolean;
   readonly items: readonly Item[];

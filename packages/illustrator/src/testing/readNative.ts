@@ -109,6 +109,7 @@ const parsePaint = (line: string): Paint => {
 };
 
 interface PaintState {
+  lockState: { value: boolean };
   fillPaint: Paint | undefined;
   strokePaint: Paint | undefined;
   overprintFill: boolean;
@@ -154,9 +155,10 @@ const parsePath = (cursor: Cursor, state: PaintState): PathItem => {
     (operator === 's' || operator === 'b') && state.strokePaint !== undefined
       ? { paint: state.strokePaint, width: state.strokeWidth, overprint: state.overprintStroke }
       : undefined;
-  if (fill !== undefined && stroke !== undefined) return { kind: 'path', geometry, fill, stroke };
-  if (fill !== undefined) return { kind: 'path', geometry, fill };
-  if (stroke !== undefined) return { kind: 'path', geometry, stroke };
+  const locked = state.lockState.value;
+  if (fill !== undefined && stroke !== undefined) return { kind: 'path', locked, geometry, fill, stroke };
+  if (fill !== undefined) return { kind: 'path', locked, geometry, fill };
+  if (stroke !== undefined) return { kind: 'path', locked, geometry, stroke };
   throw new Error('native path has no paint');
 };
 
@@ -203,10 +205,18 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
   skipArtDictionary(cursor);
   const bounds = { x, y, width: scaleX * width, height: scaleY * height };
   if (colorDeclaration === '/DeviceCMYK XN' && ending === 'N') {
-    return { kind: 'raster', width, height, bounds, color: { space: 'cmyk', samples: data.color }, alpha: data.alpha };
+    return { kind: 'raster', locked: state.lockState.value, width, height, bounds, color: { space: 'cmyk', samples: data.color }, alpha: data.alpha };
   }
   if (spotPaint?.kind !== 'spot' || ending !== 'F') throw new Error('unsupported native spot raster');
-  return { kind: 'raster', width, height, bounds, color: { space: 'spot', spot: spotPaint.spot, samples: data.color }, alpha: data.alpha };
+  return {
+    kind: 'raster',
+    locked: state.lockState.value,
+    width,
+    height,
+    bounds,
+    color: { space: 'spot', spot: spotPaint.spot, samples: data.color },
+    alpha: data.alpha,
+  };
 };
 
 const isClipPath = (cursor: Cursor): boolean => {
@@ -226,7 +236,7 @@ const isClipPath = (cursor: Cursor): boolean => {
 
 const isLayerTrailer = (line: string | undefined): boolean => /^0 \S+ 0 2 0 Xy$/u.test(line ?? '');
 
-const finishClip = (cursor: Cursor, items: readonly Item[]): ClipGroup => {
+const finishClip = (cursor: Cursor, items: readonly Item[], locked: boolean): ClipGroup => {
   cursor.takeLine();
   while (/^\S+ w$/u.test(peekLine(cursor) ?? '') || peekLine(cursor) === '0 XR') cursor.takeLine();
   const clip = parseGeometry(cursor);
@@ -235,10 +245,10 @@ const finishClip = (cursor: Cursor, items: readonly Item[]): ClipGroup => {
   expectLine(cursor, 'n');
   expectLine(cursor, 'Q');
   expectLine(cursor, '9 () XW');
-  return { kind: 'clipGroup', clip, items };
+  return { kind: 'clipGroup', locked, clip, items };
 };
 
-const finishGroup = (cursor: Cursor, items: readonly Item[]): Group => {
+const finishGroup = (cursor: Cursor, items: readonly Item[], locked: boolean): Group => {
   expectLine(cursor, 'U');
   let opacity = 1;
   let isolated = false;
@@ -250,7 +260,23 @@ const finishGroup = (cursor: Cursor, items: readonly Item[]): Group => {
     expectLine(cursor, '0 0 Xd');
     expectLine(cursor, '6 () XW');
   }
-  return { kind: 'group', items, opacity, isolated };
+  return { kind: 'group', locked, items, opacity, isolated };
+};
+
+const consumeItemState = (cursor: Cursor, state: PaintState, line: string): boolean => {
+  if (line === '0 A' || line === '1 A') {
+    state.lockState.value = cursor.takeLine() === '1 A';
+    return true;
+  }
+  if (line === '%_/ArtDictionary :') {
+    skipArtDictionary(cursor);
+    return true;
+  }
+  if (line === '0 Ap' || line === '1 Ap') {
+    cursor.takeLine();
+    return true;
+  }
+  return false;
 };
 
 const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip', state: PaintState): Item[] => {
@@ -261,13 +287,13 @@ const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip', state: P
     if ((ending === 'layer' && (line === 'LB' || isLayerTrailer(line))) || (ending === 'group' && line === 'U') || (ending === 'clip' && isClipPath(cursor))) {
       break;
     }
-    if (line === '0 Ap' || line === '1 Ap') {
-      cursor.takeLine();
-    } else if (line === '0 Ae') {
+    if (consumeItemState(cursor, state, line)) continue;
+    if (line === '0 Ae') {
       cursor.takeLine();
       const opening = cursor.takeLine();
-      if (opening === 'q') items.push(finishClip(cursor, parseItems(cursor, 'clip', { ...state })));
-      else if (opening === 'u') items.push(finishGroup(cursor, parseItems(cursor, 'group', { ...state })));
+      const locked = state.lockState.value;
+      if (opening === 'q') items.push(finishClip(cursor, parseItems(cursor, 'clip', { ...state }), locked));
+      else if (opening === 'u') items.push(finishGroup(cursor, parseItems(cursor, 'group', { ...state }), locked));
       else throw new Error('unknown native group opener');
     } else if (/^\d+ As$/u.test(line)) {
       items.push(parsePath(cursor, state));
@@ -289,7 +315,7 @@ const parseLayer = (records: readonly NativeRecord[]): Layer => {
     lb[14] !== 'Lb' ||
     lb[6] !== lb[0] ||
     lb[1] !== '1' ||
-    lb[2] !== '1' ||
+    (lb[2] !== '0' && lb[2] !== '1') ||
     lb[3] !== '1' ||
     lb[4] !== '0' ||
     lb[5] !== '0' ||
@@ -302,12 +328,25 @@ const parseLayer = (records: readonly NativeRecord[]): Layer => {
   const nameLine = cursor.takeLine();
   if (!nameLine.endsWith(' Ln')) throw new Error('layer name is missing');
   const name = parseNativeLiteral(nameLine.slice(0, -3));
-  expectLine(cursor, '0 AE');
+  const activation = cursor.takeLine();
+  if (activation !== '0 AE' && activation !== '1 AE') throw new Error('layer activation is missing');
   skipArtDictionary(cursor);
-  expectLine(cursor, '0 A');
+  expectLine(cursor, lb[2] === '0' ? '1 A' : '0 A');
   if (lb[0] === '0') expectLine(cursor, '1 Xw');
+  let itemLock = lb[2] === '0';
+  if (peekLine(cursor) === '0 A') {
+    cursor.takeLine();
+    itemLock = false;
+  }
   expectLine(cursor, '0 Xw');
-  const items = parseItems(cursor, 'layer', { fillPaint: undefined, strokePaint: undefined, overprintFill: false, overprintStroke: false, strokeWidth: 1 });
+  const items = parseItems(cursor, 'layer', {
+    lockState: { value: itemLock },
+    fillPaint: undefined,
+    strokePaint: undefined,
+    overprintFill: false,
+    overprintStroke: false,
+    strokeWidth: 1,
+  });
   let opacity = 1;
   if (isLayerTrailer(peekLine(cursor))) {
     opacity = Number(cursor.takeLine().split(' ')[1]);
@@ -316,7 +355,7 @@ const parseLayer = (records: readonly NativeRecord[]): Layer => {
   }
   expectLine(cursor, 'LB');
   expectLine(cursor, '%AI5_EndLayer--');
-  return { name, visible: lb[0] === '1', locked: false, opacity, color: [Number(lb[8]), Number(lb[9]), Number(lb[10])], items };
+  return { name, visible: lb[0] === '1', locked: lb[2] === '0', opacity, color: [Number(lb[8]), Number(lb[9]), Number(lb[10])], items };
 };
 
 const parseHeader = (records: readonly NativeRecord[]): Map<string, string> => {

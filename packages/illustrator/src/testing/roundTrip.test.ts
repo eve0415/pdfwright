@@ -62,4 +62,42 @@ describe('native layer round trips', () => {
     const read = readNative(writeNative(model).bytes, date).document;
     expect(read).toStrictEqual(normalizeModel(model));
   });
+
+  it('round trips layer and item locks', () => {
+    const locked: IllustratorDocument = {
+      ...model,
+      layers: [
+        { name: 'Locked hidden', visible: false, locked: true, items: [die] },
+        { name: 'Objects', items: [{ ...die, locked: true }, die] },
+      ],
+    };
+    const read = readNative(writeNative(locked).bytes, date).document;
+    expect(read).toStrictEqual(normalizeModel(locked));
+    expect(read.layers[0]).toMatchObject({ locked: true });
+    expect(read.layers[1]?.items.map(item => item.locked)).toStrictEqual([true, false]);
+  });
+
+  it('round trips raster, group, and clip group locks', () => {
+    const locked: IllustratorDocument = {
+      ...model,
+      layers: [
+        {
+          name: 'Objects',
+          items: [
+            { kind: 'clipGroup', locked: true, clip: die.geometry, items: [{ kind: 'group', locked: true, items: [die] }] },
+            {
+              kind: 'raster',
+              locked: true,
+              width: 1,
+              height: 1,
+              bounds: { x: 1, y: 2, width: 3, height: 4 },
+              color: { space: 'cmyk', samples: Uint8Array.of(1, 2, 3, 4) },
+              alpha: Uint8Array.of(255),
+            },
+          ],
+        },
+      ],
+    };
+    expect(readNative(writeNative(locked).bytes, date).document).toStrictEqual(normalizeModel(locked));
+  });
 });

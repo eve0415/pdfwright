@@ -57,9 +57,9 @@ describe('illustrator PDF writer', () => {
     }
   });
 
-  it('rejects locked layers before output', () => {
+  it('writes locked layers', () => {
     const locked: IllustratorDocument = { ...model, layers: [{ name: 'Die', locked: true, items: [] }] };
-    expect(() => writeIllustratorPdf(locked)).toThrow('locked layers');
+    expect(() => writeIllustratorPdf(locked)).not.toThrow();
   });
 
   it('runs the production-style page example', () => {

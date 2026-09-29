@@ -173,7 +173,7 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   writer.line(
     `%AI5_OpenViewLayers: ${document.layers
       .toReversed()
-      .map(layer => (layer.visible === false ? '6' : '7'))
+      .map(layer => String((layer.visible === false ? 6 : 7) - (layer.locked === true ? 4 : 0)))
       .join('')}`,
   );
   writer.line('%AI17_Begin_Content_if_version_gt:24 4');

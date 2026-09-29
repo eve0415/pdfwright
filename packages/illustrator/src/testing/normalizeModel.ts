@@ -50,10 +50,10 @@ const stroke = (value: Stroke): Stroke => ({ paint: paint(value.paint), width: n
 const path = (value: PathItem): PathItem => {
   const normalized = geometry(value.geometry);
   if (value.fill !== undefined && value.stroke !== undefined) {
-    return { kind: 'path', geometry: normalized, fill: fill(value.fill), stroke: stroke(value.stroke) };
+    return { kind: 'path', locked: value.locked ?? false, geometry: normalized, fill: fill(value.fill), stroke: stroke(value.stroke) };
   }
-  if (value.fill !== undefined) return { kind: 'path', geometry: normalized, fill: fill(value.fill) };
-  if (value.stroke !== undefined) return { kind: 'path', geometry: normalized, stroke: stroke(value.stroke) };
+  if (value.fill !== undefined) return { kind: 'path', locked: value.locked ?? false, geometry: normalized, fill: fill(value.fill) };
+  if (value.stroke !== undefined) return { kind: 'path', locked: value.locked ?? false, geometry: normalized, stroke: stroke(value.stroke) };
   throw new Error('path has no paint');
 };
 
@@ -71,7 +71,7 @@ const raster = (value: RasterItem): RasterItem => {
           spot: spot(value.color.spot),
           samples: new Uint8Array(value.color.samples ?? new Uint8Array(value.width * value.height).fill(255)),
         };
-  return { kind: 'raster', width: value.width, height: value.height, bounds, color, alpha: new Uint8Array(value.alpha) };
+  return { kind: 'raster', locked: value.locked ?? false, width: value.width, height: value.height, bounds, color, alpha: new Uint8Array(value.alpha) };
 };
 
 const item = (value: Item): Item => {
@@ -83,10 +83,16 @@ const item = (value: Item): Item => {
       return raster(value);
     }
     case 'clipGroup': {
-      return { kind: 'clipGroup', clip: geometry(value.clip), items: value.items.map(item) };
+      return { kind: 'clipGroup', locked: value.locked ?? false, clip: geometry(value.clip), items: value.items.map(item) };
     }
     case 'group': {
-      return { kind: 'group', opacity: number(value.opacity ?? 1), isolated: value.isolated ?? false, items: value.items.map(item) };
+      return {
+        kind: 'group',
+        locked: value.locked ?? false,
+        opacity: number(value.opacity ?? 1),
+        isolated: value.isolated ?? false,
+        items: value.items.map(item),
+      };
     }
     default: {
       throw new Error('unknown item kind');
@@ -104,7 +110,14 @@ const COLORS = [
 
 const layer = (value: Layer, index: number): Layer => {
   const color = value.color ?? COLORS[index % COLORS.length] ?? COLORS[0];
-  return { name: value.name, visible: value.visible ?? true, locked: false, opacity: number(value.opacity ?? 1), color, items: value.items.map(item) };
+  return {
+    name: value.name,
+    visible: value.visible ?? true,
+    locked: value.locked ?? false,
+    opacity: number(value.opacity ?? 1),
+    color,
+    items: value.items.map(item),
+  };
 };
 
 const artboard = (value: Artboard): Artboard => {
