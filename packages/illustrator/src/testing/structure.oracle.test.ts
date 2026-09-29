@@ -1,5 +1,5 @@
 import type { IllustratorDocument, PathItem } from '../model/illustratorDocument.ts';
-import type { NativeRecord } from './nativeTokenizer.ts';
+import type { NativeRecord } from '../read/nativeTokenizer.ts';
 import type { ContainerFacts } from './readIllustratorPdf.ts';
 
 import { readFile } from 'node:fs/promises';
@@ -10,9 +10,9 @@ import { mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
 import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
+import { tokenizeNative } from '../read/nativeTokenizer.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
-import { tokenizeNative } from './nativeTokenizer.ts';
 import { normalizeModel } from './normalizeModel.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 

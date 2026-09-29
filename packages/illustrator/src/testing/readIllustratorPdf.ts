@@ -3,7 +3,7 @@ import type { LoadedDocument, PdfDate, PdfDictionaryEntries, PdfDirectObject, Pd
 import { inflateZlib, loadDocument, parsePdfDate, pdfName } from '@pdfwright/core';
 import { decompress } from 'fzstd';
 
-import { readNative } from './readNative.ts';
+import { readNative } from '../read/readNative.ts';
 
 export interface ContainerFacts {
   readonly privateKeys: readonly string[];

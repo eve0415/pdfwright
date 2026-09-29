@@ -4,8 +4,8 @@ import { mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
 import { writeNative } from '../native/writeNative.ts';
+import { normalizeModel } from '../testing/normalizeModel.ts';
 
-import { normalizeModel } from './normalizeModel.ts';
 import { readNative } from './readNative.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 56, offset: 'Z' });
