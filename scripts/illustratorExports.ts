@@ -21,6 +21,7 @@ export interface IllustratorExportManifest {
   readonly samples: readonly IllustratorExportSample[];
   readonly ladderSample: number;
   readonly acceptance: readonly IllustratorAcceptanceExport[];
+  readonly lockSample?: string;
 }
 
 const fileInside = (directory: string, relative: string, extensions: readonly string[]): string => {
@@ -97,5 +98,9 @@ export const readIllustratorExportManifest = async (directory: string): Promise<
   ) {
     throw new Error('invalid Illustrator export ladder sample');
   }
-  return { samples, ladderSample: input.ladderSample, acceptance };
+  const lockSample = 'lockSample' in input ? input.lockSample : undefined;
+  if (lockSample !== undefined && typeof lockSample !== 'string') throw new Error('invalid Illustrator lock sample');
+  return lockSample === undefined
+    ? { samples, ladderSample: input.ladderSample, acceptance }
+    : { samples, ladderSample: input.ladderSample, acceptance, lockSample: fileInside(directory, lockSample, ['.pdf']) };
 };

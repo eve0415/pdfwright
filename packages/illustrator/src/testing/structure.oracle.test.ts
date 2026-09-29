@@ -1,3 +1,4 @@
+import type { IllustratorDocument, PathItem } from '../model/illustratorDocument.ts';
 import type { NativeRecord } from './nativeTokenizer.ts';
 import type { ContainerFacts } from './readIllustratorPdf.ts';
 
@@ -5,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { env, stdout } from 'node:process';
 
-import { mm } from '@pdfwright/core';
+import { mm, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
 import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
@@ -20,6 +21,7 @@ if (exportsDirectory === undefined) stdout.write('Local Illustrator structure co
 
 const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
 const samples = manifest?.samples ?? [];
+const lockSample = manifest?.lockSample ?? '';
 
 const localSource = async (file: string): Promise<Uint8Array> => {
   if (exportsDirectory === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
@@ -39,7 +41,60 @@ const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: numb
   return Math.max(...expected.map((value, index) => Math.abs(value - (crop?.[index] ?? Number.POSITIVE_INFINITY))));
 };
 
+const lockFields = (lines: readonly string[]): Map<string, { readonly layer: string; readonly state: readonly string[] }> => {
+  const fields = new Map<string, { readonly layer: string; readonly state: readonly string[] }>();
+  const starts = lines.flatMap((line, index) => (line === '%AI5_BeginLayer' ? [index] : []));
+  for (const start of starts) {
+    const end = lines.findIndex((line, index) => index > start && (line === '%AI5_BeginLayer' || line === '%AI5_EndLayer--'));
+    const lb = lines[start + 1]?.split(' ');
+    const name = lines[start + 2];
+    if (end === -1 || lb?.[14] !== 'Lb' || name === undefined || !name.endsWith(') Ln')) throw new Error('invalid native layer lock structure');
+    const beforeItem = lines.slice(start + 3, end);
+    const itemIndex = beforeItem.findIndex(line => /^\d+ As$/u.test(line));
+    const state = (itemIndex === -1 ? beforeItem : beforeItem.slice(0, itemIndex)).filter(line => /^[01] (?:A|Xw)$/u.test(line));
+    fields.set(name.slice(1, -4), { layer: [lb[0], lb[2], lb[6]].join(' '), state });
+  }
+  return fields;
+};
+
+const rectangle: PathItem = {
+  kind: 'path',
+  geometry: {
+    start: [0, 0],
+    segments: [
+      { kind: 'line', to: [10, 0] },
+      { kind: 'line', to: [10, 10] },
+      { kind: 'line', to: [0, 10] },
+    ],
+  },
+  fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
+};
+const lockedModel: IllustratorDocument = {
+  artboard: { width: mm(100), height: mm(70), bleed: mm(3) },
+  layers: [
+    { name: 'Unlocked', items: [rectangle] },
+    { name: 'Sublayer parent', items: [] },
+    { name: 'Locked and hidden', locked: true, visible: false, items: [rectangle] },
+    { name: 'Locked object', items: [{ ...rectangle, locked: true }] },
+    { name: 'Locked layer', locked: true, items: [rectangle] },
+  ],
+  lastModified: pdfDate({ year: 2026, month: 9, day: 29, hour: 0, minute: 0, second: 0, offset: 'Z' }),
+};
+
 describe('local Illustrator structure comparison', () => {
+  it.skipIf(lockSample === '')('matches Illustrator layer and object lock fields', async () => {
+    const observedContainer = readIllustratorContainer(await localSource(lockSample));
+    const writtenContainer = readIllustratorContainer(writeIllustratorPdf(lockedModel));
+    const observed = textLines(tokenizeNative(observedContainer.native));
+    const written = textLines(tokenizeNative(writtenContainer.native));
+    const sourceFields = lockFields(observed);
+    const writtenFields = lockFields(written);
+    for (const [name, fields] of writtenFields) expect(fields).toStrictEqual(sourceFields.get(name));
+    expect(sourceFields.get('Locked sublayer')).toMatchObject({ layer: '1 0 1', state: ['1 A', '0 Xw', '0 A'] });
+    expect(observed.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');
+    expect(written.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');
+  });
+
   it.skipIf(exportsDirectory === undefined)('selects local structure samples', () => {
     expect(samples.length).toBeGreaterThan(0);
   });
