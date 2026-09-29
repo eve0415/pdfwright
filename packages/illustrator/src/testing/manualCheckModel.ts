@@ -1,4 +1,4 @@
-import type { IllustratorDocument, PathGeometry, Point, SpotColor } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, PathGeometry, Point, RasterItem, SpotColor, Subpath } from '../model/illustratorDocument.ts';
 
 import { mm, pdfDate } from '@pdfwright/core';
 
@@ -210,6 +210,41 @@ export const manualCheckModel = (): IllustratorDocument => {
     ],
     lastModified: pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' }),
     title: 'Illustrator manual check',
+  };
+};
+
+// A 10 mm square around a 4 mm square, both drawn counterclockwise, so the inner one is filled by the nonzero rule and empty by the even-odd rule.
+const nested = (left: number): readonly Subpath[] => [...rectangle([left, 10, left + 10, 20]).subpaths, ...rectangle([left + 3, 13, left + 7, 17]).subpaths];
+
+/** Builds compound paths and clips under both fill rules for the Illustrator compound-path check. */
+export const compoundManualCheckModel = (): IllustratorDocument => {
+  const cut: SpotColor = { name: 'Cut', alternate: [0, 1, 0, 0] };
+  const outlineWithHole = [...roundedDie().subpaths, ...circle(50, 35, 12).subpaths];
+  const arch: Subpath = { start: point(10, 25), segments: [{ kind: 'quadratic', control: point(15, 38), to: point(20, 25) }] };
+  const black = { paint: { kind: 'process', cmyk: [0, 0, 0, 0.6] } } as const;
+  const paleCyan: RasterItem = {
+    kind: 'raster',
+    width: 2,
+    height: 2,
+    bounds: { x: mm(0), y: mm(0), width: mm(100), height: mm(70) },
+    color: { space: 'cmyk', samples: new Uint8Array(16).map((_, index) => (index % 4 === 0 ? 77 : 0)) },
+    alpha: new Uint8Array(4).fill(255),
+  };
+  return {
+    artboard: { width: mm(100), height: mm(70), bleed: mm(3) },
+    layers: [
+      { name: 'Even-odd clip', items: [{ kind: 'clipGroup', clip: { subpaths: outlineWithHole, fillRule: 'evenodd' }, items: [paleCyan] }] },
+      {
+        name: 'Compound fills',
+        items: [
+          { kind: 'path', geometry: { subpaths: [...nested(10), arch] }, fill: black },
+          { kind: 'path', geometry: { subpaths: nested(80), fillRule: 'evenodd' }, fill: black },
+        ],
+      },
+      { name: 'Compound die', items: [{ kind: 'path', geometry: { subpaths: outlineWithHole }, stroke: { paint: { kind: 'spot', spot: cut }, width: 0.25 } }] },
+    ],
+    lastModified: pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' }),
+    title: 'Illustrator compound path check',
   };
 };
 
