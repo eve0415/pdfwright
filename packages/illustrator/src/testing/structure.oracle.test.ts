@@ -7,9 +7,11 @@ import path from 'node:path';
 import { env, stdout } from 'node:process';
 
 import { mm, pdfDate } from '@pdfwright/core';
+import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
 import { readIllustratorExportManifest } from '../../../../scripts/illustratorExports.ts';
+import { readIllustratorPdf as readPublicIllustratorPdf } from '../index.ts';
 import { tokenizeNative } from '../read/nativeTokenizer.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
@@ -121,7 +123,7 @@ describe('local Illustrator structure comparison', () => {
       sample.layers,
       sample.rasters,
     ]);
-    expect(facts.native.slice(0, facts.metaData.length)).toStrictEqual(facts.metaData);
+    expect(facts.native.slice(0, facts.metaData?.length)).toStrictEqual(facts.metaData);
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file keeps observed geometry and object grammar', async sample => {
@@ -143,6 +145,16 @@ describe('local Illustrator structure comparison', () => {
     const read = readIllustratorPdf(await localSource(sample.file));
     expect(read.document.layers).toHaveLength(sample.layers);
     expect(read.unknownBlocks.length).toBeGreaterThan(0);
+  });
+
+  it.skipIf(exportsDirectory === undefined).each(samples)('$file reads through the public reader', async sample => {
+    const bytes = await localSource(sample.file);
+    const read = readPublicIllustratorPdf(bytes, { zstandard: decompress });
+    expect(read.document).toStrictEqual(readIllustratorPdf(bytes).document);
+    expect(read.nativeOrigin).toBe('artboard-bottom-left');
+    expect(read.compression).toStrictEqual({ kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: 0x58 });
+    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(read.lastModified.page).toStrictEqual(read.lastModified.application);
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file rewrites its recovered artwork with the same structure', async sample => {
