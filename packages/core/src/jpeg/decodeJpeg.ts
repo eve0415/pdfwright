@@ -612,9 +612,9 @@ const checkFrameMarker = (marker: number): void => {
 export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): DecodedJpeg => {
   if (byte(data, 0) !== 0xff || byte(data, 1) !== 0xd8) return invalid(0, 'missing start of image');
   const maxRowBytes = options.maxRowBytes ?? 4 * 1024 * 1024;
-  if (!Number.isSafeInteger(maxRowBytes) || maxRowBytes < 1) throw new ResourceLimitError('maxRowBytes must be a positive integer');
+  if (!Number.isSafeInteger(maxRowBytes) || maxRowBytes < 1) throw new InvalidArgumentError('maxRowBytes must be a positive integer');
   const maxDecodedBytes = options.maxDecodedBytes ?? 16 * 1024 * 1024;
-  if (!Number.isSafeInteger(maxDecodedBytes) || maxDecodedBytes < 1) throw new ResourceLimitError('maxDecodedBytes must be a positive integer');
+  if (!Number.isSafeInteger(maxDecodedBytes) || maxDecodedBytes < 1) throw new InvalidArgumentError('maxDecodedBytes must be a positive integer');
   const requestedTransform: unknown = options.colorTransform;
   if (requestedTransform !== undefined && requestedTransform !== 0 && requestedTransform !== 1) {
     throw new InvalidArgumentError('JPEG colorTransform must be 0 or 1');
