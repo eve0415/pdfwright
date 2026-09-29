@@ -409,6 +409,7 @@ The checker labels [“PDF/X in a Nutshell” (PDF Association, 2017)](https://p
 - `PdfDocument` also exposes image placement, transparency groups and page-piece data for new documents.
 - `createPdfFunction` evaluates supported PDF function objects.
 - `createDeflateStream`, `deflateRaw`, `deflateZlib`, `inflateChunks`, `inflateRaw`, `inflateZlib`, `md5` and `adler32` expose compression and digest helpers.
+- `decodeJpeg`, `decodePng` and `pngToRgba8` decode JPEG and PNG files with their ICC profiles, Exif orientation and PNG colour chunks; the [`@pdfwright/core` README](packages/core/README.md#decoding-images) documents their output, errors and limits.
 - The `pdfArray`, `pdfDictionary`, `pdfInteger`, `pdfLiteralString`, `pdfName`, `pdfNameFromBytes`, `pdfReal`, `pdfReference` and `pdfString` constructors work with `PdfDictionaryEntries` and `serializeObject`.
 - The length helpers `add`, `compare`, `equals`, `formatLength`, `inch`, `mm`, `multiply`, `negate`, `pt` and `subtract` use the `Length` type.
 - `parsePdfDate`, `pdfDate`, `pdfDateFromDate` and `pdfDateString` handle PDF date values; `CORE_BOX_TOLERANCE` is the glyph-cover tolerance in ems.
