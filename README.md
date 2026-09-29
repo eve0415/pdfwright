@@ -11,6 +11,8 @@ pdfwright is a TypeScript PDF library for print production. This repository is t
 
 Adobe and Illustrator are either registered trademarks or trademarks of Adobe in the United States and/or other countries. pdfwright is not affiliated with, endorsed by or sponsored by Adobe.
 
+In Illustrator 30.8.2, PDFs from `@pdfwright/illustrator` opened as editable layers with the artboard in view; Fit Artboard fitted the artboard, and soft raster alpha remained visible. When changes to a file with differing dates were accepted, page import kept spot plates drawn as Separation images with soft masks.
+
 ## Writing a print page
 
 This example writes a 100 × 60 mm page with bleed and trim boxes, a White spot fill, and a hairline Cut path. `save()` returns ordered byte chunks; call `toBytes()` when one buffer is needed.
