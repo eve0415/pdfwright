@@ -42,6 +42,18 @@ describe('native data assembly', () => {
     expect(text).toContain('%_; (ArtboardArray) ,\r%_0 /Int (CropAreaActive) ,\r');
   });
 
+  it.each([
+    ['bottom-left', -904, 509],
+    ['top-left', -904, 439],
+  ] as const)('centres OpenToView on the artboard in %s coordinates', (convention, left, top) => {
+    const text = new TextDecoder().decode(writeNative(document, { convention }).bytes);
+    const prefix = `${String(left)} ${String(top)} 1`;
+    const block = `%AI17_Begin_Content_if_version_gt:24 4\r%AI10_OpenToVie: ${prefix} 0 0 0 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_Alternate_Content\r%AI9_OpenToView: ${prefix} 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_End_Versioned_Content\r`;
+    const layerLine = '%AI5_OpenViewLayers: 76\r';
+    const emptyTwin = '%AI17_Begin_Content_if_version_gt:24 4\r%AI17_Alternate_Content\r%AI17_End_Versioned_Content\r';
+    expect(text).toContain(`${block}${layerLine}${emptyTwin}`);
+  });
+
   it('is deterministic and changes its artboard UUID with layer content', () => {
     const first = writeNative(document);
     const second = writeNative(document);

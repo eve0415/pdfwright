@@ -162,12 +162,23 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   writer.line('%AI5_ArtFlags: 0 0 0 1 0 0 1 0 0');
   writer.line('%AI5_TargetResolution: 800');
   writer.line(`%AI5_NumLayers: ${formatInteger(document.layers.length)}`);
+  const viewLeft = Math.round(width / 2 - 954);
+  const viewTop = Math.round((topLeft ? -height : height) / 2 + 474);
+  const viewPrefix = `${String(viewLeft)} ${String(viewTop)} 1`;
+  writer.line('%AI17_Begin_Content_if_version_gt:24 4');
+  writer.line(`%AI10_OpenToVie: ${viewPrefix} 0 0 0 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1`);
+  writer.line('%AI17_Alternate_Content');
+  writer.line(`%AI9_OpenToView: ${viewPrefix} 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1`);
+  writer.line('%AI17_End_Versioned_Content');
   writer.line(
     `%AI5_OpenViewLayers: ${document.layers
       .toReversed()
       .map(layer => (layer.visible === false ? '6' : '7'))
       .join('')}`,
   );
+  writer.line('%AI17_Begin_Content_if_version_gt:24 4');
+  writer.line('%AI17_Alternate_Content');
+  writer.line('%AI17_End_Versioned_Content');
   writer.line(`%%PageOrigin:0 ${topLeft ? '0' : formatNativeNumber(height)}`);
   writer.line('%AI7_GridSettings: 72 8 72 8 0 0 0.8 0.8 0.8 0.9 0.9 0.9');
   writer.line('%AI9_Flatten: 1');
