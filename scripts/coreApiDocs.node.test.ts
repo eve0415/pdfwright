@@ -40,9 +40,15 @@ const undocumented = async (index: string, root: URL): Promise<string[]> => {
   return checks.filter(check => !check.documented).map(check => check.name);
 };
 
-describe('core API docs', () => {
-  it('documents each public export at its declaration', async () => {
+describe('public API docs', () => {
+  it('documents each public export of the core package at its declaration', async () => {
     const indexUrl = new URL('../packages/core/src/index.ts', import.meta.url);
+    const index = await readFile(indexUrl, 'utf8');
+    await expect(undocumented(index, indexUrl)).resolves.toStrictEqual([]);
+  });
+
+  it('documents each public export of the illustrator package at its declaration', async () => {
+    const indexUrl = new URL('../packages/illustrator/src/index.ts', import.meta.url);
     const index = await readFile(indexUrl, 'utf8');
     await expect(undocumented(index, indexUrl)).resolves.toStrictEqual([]);
   });

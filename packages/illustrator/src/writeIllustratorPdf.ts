@@ -11,6 +11,7 @@ import { prepareDocument } from './model/prepareDocument.ts';
 import { writeNative } from './native/writeNative.ts';
 import { drawPage } from './page/drawPage.ts';
 
+/** Options for `writeIllustratorPdf`. */
 export interface WriteIllustratorPdfOptions {
   /** Native-data compression or a caller-supplied complete Zstandard frame encoder. */
   readonly compression?: NativeCompression;
