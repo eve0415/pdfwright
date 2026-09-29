@@ -1,5 +1,6 @@
 export { writeIllustratorPdf } from './writeIllustratorPdf.ts';
 export type { WriteIllustratorPdfOptions } from './writeIllustratorPdf.ts';
+export type { NativeOrigin } from './native/nativeOrigin.ts';
 export type {
   Anchor,
   Artboard,
