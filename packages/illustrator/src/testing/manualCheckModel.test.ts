@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { manualCheckModel } from './manualCheckModel.ts';
+import { lockedManualCheckModel, manualCheckModel } from './manualCheckModel.ts';
 
 const raster = (name: string, index: number) => {
   const layer = manualCheckModel().layers.find(value => value.name === name);
@@ -25,5 +25,18 @@ describe('manual-check raster alpha', () => {
     expect(ramp.alpha[0]).toBe(0);
     expect(ramp.alpha[ramp.width - 1]).toBe(255);
     expect([...ramp.alpha.subarray(0, ramp.width)]).toStrictEqual([...ramp.alpha.subarray(ramp.width)]);
+  });
+});
+
+describe('locked manual-check artwork', () => {
+  it('adds a locked layer, locked object, and locked hidden layer', () => {
+    const standard = manualCheckModel();
+    const locked = lockedManualCheckModel();
+    expect(locked.layers.slice(0, standard.layers.length)).toStrictEqual(standard.layers);
+    expect(locked.layers.slice(standard.layers.length)).toMatchObject([
+      { name: 'Locked layer', locked: true, items: [{}] },
+      { name: 'Locked object', items: [{ locked: true }] },
+      { name: 'Locked and hidden', locked: true, visible: false, items: [{}] },
+    ]);
   });
 });

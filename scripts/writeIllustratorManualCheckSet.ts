@@ -11,12 +11,12 @@ import { attachPrivateData } from '../packages/illustrator/src/container/private
 import { formatNativeNumber } from '../packages/illustrator/src/native/formatNativeNumber.ts';
 import { writeNative } from '../packages/illustrator/src/native/writeNative.ts';
 import { drawPage } from '../packages/illustrator/src/page/drawPage.ts';
-import { manualCheckModel } from '../packages/illustrator/src/testing/manualCheckModel.ts';
+import { lockedManualCheckModel, manualCheckModel } from '../packages/illustrator/src/testing/manualCheckModel.ts';
 import { readIllustratorContainer } from '../packages/illustrator/src/testing/readIllustratorPdf.ts';
 import { writeIllustratorPdf } from '../packages/illustrator/src/writeIllustratorPdf.ts';
 import { encodeZstandardFrame } from '../packages/illustrator/src/zstd/frame.ts';
 
-const FILENAMES = ['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf'] as const;
+const FILENAMES = ['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf', '07-locked.pdf'] as const;
 const CHECKLIST = `# Illustrator 30.8.2 manual check
 
 Every file must open with the artboard in view. For each file, record the initial artboard view and zoom, the result and zoom of View → Fit Artboard in Window, and whether \`app.activeDocument.geometricBounds\` and \`app.activeDocument.artboards.getActiveArtboardIndex()\` return values. Inspect the Layers panel, the Design raster's soft ellipse and horizontal alpha ramp, the White and Primer raster edges, and the Cut, White, Primer and ＣＵＴ spot swatches. Record any warning or changed appearance.
@@ -26,6 +26,7 @@ Every file must open with the artboard in view. For each file, record the initia
 - \`04-raw-blocks.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries with raw Zstandard blocks.
 - \`05-top-left.pdf\`: Check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries. Compare artboard size, bleed, and artwork positions with 01.
 - \`06-unequal-dates.pdf\`: Record the date-mismatch dialog. For the default keep-editing choice, check the same six layers, soft edges and ramp, four swatches, initial view, Fit Artboard, and both bounds queries. Reopen and choose accept changes; check the imported page's Layers panel, soft edges and ramp, initial view, Fit Artboard, both bounds queries, swatches, and whether the White and Primer plates survive page import.
+- \`07-locked.pdf\`: Check padlocks on Locked layer, the path inside Locked object while its layer stays unlocked, and Locked and hidden while its eye is off. Reopen the PDF and check that all three locks survive.
 `;
 
 const contentSizeFrame = (native: Uint8Array): Uint8Array => {
@@ -90,7 +91,7 @@ export const writeManualCheckSet = async (directory: string): Promise<readonly s
   const changed = loadDocument(standard);
   changed.page(0).setLastModified(pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 1, second: 0, offset: 'Z' }));
   const unequal = changed.save({ mode: 'incremental' }).toBytes();
-  const outputs = [standard, contentSize, rawBlocks, topLeft, unequal];
+  const outputs = [standard, contentSize, rawBlocks, topLeft, unequal, writeIllustratorPdf(lockedManualCheckModel())];
   await Promise.all(
     FILENAMES.map(async (filename, index) => {
       const bytes = outputs[index];

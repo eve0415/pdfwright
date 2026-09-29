@@ -5,7 +5,7 @@ import { env, stdout } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
-import { readIllustratorContainer } from '../packages/illustrator/src/testing/readIllustratorPdf.ts';
+import { readIllustratorContainer, readIllustratorPdf } from '../packages/illustrator/src/testing/readIllustratorPdf.ts';
 
 import { readIllustratorExportManifest } from './illustratorExports.ts';
 import { writeDiagnosticLadder, writeManualCheckSet } from './writeIllustratorManualCheckSet.ts';
@@ -20,13 +20,31 @@ describe('illustrator manual-check file set', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
     try {
       const files = await writeManualCheckSet(directory);
-      expect(files).toStrictEqual(['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf']);
+      expect(files).toStrictEqual(['01-standard.pdf', '02-content-size.pdf', '04-raw-blocks.pdf', '05-top-left.pdf', '06-unequal-dates.pdf', '07-locked.pdf']);
       await expect(readdir(directory)).resolves.toStrictEqual([...files, 'CHECKLIST.md']);
       const standard = await readFile(path.join(directory, '01-standard.pdf'));
       expect(new TextDecoder().decode(standard.subarray(0, 8))).toBe('%PDF-1.7');
       const checklist = await readFile(path.join(directory, 'CHECKLIST.md'), 'utf8');
       expect(checklist).toContain('01-standard.pdf');
       expect(checklist).toContain('06-unequal-dates.pdf');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the locked variant and its reopen checks', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-manual-'));
+    try {
+      await writeManualCheckSet(directory);
+      const locked = readIllustratorPdf(await readFile(path.join(directory, '07-locked.pdf')));
+      expect(locked.document.layers.slice(-3)).toMatchObject([
+        { name: 'Locked layer', locked: true },
+        { name: 'Locked object', locked: false, items: [{ locked: true }] },
+        { name: 'Locked and hidden', locked: true, visible: false },
+      ]);
+      const checklist = await readFile(path.join(directory, 'CHECKLIST.md'), 'utf8');
+      expect(checklist).toContain('07-locked.pdf');
+      expect(checklist).toContain('Reopen the PDF and check that all three locks survive.');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

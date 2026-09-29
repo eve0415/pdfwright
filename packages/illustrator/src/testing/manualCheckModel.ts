@@ -200,3 +200,29 @@ export const manualCheckModel = (): IllustratorDocument => {
     title: 'Illustrator manual check',
   };
 };
+
+/** Adds lock states to the standard artwork for the Illustrator Layers panel check. */
+export const lockedManualCheckModel = (): IllustratorDocument => {
+  const standard = manualCheckModel();
+  return {
+    ...standard,
+    layers: [
+      ...standard.layers,
+      {
+        name: 'Locked layer',
+        locked: true,
+        items: [{ kind: 'path', geometry: rectangle([5, 5, 15, 15]), fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } } }],
+      },
+      {
+        name: 'Locked object',
+        items: [{ kind: 'path', locked: true, geometry: rectangle([40, 5, 50, 15]), fill: { paint: { kind: 'process', cmyk: [0, 0, 1, 0] } } }],
+      },
+      {
+        name: 'Locked and hidden',
+        locked: true,
+        visible: false,
+        items: [{ kind: 'path', geometry: rectangle([70, 5, 80, 15]), fill: { paint: { kind: 'process', cmyk: [0, 1, 1, 0] } } }],
+      },
+    ],
+  };
+};
