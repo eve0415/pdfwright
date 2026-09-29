@@ -6,44 +6,52 @@ const point = (x: number, y: number): Point => [mm(x), mm(y)];
 const CURVE = 0.5522847498;
 
 const rectangle = ([left, bottom, right, top]: readonly [number, number, number, number]): PathGeometry => ({
-  start: point(left, bottom),
-  segments: [
-    { kind: 'line', to: point(right, bottom) },
-    { kind: 'line', to: point(right, top) },
-    { kind: 'line', to: point(left, top) },
+  subpaths: [
+    {
+      start: point(left, bottom),
+      segments: [
+        { kind: 'line', to: point(right, bottom) },
+        { kind: 'line', to: point(right, top) },
+        { kind: 'line', to: point(left, top) },
+      ],
+    },
   ],
 });
 
 const circle = (centerX: number, centerY: number, radius: number): PathGeometry => ({
-  start: point(centerX + radius, centerY),
-  segments: [
+  subpaths: [
     {
-      kind: 'curve',
-      control1: point(centerX + radius, centerY + CURVE * radius),
-      control2: point(centerX + CURVE * radius, centerY + radius),
-      to: point(centerX, centerY + radius),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX - CURVE * radius, centerY + radius),
-      control2: point(centerX - radius, centerY + CURVE * radius),
-      to: point(centerX - radius, centerY),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX - radius, centerY - CURVE * radius),
-      control2: point(centerX - CURVE * radius, centerY - radius),
-      to: point(centerX, centerY - radius),
-      anchor: 'smooth',
-    },
-    {
-      kind: 'curve',
-      control1: point(centerX + CURVE * radius, centerY - radius),
-      control2: point(centerX + radius, centerY - CURVE * radius),
-      to: point(centerX + radius, centerY),
-      anchor: 'smooth',
+      start: point(centerX + radius, centerY),
+      segments: [
+        {
+          kind: 'curve',
+          control1: point(centerX + radius, centerY + CURVE * radius),
+          control2: point(centerX + CURVE * radius, centerY + radius),
+          to: point(centerX, centerY + radius),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX - CURVE * radius, centerY + radius),
+          control2: point(centerX - radius, centerY + CURVE * radius),
+          to: point(centerX - radius, centerY),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX - radius, centerY - CURVE * radius),
+          control2: point(centerX - CURVE * radius, centerY - radius),
+          to: point(centerX, centerY - radius),
+          anchor: 'smooth',
+        },
+        {
+          kind: 'curve',
+          control1: point(centerX + CURVE * radius, centerY - radius),
+          control2: point(centerX + radius, centerY - CURVE * radius),
+          to: point(centerX + radius, centerY),
+          anchor: 'smooth',
+        },
+      ],
     },
   ],
 });
@@ -56,39 +64,43 @@ const roundedDie = (): PathGeometry => {
   const radius = 5;
   const tangent = CURVE * radius;
   return {
-    start: point(left + radius, bottom),
-    segments: [
-      { kind: 'line', to: point(right - radius, bottom) },
+    subpaths: [
       {
-        kind: 'curve',
-        control1: point(right - radius + tangent, bottom),
-        control2: point(right, bottom + radius - tangent),
-        to: point(right, bottom + radius),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(right, top - radius) },
-      {
-        kind: 'curve',
-        control1: point(right, top - radius + tangent),
-        control2: point(right - radius + tangent, top),
-        to: point(right - radius, top),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(left + radius, top) },
-      {
-        kind: 'curve',
-        control1: point(left + radius - tangent, top),
-        control2: point(left, top - radius + tangent),
-        to: point(left, top - radius),
-        anchor: 'smooth',
-      },
-      { kind: 'line', to: point(left, bottom + radius) },
-      {
-        kind: 'curve',
-        control1: point(left, bottom + radius - tangent),
-        control2: point(left + radius - tangent, bottom),
-        to: point(left + radius, bottom),
-        anchor: 'smooth',
+        start: point(left + radius, bottom),
+        segments: [
+          { kind: 'line', to: point(right - radius, bottom) },
+          {
+            kind: 'curve',
+            control1: point(right - radius + tangent, bottom),
+            control2: point(right, bottom + radius - tangent),
+            to: point(right, bottom + radius),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(right, top - radius) },
+          {
+            kind: 'curve',
+            control1: point(right, top - radius + tangent),
+            control2: point(right - radius + tangent, top),
+            to: point(right - radius, top),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(left + radius, top) },
+          {
+            kind: 'curve',
+            control1: point(left + radius - tangent, top),
+            control2: point(left, top - radius + tangent),
+            to: point(left, top - radius),
+            anchor: 'smooth',
+          },
+          { kind: 'line', to: point(left, bottom + radius) },
+          {
+            kind: 'curve',
+            control1: point(left, bottom + radius - tangent),
+            control2: point(left + radius - tangent, bottom),
+            to: point(left + radius, bottom),
+            anchor: 'smooth',
+          },
+        ],
       },
     ],
   };

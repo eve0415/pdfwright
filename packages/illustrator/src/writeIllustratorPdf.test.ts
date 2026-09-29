@@ -19,11 +19,15 @@ const model: IllustratorDocument = {
         {
           kind: 'path',
           geometry: {
-            start: [0, 0],
-            segments: [
-              { kind: 'line', to: [10, 0] },
-              { kind: 'line', to: [10, 10] },
-              { kind: 'line', to: [0, 10] },
+            subpaths: [
+              {
+                start: [0, 0],
+                segments: [
+                  { kind: 'line', to: [10, 0] },
+                  { kind: 'line', to: [10, 10] },
+                  { kind: 'line', to: [0, 10] },
+                ],
+              },
             ],
           },
           stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 0 },
@@ -84,7 +88,12 @@ describe('illustrator PDF writer', () => {
     };
     const counted: IllustratorDocument = {
       ...model,
-      layers: [{ name: 'Ink', items: [{ kind: 'path', geometry: { start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }, fill: { paint: process } }] }],
+      layers: [
+        {
+          name: 'Ink',
+          items: [{ kind: 'path', geometry: { subpaths: [{ start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }] }, fill: { paint: process } }],
+        },
+      ],
     };
     writeIllustratorPdf(counted);
     expect(reads).toBe(4);

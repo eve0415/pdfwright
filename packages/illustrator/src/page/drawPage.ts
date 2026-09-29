@@ -7,6 +7,7 @@ import { UnsupportedFeatureError, add, cmyk, negate, pt, rect } from '@pdfwright
 
 import { artBounds } from '../geometry/bounds.ts';
 import { coordinateNumber } from '../model/coordinateNumber.ts';
+import { cubicSegments } from '../model/cubicSegments.ts';
 import { validateDocument } from '../model/validateDocument.ts';
 
 import { createImageRegistry } from './imageRegistry.ts';
@@ -28,13 +29,18 @@ const bleedSides = (artboard: Artboard) => {
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
+// ISO 32000-1:2008, 8.5.2.1: each m begins a new subpath of the one current path, and h closes the subpath it ends.
 const drawGeometry = (content: ContentBuilder, geometry: PathGeometry): void => {
   content.path((builder: PathBuilder) => {
-    let path = builder.moveTo(...geometry.start);
-    for (const segment of geometry.segments) {
-      path = segment.kind === 'line' ? path.lineTo(...segment.to) : path.curveTo(...segment.control1, ...segment.control2, ...segment.to);
+    let path = builder;
+    for (const subpath of geometry.subpaths) {
+      path = path.moveTo(...subpath.start);
+      for (const segment of cubicSegments(subpath)) {
+        path = segment.kind === 'line' ? path.lineTo(...segment.to) : path.curveTo(...segment.control1, ...segment.control2, ...segment.to);
+      }
+      path = path.close();
     }
-    return path.close();
+    return path;
   });
 };
 
@@ -56,9 +62,11 @@ const drawPath = (content: ContentBuilder, item: PathItem, separation: (spot: Sp
     content.lineWidth(item.stroke.width);
   }
   drawGeometry(content, item.geometry);
+  // ISO 32000-1:2008, 8.5.3.1, Table 60 and 8.5.3.3: f and B fill by the nonzero winding number rule, f* and B* by the even-odd rule; S strokes every subpath alike.
+  const rule = item.geometry.fillRule ?? 'nonzero';
   if (item.fill === undefined) content.stroke();
-  else if (item.stroke === undefined) content.fill('nonzero');
-  else content.fillAndStroke('nonzero');
+  else if (item.stroke === undefined) content.fill(rule);
+  else content.fillAndStroke(rule);
   content.restore();
 };
 
@@ -109,7 +117,8 @@ const drawItem = (content: ContentBuilder, item: Item, resources: PageResources)
     case 'clipGroup': {
       content.save();
       drawGeometry(content, item.clip);
-      content.clip('nonzero');
+      // ISO 32000-1:2008, 8.5.4, Table 61: W intersects the clip with the area the nonzero rule encloses, W* with the area the even-odd rule encloses.
+      content.clip(item.clip.fillRule ?? 'nonzero');
       for (const child of item.items) drawItem(content, child, resources);
       content.restore();
       break;

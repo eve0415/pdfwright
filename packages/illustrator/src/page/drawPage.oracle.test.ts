@@ -1,5 +1,5 @@
 import type { Plate } from '../../../../scripts/plateOracle.ts';
-import type { Fill, IllustratorDocument, PathItem, SpotColor } from '../model/illustratorDocument.ts';
+import type { Fill, IllustratorDocument, PathGeometry, PathItem, SpotColor, Subpath } from '../model/illustratorDocument.ts';
 
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -19,11 +19,15 @@ const primer: SpotColor = { name: 'Primer', alternate: [0, 0, 0, 0.2] };
 const rectangle = (left: number, bottom: number, paint: Fill): PathItem => ({
   kind: 'path',
   geometry: {
-    start: [left, bottom],
-    segments: [
-      { kind: 'line', to: [left + 6, bottom] },
-      { kind: 'line', to: [left + 6, bottom + 6] },
-      { kind: 'line', to: [left, bottom + 6] },
+    subpaths: [
+      {
+        start: [left, bottom],
+        segments: [
+          { kind: 'line', to: [left + 6, bottom] },
+          { kind: 'line', to: [left + 6, bottom + 6] },
+          { kind: 'line', to: [left, bottom + 6] },
+        ],
+      },
     ],
   },
   fill: paint,
@@ -42,6 +46,18 @@ const model: IllustratorDocument = {
     { name: 'Design', items: [rectangle(2, 10, { paint: { kind: 'process', cmyk: [1, 0, 0, 0] } })] },
   ],
 };
+
+const square = (left: number, bottom: number, size: number): Subpath => ({
+  start: [left, bottom],
+  segments: [
+    { kind: 'line', to: [left + size, bottom] },
+    { kind: 'line', to: [left + size, bottom + size] },
+    { kind: 'line', to: [left, bottom + size] },
+  ],
+});
+// Two squares drawn the same way round: the inner one has winding number 2, inside by the nonzero rule and outside by the even-odd rule (ISO 32000-1:2008, 8.5.3.3).
+const ring = (left: number): PathGeometry => ({ subpaths: [square(left + 2, 2, 16), square(left + 6, 6, 8)] });
+const cover = (paint: Fill): PathItem => ({ kind: 'path', geometry: { subpaths: [square(0, 0, 60)] }, fill: paint });
 
 const checkQpdf = async (file: string): Promise<number> => {
   const child = spawn('qpdf', ['--check', file]);
@@ -111,10 +127,14 @@ describe('visible-page render oracle', () => {
               {
                 kind: 'path',
                 geometry: {
-                  start: [10, 10],
-                  segments: [
-                    { kind: 'line', to: [60, 60] },
-                    { kind: 'line', to: [110, 10] },
+                  subpaths: [
+                    {
+                      start: [10, 10],
+                      segments: [
+                        { kind: 'line', to: [60, 60] },
+                        { kind: 'line', to: [110, 10] },
+                      ],
+                    },
                   ],
                 },
                 stroke: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, width: 10 },
@@ -131,6 +151,37 @@ describe('visible-page render oracle', () => {
       const { ink, escaped } = renderedInk(black, artBox);
       expect(ink).toBeGreaterThan(0);
       expect(escaped).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('renders the hole of a compound path and clip under the even-odd rule and fills it under the nonzero rule', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-compound-'));
+    try {
+      const file = path.join(directory, 'compound.pdf');
+      const compound: IllustratorDocument = {
+        artboard: { width: 60, height: 20 },
+        lastModified: date,
+        layers: [
+          { name: 'White', items: [{ kind: 'path', geometry: { ...ring(0), fillRule: 'evenodd' }, fill: { paint: { kind: 'spot', spot: white } } }] },
+          { name: 'Primer', items: [{ kind: 'clipGroup', clip: ring(20), items: [cover({ paint: { kind: 'spot', spot: primer } })] }] },
+          {
+            name: 'Design',
+            items: [{ kind: 'clipGroup', clip: { ...ring(40), fillRule: 'evenodd' }, items: [cover({ paint: { kind: 'process', cmyk: [1, 0, 0, 0] } })] }],
+          },
+        ],
+      };
+      await writeFile(file, writeIllustratorPdf(compound));
+      const files = await renderPlates(file, path.join(directory, 'plates'), true);
+      const plates = await Promise.all(['White', 'Primer', 'Cyan'].map(async name => readPlate(files, new TextEncoder().encode(name))));
+      // Each plate is sampled in its ring and in the middle of its inner square.
+      const samples = plates.map((plate, index) => [plate.inkAt(index * 20 + 4, 10), plate.inkAt(index * 20 + 10, 10)]);
+      expect(samples.map(pair => pair.map(ink => ink > 253))).toStrictEqual([
+        [true, false],
+        [true, true],
+        [true, false],
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -9,11 +9,15 @@ const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, seco
 const path: PathItem = {
   kind: 'path',
   geometry: {
-    start: [1, 2],
-    segments: [
-      { kind: 'line', to: [11, 2] },
-      { kind: 'line', to: [11, 12] },
-      { kind: 'line', to: [1, 12] },
+    subpaths: [
+      {
+        start: [1, 2],
+        segments: [
+          { kind: 'line', to: [11, 2] },
+          { kind: 'line', to: [11, 12] },
+          { kind: 'line', to: [1, 12] },
+        ],
+      },
     ],
   },
   fill: { paint: { kind: 'process', cmyk: [0, 0, 1, 0] } },

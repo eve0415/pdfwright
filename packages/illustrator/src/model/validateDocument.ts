@@ -1,4 +1,4 @@
-import type { Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, Point, RasterItem, SpotColor } from './illustratorDocument.ts';
+import type { Coordinate, IllustratorDocument, Item, Paint, PathGeometry, PathItem, Point, RasterItem, SpotColor, Subpath } from './illustratorDocument.ts';
 
 import { UnsupportedFeatureError, ValidationError } from '@pdfwright/core';
 
@@ -147,19 +147,32 @@ export const validateDocument = (document: IllustratorDocument): void => {
       if (paint.tint !== undefined) unitInterval(paint.tint, 'spot tint');
     }
   };
-  const geometry = (value: PathGeometry): void => {
-    knownFields(value, ['start', 'segments'], 'path geometry');
+  const subpath = (value: Subpath): void => {
+    knownFields(value, ['start', 'segments'], 'subpath');
     point(value.start);
-    if (value.segments.length === 0) throw new ValidationError('path requires at least one segment', 'illustrator-model');
+    if (value.segments.length === 0) throw new ValidationError('subpath requires at least one segment', 'illustrator-model');
     for (const segment of value.segments) {
-      knownVariant(segment.kind, ['line', 'curve'], 'path segment');
+      knownVariant(segment.kind, ['line', 'curve', 'quadratic'], 'path segment');
       point(segment.to);
       if (segment.kind === 'curve') {
         knownFields(segment, ['kind', 'control1', 'control2', 'to', 'anchor'], 'curve segment');
         point(segment.control1);
         point(segment.control2);
+      } else if (segment.kind === 'quadratic') {
+        knownFields(segment, ['kind', 'control', 'to', 'anchor'], 'quadratic segment');
+        point(segment.control);
       } else knownFields(segment, ['kind', 'to', 'anchor'], 'line segment');
     }
+  };
+  const geometry = (value: PathGeometry): void => {
+    knownFields(value, ['subpaths', 'fillRule'], 'path geometry');
+    const rule: unknown = value.fillRule;
+    if (rule !== undefined && rule !== 'nonzero' && rule !== 'evenodd') {
+      throw new ValidationError('fill rule must be nonzero or evenodd', 'illustrator-model');
+    }
+    const subpaths: unknown = value.subpaths;
+    if (!Array.isArray(subpaths) || subpaths.length === 0) throw new ValidationError('path requires at least one subpath', 'illustrator-model');
+    for (const entry of value.subpaths) subpath(entry);
   };
   const checkPath = (item: PathItem): void => {
     knownFields(item, ['kind', 'locked', 'geometry', 'fill', 'stroke'], 'path');

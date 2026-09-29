@@ -13,18 +13,20 @@ import type {
   Segment,
   SpotColor,
   Stroke,
+  Subpath,
 } from '../model/illustratorDocument.ts';
 
 import { coordinateNumber } from '../model/coordinateNumber.ts';
+import { cubicSegments } from '../model/cubicSegments.ts';
 import { formatNativeNumber } from '../native/formatNativeNumber.ts';
 
 const number = (value: Coordinate): number => Number(formatNativeNumber(value));
 const rawNumber = coordinateNumber;
 const point = (value: Point): Point => [number(value[0]), number(value[1])];
 
-const geometry = (value: PathGeometry): PathGeometry => {
+const subpath = (value: Subpath): Subpath => {
   const start = point(value.start);
-  const segments: Segment[] = value.segments.map(segment => {
+  const segments: Segment[] = cubicSegments(value).map(segment => {
     if (segment.kind === 'line') return { kind: 'line', to: point(segment.to), anchor: segment.anchor ?? 'corner' };
     return { kind: 'curve', control1: point(segment.control1), control2: point(segment.control2), to: point(segment.to), anchor: segment.anchor ?? 'corner' };
   });
@@ -32,6 +34,8 @@ const geometry = (value: PathGeometry): PathGeometry => {
   if (last !== undefined && (last[0] !== start[0] || last[1] !== start[1])) segments.push({ kind: 'line', to: start, anchor: 'corner' });
   return { start, segments };
 };
+
+const geometry = (value: PathGeometry): PathGeometry => ({ subpaths: value.subpaths.map(subpath), fillRule: value.fillRule ?? 'nonzero' });
 
 const spot = (value: SpotColor): SpotColor => ({
   name: value.name,

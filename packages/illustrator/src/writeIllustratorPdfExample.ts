@@ -7,11 +7,15 @@ import { writeIllustratorPdf } from './writeIllustratorPdf.ts';
 /** Writes die lines, white ink, primer, and CMYK artwork with one shared soft mask. */
 export const writeIllustratorPdfExample = (): Uint8Array => {
   const die: PathGeometry = {
-    start: [mm(5), mm(5)],
-    segments: [
-      { kind: 'line', to: [mm(45), mm(5)] },
-      { kind: 'line', to: [mm(45), mm(35)] },
-      { kind: 'line', to: [mm(5), mm(35)] },
+    subpaths: [
+      {
+        start: [mm(5), mm(5)],
+        segments: [
+          { kind: 'line', to: [mm(45), mm(5)] },
+          { kind: 'line', to: [mm(45), mm(35)] },
+          { kind: 'line', to: [mm(5), mm(35)] },
+        ],
+      },
     ],
   };
   const bounds = { x: mm(10), y: mm(10), width: mm(30), height: mm(10) };

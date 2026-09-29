@@ -60,11 +60,15 @@ const lockFields = (lines: readonly string[]): Map<string, { readonly layer: str
 const rectangle: PathItem = {
   kind: 'path',
   geometry: {
-    start: [0, 0],
-    segments: [
-      { kind: 'line', to: [10, 0] },
-      { kind: 'line', to: [10, 10] },
-      { kind: 'line', to: [0, 10] },
+    subpaths: [
+      {
+        start: [0, 0],
+        segments: [
+          { kind: 'line', to: [10, 0] },
+          { kind: 'line', to: [10, 10] },
+          { kind: 'line', to: [0, 10] },
+        ],
+      },
     ],
   },
   fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },

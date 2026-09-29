@@ -7,6 +7,7 @@ export type {
   ClipGroup,
   Coordinate,
   Fill,
+  FillRule,
   Group,
   IllustratorDocument,
   Item,
@@ -19,5 +20,6 @@ export type {
   Segment,
   SpotColor,
   Stroke,
+  Subpath,
 } from './model/illustratorDocument.ts';
 export type { NativeCompression, ZstandardCompressor } from './zstd/frame.ts';

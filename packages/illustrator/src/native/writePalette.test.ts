@@ -16,7 +16,11 @@ const document: IllustratorDocument = {
     {
       name: 'Spots',
       items: [
-        { kind: 'path', geometry: { start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }, fill: { paint: { kind: 'spot', spot: white } } },
+        {
+          kind: 'path',
+          geometry: { subpaths: [{ start: [0, 0], segments: [{ kind: 'line', to: [10, 0] }] }] },
+          fill: { paint: { kind: 'spot', spot: white } },
+        },
         { kind: 'raster', width: 1, height: 1, bounds: { x: 0, y: 0, width: 1, height: 1 }, color: { space: 'spot', spot: cut }, alpha: new Uint8Array([255]) },
       ],
     },

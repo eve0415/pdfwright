@@ -17,11 +17,15 @@ const model: IllustratorDocument = {
         {
           kind: 'path',
           geometry: {
-            start: [10, 10],
-            segments: [
-              { kind: 'line', to: [20, 10] },
-              { kind: 'line', to: [20, 20] },
-              { kind: 'line', to: [10, 20] },
+            subpaths: [
+              {
+                start: [10, 10],
+                segments: [
+                  { kind: 'line', to: [20, 10] },
+                  { kind: 'line', to: [20, 20] },
+                  { kind: 'line', to: [10, 20] },
+                ],
+              },
             ],
           },
           stroke: { paint: { kind: 'spot', spot: { name: 'Cut', alternate: [0, 1, 0, 0] } }, width: 0.25 },

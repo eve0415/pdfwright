@@ -33,15 +33,32 @@ export interface Layer {
 
 export type Item = PathItem | RasterItem | ClipGroup | Group;
 
-/** A closed path. The writer adds a final line to the start when needed. */
+/**
+ * One or more closed subpaths filled, stroked or clipped as a single path.
+ *
+ * One subpath is written to the native copy as an ordinary path; two or more are written as a compound path.
+ */
 export interface PathGeometry {
+  /** At least one subpath, each closed. */
+  readonly subpaths: readonly Subpath[];
+  /** How overlapping subpaths and self-intersections enclose area for the fill and the clip; `'nonzero'` by default. The stroke is the same under both rules. */
+  readonly fillRule?: FillRule;
+}
+
+/** A closed subpath. The writer adds a final line to the start when needed. */
+export interface Subpath {
   readonly start: Point;
   readonly segments: readonly Segment[];
 }
 
+/** The nonzero winding number rule or the even-odd rule of ISO 32000-1:2008, 8.5.3.3. */
+export type FillRule = 'nonzero' | 'evenodd';
+
+/** A quadratic segment is written as the cubic curve that traces the same points. */
 export type Segment =
   | { readonly kind: 'line'; readonly to: Point; readonly anchor?: Anchor }
-  | { readonly kind: 'curve'; readonly control1: Point; readonly control2: Point; readonly to: Point; readonly anchor?: Anchor };
+  | { readonly kind: 'curve'; readonly control1: Point; readonly control2: Point; readonly to: Point; readonly anchor?: Anchor }
+  | { readonly kind: 'quadratic'; readonly control: Point; readonly to: Point; readonly anchor?: Anchor };
 
 export type Anchor = 'corner' | 'smooth';
 

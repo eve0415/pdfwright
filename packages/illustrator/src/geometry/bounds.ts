@@ -1,6 +1,7 @@
-import type { IllustratorDocument, Item, PathGeometry, Point } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, Item, PathGeometry, Point, Subpath } from '../model/illustratorDocument.ts';
 
 import { coordinateNumber } from '../model/coordinateNumber.ts';
+import { cubicSegments } from '../model/cubicSegments.ts';
 
 export interface Bounds {
   readonly minX: number;
@@ -49,11 +50,10 @@ const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): n
   return [(-b - root) / (3 * a), (-b + root) / (3 * a)].filter(t => t > 0 && t < 1);
 };
 
-/** Returns the exact geometric bounds of a path's cubic segments. */
-export const pathBounds = (geometry: PathGeometry): Bounds => {
-  let [x, y] = xy(geometry.start);
+const subpathBounds = (subpath: Subpath): Bounds => {
+  let [x, y] = xy(subpath.start);
   let bounds: Bounds = { minX: x, minY: y, maxX: x, maxY: y };
-  for (const segment of geometry.segments) {
+  for (const segment of cubicSegments(subpath)) {
     const [nextX, nextY] = xy(segment.to);
     if (segment.kind === 'curve') {
       const [controlX1, controlY1] = xy(segment.control1);
@@ -69,6 +69,14 @@ export const pathBounds = (geometry: PathGeometry): Bounds => {
     x = nextX;
     y = nextY;
   }
+  return bounds;
+};
+
+/** Returns the exact geometric bounds of every subpath's cubic segments. */
+export const pathBounds = (geometry: PathGeometry): Bounds => {
+  let bounds: Bounds | undefined = undefined;
+  for (const subpath of geometry.subpaths) bounds = union(bounds, subpathBounds(subpath));
+  if (bounds === undefined) throw new Error('path geometry has no subpath');
   return bounds;
 };
 
@@ -95,11 +103,11 @@ const firstDirection = (from: Vector, points: readonly Vector[]): Vector | undef
   return undefined;
 };
 
-const segmentTangents = (geometry: PathGeometry): SegmentTangents[] => {
-  const start = xy(geometry.start);
+const segmentTangents = (subpath: Subpath): SegmentTangents[] => {
+  const start = xy(subpath.start);
   let current = start;
   const segments: SegmentTangents[] = [];
-  for (const segment of geometry.segments) {
+  for (const segment of cubicSegments(subpath)) {
     const end = xy(segment.to);
     const control1 = segment.kind === 'curve' ? xy(segment.control1) : end;
     const control2 = segment.kind === 'curve' ? xy(segment.control2) : current;
@@ -117,11 +125,11 @@ const segmentTangents = (geometry: PathGeometry): SegmentTangents[] => {
   return segments;
 };
 
-const strokedBounds = (geometry: PathGeometry, radius: number): Bounds => {
-  const bounds = pathBounds(geometry);
-  let stroked: Bounds = { minX: bounds.minX - radius, minY: bounds.minY - radius, maxX: bounds.maxX + radius, maxY: bounds.maxY + radius };
-  if (radius === 0) return stroked;
-  const segments = segmentTangents(geometry);
+// Each subpath is stroked as its own closed outline, so its joins are found without reference to the others.
+const miterBounds = (subpath: Subpath, radius: number): Bounds => {
+  const [startX, startY] = xy(subpath.start);
+  let stroked: Bounds = { minX: startX, minY: startY, maxX: startX, maxY: startY };
+  const segments = segmentTangents(subpath);
   for (let index = 0; index < segments.length; index++) {
     const previous = segments[(index + segments.length - 1) % segments.length];
     const next = segments[index];
@@ -138,6 +146,14 @@ const strokedBounds = (geometry: PathGeometry, radius: number): Bounds => {
     const scale = (side * radius) / (1 + dot);
     stroked = includePoint(stroked, next.start[0] + scale * (-incoming[1] - outgoing[1]), next.start[1] + scale * (incoming[0] + outgoing[0]));
   }
+  return stroked;
+};
+
+const strokedBounds = (geometry: PathGeometry, radius: number): Bounds => {
+  const bounds = pathBounds(geometry);
+  let stroked: Bounds = { minX: bounds.minX - radius, minY: bounds.minY - radius, maxX: bounds.maxX + radius, maxY: bounds.maxY + radius };
+  if (radius === 0) return stroked;
+  for (const subpath of geometry.subpaths) stroked = union(stroked, miterBounds(subpath, radius));
   return stroked;
 };
 

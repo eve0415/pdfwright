@@ -11,11 +11,15 @@ const spot: SpotColor = { name: 'White', alternate: [0.2, 0, 0, 0] };
 const rectangle: PathItem = {
   kind: 'path',
   geometry: {
-    start: [10, 10],
-    segments: [
-      { kind: 'line', to: [30, 10] },
-      { kind: 'line', to: [30, 20] },
-      { kind: 'line', to: [10, 20] },
+    subpaths: [
+      {
+        start: [10, 10],
+        segments: [
+          { kind: 'line', to: [30, 10] },
+          { kind: 'line', to: [30, 20] },
+          { kind: 'line', to: [10, 20] },
+        ],
+      },
     ],
   },
   fill: { paint: { kind: 'spot', spot } },
