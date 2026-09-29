@@ -87,7 +87,7 @@ export const writeManualCheckSet = async (directory: string): Promise<readonly s
   const standard = writeIllustratorPdf(model);
   const contentSize = makePdf(model, native, { compression: 'zstandard', frameOverride: contentSizeFrame(native.bytes) });
   const rawBlocks = writeIllustratorPdf(model, { compression: 'zstandard-raw-blocks' });
-  const topLeft = makePdf(model, writeNative(model, { convention: 'top-left' }), { compression: 'zstandard' });
+  const topLeft = makePdf(model, writeNative(model, { nativeOrigin: 'artboard-top-left' }), { compression: 'zstandard' });
   const changed = loadDocument(standard);
   changed.page(0).setLastModified(pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 1, second: 0, offset: 'Z' }));
   const unequal = changed.save({ mode: 'incremental' }).toBytes();

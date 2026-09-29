@@ -1,5 +1,6 @@
 import type { IllustratorDocument, Item, Paint, SpotColor } from '../model/illustratorDocument.ts';
 import type { PreparedDocument } from '../model/prepareDocument.ts';
+import type { NativeOrigin } from './nativeOrigin.ts';
 import type { NativeWriter } from './nativeWriter.ts';
 
 import { InvalidArgumentError, add, formatInteger, multiply, pt, subtract } from '@pdfwright/core';
@@ -12,7 +13,7 @@ import { escapeNativeString } from './nativeString.ts';
 
 export interface HeaderOptions {
   readonly creator?: string;
-  readonly convention?: 'bottom-left' | 'top-left';
+  readonly nativeOrigin?: NativeOrigin;
   readonly prepared?: PreparedDocument;
 }
 
@@ -111,7 +112,7 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
     const code = character.codePointAt(0);
     if (code === undefined || code < 32 || code > 126) throw new InvalidArgumentError('creator requires printable ASCII');
   }
-  const topLeft = options.convention === 'top-left';
+  const topLeft = options.nativeOrigin === 'artboard-top-left';
   const rulerX = topLeft ? 8191.5 - width / 2 : Math.floor(8191.5 - width / 2);
   const rulerY = topLeft ? 8191.5 + height / 2 : Math.floor(8191.5 - height / 2);
   const shifted = topLeft ? { minX: art.minX, minY: art.minY - height, maxX: art.maxX, maxY: art.maxY - height } : art;

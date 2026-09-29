@@ -64,10 +64,10 @@ describe('native data assembly', () => {
   });
 
   it.each([
-    ['bottom-left', -904, 509],
-    ['top-left', -904, 439],
-  ] as const)('centres OpenToView on the artboard in %s coordinates', (convention, left, top) => {
-    const text = new TextDecoder().decode(writeNative(document, { convention }).bytes);
+    ['artboard-bottom-left', -904, 509],
+    ['artboard-top-left', -904, 439],
+  ] as const)('centres OpenToView on the artboard with the %s origin', (nativeOrigin, left, top) => {
+    const text = new TextDecoder().decode(writeNative(document, { nativeOrigin }).bytes);
     const prefix = `${String(left)} ${String(top)} 1`;
     const block = `%AI17_Begin_Content_if_version_gt:24 4\r%AI10_OpenToVie: ${prefix} 0 0 0 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_Alternate_Content\r%AI9_OpenToView: ${prefix} 1908 1024 26 0 0 1926 50 0 0 0 1 1 0 1 1 0 1\r%AI17_End_Versioned_Content\r`;
     const layerLine = '%AI5_OpenViewLayers: 76\r';
@@ -86,8 +86,8 @@ describe('native data assembly', () => {
     expect(text).not.toContain('c2pa');
   });
 
-  it('moves native coordinates for the top-left diagnostic convention', () => {
-    const text = new TextDecoder().decode(writeNative(document, { convention: 'top-left' }).bytes);
+  it('moves native coordinates to the artboard’s top-left origin', () => {
+    const text = new TextDecoder().decode(writeNative(document, { nativeOrigin: 'artboard-top-left' }).bytes);
     expect(text).toContain('1 -68 m\r');
     expect(text).toContain('%_0 0 /RealPointRelToROrigin\r');
   });

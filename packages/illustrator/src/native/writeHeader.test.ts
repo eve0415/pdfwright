@@ -41,13 +41,13 @@ describe('native header comments', () => {
     expect(text).toContain('%AI3_TileBox: -261.2677165354 -180.2874015748 521.7322834646 378.7125984252\r');
   });
 
-  it('uses each convention’s ruler origin for TemplateBox', () => {
-    for (const [convention, expected] of [
-      ['bottom-left', '142.5 98.9251968504 142.5 98.9251968504'],
-      ['top-left', '141.7322834646 99.2125984252 141.7322834646 99.2125984252'],
+  it('uses each native origin’s ruler origin for TemplateBox', () => {
+    for (const [nativeOrigin, expected] of [
+      ['artboard-bottom-left', '142.5 98.9251968504 142.5 98.9251968504'],
+      ['artboard-top-left', '141.7322834646 99.2125984252 141.7322834646 99.2125984252'],
     ] as const) {
       const writer = createNativeWriter();
-      writeHeader(writer, document, { convention });
+      writeHeader(writer, document, { nativeOrigin });
       const text = new TextDecoder().decode(writer.finish());
       expect(text).toContain(`%AI3_TemplateBox: ${expected}\r`);
     }
@@ -75,9 +75,9 @@ describe('native header comments', () => {
     expect(text).toContain('%AI5_OpenViewLayers: 776\r');
   });
 
-  it('can write the top-left diagnostic coordinate convention', () => {
+  it('writes the artboard-top-left cropmarks and page origin', () => {
     const writer = createNativeWriter();
-    writeHeader(writer, document, { convention: 'top-left' });
+    writeHeader(writer, document, { nativeOrigin: 'artboard-top-left' });
     const text = new TextDecoder().decode(writer.finish());
     expect(text).toContain('%AI3_Cropmarks: 0 -198.4251968504 283.4645669291 0\r');
     expect(text).toContain('%%PageOrigin:0 0\r');
