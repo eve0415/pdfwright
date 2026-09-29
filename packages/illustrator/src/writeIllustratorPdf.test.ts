@@ -1,7 +1,7 @@
 import type { WriteIllustratorPdfOptions } from './index.ts';
 import type { IllustratorDocument } from './model/illustratorDocument.ts';
 
-import { ValidationError, compareDocuments, loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
+import { InvalidArgumentError, ValidationError, compareDocuments, loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
 import { readIllustratorContainer, readIllustratorPdf } from './testing/readIllustratorPdf.ts';
@@ -133,5 +133,42 @@ describe('native coordinate origin', () => {
     const options: WriteIllustratorPdfOptions = {};
     Object.defineProperty(options, 'nativeOrigin', { value: 'top-left' });
     expect(() => writeIllustratorPdf(model, options)).toThrow(ValidationError);
+  });
+});
+
+const spotModel: IllustratorDocument = {
+  ...model,
+  layers: model.layers.map(layer => ({
+    ...layer,
+    items: layer.items.map(item =>
+      item.kind === 'path' ? { ...item, stroke: { paint: { kind: 'spot', spot: { name: 'Cut', alternate: [0.960571, 0, 0, 0] } }, width: 0 } } : item,
+    ),
+  })),
+};
+
+const latin1 = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
+
+describe('document information and page precision', () => {
+  it('writes no Info dictionary unless asked', () => {
+    expect(latin1(writeIllustratorPdf(model))).not.toContain('/Info');
+  });
+
+  it('writes Info with the model date as ModDate by default, and an agreeing XMP packet', () => {
+    const pdf = latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet' } }));
+    expect(pdf).toMatch(/\/Title ?\(Die sheet\)/u);
+    expect(pdf).toContain(`(${pdfDateString(date)})`);
+    expect(pdf).toContain('<dc:title>');
+    const later = pdfDate({ year: 2026, month: 9, day: 29, hour: 1, minute: 2, second: 3, offset: 'Z' });
+    expect(latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet', modificationDate: later } }))).toContain(`(${pdfDateString(later)})`);
+  });
+
+  it('keeps spot alternate components at the requested precision', () => {
+    expect(latin1(writeIllustratorPdf(spotModel))).toMatch(/\[0\.96057 0 0 0\]/u);
+    expect(latin1(writeIllustratorPdf(spotModel, { fractionDigits: 6 }))).toMatch(/\[0\.960571 0 0 0\]/u);
+    expect(writeIllustratorPdf(spotModel, { fractionDigits: 6 })).toStrictEqual(writeIllustratorPdf(spotModel, { fractionDigits: 6 }));
+  });
+
+  it.each([-1, 11, 2.5, Number.NaN])('refuses fractionDigits %s', fractionDigits => {
+    expect(() => writeIllustratorPdf(model, { fractionDigits })).toThrow(InvalidArgumentError);
   });
 });
