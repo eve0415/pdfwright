@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { arrayBuffer, text } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
@@ -175,5 +177,13 @@ describe('jpeg decoding against ImageMagick libjpeg', () => {
         fullyDecode(malformed);
       }).toThrow(ParseError);
     }
+  });
+
+  it('returns the ICC profile ImageMagick embeds and refuses its progressive output', async () => {
+    const profilePath = path.resolve(import.meta.dirname, '../../../../tests/fixtures/icc/sRGB-v4.icc');
+    const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-profile', profilePath, '-quality', '90', 'jpeg:-'], rgb());
+    expect(decodeJpeg(jpeg).iccProfile).toStrictEqual(new Uint8Array(await readFile(profilePath)));
+    const progressive = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-interlace', 'JPEG', '-quality', '90', 'jpeg:-'], rgb());
+    expect(() => decodeJpeg(progressive)).toThrow(UnsupportedFeatureError);
   });
 });

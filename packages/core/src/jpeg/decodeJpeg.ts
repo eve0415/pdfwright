@@ -1,22 +1,38 @@
 import type { ParseReason } from '../error/parseError.ts';
+import type { ExifOrientation, IccChunks } from './jpegMetadata.ts';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
+import { assembleIccProfile, isExifSegment, isIccSegment, readExifOrientation, readIccChunk } from './jpegMetadata.ts';
+
+/** A JPEG whose headers have been read; its samples are decoded when `rows` is iterated. */
 export interface DecodedJpeg {
+  /** Samples per row, from the frame header (ITU-T T.81, B.2.2). */
   readonly width: number;
+  /** Rows, from the frame header (ITU-T T.81, B.2.2). */
   readonly height: number;
+  /** Samples per pixel in each row `rows` yields: 1 for grey, 3 for RGB. */
   readonly components: 1 | 3;
+  /** The colour space of the samples `rows` yields: three-component YCbCr is converted to RGB when the colour transform is 1. */
+  readonly colorSpace: 'gray' | 'rgb';
+  /** The transform flag of an Adobe APP14 segment, or undefined when the file has none. */
   readonly adobeColorTransform: number | undefined;
+  /** The ICC profile reassembled from APP2 `ICC_PROFILE` segments (ICC.1:2022, Annex B.4), or undefined when the file has none. It is returned as bytes and not parsed; `parseIccProfile` reads it. */
+  readonly iccProfile: Uint8Array | undefined;
+  /** The Orientation value (1 to 8) of the first APP1 Exif segment's primary image directory, or undefined when there is none or it cannot be read. The samples are not rotated. */
+  readonly orientation: ExifOrientation | undefined;
+  /** Decodes the image from the start on each call and yields one row of interleaved 8-bit samples at a time, top row first; damaged entropy data throws ParseError during iteration. */
   readonly rows: () => Generator<Uint8Array>;
 }
 
+/** Limits and the PDF colour transform default for `decodeJpeg`. */
 export interface DecodeJpegOptions {
-  /** Maximum total decoded sample bytes, 16 MiB by default. */
+  /** Largest width × height × components accepted, 16 MiB by default; a larger image throws ResourceLimitError before any sample is decoded. */
   readonly maxDecodedBytes?: number;
-  /** Maximum storage for one MCU row, 4 MiB by default. */
+  /** Maximum storage for one MCU row, 4 MiB by default; a wider image throws ResourceLimitError before any sample is decoded. */
   readonly maxRowBytes?: number;
   /** PDF DCTDecode ColorTransform when APP14 does not provide one; defaults to 1 for three components and 0 for one. Invalid caller values throw InvalidArgumentError; invalid PDF /ColorTransform values throw ParseError during transcoding. */
   readonly colorTransform?: 0 | 1;
@@ -83,6 +99,9 @@ interface ParserState {
   frame: Frame | undefined;
   restartInterval: number;
   adobeColorTransform: number | undefined;
+  readonly iccChunks: IccChunks;
+  orientation: ExifOrientation | undefined;
+  exifRead: boolean;
 }
 
 const ZIGZAG = [
@@ -556,6 +575,11 @@ const parseHeaderSegment = (input: {
       state.adobeColorTransform = byte(data, bounds.start + 11);
       if (state.adobeColorTransform > 1) unsupported('jpeg-color-transform');
     }
+  } else if (marker === 0xe2 && isIccSegment(data, bounds)) {
+    readIccChunk(data, bounds, state.iccChunks);
+  } else if (marker === 0xe1 && !state.exifRead && isExifSegment(data, bounds)) {
+    state.exifRead = true;
+    state.orientation = readExifOrientation(data, bounds);
   } else if (!(marker >= 0xe0 && marker <= 0xef) && marker !== 0xfe) {
     invalid(bounds.start, 'unsupported marker');
   }
@@ -592,11 +616,15 @@ const finishScan = (input: {
     restartInterval,
     colorTransform: adobeColorTransform ?? colorTransform ?? (frame.components.length === 3 ? 1 : 0),
   };
+  const iccProfile = assembleIccProfile(state.iccChunks, bounds.start);
+  const color = frame.components.length === 3 ? ({ components: 3, colorSpace: 'rgb' } as const) : ({ components: 1, colorSpace: 'gray' } as const);
   return {
     width: frame.width,
     height: frame.height,
-    components: frame.components.length === 3 ? 3 : 1,
+    ...color,
     adobeColorTransform,
+    iccProfile,
+    orientation: state.orientation,
     rows: () => rows(scan, maxRowBytes),
   };
 };
@@ -608,7 +636,10 @@ const checkFrameMarker = (marker: number): void => {
   if (marker === 0xc5 || marker === 0xc8 || marker === 0xf7) unsupported('jpeg-process');
 };
 
-/** Decodes a single-scan 8-bit sequential Huffman JPEG by MCU row; ITU-T T.81 (1992), B.2 and Annex F. */
+/**
+ * Reads a baseline or extended sequential 8-bit Huffman JPEG with one interleaved scan (ITU-T T.81 (1992), B.2 and Annex F), grey or three-component, and returns its headers with a row decoder.
+ * Progressive, lossless, arithmetic-coded, 12-bit, four-component and multi-scan files throw UnsupportedFeatureError with a `jpeg-*` reason; malformed files throw ParseError with an `image-*` reason; images past `maxDecodedBytes` or `maxRowBytes` throw ResourceLimitError; invalid options throw InvalidArgumentError.
+ */
 export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): DecodedJpeg => {
   if (byte(data, 0) !== 0xff || byte(data, 1) !== 0xd8) return invalid(0, 'missing start of image');
   const maxRowBytes = options.maxRowBytes ?? 4 * 1024 * 1024;
@@ -619,7 +650,17 @@ export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): D
   if (requestedTransform !== undefined && requestedTransform !== 0 && requestedTransform !== 1) {
     throw new InvalidArgumentError('JPEG colorTransform must be 0 or 1');
   }
-  const state: ParserState = { quantization: [], dc: [], ac: [], frame: undefined, restartInterval: 0, adobeColorTransform: undefined };
+  const state: ParserState = {
+    quantization: [],
+    dc: [],
+    ac: [],
+    frame: undefined,
+    restartInterval: 0,
+    adobeColorTransform: undefined,
+    iccChunks: { count: 0, chunks: new Map() },
+    orientation: undefined,
+    exifRead: false,
+  };
   let position = 2;
   while (position < data.length) {
     const current = markerAt(data, position);
