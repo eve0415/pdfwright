@@ -99,6 +99,40 @@ describe('gts pdfx output intent', () => {
     expect(textOf(intentOf(document), 'OutputCondition')).toContain('Gloss or matt coated, 115 g/m2');
   });
 
+  it('describes a changed identifier with its own registry defaults', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA28' });
+    expect(result.action).toBe('updated');
+    const intent = intentOf(document);
+    expect(['OutputConditionIdentifier', 'Info', 'OutputCondition', 'RegistryName'].map(name => textOf(intent, name))).toStrictEqual([
+      'FOGRA28',
+      'FOGRA28',
+      'OFCOM 3 Altona — Gloss coated web, (LWC) 60 g/m2',
+      'http://www.color.org',
+    ]);
+  });
+
+  it('drops registry entries when the identifier changes to an unregistered condition', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'Custom', info: 'Custom press' });
+    const intent = intentOf(document);
+    expect(['OutputConditionIdentifier', 'Info', 'OutputCondition', 'RegistryName'].map(name => textOf(intent, name))).toStrictEqual([
+      'Custom',
+      'Custom press',
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('keeps entries written for the same identifier', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', outputCondition: 'Sheet-fed coated' });
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect(textOf(intentOf(document), 'OutputCondition')).toBe('Sheet-fed coated');
+  });
+
   it('embeds unchanged profile bytes and lowers a 1.7 header', () => {
     const document = loadDocument(base().bytes);
     writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
