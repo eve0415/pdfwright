@@ -1,5 +1,6 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { EffectiveBoxes } from '../document/loadedPage.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
@@ -9,12 +10,13 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { pt } from '../length/length.ts';
+import { DEFAULT_FRACTION_DIGITS } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries as Entries, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
-/** Adds TrimBox from MediaBox when a page has neither TrimBox nor ArtBox by default; `refuse` instead raises ValidationError without a reason under ISO 32000-1:2008, 14.11.2 and Table 30. */
+/** Adds the default TrimBox when a page has neither TrimBox nor ArtBox by default; `refuse` instead raises ValidationError without a reason under ISO 32000-1:2008, 14.11.2 and Table 30. */
 export interface PdfX4PageOptions {
-  /** `trim-from-media` (the default) writes a TrimBox equal to the MediaBox on a page that sets neither TrimBox nor ArtBox; `refuse` throws ValidationError for such a page. */
-  readonly pageBoxes?: 'trim-from-media' | 'refuse';
+  /** `trim-from-crop` (the default) writes a TrimBox equal to the CropBox, which defaults to the MediaBox, reduced to the MediaBox and to an explicit BleedBox, on a page that sets neither TrimBox nor ArtBox; `refuse` throws ValidationError for such a page. */
+  readonly pageBoxes?: 'trim-from-crop' | 'refuse';
 }
 
 /** Zero-based page indexes where TrimBoxes or isolated DeviceCMYK transparency groups were added under ISO 32000-1:2008, 14.11.2 and 11.6.6. */
@@ -155,28 +157,51 @@ const pageUsesTransparency = (document: LoadedDocument, internals: DocumentInter
   return scan.operations(content.streams, resources) || scan.annotations(object.entries.get(key('Annots')), resources);
 };
 
-/** Adds a TrimBox equal to the MediaBox to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. */
+const scale = 10 ** DEFAULT_FRACTION_DIGITS;
+// The writer keeps DEFAULT_FRACTION_DIGITS decimals, so an edge copied from a box written with more digits is rounded towards the inside of that box.
+const roundUp = (value: number): number => {
+  const scaled = Math.round(value * scale);
+  return (scaled / scale < value ? scaled + 1 : scaled) / scale;
+};
+const roundDown = (value: number): number => {
+  const scaled = Math.round(value * scale);
+  return (scaled / scale > value ? scaled - 1 : scaled) / scale;
+};
+
+const defaultTrim = (boxes: EffectiveBoxes, index: number): readonly [number, number, number, number] => {
+  // ISO 32000-1:2008, Table 30: TrimBox "Default value: the value of CropBox", and CropBox "Default value: the value of MediaBox".
+  // 14.11.2.1: a crop, bleed, trim or art box that extends beyond the media box is effectively reduced to its intersection with the media box.
+  const limits = [boxes.MediaBox.rect, boxes.CropBox.rect];
+  // Table 30, BleedBox: the region to which page contents are clipped in production output, so a trimmed page lies inside it.
+  if (boxes.BleedBox.explicit) limits.push(boxes.BleedBox.rect);
+  const left = roundUp(Math.max(...limits.map(box => box[0])));
+  const bottom = roundUp(Math.max(...limits.map(box => box[1])));
+  const right = roundDown(Math.min(...limits.map(box => box[2])));
+  const top = roundDown(Math.min(...limits.map(box => box[3])));
+  if (left >= right || bottom >= top) {
+    throw new ValidationError(`page ${String(index)} has no area shared by its MediaBox, CropBox and BleedBox to use as a TrimBox`);
+  }
+  return [left, bottom, right, top];
+};
+
+/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. */
 export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOptions = {}): PdfX4PageChange => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable', 'unreadable-resource');
-  const trim: number[] = [];
+  const trim = new Map<number, readonly [number, number, number, number]>();
   const groups: number[] = [];
   for (let index = 0; index < document.pageCount; index++) {
     const page = document.page(index);
     const boxes = page.boxes();
     if (!boxes.TrimBox.explicit && !boxes.ArtBox.explicit) {
       if (options.pageBoxes === 'refuse') throw new ValidationError(`page ${String(index)} has no TrimBox or ArtBox`);
-      trim.push(index);
+      trim.set(index, defaultTrim(boxes, index));
     }
     const owner = document.get(page.reference);
     if (owner.kind !== 'dictionary') throw new ValidationError('page is not a dictionary', 'unreadable-resource');
     if (!owner.entries.has(key('Group')) && pageUsesTransparency(document, internals, index)) groups.push(index);
   }
-  for (const index of trim) {
-    const page = document.page(index);
-    const [left, bottom, right, top] = page.boxes().MediaBox.rect;
-    page.setBox('TrimBox', [pt(left), pt(bottom), pt(right), pt(top)]);
-  }
+  for (const [index, [left, bottom, right, top]] of trim) document.page(index).setBox('TrimBox', [pt(left), pt(bottom), pt(right), pt(top)]);
   for (const index of groups) {
     const page = document.page(index);
     const owner = document.get(page.reference);
@@ -189,6 +214,6 @@ export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOp
     owner.entries.set(key('Group'), pdfDictionary(group));
     document.set(page.reference, owner);
   }
-  if (trim.length > 0 || groups.length > 0) internals.objects.requireFullRewrite('color-conversion');
-  return { addedTrimBoxes: trim, addedPageGroups: groups };
+  if (trim.size > 0 || groups.length > 0) internals.objects.requireFullRewrite('color-conversion');
+  return { addedTrimBoxes: [...trim.keys()], addedPageGroups: groups };
 };
