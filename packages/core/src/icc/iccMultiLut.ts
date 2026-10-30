@@ -69,9 +69,10 @@ const matrixPart = (view: DataView, config: { start: number; relative: number; e
   const at = config.start + config.relative;
   if (config.end - at < 48) fail(at);
   const values = Array.from({ length: 12 }, (_, index) => view.getInt32(at + index * 4) / 65536);
+  // ICC.1:2022, 10.12.5 and 10.13.3: e1..e9 are the row-major 3 × 3 coefficients and e10..e12 the offsets added to each row.
   return {
-    m: [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0, values[4] ?? 0, values[5] ?? 0, values[6] ?? 0, values[8] ?? 0, values[9] ?? 0, values[10] ?? 0],
-    offset: [values[3] ?? 0, values[7] ?? 0, values[11] ?? 0],
+    m: [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0, values[3] ?? 0, values[4] ?? 0, values[5] ?? 0, values[6] ?? 0, values[7] ?? 0, values[8] ?? 0],
+    offset: [values[9] ?? 0, values[10] ?? 0, values[11] ?? 0],
   };
 };
 
