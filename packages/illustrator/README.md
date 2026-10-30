@@ -126,8 +126,8 @@ type NativePayloadCompression =
 The caller supplies the Zstandard decoder, as the caller may supply the encoder through the `compression` option of `writeIllustratorPdf`. The package's own encoder writes only raw literals and predefined FSE sequence tables, so it contains none of the Huffman literal decoding and compressed FSE table decoding that a general decoder needs for frames written by Illustrator or by any other encoder, and writing one would add a second, much larger codec to a package whose runtime dependency is `@pdfwright/core` alone. Any function that decodes one complete frame (RFC 8878, 3.1.1) will do; the `decompress` function of the `fzstd` package is one:
 
 ```ts
-import { decompress } from 'fzstd';
 import { readIllustratorPdf } from '@pdfwright/illustrator';
+import { decompress } from 'fzstd';
 
 const contents = readIllustratorPdf(pdfBytes, { zstandard: decompress });
 contents.document.layers.map(layer => layer.name);
