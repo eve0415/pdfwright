@@ -14,7 +14,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "https://pkg.pr.new/@cloudflare/vitest-plugin@7b89dc48f3f4b0dfba5df352bcbdf8e2cbcff30e",
     "@oxlint/plugins": "1.85.0",
-    "@types/node": "24.13.6",
+    "@types/node": "26.6.6",
     "@vitest/browser": "5.0.2",
     "@vitest/browser-playwright": "5.0.2",
     "bun": "npm:bun@1.4.2",
@@ -32,9 +32,9 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "24.21.0",
+      "version": "26.13.0",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.6.0"
+  "packageManager": "pnpm@12.16.1"
 }
