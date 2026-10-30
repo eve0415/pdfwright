@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
-import { readTextString } from '../metadata/documentInfo.ts';
+import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
@@ -67,10 +67,20 @@ const withIntent = (bytes: Uint8Array) => {
   return { document, profileReference };
 };
 
+const subtypesOf = (document: ReturnType<typeof loadDocument>): (string | undefined)[] => {
+  const intents = document.catalog().get(pdfName('OutputIntents').bytes);
+  if (intents?.kind !== 'array') throw new Error('missing output intents');
+  return intents.items.map(item => {
+    const intent = item.kind === 'reference' ? document.get(item) : item;
+    const subtype = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    return subtype?.kind === 'name' ? new TextDecoder().decode(subtype.bytes) : undefined;
+  });
+};
+
 const setCatalogEntry = (
   document: ReturnType<typeof loadDocument>,
   name: string,
-  value: ReturnType<typeof pdfName> | ReturnType<typeof pdfDictionary>,
+  value: ReturnType<typeof pdfName> | ReturnType<typeof pdfDictionary> | ReturnType<typeof pdfArray>,
 ): void => {
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
@@ -87,6 +97,40 @@ describe('gts pdfx output intent', () => {
     expect(textOf(intentOf(document), 'RegistryName')).toBe('http://www.color.org');
     expect(textOf(intentOf(document), 'Info')).toBe('FOGRA39');
     expect(textOf(intentOf(document), 'OutputCondition')).toContain('Gloss or matt coated, 115 g/m2');
+  });
+
+  it('describes a changed identifier with its own registry defaults', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA28' });
+    expect(result.action).toBe('updated');
+    const intent = intentOf(document);
+    expect(['OutputConditionIdentifier', 'Info', 'OutputCondition', 'RegistryName'].map(name => textOf(intent, name))).toStrictEqual([
+      'FOGRA28',
+      'FOGRA28',
+      'OFCOM 3 Altona — Gloss coated web, (LWC) 60 g/m2',
+      'http://www.color.org',
+    ]);
+  });
+
+  it('drops registry entries when the identifier changes to an unregistered condition', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'Custom', info: 'Custom press' });
+    const intent = intentOf(document);
+    expect(['OutputConditionIdentifier', 'Info', 'OutputCondition', 'RegistryName'].map(name => textOf(intent, name))).toStrictEqual([
+      'Custom',
+      'Custom press',
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('keeps entries written for the same identifier', () => {
+    const document = loadDocument(base().bytes);
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', outputCondition: 'Sheet-fed coated' });
+    writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect(textOf(intentOf(document), 'OutputCondition')).toBe('Sheet-fed coated');
   });
 
   it('embeds unchanged profile bytes and lowers a 1.7 header', () => {
@@ -117,6 +161,22 @@ describe('gts pdfx output intent', () => {
     expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: other, outputConditionIdentifier: 'FOGRA28' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'output-intent-conflict' }),
     );
+  });
+
+  it('keeps a direct output intent of another subtype that shares the profile', () => {
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const direct = new PdfDictionaryEntries([
+      [pdfName('Type').bytes, pdfName('OutputIntent')],
+      [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+      [pdfName('OutputConditionIdentifier').bytes, pdfTextString('FOGRA28')],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    setCatalogEntry(document, 'OutputIntents', pdfArray([pdfDictionary(direct)]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA28' });
+    expect([result.action, result.removedSubtypes]).toStrictEqual(['added', []]);
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(subtypesOf(reloaded)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
   });
 
   it('replaces conflicting entries of every subtype when asked', () => {

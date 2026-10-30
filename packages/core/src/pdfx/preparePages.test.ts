@@ -6,6 +6,7 @@ import { pt } from '../length/length.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
+import { checkPdfX4 } from './checkPdfX4.ts';
 import { preparePdfX4Pages } from './preparePages.ts';
 
 const source = () =>
@@ -27,6 +28,24 @@ const source = () =>
       trailer: '/Root 1 0 R',
     },
   ]);
+
+const boxed = (...pages: readonly string[]) =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: `<</Type/Pages/Kids[${pages.map((_, index) => `${String(index + 3)} 0 R`).join(' ')}]/Count ${String(pages.length)}>>` },
+          ...pages.map((boxes, index) => ({ number: index + 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]${boxes}/Resources<<>>>>` })),
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+
+const boxFinding = (document: ReturnType<typeof loadDocument>) => checkPdfX4(document).findings.find(finding => finding.rule === 'X4-BOXES')?.status;
+const reloaded = (document: ReturnType<typeof loadDocument>) => loadDocument(document.save().toBytes());
 
 const pageGroup = (document: ReturnType<typeof loadDocument>, index: number) => {
   const page = document.get(document.page(index).reference);
@@ -60,6 +79,33 @@ describe('pdfx page preparation', () => {
     expect(group.get(pdfName('CS').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
     expect(group.get(pdfName('I').bytes)).toStrictEqual({ kind: 'boolean', value: true });
     expect(preparePdfX4Pages(document)).toStrictEqual({ addedTrimBoxes: [], addedPageGroups: [] });
+  });
+
+  it('defaults the TrimBox to the CropBox, reduced to the MediaBox and to an explicit BleedBox', () => {
+    const document = boxed('/CropBox[10 10 90 90]', '/BleedBox[5 5 95 95]', '/CropBox[10 10 90 90]/BleedBox[20 0 100 80]', '/CropBox[-10 20 110 120]');
+    expect(preparePdfX4Pages(document).addedTrimBoxes).toStrictEqual([0, 1, 2, 3]);
+    expect([0, 1, 2, 3].map(index => document.page(index).boxes().TrimBox.rect)).toStrictEqual([
+      [10, 10, 90, 90],
+      [5, 5, 95, 95],
+      [20, 10, 90, 80],
+      [0, 20, 100, 100],
+    ]);
+    expect(boxFinding(document)).toBe('passed');
+    expect(boxFinding(reloaded(document))).toBe('passed');
+  });
+
+  it('rounds a derived TrimBox inward so that it stays inside a CropBox written with more digits', () => {
+    const document = boxed('/CropBox[8.503932 8.503938 91.574803 91.574807]');
+    preparePdfX4Pages(document);
+    expect(document.page(0).boxes().TrimBox.rect).toStrictEqual([8.50394, 8.50394, 91.5748, 91.5748]);
+    expect(boxFinding(document)).toBe('passed');
+    expect(boxFinding(reloaded(document))).toBe('passed');
+  });
+
+  it('refuses a page whose CropBox and BleedBox do not overlap', () => {
+    const document = boxed('/CropBox[0 0 40 40]/BleedBox[50 50 100 100]');
+    expect(() => preparePdfX4Pages(document)).toThrow(expect.objectContaining({ constructor: ValidationError }));
+    expect([document.page(0).boxes().TrimBox.explicit]).toStrictEqual([false]);
   });
 
   it('offers a refusal policy for pages without either print-area box', () => {

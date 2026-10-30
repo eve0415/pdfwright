@@ -11,7 +11,7 @@ import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { pdfTextString } from '../metadata/documentInfo.ts';
+import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
 import { PdfDictionaryEntries as Entries, pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
 
@@ -45,6 +45,7 @@ export interface OutputIntentChange {
 interface ExistingIntent {
   readonly reference: PdfReference | undefined;
   readonly entries: PdfDictionaryEntries;
+  readonly identifier: string | undefined;
   readonly profile: PdfReference | undefined;
   readonly matches: boolean;
   readonly subtype: string;
@@ -81,7 +82,9 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     }
     if (!matches && !replacement) throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     const subtype = nameOf(value.entries.get(key('S'))) ?? 'other';
-    existing.push({ reference, entries: value.entries, profile, matches, subtype });
+    const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
+    const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
+    existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
   }
   return existing;
 };
@@ -121,14 +124,19 @@ interface NewEntriesInput {
   readonly profile: PdfReference;
 }
 
+const describing = ['Info', 'OutputCondition', 'RegistryName'];
+
 const newEntries = ({ options, condition, sameGts, profile }: NewEntriesInput): PdfDictionaryEntries => {
   const entries = new Entries(sameGts === undefined ? [] : [...sameGts.entries.entries()]);
+  // ISO 32000-1:2008, Table 365: Info, OutputCondition and RegistryName describe the condition OutputConditionIdentifier names, so they are kept only while it is unchanged.
+  const kept = sameGts !== undefined && sameGts.identifier === options.outputConditionIdentifier;
+  if (!kept) for (const name of describing) entries.delete(key(name));
   entries.set(key('Type'), pdfName('OutputIntent'));
   entries.set(key('S'), pdfName('GTS_PDFX'));
   entries.set(key('DestOutputProfile'), profile);
   entries.set(key('OutputConditionIdentifier'), pdfTextString(options.outputConditionIdentifier));
   const setText = (name: string, explicit: string | undefined, fallback: string | undefined): void => {
-    const value = explicit ?? (sameGts === undefined ? fallback : undefined);
+    const value = explicit ?? (kept ? undefined : fallback);
     if (value !== undefined) entries.set(key(name), pdfTextString(value));
   };
   setText('Info', options.info, condition?.identifier);
@@ -153,7 +161,8 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   if (intentReference !== undefined) document.set(intentReference, pdfDictionary(entries));
   const items: PdfDirectObject[] = [updated];
   for (const intent of existing) {
-    if (intent.matches && intent !== sameGts && intent.reference !== undefined) items.push(intent.reference);
+    // ISO 32000-1:2008, Table 28 and 7.3.10: OutputIntents holds output intent dictionaries, each written directly or as an indirect reference.
+    if (intent.matches && intent !== sameGts) items.push(intent.reference ?? pdfDictionary(intent.entries));
   }
   catalog.set(key('OutputIntents'), pdfArray(items));
   const catalogVersion = nameOf(catalog.get(key('Version')));

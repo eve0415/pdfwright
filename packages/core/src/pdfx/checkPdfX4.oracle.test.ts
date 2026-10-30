@@ -1,3 +1,5 @@
+import type { TestObject } from '../testing/pdfBuilder.ts';
+
 import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
@@ -6,7 +8,7 @@ import { pdfDate } from '../date/pdfDate.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries, pdfArray, pdfName, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf } from '../testing/pdfBuilder.ts';
+import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { checkPdfX4, pdfX4Rules } from './checkPdfX4.ts';
 import { preparePdfX4Pages } from './preparePages.ts';
@@ -15,21 +17,22 @@ import { writeGtsPdfxOutputIntent } from './writeOutputIntent.ts';
 
 const profile = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
-const source = () =>
+const source = (page = '/Resources<<>>', extra: readonly TestObject[] = []) =>
   buildPdf([
     {
       xref: 'classic',
       objects: [
         { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
         { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]${page}>>` },
+        ...extra,
       ],
       trailer: `/Root 1 0 R/ID[<${'01'.repeat(16)}><${'02'.repeat(16)}>]`,
     },
   ]);
 
-const prepared = () => {
-  const document = loadDocument(source().bytes);
+const prepared = (page?: string, extra?: readonly TestObject[]) => {
+  const document = loadDocument(source(page, extra).bytes);
   writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
   writePdfX4Metadata(document, { metadataDate: date, trapped: 'False' });
   preparePdfX4Pages(document);
@@ -140,6 +143,26 @@ describe('pdfx structural checker', () => {
       data: new TextEncoder().encode('BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW ID\nX\nEI'),
     });
     attachContent(document, content);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
+  });
+
+  it('finds LZW in an inline image inside a Type 3 glyph description', () => {
+    const document = prepared('/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R', [
+      { number: 4, body: streamBody('', 'BT /F1 12 Tf (a) Tj ET') },
+      {
+        number: 5,
+        body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>',
+      },
+      { number: 6, body: streamBody('', '0 0 d0 BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW ID\nX\nEI') },
+    ]);
+    expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
+  });
+
+  it('finds LZW in an inline image inside an annotation appearance stream that omits its Subtype', () => {
+    const document = prepared('/Resources<<>>/Annots[4 0 R]', [
+      { number: 4, body: '<</Type/Annot/Subtype/Square/Rect[0 0 1 1]/AS/On/AP<</N<</On 5 0 R>>>>>>' },
+      { number: 5, body: streamBody('/BBox[0 0 1 1]', 'BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW ID\nX\nEI') },
+    ]);
     expect(checkPdfX4(document).findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
   });
 
