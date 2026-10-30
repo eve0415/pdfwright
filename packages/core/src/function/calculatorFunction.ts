@@ -78,6 +78,9 @@ const int = (value: number): number => {
   return Math.trunc(value);
 };
 
+const unsigned32 = (value: number): number => ((int(value) % 2 ** 32) + 2 ** 32) % 2 ** 32;
+const signed32 = (pattern: number): number => (pattern >= 2 ** 31 ? pattern - 2 ** 32 : pattern);
+
 const unary = (operator: string, value: number): number | undefined => {
   switch (operator) {
     case 'abs': {
@@ -175,8 +178,8 @@ const logic = (operator: string, left: Value, right: Value): Value => {
     return left !== right;
   }
   if (typeof left !== 'number' || typeof right !== 'number') throw error('invalid boolean operands');
-  let a = ((int(left) % 4294967296) + 4294967296) % 4294967296;
-  let b = ((int(right) % 4294967296) + 4294967296) % 4294967296;
+  let a = unsigned32(left);
+  let b = unsigned32(right);
   let result = 0;
   let place = 1;
   for (let index = 0; index < 32; index++) {
@@ -190,7 +193,7 @@ const logic = (operator: string, left: Value, right: Value): Value => {
     b = Math.floor(b / 2);
     place *= 2;
   }
-  return result >= 2147483648 ? result - 4294967296 : result;
+  return signed32(result);
 };
 
 const stackOperation = (operator: string, stack: Value[]): boolean => {
@@ -259,9 +262,11 @@ const logicalOperation = (operator: string, stack: Value[]): boolean => {
     return true;
   }
   if (operator === 'bitshift') {
+    // ISO 32000-1:2008, 7.10.5.1 defers to the PostScript bitshift operator: the 32-bit pattern shifts with zero fill, so a right shift does not keep the sign bit and bits shifted past 32 are lost.
     const shift = int(number(stack));
-    const value = int(number(stack));
-    stack.push(shift >= 0 ? (value * 2 ** Math.min(shift, 32)) % 4294967296 : Math.floor(value / 2 ** Math.min(-shift, 32)));
+    const pattern = unsigned32(number(stack));
+    if (Math.abs(shift) >= 32) stack.push(0);
+    else stack.push(signed32(shift >= 0 ? (pattern * 2 ** shift) % 2 ** 32 : Math.floor(pattern / 2 ** -shift)));
     return true;
   }
   return false;
