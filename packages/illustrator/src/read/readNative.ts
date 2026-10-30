@@ -308,12 +308,13 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
 };
 
 // A clipping path is one path object, or a compound path opened by 0 Ae and *u, whose first object ends with h and W rather than a paint operator.
+// The look-ahead reads to the end of that first object however many anchors it has, so each call reads one object.
 const isClipPath = (cursor: Cursor): boolean => {
   const line = peekLine(cursor);
   const opener = cursor.peekOffset(1);
   const compound = line === '0 Ae' && opener?.kind === 'line' && opener.text === '*u';
   if (!compound && (line === undefined || !/^\d+ As$/u.test(line))) return false;
-  for (let offset = compound ? 2 : 1; offset < 10_000; offset++) {
+  for (let offset = compound ? 2 : 1; ; offset++) {
     const record = cursor.peekOffset(offset);
     if (record?.kind !== 'line') return false;
     if (record.text === 'f' || record.text === 's' || record.text === 'b') return false;
@@ -322,7 +323,6 @@ const isClipPath = (cursor: Cursor): boolean => {
       return next?.kind === 'line' && next.text === 'W';
     }
   }
-  return false;
 };
 
 const isLayerTrailer = (line: string | undefined): boolean => /^0 \S+ 0 2 0 Xy$/u.test(line ?? '');

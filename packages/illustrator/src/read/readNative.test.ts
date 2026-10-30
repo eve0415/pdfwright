@@ -68,4 +68,31 @@ describe('native model reader', () => {
     expect(items?.[0]).toMatchObject({ kind: 'path', fill: { paint: { kind: 'spot', spot: { name: 'White' }, tint: 0.5 } } });
     expect(items?.[1]).toMatchObject({ kind: 'clipGroup', items: [{ kind: 'raster', width: 1, height: 1, alpha: new Uint8Array([128]) }] });
   });
+
+  it('recognises a clipping path of any length after the clipped items', () => {
+    const count = 30_000;
+    const segments = Array.from({ length: count }, (_, index) => {
+      const angle = (2 * Math.PI * (index + 1)) / count;
+      return { kind: 'line', to: [50 + 40 * Math.cos(angle), 35 + 30 * Math.sin(angle)] } as const;
+    });
+    const clipped: IllustratorDocument = {
+      artboard: { width: 100, height: 70 },
+      layers: [
+        {
+          name: 'Clipped',
+          items: [
+            {
+              kind: 'clipGroup',
+              clip: { subpaths: [{ start: [90, 35], segments }] },
+              items: [{ kind: 'path', geometry, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } } }],
+            },
+          ],
+        },
+      ],
+      lastModified: date,
+    };
+    const item = readNative(writeNative(clipped).bytes, date).document.layers[0]?.items[0];
+    expect(item).toMatchObject({ kind: 'clipGroup', items: [{ kind: 'path' }] });
+    expect(item).toHaveProperty('clip.subpaths.0.segments.length', count);
+  });
 });
