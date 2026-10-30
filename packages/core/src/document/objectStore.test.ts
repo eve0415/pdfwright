@@ -149,4 +149,57 @@ describe('object store', () => {
     const { store } = storeFrom(pdf.bytes, lastSection(pdf.sections));
     expect(store.resolve(2, 0)).toStrictEqual({ kind: 'string', bytes: new TextEncoder().encode('member'), encoding: 'literal' });
   });
+
+  it.each(['Filter', 'DecodeParms'])('resolves an acyclic %s dependency through another object stream', entry => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [{ number: 1, body: 'null' }],
+        objectStreams: [
+          { number: 3, members: [{ number: 4, body: '(member)' }], dictionary: `/${entry} 6 0 R` },
+          { number: 5, members: [{ number: 6, body: 'null' }], dictionary: `/${entry} 1 0 R` },
+        ],
+      },
+    ]);
+    const { store } = storeFrom(pdf.bytes, lastSection(pdf.sections));
+    expect(store.resolve(4, 0)).toStrictEqual({ kind: 'string', bytes: new TextEncoder().encode('member'), encoding: 'literal' });
+  });
+
+  it.each(['Filter', 'DecodeParms'])('rejects an object stream whose %s refers to its own member on repeated reads', entry => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [],
+        objectStreams: [{ number: 3, members: [{ number: 4, body: 'null' }], dictionary: `/${entry} 4 0 R` }],
+      },
+    ]);
+    const { store } = storeFrom(pdf.bytes, lastSection(pdf.sections));
+    const error = { constructor: ParseError, message: 'cyclic dependency while decoding object stream 3', offset: pdf.offsets.get(3) };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(() => store.resolve(4, 0)).toThrow(expect.objectContaining(error));
+    }
+  });
+
+  it.each([
+    ['Filter', 'Filter'],
+    ['Filter', 'DecodeParms'],
+    ['DecodeParms', 'Filter'],
+    ['DecodeParms', 'DecodeParms'],
+  ])('rejects a %s dependency through another object stream’s %s on repeated reads', (first, second) => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [],
+        objectStreams: [
+          { number: 3, members: [{ number: 4, body: 'null' }], dictionary: `/${first} 6 0 R` },
+          { number: 5, members: [{ number: 6, body: 'null' }], dictionary: `/${second} 4 0 R` },
+        ],
+      },
+    ]);
+    const { store } = storeFrom(pdf.bytes, lastSection(pdf.sections));
+    const error = { constructor: ParseError, message: 'cyclic dependency while decoding object stream 3', offset: pdf.offsets.get(3) };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(() => store.resolve(4, 0)).toThrow(expect.objectContaining(error));
+    }
+  });
 });
