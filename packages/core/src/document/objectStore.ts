@@ -104,9 +104,13 @@ export class ObjectStore {
     if (entry.type !== IN_FILE || entry.generation !== 0) {
       throw new ParseError(`object stream ${String(objectNumber)} has no in-file entry with generation 0`, 0);
     }
-    this.resolving.add(objectNumber);
+    if (this.resolving.has(objectNumber)) {
+      throw new ParseError(`cyclic dependency while decoding object stream ${String(objectNumber)}`, entry.location);
+    }
     try {
       const object = this.load(objectNumber);
+      // Keep resolution active through Filter and DecodeParms dereferencing (ISO 32000-1:2008, 7.3.8.2, Table 5), after load has finished parsing the stream.
+      this.resolving.add(objectNumber);
       const stream = decodeObjectStream(objectNumber, object?.value ?? { kind: 'null' }, { ...this.context, deref: value => this.deref(value) });
       this.decoded.set(objectNumber, stream);
       for (const number of this.decoded.keys()) {

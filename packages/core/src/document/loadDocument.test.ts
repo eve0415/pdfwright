@@ -90,6 +90,36 @@ describe('loading documents', () => {
     expect(summary(loadDocument(damaged.bytes))).toStrictEqual(['intact', []]);
   });
 
+  it.each(['/Filter 4 0 R', '/Filter[4 0 R]', '/DecodeParms 4 0 R', '/DecodeParms[4 0 R]'])(
+    'rejects an object stream whose %s refers to its own member',
+    dictionary => {
+      const pdf = buildPdf([
+        {
+          xref: 'stream',
+          objects: [pages],
+          objectStreams: [{ number: 3, members: [catalog, { number: 4, body: 'null' }], dictionary }],
+          trailer: '/Root 1 0 R',
+        },
+      ]);
+      expect(() => loadDocument(pdf.bytes)).toThrow(ParseError);
+    },
+  );
+
+  it.each(['Filter', 'DecodeParms'])('rejects object streams whose %s entries refer to each other’s members', entry => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [pages],
+        objectStreams: [
+          { number: 3, members: [catalog, { number: 4, body: 'null' }], dictionary: `/${entry} 6 0 R` },
+          { number: 5, members: [{ number: 6, body: 'null' }], dictionary: `/${entry} 4 0 R` },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    expect(() => loadDocument(pdf.bytes)).toThrow(ParseError);
+  });
+
   it('frees in-use entries at offset 0 and reports mixed chains', () => {
     const zero = buildPdf([{ xref: 'classic', objects: [catalog, pages, { number: 3, body: '(x)' }], trailer: '/Root 1 0 R' }]);
     const text = edited(zero.text, entryLine(zero.offsets.get(3)), entryLine(0));
