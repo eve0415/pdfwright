@@ -1,7 +1,6 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ColorEntryState, RewriteColorOptions, ShadingUse } from './rewriteContent.ts';
@@ -201,7 +200,7 @@ const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject 
   return decoded;
 };
 
-const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): PdfFunction => {
+const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
   if (value.kind !== 'array') return createPdfFunction(decodedFunction(document, value), child => decodedFunction(document, child));
   if (value.items.length !== channels) return invalid('shading Function array disagrees with its colour space');
   const functions = value.items.map(item => createPdfFunction(decodedFunction(document, item), child => decodedFunction(document, child)));
@@ -230,9 +229,9 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
   stitchCmykFunction(context.document, source, child => {
     const decoded = decodedFunction(context.document, child);
     if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('stitching subfunction is invalid');
-    const entries = decoded.kind === 'stream' ? decoded.dictionary : decoded.entries;
-    const domain = arrayNumbers(entries.get(DOMAIN), 2);
     const fn = createPdfFunction(decoded);
+    const { domain } = fn;
+    if (domain.length !== 2) return invalid('stitching subfunction must take one input');
     const evaluate = (input: readonly number[]): Float64Array => {
       const output = new Float64Array(4);
       transform.convert(Float64Array.from(fn(input)), output);

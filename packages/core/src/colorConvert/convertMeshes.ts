@@ -1,7 +1,6 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ResourceVisit } from '../resourceGraph/walkResources.ts';
 import type { MeshSampleOptions } from './meshSamples.ts';
@@ -179,7 +178,7 @@ const decodedFunction = (scan: MeshScan, value: PdfObject): PdfObject => {
   return { kind: 'stream', dictionary: object.dictionary, data };
 };
 
-const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): PdfFunction => {
+const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
   if (value.kind !== 'array') return createPdfFunction(decodedFunction(scan, value), child => decodedFunction(scan, child));
   if (value.items.length !== channels) return invalid('mesh Function array disagrees with its colour space');
   const functions = value.items.map(item => createPdfFunction(decodedFunction(scan, item), child => decodedFunction(scan, child)));
@@ -198,9 +197,9 @@ const convertedMeshFunction = (
       return stitchCmykFunction(scan.document, original, child => {
         const decoded = decodedFunction(scan, child);
         if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('mesh stitching subfunction is invalid');
-        const entries = decoded.kind === 'dictionary' ? decoded.entries : decoded.dictionary;
-        const childDomain = arrayNumbers(entries.get(pdfName('Domain').bytes), 2);
         const fn = createPdfFunction(decoded, item => decodedFunction(scan, item));
+        const childDomain = fn.domain;
+        if (childDomain.length !== 2) return invalid('mesh stitching subfunction must take one input');
         const evaluate = (input: readonly number[]): Float64Array => {
           const output = new Float64Array(4);
           transform.convert(Float64Array.from(fn(input)), output);

@@ -80,6 +80,42 @@ describe('pdf functions', () => {
     expect(evaluate([0.75])).toStrictEqual([0.5]);
   });
 
+  it('resolves indirect entries and array items of every function type', () => {
+    const objects = new Map<number, PdfDirectObject>([
+      [20, pdfInteger(2)],
+      [21, numbers([0, 1])],
+      [22, numbers([0, 1])],
+      [23, pdfArray([pdfReference(24, 0)])],
+      [24, pdfReal(0.5)],
+      [25, pdfInteger(2)],
+      [26, { kind: 'null' }],
+      [27, numbers([2])],
+      [28, pdfInteger(8)],
+      [29, numbers([1, 0])],
+    ]);
+    const resolve = (value: PdfDirectObject): PdfObject => resolveObject(objects, value);
+    const exponential = functionObject(2, {
+      FunctionType: pdfReference(20, 0),
+      Domain: pdfReference(21, 0),
+      Range: pdfReference(22, 0),
+      C0: pdfReference(26, 0),
+      C1: pdfReference(23, 0),
+      N: pdfReference(25, 0),
+    });
+    const sampled = streamFunction(
+      0,
+      { Domain: pdfReference(21, 0), Size: pdfReference(27, 0), BitsPerSample: pdfReference(28, 0), Range: pdfReference(22, 0), Decode: pdfReference(29, 0) },
+      Uint8Array.of(0, 255),
+    );
+    const calculator = streamFunction(4, { Domain: pdfReference(21, 0), Range: pdfReference(22, 0) }, new TextEncoder().encode('{ dup mul }'));
+    expect([
+      createPdfFunction(exponential, resolve)([0.5]),
+      createPdfFunction(sampled, resolve)([0.25]),
+      createPdfFunction(calculator, resolve)([0.5]),
+    ]).toStrictEqual([[0.125], [0.75], [0.25]]);
+    expect(createPdfFunction(exponential, resolve).domain).toStrictEqual([0, 1]);
+  });
+
   it('executes calculator branches with a bounded operand stack', () => {
     const calculator = streamFunction(4, { Range: numbers([0, 1]) }, new TextEncoder().encode('{ dup 0.5 lt { dup mul } { 1 exch sub } ifelse }'));
     const evaluate = createPdfFunction(calculator);

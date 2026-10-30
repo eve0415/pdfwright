@@ -40,11 +40,6 @@ type SampledFunction = SampledCmykFunction;
 
 type ConvertedTint = ConvertedCmykFunction;
 
-interface TintEvaluator {
-  readonly evaluate: PdfFunction;
-  readonly domain: readonly number[];
-}
-
 interface SpotPlan {
   readonly name: Uint8Array;
   readonly original: Extract<PdfDirectObject, { kind: 'array' }>;
@@ -84,22 +79,10 @@ const invalid = (detail: string): never => {
   throw new ValidationError(detail, 'color-space');
 };
 
-const numeric = (value: PdfDirectObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real') return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
-  return invalid('tint function domain is not numeric');
-};
+const checkedDimensions = (evaluate: PdfFunction, dimensions: number): PdfFunction =>
+  evaluate.domain.length === dimensions * 2 ? evaluate : invalid('tint function Domain has the wrong dimensions');
 
-const functionDomain = (object: PdfDirectObject | PdfStream, dimensions: number): number[] => {
-  let dictionary: PdfDictionaryEntries | undefined = undefined;
-  if (object.kind === 'stream') ({ dictionary } = object);
-  else if (object.kind === 'dictionary') ({ entries: dictionary } = object);
-  const domain = dictionary?.get(pdfName('Domain').bytes);
-  if (domain?.kind !== 'array' || domain.items.length !== dimensions * 2) return invalid('tint function Domain has the wrong dimensions');
-  return domain.items.map(item => numeric(item));
-};
-
-const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'separation' | 'deviceN' }, dimensions: number): TintEvaluator => {
+const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'separation' | 'deviceN' }, dimensions: number): PdfFunction => {
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
   const resolve = (value: PdfDirectObject): PdfObject => {
@@ -115,9 +98,9 @@ const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'sep
     const data = decodedData(internals, object);
     if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
     const decoded: PdfStream = { kind: 'stream', dictionary: object.dictionary, data };
-    return { evaluate: createPdfFunction(decoded, resolve), domain: functionDomain(decoded, dimensions) };
+    return checkedDimensions(createPdfFunction(decoded, resolve), dimensions);
   }
-  return { evaluate: createPdfFunction(object, resolve), domain: functionDomain(object, dimensions) };
+  return checkedDimensions(createPdfFunction(object, resolve), dimensions);
 };
 
 const alternateSource = (space: SourceSpace): ColorSource | undefined => (space.kind === 'rgb' || space.kind === 'gray' ? space.source : undefined);
@@ -136,7 +119,7 @@ const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'sepa
   });
   const evaluate = (tints: readonly number[]): Float64Array => {
     const output = new Float64Array(4);
-    transform.convert(Float64Array.from(original.evaluate(tints)), output);
+    transform.convert(Float64Array.from(original(tints)), output);
     return output;
   };
   return sampleCmykFunction({ dimensions, domain: original.domain, evaluate, destination: context.options.outputProfile, grid: 17 });

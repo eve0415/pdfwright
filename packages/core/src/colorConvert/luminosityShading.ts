@@ -1,6 +1,5 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
@@ -77,7 +76,7 @@ const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefin
   return undefined;
 };
 
-const evaluator = (internals: DocumentInternals, value: PdfDirectObject): PdfFunction => {
+const evaluator = (internals: DocumentInternals, value: PdfDirectObject): ((input: readonly number[]) => number[]) => {
   if (value.kind !== 'array') return createPdfFunction(resolvedFunction(internals, value), child => resolvedFunction(internals, child));
   if (value.items.length !== 3) throw new ValidationError('luminosity shading Function array must have three entries', 'color-space');
   const children = value.items.map(item => createPdfFunction(resolvedFunction(internals, item), child => resolvedFunction(internals, child)));
