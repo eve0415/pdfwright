@@ -153,7 +153,8 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   if (intentReference !== undefined) document.set(intentReference, pdfDictionary(entries));
   const items: PdfDirectObject[] = [updated];
   for (const intent of existing) {
-    if (intent.matches && intent !== sameGts && intent.reference !== undefined) items.push(intent.reference);
+    // ISO 32000-1:2008, Table 28 and 7.3.10: OutputIntents holds output intent dictionaries, each written directly or as an indirect reference.
+    if (intent.matches && intent !== sameGts) items.push(intent.reference ?? pdfDictionary(intent.entries));
   }
   catalog.set(key('OutputIntents'), pdfArray(items));
   const catalogVersion = nameOf(catalog.get(key('Version')));

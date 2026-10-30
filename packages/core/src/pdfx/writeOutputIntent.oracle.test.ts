@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
-import { readTextString } from '../metadata/documentInfo.ts';
+import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
 
@@ -67,10 +67,20 @@ const withIntent = (bytes: Uint8Array) => {
   return { document, profileReference };
 };
 
+const subtypesOf = (document: ReturnType<typeof loadDocument>): (string | undefined)[] => {
+  const intents = document.catalog().get(pdfName('OutputIntents').bytes);
+  if (intents?.kind !== 'array') throw new Error('missing output intents');
+  return intents.items.map(item => {
+    const intent = item.kind === 'reference' ? document.get(item) : item;
+    const subtype = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    return subtype?.kind === 'name' ? new TextDecoder().decode(subtype.bytes) : undefined;
+  });
+};
+
 const setCatalogEntry = (
   document: ReturnType<typeof loadDocument>,
   name: string,
-  value: ReturnType<typeof pdfName> | ReturnType<typeof pdfDictionary>,
+  value: ReturnType<typeof pdfName> | ReturnType<typeof pdfDictionary> | ReturnType<typeof pdfArray>,
 ): void => {
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
@@ -117,6 +127,22 @@ describe('gts pdfx output intent', () => {
     expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: other, outputConditionIdentifier: 'FOGRA28' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'output-intent-conflict' }),
     );
+  });
+
+  it('keeps a direct output intent of another subtype that shares the profile', () => {
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const direct = new PdfDictionaryEntries([
+      [pdfName('Type').bytes, pdfName('OutputIntent')],
+      [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+      [pdfName('OutputConditionIdentifier').bytes, pdfTextString('FOGRA28')],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    setCatalogEntry(document, 'OutputIntents', pdfArray([pdfDictionary(direct)]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA28' });
+    expect([result.action, result.removedSubtypes]).toStrictEqual(['added', []]);
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(subtypesOf(reloaded)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
   });
 
   it('replaces conflicting entries of every subtype when asked', () => {
