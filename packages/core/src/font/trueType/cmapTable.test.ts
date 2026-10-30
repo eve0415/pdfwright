@@ -101,6 +101,24 @@ const cmapOf = (reading: CmapReading): TrueTypeCmap => {
 // A program with one cmap table of the given subtables.
 const programWith = (subtables: readonly (readonly [number, number, readonly number[]])[]): Uint8Array => program([['cmap', cmapTable(subtables)]]);
 
+// Count byte reads through every subarray of the same font program.
+const countReads = (input: Uint8Array) => {
+  let reads = 0;
+  const counted = (data: Uint8Array): Uint8Array =>
+    new Proxy(data, {
+      get(target, property): number | Uint8Array['subarray'] | undefined {
+        if (property === 'subarray') return (start?: number, end?: number): Uint8Array => counted(target.subarray(start, end));
+        if (property === 'length') return target.length;
+        if (typeof property === 'string' && /^\d+$/u.test(property)) {
+          reads++;
+          return target[Number(property)];
+        }
+        throw new Error('unexpected font byte access');
+      },
+    });
+  return { program: counted(input), reads: () => reads };
+};
+
 describe('embedded TrueType cmap tables', () => {
   it('refuses unsorted or overlapping format 4 segments and format 12 groups', () => {
     const cases = [
@@ -165,6 +183,58 @@ describe('embedded TrueType cmap tables', () => {
       undefined,
     ]);
     expect([cmap.characters(2), cmap.characters(9), cmap.characters(10)]).toStrictEqual([[0x41], [0x3000], []]);
+  });
+
+  it.each([
+    {
+      format: 4,
+      encoding: 1,
+      subtable: format4([{ start: 0x41, end: 0x60, delta: 0, glyphs: Array.from({ length: 32 }, (_, index) => index + 1) }]),
+      characters: Array.from({ length: 32 }, (_, index) => 0x41 + index),
+    },
+    {
+      format: 12,
+      encoding: 10,
+      subtable: format12(Array.from({ length: 32 }, (_, index) => [0x10000 + 2 * index, 0x10000 + 2 * index, index + 1] as const)),
+      characters: Array.from({ length: 32 }, (_, index) => 0x10000 + 2 * index),
+    },
+  ])('builds the format $format reverse index once across distinct glyphs', ({ encoding, subtable, characters }) => {
+    const input = programWith([[3, encoding, subtable]]);
+    const counted = countReads(input);
+    const cmap = cmapOf(readTrueTypeCmap(counted.program));
+    const [first] = characters;
+    expect(cmap.characters(1)).toStrictEqual([first]);
+    const indexedReads = counted.reads();
+    expect(indexedReads).toBeLessThanOrEqual(4 * input.length);
+    for (const [index, character] of characters.entries()) {
+      expect(cmap.characters(index + 1)).toStrictEqual([character]);
+    }
+    for (let glyph = characters.length + 1; glyph <= 4 * characters.length; glyph++) {
+      expect(cmap.characters(glyph)).toStrictEqual([]);
+    }
+    expect(cmap.characters(1)).toStrictEqual([first]);
+    expect(counted.reads()).toBe(indexedReads);
+  });
+
+  it('reverses format 4 aliases, glyph arrays and wrapped deltas', () => {
+    const subtable = format4([
+      { start: 0x41, end: 0x43, delta: -0x3f },
+      { start: 0x100, end: 0x102, delta: 2, glyphs: [0xffff, 0, 2] },
+      { start: 0x200, end: 0x200, delta: -0x1fe },
+      { start: 0xfffd, end: 0xfffe, delta: 2 },
+    ]);
+    const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 1, subtable]])));
+    expect([0, 1, 2, 3, 4, 5, 0xffff].map(glyph => cmap.characters(glyph))).toStrictEqual([[], [0x100], [0x41, 0x200], [0x42], [0x43, 0x102], [], [0xfffd]]);
+  });
+
+  it('reverses format 12 aliases across groups and supplementary planes', () => {
+    const subtable = format12([
+      [0x41, 0x43, 7],
+      [0x10000, 0x10002, 8],
+      [0x10ffff, 0x10ffff, 7],
+    ]);
+    const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 10, subtable]])));
+    expect([7, 8, 9, 10, 11].map(glyph => cmap.characters(glyph))).toStrictEqual([[0x41, 0x10ffff], [0x42, 0x10000], [0x43, 0x10001], [0x10002], []]);
   });
 
   it('prefers a (3, 10) format 12 subtable, which reaches beyond the Basic Multilingual Plane', () => {
