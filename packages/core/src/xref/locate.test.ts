@@ -51,4 +51,17 @@ describe('header and startxref location', () => {
     const text = `${' '.repeat(100)}xref\n0 1\n${' '.repeat(50)}7 0 obj\n<</Type/XRef>>\n8 0 obj\n<</Type/Page>>`;
     expect(sectionStartNear(source(text), 187)).toStrictEqual({ offset: 159, corrected: true });
   });
+
+  it.each([0, 7, 1024])('recognises a large cross-reference stream dictionary with %i-byte chunks', chunk => {
+    const index = Array.from({ length: 2400 }, (_, number) => `${String(3 * number)} 1`).join(' ');
+    const text = `${' '.repeat(100)}7 0 obj\n<</Index[${index}]/Type/XRef>>`;
+    const bytes = source(text, chunk);
+    expect(sectionStartNear(bytes, 100)).toStrictEqual({ offset: 100, corrected: false });
+    expect(sectionStartNear(bytes, 98)).toStrictEqual({ offset: 100, corrected: false });
+    expect(sectionStartNear(bytes, 107)).toStrictEqual({ offset: 100, corrected: true });
+    const truncated = source(text.slice(0, -1), chunk);
+    const page = source(text.replace('/Type/XRef', '/Type/Page'), chunk);
+    expect(sectionStartNear(truncated, 100)).toBeUndefined();
+    expect(sectionStartNear(page, 100)).toBeUndefined();
+  });
 });

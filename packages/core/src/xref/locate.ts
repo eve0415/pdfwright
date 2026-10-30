@@ -1,5 +1,5 @@
 import type { ByteSource } from '../parse/byteSource.ts';
-import type { LexContext, LexWindow } from '../parse/lexer.ts';
+import type { LexContext } from '../parse/lexer.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -125,43 +125,40 @@ const isXrefStreamDictionary = (lexer: Lexer): boolean => {
   return type?.kind === 'name' && type.bytes.length === XREF_NAME.length && matchesAt(type.bytes, 0, XREF_NAME);
 };
 
-const startsStreamSection = (window: LexWindow, local: number): boolean => {
-  const lexer = new Lexer(window, local, quiet());
+const startsStreamSection = (source: ByteSource, offset: number): boolean => {
   try {
-    const number = lexer.next();
-    const generation = lexer.next();
-    const keyword = lexer.next();
-    if (number.start !== local || number.kind !== 'integer' || generation.kind !== 'integer' || keyword.kind !== 'keyword' || keyword.keyword !== 'obj') {
-      return false;
-    }
-    return isXrefStreamDictionary(lexer);
+    return source.parseAt(offset, quiet(), (window, local, context) => {
+      const lexer = new Lexer(window, local, context);
+      const number = lexer.next();
+      const generation = lexer.next();
+      const keyword = lexer.next();
+      if (number.start !== local || number.kind !== 'integer' || generation.kind !== 'integer' || keyword.kind !== 'keyword' || keyword.keyword !== 'obj') {
+        return false;
+      }
+      return isXrefStreamDictionary(lexer);
+    });
   } catch (error: unknown) {
-    // Only the start of a section is sought; bytes that do not parse, or run past the probed window, are not one.
+    // Incomplete windows are retried by parseAt; malformed or truncated objects are not section starts.
     if (error instanceof ParseError || error instanceof ResourceLimitError) return false;
     throw error;
   }
 };
 
 // A section starts with the keyword xref or with the header "n g obj" of a cross-reference stream.
-const startsSection = (window: LexWindow, local: number): boolean => {
-  const { bytes } = window;
-  if (local > 0 && isRegular(bytes[local - 1] ?? 0)) return false;
-  if (matchesAt(bytes, local, XREF)) return local + 4 >= bytes.length || !isRegular(bytes[local + 4] ?? 0);
-  return startsStreamSection(window, local);
+const startsSection = (source: ByteSource, offset: number): boolean => {
+  if (offset < 0 || offset >= source.length || isRegular(source.byteAt(offset - 1) ?? 0)) return false;
+  if (XREF.every((byte, index) => source.byteAt(offset + index) === byte)) return !isRegular(source.byteAt(offset + 4) ?? 0);
+  return startsStreamSection(source, offset);
 };
 
 /** Finds the cross-reference section at `offset`, after white space, or else the nearest one within 64 bytes. */
 export const sectionStartNear = (source: ByteSource, offset: number): SectionStart | undefined => {
-  const copied = source.copy(offset - CORRECTION, offset + 2 * CORRECTION + 4096);
-  // The copy is probed as if it were the whole file, so a header cut off at its end simply does not match.
-  const window: LexWindow = { bytes: copied.bytes, base: copied.base, final: true };
-  const local = offset - window.base;
-  let start = local;
-  while (start < window.bytes.length && isWhitespace(window.bytes[start] ?? 1)) start++;
-  if (startsSection(window, start)) return { offset: window.base + start, corrected: false };
+  let start = offset;
+  while (start < source.length && isWhitespace(source.byteAt(start) ?? 1)) start++;
+  if (startsSection(source, start)) return { offset: start, corrected: false };
   for (let distance = 1; distance <= CORRECTION; distance++) {
-    for (const candidate of [local - distance, local + distance]) {
-      if (candidate >= 0 && candidate < window.bytes.length && startsSection(window, candidate)) return { offset: window.base + candidate, corrected: true };
+    for (const candidate of [offset - distance, offset + distance]) {
+      if (startsSection(source, candidate)) return { offset: candidate, corrected: true };
     }
   }
   return undefined;
