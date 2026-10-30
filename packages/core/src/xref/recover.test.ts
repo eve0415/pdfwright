@@ -37,6 +37,16 @@ const rootOf = (reconstruction: Reconstruction): string[] =>
     return root?.kind === 'reference' ? `${String(root.objectNumber)} R` : '-';
   });
 
+class CountedBytes extends Uint8Array {
+  searchedBytes = 0;
+
+  override indexOf(searchElement: number, fromIndex = 0): number {
+    const found = super.indexOf(searchElement, fromIndex);
+    this.searchedBytes += (found === -1 ? this.length : found + 1) - Math.min(fromIndex, this.length);
+    return found;
+  }
+}
+
 describe('cross-reference reconstruction', () => {
   it('finds objects and trailers without any cross-reference section', () => {
     const text = '%PDF-1.4\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n2 0 obj <</Type/Pages/Kids[]/Count 0>> endobj\ntrailer\n<</Root 1 0 R>>\n%%EOF';
@@ -52,6 +62,31 @@ describe('cross-reference reconstruction', () => {
     const text = `%PDF-1.4\n1 0 obj\n${streamBody('', '5 0 obj (inside) endobj trailer <</Root 5 0 R>>')}\nendobj\n`;
     const { reconstruction } = reconstruct(text);
     expect([located(reconstruction).map(([number]) => number), reconstruction.trailers]).toStrictEqual([[1], []]);
+  });
+
+  it('bounds searched bytes when streams lack their own endstream', () => {
+    for (const count of [128, 256, 512]) {
+      const fragments = Array.from({ length: count }, (_, index) => `${String(index + 1)} 0 obj<<>>stream\neeee\n`);
+      const bytes = new CountedBytes(latin1Bytes(`%PDF-1.7\n${fragments.join('')}endstream X\n`));
+      const reconstruction = reconstructIndex(new ByteSource(bytes), {
+        warn: () => {
+          // Only reconstruction and its search cost are under test.
+        },
+        names: new Map(),
+        maxNesting: 256,
+        maxDecodedBytes: 1_048_576,
+        maxObjectStreamMembers: 100,
+      });
+      expect(reconstruction.unreadable).toHaveLength(count);
+      expect(bytes.searchedBytes).toBeLessThanOrEqual(8 * bytes.length);
+    }
+  });
+
+  it('preserves the first-two-candidate rule for recovered stream extents', () => {
+    const preferred = reconstruct('1 0 obj<<>>stream\nx endstream y\n2 0 obj (data) endobj\nendstream endobj\n3 0 obj 5 endobj');
+    expect(located(preferred.reconstruction).map(([number]) => number)).toStrictEqual([1, 3]);
+    const fallback = reconstruct('1 0 obj<<>>stream\nx\nendstream\n2 0 obj (next) endobj\nendstream X\nendstream endobj');
+    expect(located(fallback.reconstruction).map(([number]) => number)).toStrictEqual([1, 2]);
   });
 
   it('prefers the later copy and reports copies that differ', () => {

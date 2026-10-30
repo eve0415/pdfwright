@@ -77,12 +77,25 @@ const indexOfPattern = (bytes: Uint8Array, pattern: readonly number[], from: num
 };
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
+const ENDOBJ = [0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a];
 
-const lastIndexOfPattern = (bytes: Uint8Array, pattern: readonly number[]): number => {
-  for (let position = bytes.lastIndexOf(pattern[0] ?? 0); position >= 0; position = position === 0 ? -1 : bytes.lastIndexOf(pattern[0] ?? 0, position - 1)) {
-    if (matchesAt(bytes, position, pattern)) return position;
-  }
-  return -1;
+interface IndexedEndstream {
+  readonly position: number;
+  readonly recovered: number;
+}
+
+const indexEndstreams = (source: ByteSource, bytes: Uint8Array): IndexedEndstream[] => {
+  const positions = source.indexesOf(ENDSTREAM);
+  // Check following white space once too: many damaged streams can share the same candidate.
+  const preferred = positions.map(position => {
+    let after = position + ENDSTREAM.length;
+    while (isWhitespace(bytes[after] ?? -1)) after++;
+    return matchesAt(bytes, after, ENDOBJ);
+  });
+  return positions.map((position, index) => ({
+    position,
+    recovered: preferred[index] === false && preferred[index + 1] === true ? (positions[index + 1] ?? position) : position,
+  }));
 };
 
 const isBoundary = (byte: number | undefined): boolean => byte === undefined || !isRegular(byte);
@@ -138,14 +151,25 @@ class Scanner {
   /** Object numbers of "n g obj" headers whose objects do not parse. */
   readonly unreadable = new Set<number>();
 
-  private readonly lastEndstream: number;
+  private readonly endstreams: readonly IndexedEndstream[];
 
   constructor(source: ByteSource, context: ObjectStreamContext) {
     // A reconstruction scans one contiguous buffer; a source held as several segments is joined for it.
     this.bytes = source.segments.length === 1 ? (source.segments[0] ?? new Uint8Array()) : source.copy(0, source.length).bytes;
-    this.lastEndstream = lastIndexOfPattern(this.bytes, ENDSTREAM);
     this.source = new ByteSource(this.bytes);
+    this.endstreams = indexEndstreams(this.source, this.bytes);
     this.context = context;
+  }
+
+  private findEndstream(dataStart: number): number | undefined {
+    let low = 0;
+    let high = this.endstreams.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if ((this.endstreams[middle]?.position ?? 0) < dataStart) low = middle + 1;
+      else high = middle;
+    }
+    return this.endstreams[low]?.recovered;
   }
 
   private add(candidate: Candidate): void {
@@ -157,7 +181,7 @@ class Scanner {
   private parseObjectAt(offset: number): ParsedIndirectObject | undefined {
     try {
       return this.source.parseAt(offset, quiet(), (window, local, context) =>
-        parseIndirectObject(window, local, { ...context, maxNesting: this.context.maxNesting, lastEndstream: this.lastEndstream }),
+        parseIndirectObject(window, local, { ...context, maxNesting: this.context.maxNesting, findEndstream: start => this.findEndstream(start) }),
       );
     } catch (error: unknown) {
       // A match that does not parse as an object is not one; the scan goes on after its keyword.
