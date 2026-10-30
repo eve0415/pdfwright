@@ -8,6 +8,7 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 import type { ResourceVisit } from '../resourceGraph/walkResources.ts';
+import type { RowMatte } from './imageRows.ts';
 import type { FormUse, RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
@@ -28,6 +29,7 @@ import { pdfArray, pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
+import { deleteDiscarded } from './discardedObjects.ts';
 import { convertImageRow, readImageSample } from './imageRows.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { checkConversionRefusals } from './preflight.ts';
@@ -52,6 +54,7 @@ interface ImagePlan {
   readonly stencil: StreamProducer | undefined;
   readonly outputBits: number | undefined;
   readonly explicitColorSpace: PdfDirectObject | undefined;
+  readonly matte: SoftMaskMatte | undefined;
 }
 
 interface ImageScan {
@@ -69,6 +72,7 @@ interface EncodedImageData {
   readonly data: StreamProducer;
   readonly bits: number;
   readonly stencil: StreamProducer | undefined;
+  readonly matte: SoftMaskMatte | undefined;
 }
 
 interface ImageGeometry {
@@ -79,6 +83,16 @@ interface ImageGeometry {
   readonly inputRow: number;
   readonly outputBits: number;
   readonly ranges: readonly number[] | undefined;
+  readonly matte: SoftMaskMatte | undefined;
+}
+
+/** A soft mask whose Matte says the parent image's samples were preblended with that colour. */
+interface SoftMaskMatte {
+  readonly reference: PdfReference;
+  readonly mask: PdfStream;
+  readonly values: readonly number[];
+  readonly geometry: ImageGeometry;
+  readonly decode: readonly number[];
 }
 
 const XOBJECT = pdfName('XObject').bytes;
@@ -90,6 +104,8 @@ const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const DECODE = pdfName('Decode').bytes;
 const IMAGE_MASK = pdfName('ImageMask').bytes;
 const MASK = pdfName('Mask').bytes;
+const SOFT_MASK = pdfName('SMask').bytes;
+const MATTE = pdfName('Matte').bytes;
 const TYPE = pdfName('Type').bytes;
 const BITS = pdfName('BitsPerComponent').bytes;
 const WIDTH = pdfName('Width').bytes;
@@ -224,22 +240,61 @@ const stencilRow = (row: Uint8Array, config: { width: number; channels: number; 
   return stencil;
 };
 
+const imageBits = (scan: ImageScan, image: PdfStream): number => {
+  const bits = imageNumber(scan, image, BITS);
+  if (![1, 2, 4, 8, 16].includes(bits)) return invalid('image BitsPerComponent is unsupported');
+  return bits;
+};
+
+const softMaskMatte = (scan: ImageScan, image: PdfStream, parent: { width: number; height: number; channels: number }): SoftMaskMatte | undefined => {
+  const reference = image.dictionary.get(SOFT_MASK);
+  const mask = deref(scan, reference);
+  if (mask?.kind !== 'stream') return undefined;
+  const matte = deref(scan, mask.dictionary.get(MATTE));
+  if (matte === undefined) return undefined;
+  if (reference?.kind !== 'reference') return invalid('soft-mask image must be indirect');
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte has one component per component of the parent image's colour space, and a preblended image and its soft mask have the same Width and Height.
+  if (matte.kind !== 'array' || matte.items.length !== parent.channels) return invalid('soft-mask Matte does not match the image colour space');
+  const values = matte.items.map(item => {
+    const component = deref(scan, item);
+    if (component?.kind !== 'integer' && component?.kind !== 'real') return invalid('soft-mask Matte entry is not numeric');
+    if (typeof component.value !== 'number') return invalid('soft-mask Matte entry is not numeric');
+    return component.value;
+  });
+  const width = imageNumber(scan, mask, WIDTH);
+  const height = imageNumber(scan, mask, HEIGHT);
+  if (width !== parent.width || height !== parent.height) return invalid('preblended image and its soft mask differ in size');
+  const bits = imageBits(scan, mask);
+  const geometry: ImageGeometry = {
+    width,
+    height,
+    bits,
+    channels: 1,
+    inputRow: Math.ceil((width * bits) / 8),
+    outputBits: 8,
+    ranges: undefined,
+    matte: undefined,
+  };
+  return { reference, mask, values, geometry, decode: decodeArray(scan, mask, 1) ?? [0, 1] };
+};
+
 const imageGeometry = (scan: ImageScan, image: PdfStream, space: SourceSpace): ImageGeometry => {
   const width = imageNumber(scan, image, WIDTH);
   const height = imageNumber(scan, image, HEIGHT);
-  const bits = imageNumber(scan, image, BITS);
-  if (![1, 2, 4, 8, 16].includes(bits)) return invalid('image BitsPerComponent is unsupported');
+  const bits = imageBits(scan, image);
   const channels = space.kind === 'rgb' ? 3 : 1;
   const inputRow = Math.ceil((width * channels * bits) / 8);
   const outputBits = bits === 16 ? 16 : 8;
   const outputRowBytes = width * 4 * (outputBits / 8);
   const ranges = maskRanges(scan, image, { channels, bits });
   const maskRowBytes = ranges === undefined ? 0 : Math.ceil(width / 8);
-  const workingBytes = inputRow * 3 + outputRowBytes + maskRowBytes;
+  const matte = softMaskMatte(scan, image, { width, height, channels });
+  const alphaRowBytes = matte === undefined ? 0 : matte.geometry.inputRow * 3 + width * Float64Array.BYTES_PER_ELEMENT;
+  const workingBytes = inputRow * 3 + outputRowBytes + maskRowBytes + alphaRowBytes;
   if (!Number.isSafeInteger(inputRow * height) || !Number.isSafeInteger(workingBytes) || workingBytes > scan.internals.maxDecodedBytes) {
     throw new ResourceLimitError(`RGB image rows exceed maxDecodedBytes (${String(scan.internals.maxDecodedBytes)} bytes)`);
   }
-  return { width, height, bits, channels, inputRow, outputBits, ranges };
+  return { width, height, bits, channels, inputRow, outputBits, ranges, matte };
 };
 
 const imagePredictor = (scan: ImageScan, image: PdfStream): PredictorParameters => {
@@ -331,20 +386,48 @@ const imageRows = function* (scan: ImageScan, image: PdfStream, geometry: ImageG
   if (cursor.hasMore()) invalid('decoded image length does not match its dimensions');
 };
 
+const alphaRow = (row: Uint8Array, matte: SoftMaskMatte): Float64Array => {
+  const { width, bits } = matte.geometry;
+  const maximum = 2 ** bits - 1;
+  const start = matte.decode[0] ?? 0;
+  const end = matte.decode[1] ?? 1;
+  // ISO 32000-1:2008, 8.9.5.2 and 11.6.5.3: soft-mask samples map through the mask's Decode array to alpha.
+  return Float64Array.from({ length: width }, (_, pixel) => start + (readImageSample(row, pixel, bits) / maximum) * (end - start));
+};
+
+/** Pairs each image row with the matte and alpha its samples were preblended with. */
+const withMatte = function* (scan: ImageScan, rows: Iterable<Uint8Array>, matte: SoftMaskMatte | undefined): Generator<[Uint8Array, RowMatte | undefined]> {
+  if (matte === undefined) {
+    for (const row of rows) yield [row, undefined];
+    return;
+  }
+  const alphas = imageRows(scan, matte.mask, matte.geometry);
+  for (const row of rows) {
+    const alpha = alphas.next();
+    if (alpha.done === true) throw new ValidationError('soft-mask data is shorter than its image', 'color-space');
+    yield [row, { values: matte.values, alpha: alphaRow(alpha.value, matte) }];
+  }
+};
+
+const checkSoftMaskRows = (scan: ImageScan, matte: SoftMaskMatte | undefined): void => {
+  if (matte === undefined) return;
+  for (const row of imageRows(scan, matte.mask, matte.geometry)) void row;
+};
+
 const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
   const { space, reference } = target;
   const source = colorSource(space);
   if (source === undefined) return invalid('image colour space cannot be converted');
-  const { width, height, bits, channels, inputRow, outputBits, ranges } = imageGeometry(scan, image, space);
-  for (const row of imageRows(scan, image, { width, height, bits, channels, inputRow, outputBits, ranges })) void row;
+  const geometry = imageGeometry(scan, image, space);
+  const { width, bits, channels, outputBits, ranges, matte } = geometry;
+  for (const row of imageRows(scan, image, geometry)) void row;
+  checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source, reference });
   const decode = decodeArray(scan, image, channels);
-  const geometry = { width, height, bits, channels, inputRow, outputBits, ranges };
   const data: StreamProducer = function* () {
     const deflater = createDeflateStream();
-    for (const input of imageRows(scan, image, geometry)) {
-      const converted = convertImageRow(input, { width, channels, bits, transform, decode });
-      yield* deflater.push(converted);
+    for (const [input, rowMatte] of withMatte(scan, imageRows(scan, image, geometry), matte)) {
+      yield* deflater.push(convertImageRow(input, { width, channels, bits, transform, decode, matte: rowMatte }));
     }
     yield deflater.finish();
   };
@@ -356,7 +439,7 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
           for (const input of imageRows(scan, image, geometry)) yield* deflater.push(stencilRow(input, { width, channels, bits, ranges }));
           yield deflater.finish();
         };
-  return { data, bits: outputBits, stencil };
+  return { data, bits: outputBits, stencil, matte };
 };
 
 const jpegColorTransform = (scan: ImageScan, image: PdfStream): 0 | 1 | undefined => {
@@ -387,11 +470,15 @@ const transcodeJpegImage = (
     return invalid('JPEG frame geometry differs from the image dictionary');
   }
   for (const row of jpeg.rows()) void row;
+  const { matte } = geometry;
+  checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source: space.source, reference });
   const decode = decodeArray(scan, image, 3);
   const data: StreamProducer = function* () {
     const deflater = createDeflateStream();
-    for (const row of jpeg.rows()) yield* deflater.push(convertImageRow(row, { width: geometry.width, channels: 3, bits: 8, transform, decode }));
+    for (const [row, rowMatte] of withMatte(scan, jpeg.rows(), matte)) {
+      yield* deflater.push(convertImageRow(row, { width: geometry.width, channels: 3, bits: 8, transform, decode, matte: rowMatte }));
+    }
     yield deflater.finish();
   };
   const { ranges } = geometry;
@@ -403,7 +490,7 @@ const transcodeJpegImage = (
           for (const row of jpeg.rows()) yield* deflater.push(stencilRow(row, { width: geometry.width, channels: 3, bits: 8, ranges }));
           yield deflater.finish();
         };
-  return { data, bits: 8, stencil };
+  return { data, bits: 8, stencil, matte };
 };
 
 const planUntaggedJpx = (scan: ImageScan, target: { reference: PdfReference; image: PdfStream }): void => {
@@ -424,6 +511,7 @@ const planUntaggedJpx = (scan: ImageScan, target: { reference: PdfReference; ima
     stencil: undefined,
     outputBits: undefined,
     explicitColorSpace: undefined,
+    matte: undefined,
   });
 };
 
@@ -456,6 +544,7 @@ const planCompressedRgb = (
       stencil: converted.stencil,
       outputBits: converted.bits,
       explicitColorSpace: undefined,
+      matte: converted.matte,
     });
     return;
   }
@@ -473,6 +562,7 @@ const planCompressedRgb = (
     stencil: undefined,
     outputBits: undefined,
     explicitColorSpace,
+    matte: undefined,
   });
 };
 
@@ -516,6 +606,7 @@ const planImage = (scan: ImageScan, target: { reference: PdfReference; image: Pd
     stencil: converted.stencil,
     outputBits: converted.bits,
     explicitColorSpace: undefined,
+    matte: converted.matte,
   });
 };
 
@@ -598,8 +689,21 @@ const addStencil = (scan: ImageScan, plan: ImagePlan): PdfReference | undefined 
   return scan.internals.objects.addProduced(dictionary, plan.stencil);
 };
 
+// ISO 32000-1:2008, 11.6.5.3, Table 146: without Matte the image data is not preblended. A converted image holds unblended samples, so it gets a copy of its soft mask without Matte; the original stays for any image that still needs it.
+const unblendedSoftMask = (scan: ImageScan, matte: SoftMaskMatte, copies: Map<number, PdfReference>): PdfReference => {
+  const existing = copies.get(matte.reference.objectNumber);
+  if (existing !== undefined) return existing;
+  const dictionary = new PdfDictionaryEntries(matte.mask.dictionary.entries());
+  dictionary.delete(MATTE);
+  const copy = scan.document.object({ kind: 'stream', dictionary, data: matte.mask.data });
+  copies.set(matte.reference.objectNumber, copy);
+  return copy;
+};
+
 const applyPlans = (scan: ImageScan): ImageConversionReport => {
   const profileReferences = new Map<string, PdfReference>();
+  const softMaskCopies = new Map<number, PdfReference>();
+  const discarded: PdfReference[] = [];
   const keptRgbImages: { ref: PdfReference; filter: 'DCTDecode' | 'JPXDecode'; tagged: 'added' | 'existing' | 'jpx-colr' }[] = [];
   let converted = 0;
   let changed = false;
@@ -637,10 +741,15 @@ const applyPlans = (scan: ImageScan): ImageConversionReport => {
     dictionary.delete(DECODE);
     const stencil = addStencil(scan, plan);
     if (stencil !== undefined) dictionary.set(MASK, stencil);
+    if (plan.matte !== undefined) {
+      dictionary.set(SOFT_MASK, unblendedSoftMask(scan, plan.matte, softMaskCopies));
+      discarded.push(plan.matte.reference);
+    }
     scan.internals.objects.setProduced(plan.reference, dictionary, plan.converted);
     converted++;
     changed = true;
   }
+  if (discarded.length > 0) deleteDiscarded(scan.document, scan.internals, discarded);
   if (changed) scan.internals.objects.requireFullRewrite('color-conversion');
   return { converted, keptRgbImages };
 };
