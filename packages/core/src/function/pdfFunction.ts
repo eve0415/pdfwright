@@ -13,6 +13,7 @@ export interface PdfFunction {
   /** The function's Domain, a minimum and a maximum for each input. */
   readonly domain: readonly number[];
 }
+/** Turns an indirect reference in a function graph into the object it names, with a stream's data decoded; a function reader applies it to every reference it meets. */
 export type FunctionResolver = (value: PdfDirectObject) => PdfObject;
 
 const key = (name: string): Uint8Array => new TextEncoder().encode(name);
@@ -133,19 +134,14 @@ const evaluateExponential = (entries: FunctionEntries, domain: number[]): Evalua
     c0.map((start, index) => start + deterministicExp(clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0), exponent) * ((c1[index] ?? 0) - start));
 };
 
-const evaluateStitched = (
-  entries: FunctionEntries,
-  domain: number[],
-  context: { resolve: FunctionResolver; recurse: (item: PdfObject) => PdfFunction },
-): Evaluate => {
+const evaluateStitched = (entries: FunctionEntries, domain: number[], recurse: (item: PdfDirectObject) => PdfFunction): Evaluate => {
   // ISO 32000-1:2008, 7.10.4 and Table 41: intervals are half-open except the last.
-  const { resolve, recurse } = context;
   const functions = entries.entry('Functions');
   if (domain.length !== 2 || functions?.kind !== 'array' || functions.items.length === 0) throw new ParseError('invalid stitching function', 0);
   const bounds = entries.array('Bounds');
   const encode = entries.array('Encode');
   if (bounds.length !== functions.items.length - 1 || encode.length !== functions.items.length * 2) throw new ParseError('invalid stitching intervals', 0);
-  const subfunctions = functions.items.map(item => recurse(item.kind === 'reference' ? resolve(item) : item));
+  const subfunctions = functions.items.map(item => recurse(item));
   return input => {
     const x = clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0);
     const index = bounds.findIndex(bound => x < bound);
@@ -157,9 +153,7 @@ const evaluateStitched = (
   };
 };
 
-/** Parses and evaluates a direct PDF function object or a decoded function stream. */
-export const createPdfFunction = (object: PdfObject, resolve: FunctionResolver = value => value, depth = 0): PdfFunction => {
-  if (depth > 16) throw new ResourceLimitError('PDF function nesting exceeds 16');
+const buildFunction = (object: PdfObject, resolve: FunctionResolver, recurse: (item: PdfDirectObject) => PdfFunction): PdfFunction => {
   if (object.kind !== 'dictionary' && object.kind !== 'stream') throw new ParseError('PDF function must be a dictionary or stream', 0);
   const entry = entryReader(object.kind === 'stream' ? object.dictionary : object.entries, resolve);
   const array = (name: string): number[] => numberArray(entry(name), name, resolve);
@@ -176,7 +170,7 @@ export const createPdfFunction = (object: PdfObject, resolve: FunctionResolver =
   const evaluate: Evaluate = (() => {
     if (type === 0 && object.kind === 'stream' && range !== undefined) return evaluateSampled(entries, object.data, { domain, range });
     if (type === 2) return evaluateExponential(entries, domain);
-    if (type === 3) return evaluateStitched(entries, domain, { resolve, recurse: item => createPdfFunction(item, resolve, depth + 1) });
+    if (type === 3) return evaluateStitched(entries, domain, recurse);
     if (type === 4 && object.kind === 'stream' && range !== undefined) return createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
     throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
   })();
@@ -189,3 +183,68 @@ export const createPdfFunction = (object: PdfObject, resolve: FunctionResolver =
   };
   return Object.assign(evaluateClipped, { domain });
 };
+
+const MAX_NESTING = 16;
+const MAX_FUNCTIONS = 65_536;
+const BUILDING = 'building';
+
+/** A built function and the number of stitching levels below it. */
+interface Built {
+  readonly fn: PdfFunction;
+  readonly height: number;
+}
+
+/** Builds PDF functions from function objects or references to them, sharing one resolver, and builds each indirect function once however many functions refer to it. */
+export type PdfFunctionReader = (value: PdfObject) => PdfFunction;
+
+/**
+ * Creates a reader whose functions share every function object they reach, so a function graph costs one build per object.
+ * A reader throws ResourceLimitError when its functions nest deeper than 16, refer to themselves, or need more than 65,536 function objects in all.
+ */
+export const createPdfFunctionReader = (resolve: FunctionResolver = value => value): PdfFunctionReader => {
+  const byReference = new Map<string, Built | typeof BUILDING>();
+  const shared = new WeakMap<PdfObject, Built>();
+  let count = 0;
+  const reuse = (built: Built, depth: number): Built => {
+    if (depth + built.height > MAX_NESTING) throw new ResourceLimitError(`PDF function nesting exceeds ${String(MAX_NESTING)}`);
+    return built;
+  };
+  const read = (value: PdfObject, depth: number): Built => {
+    if (depth > MAX_NESTING) throw new ResourceLimitError(`PDF function nesting exceeds ${String(MAX_NESTING)}`);
+    if (value.kind === 'reference') {
+      // ISO 32000-1:2008, 7.3.10: an indirect object is one object however many references name it, so its function is built once.
+      const id = `${String(value.objectNumber)} ${String(value.generation)}`;
+      const known = byReference.get(id);
+      if (known === BUILDING) throw new ResourceLimitError('PDF function refers to itself');
+      if (known !== undefined) return reuse(known, depth);
+      const object = resolve(value);
+      if (object.kind === 'reference') throw new ParseError('PDF function reference does not resolve to an object', 0);
+      byReference.set(id, BUILDING);
+      try {
+        const built = read(object, depth);
+        byReference.set(id, built);
+        return built;
+      } catch (error) {
+        byReference.delete(id);
+        throw error;
+      }
+    }
+    const known = shared.get(value);
+    if (known !== undefined) return reuse(known, depth);
+    count += 1;
+    if (count > MAX_FUNCTIONS) throw new ResourceLimitError(`PDF function graph needs more than ${String(MAX_FUNCTIONS)} function objects`);
+    let height = 0;
+    const fn = buildFunction(value, resolve, item => {
+      const child = read(item, depth + 1);
+      height = Math.max(height, child.height + 1);
+      return child.fn;
+    });
+    const built = { fn, height };
+    shared.set(value, built);
+    return built;
+  };
+  return value => read(value, 0).fn;
+};
+
+/** Parses and evaluates a PDF function object, a decoded function stream, or a reference that the resolver turns into one. */
+export const createPdfFunction = (object: PdfObject, resolve: FunctionResolver = value => value): PdfFunction => createPdfFunctionReader(resolve)(object);

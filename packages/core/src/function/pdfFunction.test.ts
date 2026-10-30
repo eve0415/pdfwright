@@ -2,10 +2,11 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { md5 } from '../hash/md5.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
-import { createPdfFunction } from './pdfFunction.ts';
+import { createPdfFunction, createPdfFunctionReader } from './pdfFunction.ts';
 
 const key = (name: string): Uint8Array => new TextEncoder().encode(name);
 const numbers = (values: number[]): ReturnType<typeof pdfArray> => pdfArray(values.map(value => pdfReal(value)));
@@ -30,6 +31,36 @@ const resolveObject = (objects: ReadonlyMap<number, PdfDirectObject>, value: Pdf
   const resolved = objects.get(value.objectNumber);
   if (resolved === undefined) throw new Error('missing test object');
   return resolved;
+};
+
+// Objects 2 to levels + 1 are stitching functions that each refer four times to the object below, and object 1 is a Type 2 function.
+const sharedChain = (levels: number): Map<number, PdfDirectObject> => {
+  const objects = new Map<number, PdfDirectObject>([[1, functionObject(2, { C0: numbers([0]), C1: numbers([1]), N: pdfInteger(1) })]]);
+  for (let level = 1; level <= levels; level++) {
+    const below = pdfReference(level, 0);
+    objects.set(
+      level + 1,
+      functionObject(3, { Functions: pdfArray([below, below, below, below]), Bounds: numbers([0.25, 0.5, 0.75]), Encode: numbers([0, 1, 0, 1, 0, 1, 0, 1]) }),
+    );
+  }
+  return objects;
+};
+
+// A stitching function that splits [0 1] evenly between its subfunctions.
+const evenStitching = (children: PdfDirectObject[]): ReturnType<typeof pdfDictionary> => {
+  const bounds = numbers(Array.from({ length: children.length - 1 }, (_, index) => (index + 1) / children.length));
+  const encode = numbers(children.flatMap(() => [0, 1]));
+  return functionObject(3, { Functions: pdfArray(children), Bounds: bounds, Encode: encode });
+};
+
+const countingResolver = (objects: ReadonlyMap<number, PdfDirectObject>) => {
+  const resolved: number[] = [];
+  const resolve = (value: PdfDirectObject): PdfObject => {
+    if (value.kind === 'reference') resolved.push(value.objectNumber);
+    if (resolved.length > 1000) throw new Error('resolved more than 1000 references');
+    return resolveObject(objects, value);
+  };
+  return { resolved, resolve };
 };
 
 describe('pdf functions', () => {
@@ -114,6 +145,48 @@ describe('pdf functions', () => {
       createPdfFunction(calculator, resolve)([0.5]),
     ]).toStrictEqual([[0.125], [0.75], [0.25]]);
     expect(createPdfFunction(exponential, resolve).domain).toStrictEqual([0, 1]);
+  });
+
+  it('builds each indirect function once however often the graph refers to it', () => {
+    const objects = sharedChain(12);
+    const { resolved, resolve } = countingResolver(objects);
+    const evaluate = createPdfFunction(resolveObject(objects, pdfReference(13, 0)), resolve);
+    expect([evaluate([0.3]), resolved.toSorted((a, b) => a - b)]).toStrictEqual([
+      [expect.closeTo(0.3 * 4 ** 12 - Math.floor(0.3 * 4 ** 12), 6)],
+      Array.from({ length: 12 }, (_, index) => index + 1),
+    ]);
+  });
+
+  it('shares built functions between the functions one reader builds', () => {
+    const objects = sharedChain(8);
+    const { resolved, resolve } = countingResolver(objects);
+    const read = createPdfFunctionReader(resolve);
+    const channels = [
+      pdfReference(9, 0),
+      pdfReference(9, 0),
+      functionObject(3, { Functions: pdfArray([pdfReference(8, 0)]), Bounds: numbers([]), Encode: numbers([0, 1]) }),
+    ].map(value => read(value));
+    expect([channels.map(channel => channel([0.5])[0]), resolved.length]).toStrictEqual([[0, 0, 0], 9]);
+  });
+
+  it('limits nesting through functions built earlier', () => {
+    const objects = sharedChain(16);
+    const read = createPdfFunctionReader(value => resolveObject(objects, value));
+    expect(read(pdfReference(17, 0))([0.5])).toStrictEqual([0]);
+    expect(() => read(evenStitching([pdfReference(17, 0)]))).toThrow(ResourceLimitError);
+  });
+
+  it('limits the number of functions one graph builds', () => {
+    const children = Array.from({ length: 65_536 }, (_, index) => functionObject(2, { C0: numbers([index]), N: pdfInteger(1) }));
+    const atLimit = evenStitching(children.slice(1));
+    expect(createPdfFunction(atLimit)([0])).toStrictEqual([1]);
+    expect(() => createPdfFunction(evenStitching(children))).toThrow(ResourceLimitError);
+  });
+
+  it('rejects a function that refers to itself', () => {
+    const objects = new Map<number, PdfDirectObject>([[1, evenStitching([pdfReference(1, 0)])]]);
+    const resolve = (value: PdfDirectObject): PdfObject => resolveObject(objects, value);
+    expect(() => createPdfFunction(resolve(pdfReference(1, 0)), resolve)).toThrow(ResourceLimitError);
   });
 
   it('executes calculator branches with a bounded operand stack', () => {

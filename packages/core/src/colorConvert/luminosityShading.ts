@@ -8,7 +8,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { createPdfFunction } from '../function/pdfFunction.ts';
+import { createPdfFunctionReader } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
 
@@ -77,9 +77,10 @@ const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefin
 };
 
 const evaluator = (internals: DocumentInternals, value: PdfDirectObject): ((input: readonly number[]) => number[]) => {
-  if (value.kind !== 'array') return createPdfFunction(resolvedFunction(internals, value), child => resolvedFunction(internals, child));
+  const read = createPdfFunctionReader(item => resolvedFunction(internals, item));
+  if (value.kind !== 'array') return read(value);
   if (value.items.length !== 3) throw new ValidationError('luminosity shading Function array must have three entries', 'color-space');
-  const children = value.items.map(item => createPdfFunction(resolvedFunction(internals, item), child => resolvedFunction(internals, child)));
+  const children = value.items.map(item => read(item));
   return input => children.map(child => child(input)[0] ?? 0);
 };
 

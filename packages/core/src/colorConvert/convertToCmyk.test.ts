@@ -108,3 +108,27 @@ describe('nested stitching functions', () => {
     ).toStrictEqual({ shadings: 1, meshes: 0, separations: 0 });
   });
 });
+
+// Objects 7 to levels + 6 are stitching functions that each refer four times to the object below, and object 6 is a Type 2 function.
+const sharedChain = (levels: number, outputs: number): TestObject[] => [
+  { number: 6, body: `<</FunctionType 2/Domain[0 1]/C0[${' 0'.repeat(outputs)}]/C1[${' 1'.repeat(outputs)}]/N 1>>` },
+  ...Array.from({ length: levels }, (_, index) => {
+    const below = `${String(index + 6)} 0 R`;
+    return {
+      number: index + 7,
+      body: `<</FunctionType 3/Domain[0 1]/Functions[${below} ${below} ${below} ${below}]/Bounds[0.25 0.5 0.75]/Encode[0 1 0 1 0 1 0 1]>>`,
+    };
+  }),
+];
+
+describe('shared function subtrees', () => {
+  it('converts an axial shading whose Function array shares one deep stitching graph', () => {
+    const shading = { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function[22 0 R 22 0 R 22 0 R]>>' };
+    expect(convert('/Shading<</Sh 5 0 R>>', '/Sh sh', [shading, ...sharedChain(16, 1)])).toStrictEqual({ shadings: 1, meshes: 0, separations: 0 });
+  });
+
+  it('converts an axial stitching function whose subfunctions share one deep stitching graph', () => {
+    const shading = { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 22 0 R>>' };
+    expect(convert('/Shading<</Sh 5 0 R>>', '/Sh sh', [shading, ...sharedChain(16, 3)])).toStrictEqual({ shadings: 1, meshes: 0, separations: 0 });
+  });
+});

@@ -1,7 +1,7 @@
 import type { ColorSource } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
+import type { PdfFunction, PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SampledCmykFunction } from './sampleCmykFunction.ts';
@@ -13,7 +13,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { createPdfFunction } from '../function/pdfFunction.ts';
+import { createPdfFunctionReader } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
@@ -82,35 +82,34 @@ const invalid = (detail: string): never => {
 const checkedDimensions = (evaluate: PdfFunction, dimensions: number): PdfFunction =>
   evaluate.domain.length === dimensions * 2 ? evaluate : invalid('tint function Domain has the wrong dimensions');
 
-const tintFunction = (document: LoadedDocument, tint: SourceSpace & { kind: 'separation' | 'deviceN' }, dimensions: number): PdfFunction => {
+const decodedTint = (document: LoadedDocument, object: PdfObject): PdfObject => {
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
-  const resolve = (value: PdfDirectObject): PdfObject => {
+  if (object.kind !== 'stream') return object;
+  const data = decodedData(internals, object);
+  if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
+  const decoded: PdfStream = { kind: 'stream', dictionary: object.dictionary, data };
+  return decoded;
+};
+
+const functionReader = (document: LoadedDocument): PdfFunctionReader => {
+  const internals = internalsOf(document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  return createPdfFunctionReader(value => {
     const child = internals.objects.deref(value);
     if (child === undefined) return invalid('tint function is missing');
-    if (child.kind !== 'stream') return child;
-    const data = decodedData(internals, child);
-    if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
-    return { kind: 'stream', dictionary: child.dictionary, data };
-  };
-  const object = tint.tint;
-  if (object.kind === 'stream') {
-    const data = decodedData(internals, object);
-    if (typeof data === 'string') return invalid(`tint function cannot be decoded: ${data}`);
-    const decoded: PdfStream = { kind: 'stream', dictionary: object.dictionary, data };
-    return checkedDimensions(createPdfFunction(decoded, resolve), dimensions);
-  }
-  return checkedDimensions(createPdfFunction(object, resolve), dimensions);
+    return decodedTint(document, child);
+  });
 };
 
 const alternateSource = (space: SourceSpace): ColorSource | undefined => (space.kind === 'rgb' || space.kind === 'gray' ? space.source : undefined);
 
-const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): SampledFunction => {
+const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }, read: PdfFunctionReader): SampledFunction => {
   const dimensions = space.kind === 'separation' ? 1 : space.names.length;
   if (dimensions > 4) throw new UnsupportedFeatureError('DeviceN has more than four colourants', 'device-n-components');
   const source = alternateSource(space.alternate);
   if (source === undefined) return invalid('spot alternate is not a convertible RGB or gray space');
-  const original = tintFunction(context.document, space, dimensions);
+  const original = checkedDimensions(read(decodedTint(context.document, space.tint)), dimensions);
   const intent = context.options.intent === undefined || context.options.intent === 'document' ? 'relativeColorimetric' : context.options.intent;
   const transform = createColorTransform(source, context.options.outputProfile, {
     intent,
@@ -125,9 +124,9 @@ const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'sepa
   return sampleCmykFunction({ dimensions, domain: original.domain, evaluate, destination: context.options.outputProfile, grid: 17 });
 };
 
-const stitchedFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): StitchedCmykFunction => {
+const stitchedFunction = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }, read: PdfFunctionReader): StitchedCmykFunction => {
   if (space.kind !== 'separation') return invalid('DeviceN stitching functions are unsupported');
-  return stitchCmykFunction(context.document, space.tint, child => sampleFunction(context, { ...space, tint: child }));
+  return stitchCmykFunction(context.document, space.tint, child => sampleFunction(context, { ...space, tint: child }, read));
 };
 
 const convertedTint = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): ConvertedTint => {
@@ -136,7 +135,8 @@ const convertedTint = (context: SpotContext, space: SourceSpace & { kind: 'separ
   if (tint.kind === 'dictionary') ({ entries } = tint);
   else if (tint.kind === 'stream') ({ dictionary: entries } = tint);
   const type = entries?.get(pdfName('FunctionType').bytes);
-  return type?.kind === 'integer' && type.value === 3 ? stitchedFunction(context, space) : sampleFunction(context, space);
+  const read = functionReader(context.document);
+  return type?.kind === 'integer' && type.value === 3 ? stitchedFunction(context, space, read) : sampleFunction(context, space, read);
 };
 
 const checkNChannel = (context: SpotContext, original: Extract<PdfDirectObject, { kind: 'array' }>): void => {

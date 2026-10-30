@@ -1,6 +1,7 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
+import type { PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ColorEntryState, RewriteColorOptions, ShadingUse } from './rewriteContent.ts';
@@ -12,7 +13,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { createPdfFunction } from '../function/pdfFunction.ts';
+import { createPdfFunctionReader } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
@@ -200,10 +201,13 @@ const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject 
   return decoded;
 };
 
+const functionReader = (document: LoadedDocument): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(document, item));
+
 const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
-  if (value.kind !== 'array') return createPdfFunction(decodedFunction(document, value), child => decodedFunction(document, child));
+  const read = functionReader(document);
+  if (value.kind !== 'array') return read(value);
   if (value.items.length !== channels) return invalid('shading Function array disagrees with its colour space');
-  const functions = value.items.map(item => createPdfFunction(decodedFunction(document, item), child => decodedFunction(document, child)));
+  const functions = value.items.map(item => read(item));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
 
@@ -225,11 +229,12 @@ const backgroundFor = (value: PdfDirectObject | undefined, channels: number, tra
   return pdfArray([...output].map(component => pdfReal(component)));
 };
 
-const stitchedShading = (context: ShadingContext, source: PdfObject, transform: ColorTransform): ConvertedCmykFunction =>
-  stitchCmykFunction(context.document, source, child => {
+const stitchedShading = (context: ShadingContext, source: PdfObject, transform: ColorTransform): ConvertedCmykFunction => {
+  const read = functionReader(context.document);
+  return stitchCmykFunction(context.document, source, child => {
     const decoded = decodedFunction(context.document, child);
     if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('stitching subfunction is invalid');
-    const fn = createPdfFunction(decoded, item => decodedFunction(context.document, item));
+    const fn = read(decoded);
     const { domain } = fn;
     if (domain.length !== 2) return invalid('stitching subfunction must take one input');
     const evaluate = (input: readonly number[]): Float64Array => {
@@ -239,6 +244,7 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
     };
     return sampleCmykFunction({ dimensions: 1, domain, evaluate, destination: context.options.outputProfile, minimumGrid: 2, midpointTolerance: 0.5 });
   });
+};
 
 const sampledShading = (config: {
   context: ShadingContext;
