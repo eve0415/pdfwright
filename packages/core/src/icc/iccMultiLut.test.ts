@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { matrixLutTag } from '../testing/iccProfileBytes.ts';
 
 import { readMultiLut } from './iccMultiLut.ts';
 
@@ -57,5 +58,11 @@ describe('icc multi-process lut tags', () => {
     expect(lut.clut?.values[31]).toBe(31);
     bytes[84] = 3;
     expect(() => readMultiLut(bytes, 0, bytes.length)).toThrow(InvalidProfileError);
+  });
+
+  it.each(['mAB ', 'mBA '] as const)('reads a %s matrix as e1..e9 coefficients followed by e10..e12 offsets', type => {
+    const elements = Array.from({ length: 12 }, (_, index) => (index + 1) / 16);
+    const bytes = matrixLutTag(type, elements);
+    expect(readMultiLut(bytes, 0, bytes.length).matrix).toStrictEqual({ m: elements.slice(0, 9), offset: elements.slice(9) });
   });
 });
