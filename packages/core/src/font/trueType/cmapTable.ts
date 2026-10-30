@@ -15,7 +15,7 @@ export interface TrueTypeCmap {
   readonly format: 4 | 12;
   /** The glyph index the subtable maps a Unicode code point to, or undefined when it maps it to nothing or to glyph 0. */
   readonly glyph: (codePoint: number) => number | undefined;
-  /** Unicode code points in the chosen subtable that map to a glyph index. */
+  /** Unicode code points in the chosen subtable that map to a glyph index, indexed once on the first reverse lookup. */
   readonly characters: (glyphIndex: number) => readonly number[];
   /** For a variation sequence of format 14: `default` when the base character's own glyph is used, the glyph index of a non-default variant, or undefined when the sequence is not listed. */
   readonly variant: (codePoint: number, selector: number) => number | 'default' | undefined;
@@ -48,8 +48,31 @@ const bySearch = <T extends { readonly start: number; readonly end: number }>(it
   return undefined;
 };
 
-// Format 4: segCountX2 at 6, then endCode[segCount], reservedPad, startCode[segCount], idDelta[segCount], idRangeOffset[segCount] and glyphIdArray.
-const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined) => {
+const reverseCharacters = <T extends { readonly start: number; readonly end: number }>(
+  ranges: readonly T[],
+  glyph: (range: T, codePoint: number) => number | undefined,
+): TrueTypeCmap['characters'] => {
+  let reverse: ReadonlyMap<number, readonly number[]> | undefined = undefined;
+  return glyphIndex => {
+    if (reverse === undefined) {
+      const index = new Map<number, number[]>();
+      for (const range of ranges) {
+        for (let codePoint = range.start; codePoint <= range.end; codePoint++) {
+          const mapped = glyph(range, codePoint);
+          if (mapped === undefined) continue;
+          const characters = index.get(mapped);
+          if (characters === undefined) index.set(mapped, [codePoint]);
+          else characters.push(codePoint);
+        }
+      }
+      reverse = index;
+    }
+    return reverse.get(glyphIndex) ?? [];
+  };
+};
+
+// OpenType 1.9.1, cmap, Format 4: Segment mapping to delta values.
+const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> => {
   const read = sfntReader(table);
   const length = Math.min(read.u16(2), table.length);
   const count = read.u16(6) / 2;
@@ -70,19 +93,24 @@ const format4 = (table: Uint8Array): ((codePoint: number) => number | undefined)
     });
   }
   const view = sfntReader(table.subarray(0, length));
-  return (codePoint: number): number | undefined => {
-    if (codePoint > 0xffff) return undefined;
-    const segment = bySearch(segments, codePoint);
-    if (segment === undefined) return undefined;
+  const glyph = (segment: Segment, codePoint: number): number | undefined => {
     // A segment whose idRangeOffset is not 0 reads the glyph from glyphIdArray, and a glyph found there that is not 0 takes idDelta too; idDelta arithmetic is modulo 65536.
-    let glyph = codePoint;
+    let base = codePoint;
     if (segment.glyphs !== 0) {
       const at = segment.glyphs + 2 * (codePoint - segment.start);
-      glyph = at + 1 < length ? view.u16(at) : 0;
-      if (glyph === 0) return undefined;
+      base = at + 1 < length ? view.u16(at) : 0;
+      if (base === 0) return undefined;
     }
-    const mapped = (glyph + segment.delta) % 65_536;
+    const mapped = (base + segment.delta) % 65_536;
     return mapped === 0 ? undefined : mapped;
+  };
+  return {
+    glyph: (codePoint: number): number | undefined => {
+      if (codePoint > 0xffff) return undefined;
+      const segment = bySearch(segments, codePoint);
+      return segment === undefined ? undefined : glyph(segment, codePoint);
+    },
+    characters: reverseCharacters(segments, glyph),
   };
 };
 
@@ -92,8 +120,8 @@ interface Group {
   readonly glyph: number;
 }
 
-// Format 12: length at 4 and numGroups at 12, then 12-byte groups of startCharCode, endCharCode and startGlyphID.
-const format12 = (table: Uint8Array): ((codePoint: number) => number | undefined) => {
+// OpenType 1.9.1, cmap, Format 12: Segmented coverage.
+const format12 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> => {
   const read = sfntReader(table);
   const count = read.u32(12);
   if (16 + 12 * count > Math.min(read.u32(4), table.length)) throw new ParseError('the format 12 group count does not fit the subtable', 0);
@@ -107,23 +135,17 @@ const format12 = (table: Uint8Array): ((codePoint: number) => number | undefined
     }
     groups.push({ start, end, glyph: read.u32(at + 8) });
   }
-  return (codePoint: number): number | undefined => {
-    const group = bySearch(groups, codePoint);
-    const glyph = group === undefined ? 0 : group.glyph + (codePoint - group.start);
-    return glyph === 0 ? undefined : glyph;
+  const glyph = (group: Group, codePoint: number): number | undefined => {
+    const mapped = group.glyph + (codePoint - group.start);
+    return mapped === 0 ? undefined : mapped;
   };
-};
-
-const format12Characters = (table: Uint8Array, glyphIndex: number): number[] => {
-  const read = sfntReader(table);
-  const found: number[] = [];
-  for (let index = 0; index < read.u32(12); index++) {
-    const at = 16 + 12 * index;
-    const start = read.u32(at);
-    const character = start + glyphIndex - read.u32(at + 8);
-    if (character >= start && character <= read.u32(at + 4)) found.push(character);
-  }
-  return found;
+  return {
+    glyph: (codePoint: number): number | undefined => {
+      const group = bySearch(groups, codePoint);
+      return group === undefined ? undefined : glyph(group, codePoint);
+    },
+    characters: reverseCharacters(groups, glyph),
+  };
 };
 
 interface Selector {
@@ -202,21 +224,7 @@ const buildCmap = (table: Uint8Array): CmapReading => {
   const [chosen] = unicode;
   if (chosen === undefined) return { kind: 'absent' };
   const body = table.subarray(chosen.offset);
-  const glyph = chosen.format === 12 ? format12(body) : format4(body);
-  const reverse = new Map<number, readonly number[]>();
-  const characters = (glyphIndex: number): readonly number[] => {
-    const cached = reverse.get(glyphIndex);
-    if (cached !== undefined) return cached;
-    const found: number[] = [];
-    if (chosen.format === 12) found.push(...format12Characters(body, glyphIndex));
-    else {
-      for (let codePoint = 0; codePoint < 65_536; codePoint++) {
-        if (glyph(codePoint) === glyphIndex) found.push(codePoint);
-      }
-    }
-    reverse.set(glyphIndex, found);
-    return found;
-  };
+  const { glyph, characters } = chosen.format === 12 ? format12(body) : format4(body);
   const variations = subtables.find(subtable => subtable.platform === 0 && subtable.encoding === 5 && subtable.format === 14);
   const selectors = variations === undefined ? [] : format14(table.subarray(variations.offset));
   return {
