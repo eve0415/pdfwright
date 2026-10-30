@@ -1,4 +1,4 @@
-import type { PdfDictionaryEntries, PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
+import type { PdfDictionaryEntries, PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -184,6 +184,29 @@ const buildFunction = (object: PdfObject, resolve: FunctionResolver, recurse: (i
   return Object.assign(evaluateClipped, { domain });
 };
 
+const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)}`;
+
+/**
+ * Lists each indirect object a function graph is made of once: its function objects, indirect Functions arrays and indirect entry values.
+ * The resolver is applied to every reference the graph reaches, as a reader would apply it, so the list is what replacing the function leaves unused.
+ */
+export const pdfFunctionReferences = (value: PdfDirectObject, resolve: FunctionResolver): PdfReference[] => {
+  const found = new Map<string, PdfReference>();
+  const pending: PdfObject[] = [value];
+  for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
+    if (item.kind === 'reference') {
+      // ISO 32000-1:2008, 7.3.10: references to one object name the same object, so it is listed and walked once.
+      const id = referenceKey(item);
+      if (found.has(id)) continue;
+      found.set(id, item);
+      pending.push(resolve(item));
+    } else if (item.kind === 'array') pending.push(...item.items);
+    else if (item.kind === 'dictionary') for (const [, entry] of item.entries.entries()) pending.push(entry);
+    else if (item.kind === 'stream') for (const [, entry] of item.dictionary.entries()) pending.push(entry);
+  }
+  return [...found.values()];
+};
+
 const MAX_NESTING = 16;
 const MAX_FUNCTIONS = 65_536;
 const BUILDING = 'building';
@@ -213,7 +236,7 @@ export const createPdfFunctionReader = (resolve: FunctionResolver = value => val
     if (depth > MAX_NESTING) throw new ResourceLimitError(`PDF function nesting exceeds ${String(MAX_NESTING)}`);
     if (value.kind === 'reference') {
       // ISO 32000-1:2008, 7.3.10: an indirect object is one object however many references name it, so its function is built once.
-      const id = `${String(value.objectNumber)} ${String(value.generation)}`;
+      const id = referenceKey(value);
       const known = byReference.get(id);
       if (known === BUILDING) throw new ResourceLimitError('PDF function refers to itself');
       if (known !== undefined) return reuse(known, depth);

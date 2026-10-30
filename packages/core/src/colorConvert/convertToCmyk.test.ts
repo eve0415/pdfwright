@@ -5,11 +5,12 @@ import { describe, expect, it } from 'vitest';
 import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgbBytes from '../../../../tests/fixtures/icc/sRGB2014.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
 
-const convert = (resources: string, content: string, objects: readonly TestObject[]) => {
+const converted = (resources: string, content: string, objects: readonly TestObject[]) => {
   const { bytes } = buildPdf([
     {
       xref: 'classic',
@@ -23,11 +24,17 @@ const convert = (resources: string, content: string, objects: readonly TestObjec
       ],
     },
   ]);
-  const report = convertToCmyk(loadDocument(bytes), {
+  const document = loadDocument(bytes);
+  const report = convertToCmyk(document, {
     sourceRgbProfile: srgbBytes,
     outputProfile: fograBytes,
     outputIntent: { outputConditionIdentifier: 'FOGRA28' },
   });
+  return { report, document };
+};
+
+const convert = (resources: string, content: string, objects: readonly TestObject[]) => {
+  const { report } = converted(resources, content, objects);
   return { shadings: report.shadings.shadings, meshes: report.meshes.meshes, separations: report.spots.separations };
 };
 
@@ -130,5 +137,47 @@ describe('shared function subtrees', () => {
   it('converts an axial stitching function whose subfunctions share one deep stitching graph', () => {
     const shading = { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 22 0 R>>' };
     expect(convert('/Shading<</Sh 5 0 R>>', '/Sh sh', [shading, ...sharedChain(16, 3)])).toStrictEqual({ shadings: 1, meshes: 0, separations: 0 });
+  });
+});
+
+// Object numbers 6 to 12 that are still in use after converting, saving and loading again.
+const remainingFunctionObjects = (resources: string, content: string, objects: readonly TestObject[]): number[] => {
+  const saved = converted(resources, content, objects).document.save().toBytes();
+  const reloaded = loadDocument(saved);
+  return [6, 7, 8, 9, 10, 11, 12].filter(number => reloaded.get(pdfReference(number, 0)).kind !== 'null');
+};
+
+// A stitching function whose Functions entry is an indirect array, with a nested stitching child, a shared grandchild and an indirect exponent.
+const stitchedGraph = (outputs: string): TestObject[] => [
+  { number: 6, body: '<</FunctionType 3/Domain[0 1]/Functions 7 0 R/Bounds[0.5]/Encode[0 1 0 1]>>' },
+  { number: 7, body: '[8 0 R 9 0 R]' },
+  { number: 8, body: '<</FunctionType 3/Domain[0 1]/Functions 10 0 R/Bounds[0.5]/Encode[0 1 0 1]>>' },
+  { number: 9, body: `<</FunctionType 2/Domain[0 1]/C0[${outputs}]/C1[${outputs}]/N 11 0 R>>` },
+  { number: 10, body: '[9 0 R 12 0 R]' },
+  { number: 11, body: '1' },
+  { number: 12, body: `<</FunctionType 2/Domain[0 1]/C0[${outputs}]/C1[${outputs}]/N 1>>` },
+];
+
+describe('replaced function objects', () => {
+  it('deletes every object of an axial shading function graph', () => {
+    const shading = { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>' };
+    expect(remainingFunctionObjects('/Shading<</Sh 5 0 R>>', '/Sh sh', [shading, ...stitchedGraph('1 0 0')])).toStrictEqual([]);
+  });
+
+  it('deletes every object of a parametric mesh function graph', () => {
+    const shading = {
+      number: 5,
+      body: streamBody(
+        '/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 8/Decode[0 100 0 100 0 1]/Function 6 0 R',
+        triangle,
+      ),
+    };
+    expect(remainingFunctionObjects('/Shading<</Sh 5 0 R>>', '/Sh sh', [shading, ...stitchedGraph('0 1 0')])).toStrictEqual([]);
+  });
+
+  it('deletes every object of a Separation tint transform graph', () => {
+    expect(
+      remainingFunctionObjects('/ColorSpace<</CS0[/Separation/Spot/DeviceRGB 6 0 R]>>', '/CS0 cs 1 scn 0 0 10 10 re f', stitchedGraph('0 0 1')),
+    ).toStrictEqual([]);
   });
 });

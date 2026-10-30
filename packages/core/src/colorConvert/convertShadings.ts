@@ -19,7 +19,7 @@ import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.t
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
-import { deleteDiscarded } from './discardedObjects.ts';
+import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
@@ -273,27 +273,7 @@ const sampledShading = (config: {
 const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): PdfReference[] => {
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
-  const discarded: PdfReference[] = [];
-  const seen = new Set<number>();
-  const pending: PdfDirectObject[] = [functionValue];
-  for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
-    if (value.kind === 'array') {
-      pending.push(...value.items);
-      continue;
-    }
-    if (value.kind === 'reference') {
-      if (seen.has(value.objectNumber)) continue;
-      seen.add(value.objectNumber);
-      discarded.push(value);
-    }
-    const object = internals.objects.deref(value);
-    let entries: PdfDictionaryEntries | undefined = undefined;
-    if (object?.kind === 'dictionary') ({ entries } = object);
-    else if (object?.kind === 'stream') ({ dictionary: entries } = object);
-    const children = entries?.get(pdfName('Functions').bytes);
-    if (children !== undefined) pending.push(children);
-  }
-  return discarded;
+  return discardedFunctionObjects(internals, functionValue);
 };
 
 const planShading = (

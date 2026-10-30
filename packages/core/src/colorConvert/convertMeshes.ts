@@ -18,7 +18,7 @@ import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
-import { deleteDiscarded } from './discardedObjects.ts';
+import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { convertMeshSamples } from './meshSamples.ts';
 import { subdivideMesh } from './meshSubdivision.ts';
 import { checkConversionRefusals } from './preflight.ts';
@@ -241,12 +241,9 @@ const functionMesh = (
   const sampled = convertedMeshFunction(scan, { value: functionValue, channels, transform, domain: decode.slice(4, 6) });
   const discarded: PdfReference[] = [];
   if (color.kind === 'reference') discarded.push(color);
-  if (functionValue.kind === 'reference') discarded.push(functionValue);
-  const original = decodedFunction(scan, functionValue);
-  if (original.kind === 'dictionary') {
-    const children = original.entries.get(pdfName('Functions').bytes);
-    if (children?.kind === 'array') for (const child of children.items) if (child.kind === 'reference') discarded.push(child);
-  }
+  const internals = internalsOf(scan.document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  discarded.push(...discardedFunctionObjects(internals, functionValue));
   const originalDecode = shading.dictionary.get(DECODE);
   if (originalDecode === undefined) return invalid('function-driven mesh Decode is missing');
   return {

@@ -18,7 +18,7 @@ import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
-import { deleteDiscarded } from './discardedObjects.ts';
+import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -170,12 +170,7 @@ const planSpace = (context: SpotContext, name: Uint8Array, value: PdfDirectObjec
   const discarded: PdfReference[] = [];
   if (value.kind === 'reference') discarded.push(value);
   const functionValue = original.items.at(3);
-  if (functionValue?.kind === 'reference') discarded.push(functionValue);
-  const { tint } = resolved;
-  if (tint.kind === 'dictionary') {
-    const children = tint.entries.get(pdfName('Functions').bytes);
-    if (children?.kind === 'array') for (const child of children.items) if (child.kind === 'reference') discarded.push(child);
-  }
+  if (functionValue !== undefined) discarded.push(...discardedFunctionObjects(internals, functionValue));
   return { name, original, sampled: convertedTint(context, resolved), kind: resolved.kind, discarded };
 };
 

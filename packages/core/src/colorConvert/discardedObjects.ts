@@ -1,8 +1,13 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
 
+import { pdfFunctionReferences } from '../function/pdfFunction.ts';
 import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
+
+/** The indirect objects of a function graph that conversion replaces, including the children of an indirect Functions array; deleteDiscarded keeps any still in use. */
+export const discardedFunctionObjects = (internals: DocumentInternals, functionValue: PdfDirectObject): PdfReference[] =>
+  pdfFunctionReferences(functionValue, value => internals.objects.deref(value) ?? { kind: 'null' });
 
 /** Deletes replaced objects only after all new references are installed. */
 export const deleteDiscarded = (document: LoadedDocument, internals: DocumentInternals, discarded: readonly PdfReference[]): void => {
