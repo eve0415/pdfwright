@@ -212,6 +212,40 @@ const inlineLzw = (context: Context, bytes: Uint8Array | readonly Uint8Array[]):
   return false;
 };
 
+// ISO 32000-1:2008, 7.8.2 and 8.9.7: inline images occur in content streams, which are page contents, form XObjects, tiling patterns, annotation appearance streams and Type 3 glyph descriptions.
+// Glyph descriptions are found through the CharProcs of a Type 3 font (9.6.5, Table 112), and appearance streams through an annotation's AP entry (12.5.5, Table 168), whether or not their own dictionary carries a Subtype.
+const contentStreams = (context: Context): Set<Extract<PdfObject, { kind: 'stream' }>> => {
+  const { objects } = context.internals;
+  const streams = new Set<Extract<PdfObject, { kind: 'stream' }>>();
+  const add = (value: PdfDirectObject | undefined): void => {
+    const resolved = objects.deref(value);
+    if (resolved?.kind === 'stream') streams.add(resolved);
+  };
+  const subtypeKey = key('Subtype');
+  const subtypeOf = (entries: PdfDictionaryEntries): string | undefined => nameOf(objects.deref(entries.get(subtypeKey)));
+  for (const [number, generation] of context.reachable) {
+    const object = objects.resolve(number, generation);
+    if (object.kind !== 'stream') continue;
+    const patternType = objects.deref(object.dictionary.get(key('PatternType')));
+    if (subtypeOf(object.dictionary) === 'Form' || (patternType?.kind === 'integer' && patternType.value === 1)) streams.add(object);
+  }
+  visitAll(context, value => {
+    if (value.kind !== 'dictionary') return false;
+    const glyphs = subtypeOf(value.entries) === 'Type3' ? entriesOf(context, value.entries.get(key('CharProcs'))) : undefined;
+    for (const [, glyph] of glyphs?.entries() ?? []) add(glyph);
+    const appearances = entriesOf(context, value.entries.get(key('AP')));
+    for (const name of ['N', 'R', 'D']) {
+      const appearance = appearances?.get(key(name));
+      const resolved = objects.deref(appearance);
+      // Table 168: each appearance is a stream, or a subdictionary of streams keyed by appearance state.
+      if (resolved?.kind === 'dictionary') for (const [, state] of resolved.entries.entries()) add(state);
+      else add(appearance);
+    }
+    return false;
+  });
+  return streams;
+};
+
 const lzw: Check = context => {
   const streams = globalCheck(
     context,
@@ -227,16 +261,12 @@ const lzw: Check = context => {
       }
       if (inlineLzw(context, content.streams)) return violation('LZW filter was found in an inline image');
     }
-    for (const [number, generation] of context.reachable) {
-      const object = context.internals.objects.resolve(number, generation);
-      if (object.kind !== 'stream') continue;
-      const subtypeValue = context.internals.objects.deref(object.dictionary.get(key('Subtype')));
-      const subtype = nameOf(subtypeValue);
-      const patternType = context.internals.objects.deref(object.dictionary.get(key('PatternType')));
-      if (subtype !== 'Form' && (patternType?.kind !== 'integer' || patternType.value !== 1)) continue;
+    for (const object of contentStreams(context)) {
       const bytes = decodedData(context.internals, object);
       if (typeof bytes === 'string') {
-        return unchecked('PDF/X-4 prohibits LZW, and this rule cannot check inline images because form or pattern content could not be read');
+        return unchecked(
+          'PDF/X-4 prohibits LZW, and this rule cannot check inline images because form, pattern, glyph or appearance content could not be read',
+        );
       }
       if (inlineLzw(context, bytes)) return violation('LZW filter was found in an inline image');
     }
