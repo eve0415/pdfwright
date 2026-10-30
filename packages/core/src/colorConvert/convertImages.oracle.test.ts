@@ -560,3 +560,124 @@ describe('image colour conversion', () => {
     expect([jpxHasRgbColor(jp2Icc(unsupported), 16 * 1024 * 1024)]).toStrictEqual([false]);
   });
 });
+
+interface SoftMaskedImage {
+  readonly dictionary: string;
+  readonly data: Uint8Array;
+}
+
+const softMaskedPdf = (images: readonly SoftMaskedImage[], mask: SoftMaskedImage): Uint8Array => {
+  const maskNumber = 5 + images.length;
+  const names = images.map((_, index) => `/Im${String(index)} ${String(5 + index)} 0 R`).join('');
+  return buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<<${names}>>>>>>` },
+        { number: 4, body: streamBody('', images.map((_, index) => `/Im${String(index)} Do`).join(' ')) },
+        ...images.map((image, index) => ({
+          number: 5 + index,
+          body: streamBody(`/Type/XObject/Subtype/Image${image.dictionary}/SMask ${String(maskNumber)} 0 R`, latin1Text(image.data)),
+        })),
+        { number: maskNumber, body: streamBody(`/Type/XObject/Subtype/Image/ColorSpace/DeviceGray${mask.dictionary}`, latin1Text(mask.data)) },
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+};
+
+const softMaskOf = (document: ReturnType<typeof loadDocument>, imageNumber: number): Extract<PdfObject, { kind: 'stream' }> => {
+  const reference = imageStream(document.get(pdfReference(imageNumber, 0))).dictionary.get(pdfName('SMask').bytes);
+  if (reference?.kind !== 'reference') throw new Error('image has no soft mask');
+  return imageStream(document.get(reference));
+};
+
+const opaqueConversion = (data: Uint8Array, options: ImagePdfOptions): Uint8Array => {
+  const document = loadDocument(imagePdf('FlateDecode', deflateZlib(data), options));
+  convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+  return imageData(document);
+};
+
+describe('preblended soft-mask images', () => {
+  const rgbParent = '/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/FlateDecode';
+  const whiteMatte = { dictionary: '/Width 1/Height 1/BitsPerComponent 8/Matte[1 1 1]', data: Uint8Array.of(127) };
+  const preblendedRed = { dictionary: rgbParent, data: deflateZlib(Uint8Array.of(255, 128, 128)) };
+
+  it('removes the matte from RGB samples before converting them and drops Matte from the soft mask', () => {
+    const document = loadDocument(softMaskedPdf([preblendedRed], whiteMatte));
+    expect(convertImages(document, { sourceRgbProfile: source, outputProfile: destination }).converted).toBe(1);
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(imageData(reloaded)).toStrictEqual(opaqueConversion(Uint8Array.of(255, 0, 0), { width: 1, decode: '/Decode[0 1 0 1 0 1]' }));
+    const mask = softMaskOf(reloaded, 5);
+    expect(mask.dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+    expect(mask.data).toStrictEqual(Uint8Array.of(127));
+    expect(reloaded.get(pdfReference(6, 0))).toStrictEqual({ kind: 'null' });
+  });
+
+  it('removes the matte from calibrated gray samples before converting them', () => {
+    const colorSpace = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
+    const parent = { dictionary: `/Width 1/Height 1/BitsPerComponent 8/ColorSpace${colorSpace}/Filter/FlateDecode`, data: deflateZlib(Uint8Array.of(128)) };
+    const document = loadDocument(softMaskedPdf([parent], { dictionary: '/Width 1/Height 1/BitsPerComponent 8/Matte[1]', data: Uint8Array.of(127) }));
+    convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(imageData(document)).toStrictEqual(opaqueConversion(Uint8Array.of(0), { width: 1, colorSpace, decode: '/Decode[0 1]' }));
+    expect(softMaskOf(document, 5).dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+  });
+
+  it('applies the soft-mask Decode array to alpha before removing the matte', () => {
+    const inverted = { dictionary: '/Width 1/Height 1/BitsPerComponent 8/Decode[1 0]/Matte[1 1 1]', data: Uint8Array.of(128) };
+    const document = loadDocument(softMaskedPdf([preblendedRed], inverted));
+    convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(imageData(document)).toStrictEqual(opaqueConversion(Uint8Array.of(255, 0, 0), { width: 1, decode: '/Decode[0 1 0 1 0 1]' }));
+  });
+
+  it('keeps the matte on a soft mask that a kept DCT image shares', () => {
+    const kept = { dictionary: '/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/DCTDecode', data: new TextEncoder().encode('jpeg') };
+    const document = loadDocument(softMaskedPdf([preblendedRed, kept], whiteMatte));
+    const report = convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect([report.converted, report.keptRgbImages.length]).toStrictEqual([1, 1]);
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(softMaskOf(reloaded, 5).dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+    expect(softMaskOf(reloaded, 6).dictionary.get(pdfName('Matte').bytes)).toStrictEqual(pdfArray([pdfInteger(1), pdfInteger(1), pdfInteger(1)]));
+  });
+
+  it('rejects a Matte whose component count differs from the image colour space', () => {
+    const mask = { dictionary: '/Width 1/Height 1/BitsPerComponent 8/Matte[1 1]', data: Uint8Array.of(127) };
+    const document = loadDocument(softMaskedPdf([preblendedRed], mask));
+    expect(() => {
+      convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    }).toThrow(ValidationError);
+    expect(document.save().mode).toBe('incremental');
+  });
+
+  it('rejects a preblended image whose soft mask has different dimensions', () => {
+    const mask = { dictionary: '/Width 2/Height 1/BitsPerComponent 8/Matte[1 1 1]', data: Uint8Array.of(127, 127) };
+    const document = loadDocument(softMaskedPdf([preblendedRed], mask));
+    expect(() => {
+      convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    }).toThrow(ValidationError);
+  });
+
+  it('removes the matte from transcoded JPEG samples', async () => {
+    const jpeg = await jpegFixture();
+    const parent = { dictionary: '/Width 2/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Filter/DCTDecode', data: jpeg };
+    const alpha = 127 / 255;
+    const document = loadDocument(softMaskedPdf([parent], { dictionary: '/Width 2/Height 1/BitsPerComponent 8/Matte[0 0 0]', data: Uint8Array.of(127, 127) }));
+    convertImages(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' });
+    const rgb = joined([...decodeJpeg(jpeg).rows()]);
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+    const expected = new Uint8Array(8);
+    const converted = new Float64Array(4);
+    for (let pixel = 0; pixel < 2; pixel++) {
+      const straight = Float64Array.from(rgb.subarray(pixel * 3, pixel * 3 + 3), value => Math.min(1, value / 255 / alpha));
+      transform.convert(straight, converted);
+      expected.set(
+        Array.from(converted, value => Math.round(value * 255)),
+        pixel * 4,
+      );
+    }
+    expect(imageData(document)).toStrictEqual(expected);
+    expect(softMaskOf(document, 5).dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+  });
+});
