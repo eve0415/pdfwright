@@ -21,6 +21,14 @@ const rectangle: PathGeometry = {
   ],
 };
 
+// A quadratic coordinate (1 − t)² p0 + 2 (1 − t) t q + t² p2 is extreme at t = (p0 − q) / (p0 − 2q + p2).
+const quadraticRange = (p0: number, q: number, p2: number): readonly [number, number] => {
+  const t = (p0 - q) / (p0 - 2 * q + p2);
+  const ends = [p0, p2];
+  const values = t > 0 && t < 1 ? [...ends, (1 - t) ** 2 * p0 + 2 * (1 - t) * t * q + t ** 2 * p2] : ends;
+  return [Math.min(...values), Math.max(...values)];
+};
+
 describe('native art bounds', () => {
   it('includes the miter tip of a stroked triangle', () => {
     const document: IllustratorDocument = {
@@ -133,6 +141,72 @@ describe('native art bounds', () => {
     };
     expect(artBounds(document)).toStrictEqual({ minX: -0.5, minY: -0.5, maxX: 1.5, maxY: 2 });
     expect(integerBounds(artBounds(document))).toStrictEqual([-1, -1, 2, 2]);
+  });
+
+  it.each([
+    { start: [10.5, 20.25], control: [30, 70.5], end: [60.75, 5] },
+    { start: [100, 200.9], control: [600, 3000.4], end: [1100, 0.3] },
+    { start: [12000.4, 29001], control: [25000, 1], end: [38000.2, 29000.7] },
+    { start: [1000000, 0.8], control: [1500000, 3000000.1], end: [2000000.5, 0.3] },
+  ] as const)('finds the extrema of the quadratic from $start through $control to $end', ({ start, control, end }) => {
+    const document: IllustratorDocument = {
+      artboard: { width: 3_000_000, height: 3_000_000 },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Quadratic',
+          items: [
+            {
+              kind: 'path',
+              geometry: { subpaths: [{ start, segments: [{ kind: 'quadratic', control, to: end }] }] },
+              fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
+            },
+          ],
+        },
+      ],
+    };
+    const [minX, maxX] = quadraticRange(start[0], control[0], end[0]);
+    const [minY, maxY] = quadraticRange(start[1], control[1], end[1]);
+    const bounds = artBounds(document);
+    expect(bounds.minX).toBeCloseTo(minX, 6);
+    expect(bounds.minY).toBeCloseTo(minY, 6);
+    expect(bounds.maxX).toBeCloseTo(maxX, 6);
+    expect(bounds.maxY).toBeCloseTo(maxY, 6);
+  });
+
+  it('finds the extrema of a cubic segment far from the origin', () => {
+    const offset = 1e6;
+    const document: IllustratorDocument = {
+      artboard: { width: 2 * offset, height: 2 * offset },
+      lastModified: date,
+      layers: [
+        {
+          name: 'Cubic',
+          items: [
+            {
+              kind: 'path',
+              geometry: {
+                subpaths: [
+                  {
+                    start: [offset, offset],
+                    segments: [{ kind: 'curve', control1: [offset - 1, offset + 3], control2: [offset + 2, offset + 1], to: [offset + 1, offset] }],
+                  },
+                ],
+              },
+              fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
+            },
+          ],
+        },
+      ],
+    };
+    // x(t) = 1e6 − 3t + 12t² − 8t³ and y(t) = 1e6 + 9t − 15t² + 6t³ for this segment.
+    const x = (t: number): number => offset - 3 * t + 12 * t ** 2 - 8 * t ** 3;
+    const y = (t: number): number => offset + 9 * t - 15 * t ** 2 + 6 * t ** 3;
+    const bounds = artBounds(document);
+    expect(bounds.minX).toBeCloseTo(x((1 - Math.sqrt(0.5)) / 2), 6);
+    expect(bounds.maxX).toBeCloseTo(x((1 + Math.sqrt(0.5)) / 2), 6);
+    expect(bounds.minY).toBe(offset);
+    expect(bounds.maxY).toBeCloseTo(y((5 - Math.sqrt(7)) / 6), 6);
   });
 
   it('uses the clipping path bounds and ignores hidden layers', () => {
