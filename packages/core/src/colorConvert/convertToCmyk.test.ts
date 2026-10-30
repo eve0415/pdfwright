@@ -92,3 +92,19 @@ describe('function dictionaries with indirect entries', () => {
     ).toStrictEqual({ shadings: 0, meshes: 0, separations: 1 });
   });
 });
+
+describe('nested stitching functions', () => {
+  it('converts an axial stitching function whose subfunctions stitch indirect functions', () => {
+    expect(
+      axial([
+        { number: 6, body: '<</FunctionType 3/Domain[0 1]/Functions[7 0 R 8 0 R]/Bounds[0.5]/Encode[0 1 0 1]>>' },
+        { number: 7, body: '<</FunctionType 3/Domain[0 1]/Functions[9 0 R 10 0 R]/Bounds[0.5]/Encode[0 1 0 1]>>' },
+        { number: 8, body: '<</FunctionType 3/Domain 11 0 R/Functions[10 0 R 9 0 R]/Bounds[0.5]/Encode[0 1 0 1]>>' },
+        { number: 9, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 1 0]/N 1>>' },
+        { number: 10, body: '<</FunctionType 2/Domain[0 1]/C0[0 1 0]/C1[0 0 1]/N 12 0 R>>' },
+        { number: 11, body: '[0 1]' },
+        { number: 12, body: '1' },
+      ]),
+    ).toStrictEqual({ shadings: 1, meshes: 0, separations: 0 });
+  });
+});

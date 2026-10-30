@@ -229,7 +229,7 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
   stitchCmykFunction(context.document, source, child => {
     const decoded = decodedFunction(context.document, child);
     if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('stitching subfunction is invalid');
-    const fn = createPdfFunction(decoded);
+    const fn = createPdfFunction(decoded, item => decodedFunction(context.document, item));
     const { domain } = fn;
     if (domain.length !== 2) return invalid('stitching subfunction must take one input');
     const evaluate = (input: readonly number[]): Float64Array => {
