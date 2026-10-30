@@ -33,6 +33,8 @@ export interface IndirectObjectContext extends LexContext {
   readonly resolveLength?: (objectNumber: number, generation: number) => number | undefined;
   /** Offset of the last endstream keyword in the source, when known, so that a stream starting after it fails at once. */
   readonly lastEndstream?: number | (() => number);
+  /** Finds a recovered endstream's absolute offset from an index of the source, without scanning its bytes again. */
+  readonly findEndstream?: (dataStart: number) => number | undefined;
 }
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
@@ -111,8 +113,15 @@ const followedByEndobj = (lexer: Lexer, endstream: number): boolean => {
   return matchesAt(lexer, position, ENDOBJ);
 };
 
-// Readers recover a stream whose Length is missing or wrong by searching for endstream. Data can contain the bytes "endstream", so of the first two occurrences the one followed by endobj is preferred, else the first; looking no further keeps the search linear when endobj keywords are missing.
+// Readers recover a stream whose Length is missing or wrong by searching for endstream. Data can contain the bytes "endstream", so of the first two occurrences the one followed by endobj is preferred, else the first.
 const searchEndstream = (lexer: Lexer, dataStart: number, context: IndirectObjectContext): number => {
+  if (context.findEndstream !== undefined) {
+    const found = context.findEndstream(lexer.base + dataStart);
+    if (found === undefined || lexer.atEnd(found - lexer.base + ENDSTREAM.length - 1)) {
+      throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+    }
+    return found - lexer.base;
+  }
   const { bytes } = lexer;
   const lastEndstream = typeof context.lastEndstream === 'function' ? context.lastEndstream() : context.lastEndstream;
   if (lastEndstream !== undefined && lexer.base + dataStart > lastEndstream) {

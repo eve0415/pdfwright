@@ -244,7 +244,7 @@ export const reconstruct = (session: LoadSession, reason: string, header: Header
   for (const objectNumber of reconstruction.unreadable) {
     session.log.warn({
       code: 'recovery-unreadable-object',
-      detail: `object ${String(objectNumber)} was found but does not parse, so references to it read as null`,
+      detail: `object ${String(objectNumber)} was found but could not be read, so references to it read as null`,
       objectNumber,
     });
   }

@@ -6,7 +6,7 @@ import { EncryptedDocumentError } from '../error/encryptedDocumentError.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf, latin1Bytes, latin1Text } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { internalsOf } from './documentInternals.ts';
 import { loadDocument } from './loadDocument.ts';
@@ -162,6 +162,31 @@ describe('loading documents', () => {
       { kind: 'string', bytes: latin1Bytes('new'), encoding: 'literal' },
       ['recovery-ambiguous-object', 'xref-reconstructed'],
     ]);
+  });
+
+  it.each([
+    ['/N 1/First 4/Filter/UnknownDecode', '9 0 null'],
+    ['/N 1/First 4/Filter/FlateDecode', 'invalid'],
+    ['/First 4', '9 0 null'],
+  ])('recovers past an unreadable object stream with dictionary %s', (dictionary, data) => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [catalog, pages, { number: 3, body: streamBody(`/Type/ObjStm${dictionary}`, data) }],
+        objectStreams: [{ number: 4, members: [{ number: 10, body: '(readable)' }] }],
+      },
+    ]);
+    const damaged = pdf.text.slice(0, pdf.sections[0]);
+    for (const recovery of ['refuse-ambiguous', 'latest'] as const) {
+      const document = load(damaged, { recovery });
+      expect([document.structure.status, document.pageCount, document.catalog().size]).toStrictEqual(['reconstructed', 0, 2]);
+      expect(document.warnings).toContainEqual(expect.objectContaining({ code: 'recovery-unreadable-object', objectNumber: 3 }));
+      expect([document.get(pdfReference(3, 0)), document.get(pdfReference(9, 0)), document.get(pdfReference(10, 0))]).toStrictEqual([
+        { kind: 'null' },
+        { kind: 'null' },
+        { kind: 'string', bytes: latin1Bytes('readable'), encoding: 'literal' },
+      ]);
+    }
   });
 
   it('refuses encrypted documents found through the chain or by reconstruction', () => {
