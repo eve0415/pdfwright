@@ -165,6 +165,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: zizmor .github/workflows/
 
+      - name: Verify the actions lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh extension install github/gh-actions-lock --pin v0.4.0
+          gh actions-lock --verify
+
       # zizmor audits workflows for security, not validity: a `needs` edge to a missing job passes it, and GitHub then rejects the whole file.
       - name: Check workflows
         env:

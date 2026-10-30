@@ -75,6 +75,7 @@ Publish packages with pnpm. npm ignores `publishConfig.exports` and would packag
 - **`allowBuilds` names every dependency that has an install script**, set to `true` or `false`. `pnpm install` fails on one it does not name.
 - **Add or update `bun` and `deno` only through the `npm:` alias form**, with the version inside the alias: `"bun": "npm:bun@1.4.2"`. `pnpm add bun` with the bare name records Bun as the package manager and removes `packageManager`, and the next install fails with `ERR_PNPM_OTHER_PM_EXPECTED`. `pnpm add -E bun@npm:bun` writes an unpinned alias, so check the manifest afterwards.
 - **GitHub Actions are pinned to a full commit SHA** with the version in a trailing comment (`# v7.0.1`). A tag can be moved; a commit cannot.
+- **`.github/workflows/actions.lock` locks every action a workflow uses**, including the actions those actions call. After changing a `uses:` line, run `gh actions-lock --no-narrow` from the [gh-actions-lock](https://github.com/github/gh-actions-lock) extension and commit the lockfile with the workflow; without `--no-narrow` it rewrites the SHA pins to tags, which zizmor rejects. CI runs `gh actions-lock --verify`.
 
 ## Commits
 
