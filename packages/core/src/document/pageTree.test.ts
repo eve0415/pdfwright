@@ -220,15 +220,14 @@ describe('page box edits', () => {
     ]);
   });
 
-  it('refuses boxes outside the MediaBox, without area, or a removal that leaves no MediaBox', () => {
+  it('refuses boxes outside MediaBox or without area at save, and removals that leave no MediaBox', () => {
     const document = load(tree);
     const page = document.page(0);
-    expect(() => {
-      page.setBox('TrimBox', rect(pt(0), pt(0), pt(700), pt(10)));
-    }).toThrow(ValidationError);
-    expect(() => {
-      page.setBox('CropBox', rect(pt(5), pt(5), pt(5), pt(10)));
-    }).toThrow(ValidationError);
+    page.setBox('TrimBox', rect(pt(0), pt(0), pt(700), pt(10)));
+    expect(() => document.save()).toThrow(ValidationError);
+    page.setBox('TrimBox', undefined);
+    page.setBox('CropBox', rect(pt(5), pt(5), pt(5), pt(10)));
+    expect(() => document.save()).toThrow(ValidationError);
     const lone = load([
       { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/Resources<<>>>>' },
       { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>' },
