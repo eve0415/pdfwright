@@ -8,7 +8,7 @@ import { text as streamText } from 'node:stream/consumers';
 import { describe, expect, it } from 'vitest';
 
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { gammaCurveTag, iccProfileBytes, matrixLutTag, xyzTag } from '../testing/iccProfileBytes.ts';
+import { gammaCurveTag, iccProfileBytes, matrixLutTag, sampledCurveTag, xyzTag } from '../testing/iccProfileBytes.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
 
@@ -120,6 +120,12 @@ describe('profile pipelines against LittleCMS transicc', () => {
   ] as const)('converts gray with $source PCS to gray with $destination PCS', async ({ source, destination }) => {
     const from = grayProfile(source, 2.2);
     const to = grayProfile(destination, 1.8);
+    expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
+  });
+
+  it.each([[[65535, 0]], [[65535, 40000, 12000, 0]], [[65535, 52000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
+    const from = grayProfile('XYZ ', 1);
+    const to = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs: 'XYZ ', tags: [['kTRC', sampledCurveTag(samples)]] });
     expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 });
