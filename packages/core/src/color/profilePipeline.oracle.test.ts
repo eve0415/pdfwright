@@ -95,6 +95,11 @@ const rgbColors = [
   [0, 0, 0],
 ];
 
+const grayProfile = (pcs: 'XYZ ' | 'Lab ', gamma: number): Uint8Array =>
+  iccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs, tags: [['kTRC', gammaCurveTag(gamma)]] });
+
+const grayColors = [[0], [0.1], [0.25], [0.5], [0.8], [1]];
+
 describe('profile pipelines against LittleCMS transicc', () => {
   // Every coefficient differs and the offsets are non-zero, so any other reading of e1..e12 changes the result.
   const elements = [0.25, 0.1, 0.05, 0.03, 0.3, 0.08, 0.01, 0.06, 0.22, 0.02, 0.015, 0.03];
@@ -107,5 +112,14 @@ describe('profile pipelines against LittleCMS transicc', () => {
   it('applies a lutBToAType matrix as e1..e9 coefficients and e10..e12 offsets', async () => {
     const destination = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'RGB ', pcs: 'XYZ ', tags: [['B2A0', matrixLutTag('mBA ', elements)]] });
     expect(largestDifference(convert(xyzRgb, destination, rgbColors), await transicc(xyzRgb, destination, rgbColors))).toBeLessThan(TOLERANCE);
+  });
+
+  it.each([
+    { source: 'Lab ', destination: 'XYZ ' },
+    { source: 'XYZ ', destination: 'Lab ' },
+  ] as const)('converts gray with $source PCS to gray with $destination PCS', async ({ source, destination }) => {
+    const from = grayProfile(source, 2.2);
+    const to = grayProfile(destination, 1.8);
+    expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 });

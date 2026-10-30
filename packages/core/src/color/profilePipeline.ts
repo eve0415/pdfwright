@@ -95,34 +95,33 @@ export const sourceEvaluator = (
   return missing('ICC device-to-PCS direction is missing');
 };
 
+const inPcs = (input: PcsValue, space: 'XYZ' | 'Lab'): readonly number[] => {
+  if (input.space === space) return input.values;
+  return space === 'Lab' ? xyzToLab(input.values) : labToXyz(input.values);
+};
+
 export const destinationEvaluator = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): ((pcsValue: PcsValue) => number[]) => {
   const tag = selected(profile, 'pcsToDevice', intent);
   if (tag !== undefined) {
     const space = pcs(profile);
-    return input => {
-      let { values } = input;
-      if (input.space !== space) values = space === 'Lab' ? xyzToLab(input.values) : labToXyz(input.values);
-      return evaluateLut(tag, encodePcs(values, space, { tag, option }), space === 'Lab' ? 'trilinear' : 'tetrahedral');
-    };
+    return input => evaluateLut(tag, encodePcs(inPcs(input, space), space, { tag, option }), space === 'Lab' ? 'trilinear' : 'tetrahedral');
   }
   if (profile.header.colorSpace === 'RGB') {
     const { trc } = profile;
     if (trc === undefined || !('red' in trc)) return missing('ICC RGB TRCs are missing');
     const matrix = invertMatrix3(colorantsMatrix(profile));
     return input => {
-      const xyz = input.space === 'XYZ' ? input.values : labToXyz(input.values);
-      const channels = applyMatrix(xyz, matrix);
+      const channels = applyMatrix(inPcs(input, 'XYZ'), matrix);
       return [invertCurve(trc.red, channels[0] ?? 0), invertCurve(trc.green, channels[1] ?? 0), invertCurve(trc.blue, channels[2] ?? 0)];
     };
   }
   if (profile.header.colorSpace === 'Gray') {
     const { trc } = profile;
     if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
-    return input => {
-      // ICC.1:2022, F.2 uses the normalized achromatic PCS channel for the inverse gray TRC.
-      if (input.space === 'Lab') return [invertCurve(trc.gray, (input.values[0] ?? 0) / 100)];
-      return [invertCurve(trc.gray, (input.values[1] ?? 0) / D50.y)];
-    };
+    const space = pcs(profile);
+    // ICC.1:2022, F.2: the inverse gray TRC reads the achromatic channel of the profile's own PCS, L* for PCSLAB and Y for PCSXYZ, normalized to its white.
+    if (space === 'Lab') return input => [invertCurve(trc.gray, (inPcs(input, space)[0] ?? 0) / 100)];
+    return input => [invertCurve(trc.gray, (inPcs(input, space)[1] ?? 0) / D50.y)];
   }
   return missing(`ICC ${String(colorSpaceChannels(profile.header.colorSpace))}-channel PCS-to-device direction is missing`);
 };

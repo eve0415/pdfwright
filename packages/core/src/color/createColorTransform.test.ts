@@ -44,6 +44,13 @@ const source = (): IccProfile => ({
   warnings: [],
 });
 
+const grayProfile = (pcs: 'XYZ' | 'Lab'): IccProfile => ({
+  ...source(),
+  header: { ...source().header, colorSpace: 'Gray', pcs },
+  colorants: undefined,
+  trc: { gray: identity },
+});
+
 const destination = (): IccProfile => {
   const values = new Uint8Array(32);
   let index = 0;
@@ -94,6 +101,19 @@ describe('icc colour transforms', () => {
       trc: { gray: identity },
     };
     expect(destinationEvaluator(gray, 'relativeColorimetric', 'icc')({ space: 'Lab', values: [50, 0, 0] })).toStrictEqual([0.5]);
+  });
+
+  it('converts the connection to the gray destination PCS before inverting its curve', () => {
+    // CIE 1976 L* = 50 is relative luminance Y = (66 / 116)^3.
+    const luminance = (66 / 116) ** 3;
+    const fromXyz = destinationEvaluator(
+      grayProfile('Lab'),
+      'relativeColorimetric',
+      'icc',
+    )({ space: 'XYZ', values: [D50.x * luminance, luminance, D50.z * luminance] });
+    const fromLab = destinationEvaluator(grayProfile('XYZ'), 'relativeColorimetric', 'icc')({ space: 'Lab', values: [50, 0, 0] });
+    expect(fromXyz[0]).toBeCloseTo(0.5, 9);
+    expect(fromLab[0]).toBeCloseTo(luminance, 9);
   });
 
   it('selects the ICC lut8 Lab encoding by default and permits the alternate midpoint', () => {
