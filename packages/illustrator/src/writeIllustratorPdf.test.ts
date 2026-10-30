@@ -165,10 +165,16 @@ describe('document information and page precision', () => {
   it('writes Info with the model date as ModDate by default, and an agreeing XMP packet', () => {
     const pdf = latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet' } }));
     expect(pdf).toMatch(/\/Title ?\(Die sheet\)/u);
-    expect(pdf).toContain(`(${pdfDateString(date)})`);
+    expect(pdf).toContain(`/ModDate(${pdfDateString(date)})`);
+    expect(pdf).toContain('<xmp:ModifyDate>2026-09-28T12:34:56Z</xmp:ModifyDate>');
     expect(pdf).toContain('<dc:title>');
+  });
+
+  it('writes a caller-supplied modificationDate as ModDate and the XMP modify date', () => {
     const later = pdfDate({ year: 2026, month: 9, day: 29, hour: 1, minute: 2, second: 3, offset: 'Z' });
-    expect(latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet', modificationDate: later } }))).toContain(`(${pdfDateString(later)})`);
+    const dated = latin1(writeIllustratorPdf(model, { info: { title: 'Die sheet', modificationDate: later } }));
+    expect(dated).toContain(`/ModDate(${pdfDateString(later)})`);
+    expect(dated).toContain('<xmp:ModifyDate>2026-09-29T01:02:03Z</xmp:ModifyDate>');
   });
 
   it('keeps spot alternate components at the requested precision', () => {
