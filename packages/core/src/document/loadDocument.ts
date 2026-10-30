@@ -35,6 +35,7 @@ import { createInheritedCache, createLoadedPage, effectiveResources } from './lo
 import { LoadLog } from './loadLog.ts';
 import { enumeratePages } from './pageTree.ts';
 import { readFromChain, reconstruct, versionNumber } from './readStructure.ts';
+import { validateSavedPageBoxes } from './savedPageBoxes.ts';
 
 /** Controls parsing and recovery: defaults are 16 MiB per decoded stream, nesting 256, page-tree depth 256, one million object-stream members, and an 8 MiB parsed-object cache; malformed input raises ParseError, limits raise ResourceLimitError, and ISO 32000-1:2008, 7.5 and 7.7 define the structures. */
 export interface LoadOptions {
@@ -66,7 +67,7 @@ export interface SaveOptions {
   invalidateSignatures?: boolean;
   /** 'derive' (the default) keeps the source identifier and derives a new second string; a pair is written as given. */
   fileIdentifier?: 'derive' | [Uint8Array, Uint8Array];
-  /** Fraction digits for new reals; default 5. */
+  /** Fraction digits for new reals; default 5. Changed page boxes are validated as written; zero area or a changed box outside MediaBox raises ValidationError, while unchanged input boxes are preserved. */
   fractionDigits?: number;
   /** Most entries a full rewrite's classic cross-reference table may hold for object numbers the file does not use; default 100,000. */
   maxTableGapEntries?: number;
@@ -308,6 +309,7 @@ class LoadedPdf implements LoadedDocument {
     this.versionChange(changes, warnings);
     const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
     this.objects.saveHook?.(changes, { fractionDigits });
+    validateSavedPageBoxes(this.objects.store, this.pages, { changes, fractionDigits, maxNesting: this.maxNesting });
     const produced = measureStreams(this.objects.producedStreams, this.objects.size);
     const input = {
       store: this.objects.store,

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { formatLength, mm } from '../length/length.ts';
+import { formatLength, mm, pt } from '../length/length.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfNameFromBytes, pdfReal, pdfReference, pdfString } from '../object/pdfObject.ts';
+import { Lexer } from '../parse/lexer.ts';
+import { parseObject } from '../parse/parseObject.ts';
 
 import { serializeObject } from './serializeObject.ts';
 
@@ -26,6 +28,56 @@ describe('object serialization', () => {
     expect(write(pdfReal(0.000015))).toBe('0.00002');
     const array = pdfArray([pdfInteger(1), pdfName('X'), { kind: 'null' }]);
     expect(write(array)).toBe('[1 /X null]');
+  });
+
+  it.each([
+    [0, '0'],
+    [-0, '0'],
+    [1, '1'],
+    [-1, '-1'],
+    [2147483647, '2147483647'],
+    [-2147483647, '-2147483647'],
+  ])('writes an in-range whole real %s as the integer token %s', (value, expected) => {
+    for (const fractionDigits of [0, 5, 10]) {
+      for (const real of [pdfReal(value), pdfReal(pt(value))]) {
+        expect(ascii(serializeObject(real, { fractionDigits }))).toBe(expected);
+      }
+    }
+  });
+
+  it.each([
+    [2147483648, '2147483648.0'],
+    [-2147483648, '-2147483648.0'],
+    [3e9, '3000000000.0'],
+    [-3e9, '-3000000000.0'],
+    [1e21, '1000000000000000000000.0'],
+    [3.403e38, '340300000000000000000000000000000000000.0'],
+  ])('preserves the real type of %s as %s', (value, expected) => {
+    for (const fractionDigits of [0, 5, 10]) {
+      for (const real of [pdfReal(value), pdfReal(pt(value))]) {
+        const bytes = serializeObject(real, { fractionDigits });
+        expect(ascii(bytes)).toBe(expected);
+        const lexer = new Lexer({ bytes, base: 0, final: true }, 0, { names: new Map(), warn: warning => expect.unreachable(warning.detail) });
+        const parsed = parseObject(lexer, 256);
+        const expectedReal = pdfReal(Number(expected));
+        expect(parsed).toStrictEqual(expectedReal);
+      }
+    }
+  });
+
+  it.each([
+    [2.5, 0, '2'],
+    [-0.000005, 5, '0'],
+    [2147483647.4, 0, '2147483647'],
+    [-2147483647.4, 0, '-2147483647'],
+    [2147483647.5, 0, '2147483648.0'],
+    [-2147483647.5, 0, '-2147483648.0'],
+    [2147483648.5, 5, '2147483648.5'],
+    [-2147483648.5, 5, '-2147483648.5'],
+  ])('writes the rounded value of %s at %i digits as %s', (value, fractionDigits, expected) => {
+    for (const real of [pdfReal(value), pdfReal(pt(value))]) {
+      expect(ascii(serializeObject(real, { fractionDigits }))).toBe(expected);
+    }
   });
 
   it('writes invalid tokens verbatim, separated from what precedes them', () => {

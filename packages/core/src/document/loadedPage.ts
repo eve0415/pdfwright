@@ -36,7 +36,7 @@ export interface EffectiveBox {
 /** The five effective page boxes plus rotation and user-unit scaling after inheritance and defaults under ISO 32000-1:2008, 7.7.3.3–7.7.3.4. */
 export type EffectiveBoxes = Readonly<Record<BoxName, EffectiveBox>> & { readonly rotate: number; readonly userUnit: number };
 
-/** Reads effective page boxes and resources and edits boxes, content, date, and page-piece data; boxes must have nonzero area inside MediaBox and invalid edits raise ValidationError under ISO 32000-1:2008, 7.7.3.3, Table 30. */
+/** Reads effective page boxes and resources and edits boxes, content, date, and page-piece data; changed boxes must have nonzero area inside MediaBox when saved, or save raises ValidationError under the writer's policy for ISO 32000-1:2008, 7.7.3.3, Table 30 boundaries. */
 export interface LoadedPage {
   readonly index: number;
   readonly reference: PdfReference;
@@ -46,7 +46,7 @@ export interface LoadedPage {
   resources: () => PdfDictionaryEntries;
   /**
    * Sets one of the page's own boxes, or removes it with undefined so that the inherited value or the ISO 32000-1:2008, Table 30 default applies.
-   * Only the page object changes, never an ancestor it inherits from; the box must have non-zero area and lie within the effective MediaBox.
+   * Only the page object changes, never an ancestor it inherits from; save validates changed boxes at its fractionDigits, requiring non-zero area inside the written MediaBox.
    */
   setBox: (box: BoxName, rect: PdfRect | undefined) => void;
   /**
@@ -102,7 +102,7 @@ export const numberValue = (value: PdfObject | undefined, where: string): number
 };
 
 // ISO 32000-1:2008, 7.9.5: "A rectangle shall be written as an array of four numbers giving the coordinates of a pair of diagonally opposite corners." Rectangles are normalised, as its NOTE says readers should be prepared to do.
-const rectangle = (resolver: ObjectResolver, value: PdfDirectObject, where: string): EffectiveBox['rect'] => {
+export const readPageRectangle = (resolver: ObjectResolver, value: PdfDirectObject, where: string): EffectiveBox['rect'] => {
   const array = resolver.deref(value);
   if (array?.kind !== 'array' || array.items.length !== 4) throw new ParseError(`${where} is not an array of four numbers`, 0);
   const [x1, y1, x2, y2] = array.items.map((item, index) => numberValue(resolver.deref(item), `${where}[${String(index)}]`));
@@ -178,7 +178,7 @@ export const inherited = (
 };
 
 const effectiveBox = (resolver: ObjectResolver, found: Found, where: string): EffectiveBox => {
-  const corners = rectangle(resolver, found.value, where);
+  const corners = readPageRectangle(resolver, found.value, where);
   return found.from === undefined ? { rect: corners, explicit: true } : { rect: corners, explicit: true, inheritedFrom: found.from };
 };
 
@@ -225,11 +225,9 @@ const pageDictionary = (objects: PageObjects, reference: PdfReference): PdfDicti
   return value.entries;
 };
 
-const rounded = (box: PdfRect): number[] => box.map(length => Number(formatLength(length, DEFAULT_FRACTION_DIGITS)));
-
-// Writer policy, as for created pages: a box has non-zero area and every box other than MediaBox lies within MediaBox.
-const checkBox = (name: BoxName, corners: PdfRect, mediaBox: EffectiveBox['rect']): void => {
-  const [left = 0, bottom = 0, right = 0, top = 0] = rounded(corners);
+// ISO 32000-1:2008, 7.7.3.3, Table 30 defines the page boundaries; writer policy requires non-zero area and containment within MediaBox, as for created pages.
+export const checkPageBox = (name: BoxName, corners: readonly number[], mediaBox: EffectiveBox['rect']): void => {
+  const [left = 0, bottom = 0, right = 0, top = 0] = corners;
   if (left >= right || bottom >= top) throw new ValidationError(`the ${name} has zero area after rounding; pdfwright requires page boxes with non-zero area`);
   if (name === 'MediaBox') return;
   const [mediaLeft, mediaBottom, mediaRight, mediaTop] = mediaBox;
@@ -256,7 +254,6 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
     dictionary.delete(key);
   } else {
     const normalized = rect(...corners);
-    checkBox(name, normalized, effectiveBoxes(objects, entry).MediaBox.rect);
     // ISO 32000-1:2008, 7.9.5: "A rectangle shall be written as an array of four numbers".
     dictionary.set(key, pdfArray(normalized.map(length => pdfReal(length))));
   }

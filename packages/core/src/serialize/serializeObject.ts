@@ -3,7 +3,7 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import { ByteWriter } from '../bytes/byteWriter.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { formatLength } from '../length/length.ts';
-import { formatInteger, formatNumber } from '../number/formatNumber.ts';
+import { MAX_INTEGER, formatInteger, formatNumber } from '../number/formatNumber.ts';
 import { assertNameBytes } from '../object/nameBytes.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
@@ -96,9 +96,9 @@ const writeDirectObject = (writer: ByteWriter, object: PdfDirectObject, options:
       break;
     }
     case 'real': {
-      writer.writeAscii(
-        typeof object.value === 'number' ? formatNumber(object.value, options.fractionDigits) : formatLength(object.value, options.fractionDigits),
-      );
+      const token = typeof object.value === 'number' ? formatNumber(object.value, options.fractionDigits) : formatLength(object.value, options.fractionDigits);
+      // ISO 32000-1:2008, 7.3.3 permits integers wherever reals are expected; whole values beyond the supported integer range need a decimal point.
+      writer.writeAscii(!token.includes('.') && Math.abs(Number(token)) > MAX_INTEGER ? `${token}.0` : token);
       break;
     }
     case 'name': {
@@ -158,7 +158,7 @@ export const writePdfObject = (writer: ByteWriter, object: PdfObject, options: S
   writer.writeAscii('\nendstream');
 };
 
-/** Serializes a direct PDF object using the selected real-number precision. */
+/** Serializes a PDF object using the selected real-number precision. */
 export const serializeObject = (object: PdfObject, options: SerializeOptions): Uint8Array => {
   const writer = new ByteWriter();
   writePdfObject(writer, object, options);

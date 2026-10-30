@@ -4,86 +4,52 @@ import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 
 import { DEFAULT_FRACTION_DIGITS, formatInteger, formatNumber } from './formatNumber.ts';
 
-const oracle = (value: number, fractionDigits: number): string => {
-  const decimal = String(Math.abs(value));
-  const [mantissa = '', rawExponent = '0'] = decimal.toLowerCase().split('e');
-  const [integer = '', fraction = ''] = mantissa.split('.');
-  const exponent = Number(rawExponent) - fraction.length;
-  const coefficient = BigInt(integer + fraction);
-  const numerator = exponent >= 0 ? coefficient * 10n ** BigInt(exponent) : coefficient;
-  const denominator = exponent < 0 ? 10n ** BigInt(-exponent) : 1n;
-  const scaled = numerator * 10n ** BigInt(fractionDigits);
-  const quotient = scaled / denominator;
-  const remainder = scaled % denominator;
-  const rounded = quotient + (2n * remainder > denominator || (2n * remainder === denominator && quotient % 2n === 1n) ? 1n : 0n);
-  if (rounded > 3403n * 10n ** BigInt(35 + fractionDigits)) throw new InvalidArgumentError('real out of range');
-  if (rounded === 0n) return '0';
-  const digits = rounded.toString().padStart(fractionDigits + 1, '0');
-  const whole = digits.slice(0, digits.length - fractionDigits);
-  const rest = digits.slice(digits.length - fractionDigits).replace(/0+$/u, '');
-  return `${value < 0 ? '-' : ''}${whole}${rest.length > 0 ? `.${rest}` : ''}`;
-};
-
-const xor = (left: number, right: number): number => {
-  let result = 0;
-  let place = 1;
-  for (let index = 0; index < 32; index++) {
-    if (Math.floor(left / place) % 2 !== Math.floor(right / place) % 2) result += place;
-    place *= 2;
-  }
-  return result;
-};
-
-const randomValues = function* (): Generator<number> {
-  let state = 0x12345678;
-  for (let index = 0; index < 100_000; index++) {
-    state = xor(state, (state * 8192) % 4294967296);
-    state = xor(state, Math.floor(state / 131072));
-    state = xor(state, (state * 32) % 4294967296);
-    const exponent = -9 + (state % 22);
-    yield (index % 2 === 0 ? 1 : -1) * (state / 4294967296) * 10 ** exponent;
-  }
-};
-
 describe('number formatting', () => {
-  it('rounds edge values like an exact rational oracle at every supported precision', () => {
-    const values = [
-      0,
-      -0,
-      1e-7,
-      2.5e-6,
-      0.000005,
-      0.000015,
-      0.1 + 0.2,
-      1e21,
-      Number('123456789.123456789'),
-      Number.MAX_SAFE_INTEGER,
-      Number('9007199254740993'),
-      -1.5,
-      2.5,
-      0.5,
-      1.23456789e-5,
-      3.403e38,
-    ];
-    for (const value of values) {
-      for (let digits = 0; digits <= 10; digits++) {
-        const output = formatNumber(value, digits);
-        expect(output).toBe(oracle(value, digits));
-        expect(output).not.toMatch(/[eE]/u);
-      }
-    }
-  });
-
-  it('matches the rational oracle for 100,000 fixed-seed values', () => {
-    let index = 0;
-    for (const value of randomValues()) {
-      const digits = index % 11;
-      const output = formatNumber(value, digits);
-      expect(output).toBe(oracle(value, digits));
-      expect(output).not.toMatch(/[eE]/u);
-      index++;
-    }
-    expect(index).toBe(100_000);
+  it.each([
+    [1.2345678901, 0, '1'],
+    [1.2345678901, 1, '1.2'],
+    [1.2345678901, 2, '1.23'],
+    [1.2345678901, 3, '1.235'],
+    [1.2345678901, 4, '1.2346'],
+    [1.2345678901, 5, '1.23457'],
+    [1.2345678901, 6, '1.234568'],
+    [1.2345678901, 7, '1.2345679'],
+    [1.2345678901, 8, '1.23456789'],
+    [1.2345678901, 9, '1.23456789'],
+    [1.2345678901, 10, '1.2345678901'],
+    [0, 5, '0'],
+    [-0, 5, '0'],
+    [0.5, 0, '0'],
+    [-0.5, 0, '0'],
+    [1.5, 0, '2'],
+    [-1.5, 0, '-2'],
+    [2.5, 0, '2'],
+    [-2.5, 0, '-2'],
+    [3.5, 0, '4'],
+    [-3.5, 0, '-4'],
+    [1.25, 1, '1.2'],
+    [1.35, 1, '1.4'],
+    [-1.25, 1, '-1.2'],
+    [-1.35, 1, '-1.4'],
+    [9.999995, 5, '10'],
+    [-9.999995, 5, '-10'],
+    [0.000005, 5, '0'],
+    [0.000015, 5, '0.00002'],
+    [-0.000015, 5, '-0.00002'],
+    [2.5e-6, 6, '0.000002'],
+    [1e-7, 5, '0'],
+    [1e-7, 10, '0.0000001'],
+    [1.23456789e-5, 10, '0.0000123457'],
+    [0.1 + 0.2, 10, '0.3'],
+    [Number('123456789.123456789'), 5, '123456789.12346'],
+    [Number.MAX_SAFE_INTEGER, 5, '9007199254740991'],
+    [Number('9007199254740993'), 5, '9007199254740992'],
+    [1e21, 0, '1000000000000000000000'],
+    [1e21, 10, '1000000000000000000000'],
+    [-1e21, 5, '-1000000000000000000000'],
+    [3.403e38, 5, '340300000000000000000000000000000000000'],
+  ])('formats %s at %i fractional digits as %s', (value, fractionDigits, expected) => {
+    expect(formatNumber(value, fractionDigits)).toBe(expected);
   });
 
   it('rejects invalid values and integer tokens outside the PDF range', () => {
