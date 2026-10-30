@@ -8,7 +8,7 @@ import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
 import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
 
-import { COMPRESSED, IN_FILE } from './objectIndex.ts';
+import { ABSENT, COMPRESSED, IN_FILE } from './objectIndex.ts';
 import { reconstructIndex } from './recover.ts';
 
 interface Result {
@@ -16,12 +16,12 @@ interface Result {
   warnings: LoadWarning[];
 }
 
-const reconstruct = (text: string, maxObjectStreamMembers = 100): Result => {
+const reconstruct = (text: string, maxObjectStreamMembers = 100, maxDecodedBytes = 1_048_576): Result => {
   const warnings: LoadWarning[] = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
-  const context = { warn, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576, maxObjectStreamMembers };
+  const context = { warn, names: new Map(), maxNesting: 256, maxDecodedBytes, maxObjectStreamMembers };
   return { reconstruction: reconstructIndex(new ByteSource(latin1Bytes(text)), context), warnings };
 };
 
@@ -100,6 +100,59 @@ describe('cross-reference reconstruction', () => {
     const spacing = reconstruct('%PDF-1.4\n3 0 obj <</A 1>> endobj\n3 0 obj << /A 1 >> endobj\n').reconstruction;
     const broken = reconstruct('%PDF-1.4\n3 0 obj (a) endobj\n3 0 obj <zz> endobj\n4 0 obj <zz> endobj\n').reconstruction;
     expect([spacing.ambiguous, broken.ambiguous, broken.unreadable, located(broken)]).toStrictEqual([[], [3], [4], [[3, 'file', 9]]]);
+  });
+
+  it.each([
+    ['/N 1/First 4/Filter/UnknownDecode', '9 0 null'],
+    ['/N 1/First 4/Filter/FlateDecode', 'invalid'],
+    ['/First 4', '9 0 null'],
+    ['/N 1', '9 0 null'],
+    ['/N 1/First 4', 'xxxxnull'],
+    ['/N 1/First 4', '9 9 null'],
+  ])('records an unreadable object stream with dictionary %s', (dictionary, data) => {
+    const text = `1 0 obj (readable) endobj\n3 0 obj\n${streamBody(`/Type/ObjStm${dictionary}`, data)}\nendobj\n`;
+    const { reconstruction } = reconstruct(text);
+    expect([reconstruction.unreadable, reconstruction.ambiguous, reconstruction.objectStreams]).toStrictEqual([[3], [], 0]);
+    expect(located(reconstruction).map(([number]) => number)).toStrictEqual([1]);
+  });
+
+  it('keeps readable copies when another copy is an unreadable object stream', () => {
+    const bad = `3 0 obj\n${streamBody('/Type/ObjStm/N 1/First 4/Filter/UnknownDecode', '9 0 null')}\nendobj\n`;
+    const good = '3 0 obj (readable) endobj\n';
+    for (const text of [good + bad, bad + good]) {
+      const { reconstruction } = reconstruct(text);
+      expect([reconstruction.unreadable, reconstruction.ambiguous]).toStrictEqual([[], [3]]);
+      expect(located(reconstruction)).toStrictEqual([[3, 'file', text.indexOf(good)]]);
+    }
+  });
+
+  it.each([
+    { objects: [], unreadable: [9], ambiguous: [], type: ABSENT },
+    { objects: [{ number: 9, body: '(readable)' }], unreadable: [], ambiguous: [9], type: IN_FILE },
+  ])('records malformed object-stream members with readable copies $objects', ({ objects, unreadable, ambiguous, type }) => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects,
+        objectStreams: [
+          {
+            number: 3,
+            members: [
+              { number: 9, body: '<zz>' },
+              { number: 10, body: '(valid)' },
+            ],
+          },
+        ],
+      },
+    ]);
+    const { reconstruction } = reconstruct(pdf.text);
+    expect([reconstruction.unreadable, reconstruction.ambiguous]).toStrictEqual([unreadable, ambiguous]);
+    expect([reconstruction.index.get(9).type, reconstruction.index.get(10).type]).toStrictEqual([type, COMPRESSED]);
+  });
+
+  it('propagates decoded object-stream size limits', () => {
+    const text = `3 0 obj\n${streamBody('/Type/ObjStm/N 1/First 4', '9 0 null')}\nendobj\n`;
+    expect(() => reconstruct(text, 100, 4)).toThrow(ResourceLimitError);
   });
 
   it('ranks object-stream members at their stream position against top-level copies', () => {

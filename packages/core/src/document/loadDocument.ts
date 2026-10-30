@@ -337,7 +337,8 @@ class LoadedPdf implements LoadedDocument {
 
 /**
  * Reads a PDF from its bytes, held as one array or as the segments of an earlier save, without copying them.
- * Objects are parsed on demand. Damage of the kinds `LoadWarningCode` names is repaired and reported as a load warning; cross-reference data that does not describe the file is rebuilt by scanning it.
+ * Objects are normally parsed on demand. Damage of the kinds `LoadWarningCode` names is repaired and reported as a load warning; cross-reference data that does not describe the file is rebuilt by scanning it.
+ * Reconstruction skips unreadable objects, object streams and members, reports load warnings, and reads references to absent objects as null; resource limits still throw ResourceLimitError.
  * Encrypted documents throw EncryptedDocumentError.
  */
 export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options: LoadOptions = {}): LoadedDocument => {

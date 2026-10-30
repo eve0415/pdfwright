@@ -6,6 +6,7 @@ import type { DecodedObjectStream, ObjectStreamContext } from './objectStream.ts
 import type { XrefEntry } from './xrefSection.ts';
 
 import { ParseError } from '../error/parseError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { pdfName } from '../object/pdfObject.ts';
 import { ByteSource } from '../parse/byteSource.ts';
@@ -25,9 +26,9 @@ export interface Reconstruction {
   readonly trailers: readonly PdfDictionaryEntries[];
   /** Top-level objects that are dictionaries with Type Catalog and a Pages entry, in file order. */
   readonly catalogs: readonly number[];
-  /** Object numbers with more than one copy whose values differ, or with a copy that does not parse beside one that does. */
+  /** Object numbers with differing readable copies, or with both readable and unreadable copies. */
   readonly ambiguous: readonly number[];
-  /** Object numbers whose only copies do not parse; they resolve to null. */
+  /** Object numbers whose only copies cannot be parsed or decoded; they resolve to null. */
   readonly unreadable: readonly number[];
   readonly objects: number;
   readonly objectStreams: number;
@@ -147,8 +148,8 @@ class Scanner {
   readonly candidates = new Map<number, Candidate[]>();
   readonly trailers: PdfDictionaryEntries[] = [];
   readonly catalogs: number[] = [];
-  readonly objectStreams: { object: ParsedIndirectObject; position: number }[] = [];
-  /** Object numbers of "n g obj" headers whose objects do not parse. */
+  readonly objectStreams: { object: ParsedIndirectObject; candidate: Candidate }[] = [];
+  /** Object numbers with copies that cannot be parsed or decoded, including object-stream members. */
   readonly unreadable = new Set<number>();
 
   private readonly endstreams: readonly IndexedEndstream[];
@@ -211,15 +212,16 @@ class Scanner {
     }
     const { objectNumber, generation, value, source } = object;
     if (objectNumber > MAX_OBJECT_NUMBER || generation > MAX_GENERATION) return keyword + OBJ.length;
-    this.add({
+    const candidate: Candidate = {
       entry: { objectNumber, type: 'file', location: header, generation },
       position: header,
       bytes: this.bytes.subarray(source.valueStart, source.valueEnd),
       value: () => value,
-    });
+    };
     const type = typeName(value);
     if (type === 'XRef' && value.kind === 'stream') this.trailers.push(value.dictionary);
-    if (type === 'ObjStm') this.objectStreams.push({ object, position: header });
+    if (type === 'ObjStm') this.objectStreams.push({ object, candidate });
+    else this.add(candidate);
     if (type === 'Catalog' && value.kind === 'dictionary' && value.entries.has(PAGES)) this.catalogs.push(objectNumber);
     // Scanning resumes after the object, so bytes inside stream data whose extent is known never produce objects; a stream whose Length is indirect has its extent found from endstream.
     return source.objectEnd;
@@ -246,20 +248,33 @@ class Scanner {
     }
   }
 
+  private decode(object: ParsedIndirectObject): DecodedObjectStream | undefined {
+    try {
+      return decodeObjectStream(object.objectNumber, object.value, this.context);
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError || error instanceof UnsupportedFeatureError)) throw error;
+      this.unreadable.add(object.objectNumber);
+      return undefined;
+    }
+  }
+
   // Members of every object stream found rank at the stream's position.
   members(): DecodedObjectStream[] {
     const decoded: DecodedObjectStream[] = [];
-    for (const { object, position } of this.objectStreams) {
-      const stream = decodeObjectStream(object.objectNumber, object.value, this.context);
+    for (const { object, candidate } of this.objectStreams) {
+      const stream = this.decode(object);
+      if (stream === undefined) continue;
+      this.add(candidate);
       decoded.push(stream);
       for (const [index, member] of stream.members.entries()) {
         const entry: XrefEntry = { objectNumber: member.objectNumber, type: 'compressed', location: object.objectNumber, generation: index };
-        this.add({
-          entry,
-          position,
-          bytes: stream.data.subarray(member.start, member.end),
-          value: () => parseMember(stream, { objectNumber: member.objectNumber, index }, this.context),
-        });
+        try {
+          const value = parseMember(stream, { objectNumber: member.objectNumber, index }, this.context);
+          this.add({ entry, position: candidate.position, bytes: stream.data.subarray(member.start, member.end), value: () => value });
+        } catch (error: unknown) {
+          if (!(error instanceof ParseError)) throw error;
+          this.unreadable.add(member.objectNumber);
+        }
       }
     }
     return decoded;
