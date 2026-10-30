@@ -58,7 +58,7 @@ export const readIllustratorPdfParts = (pdf: Uint8Array, zstandard: ZstandardDec
 /**
  * Reads the Illustrator-native layer copy of a PDF's first page back into an `IllustratorDocument`, with the native header and the container facts a test asserts on.
  *
- * A PDF without Illustrator page-piece data raises `ValidationError`; malformed container objects, dates, native bytes and numbers raise `ParseError`; an unknown compression wrapper, a block filter other than FlateDecode and native grammar the reader does not support raise `UnsupportedFeatureError`; and an `options.zstandard` that is not a function or returns something other than a `Uint8Array` raises `InvalidArgumentError`.
+ * A PDF without Illustrator page-piece data raises `ValidationError`; malformed container objects, dates, native bytes and numbers raise `ParseError`; an unknown compression wrapper, a block filter other than FlateDecode and native grammar the reader does not support raise `UnsupportedFeatureError`; groups and clipping groups nested deeper than 128 levels in the native data raise `ResourceLimitError`; and an `options.zstandard` that is not a function or returns something other than a `Uint8Array` raises `InvalidArgumentError`.
  */
 export const readIllustratorPdf = (pdf: Uint8Array, options: ReadIllustratorPdfOptions): IllustratorPdfContents => {
   const supplied: unknown = options;

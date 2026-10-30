@@ -1,6 +1,5 @@
 import type {
   Artboard,
-  ClipGroup,
   Fill,
   FillRule,
   Group,
@@ -21,8 +20,9 @@ import type { NativeOrigin } from '../native/nativeOrigin.ts';
 import type { NativeRecord } from './nativeTokenizer.ts';
 import type { PdfDate } from '@pdfwright/core';
 
-import { ParseError, UnsupportedFeatureError } from '@pdfwright/core';
+import { ParseError, ResourceLimitError, UnsupportedFeatureError } from '@pdfwright/core';
 
+import { GROUP_NESTING_LIMIT } from '../model/validateDocument.ts';
 import { formatNativeNumber } from '../native/formatNativeNumber.ts';
 
 import { parseNativeLiteral, tokenizeNative } from './nativeTokenizer.ts';
@@ -308,12 +308,13 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
 };
 
 // A clipping path is one path object, or a compound path opened by 0 Ae and *u, whose first object ends with h and W rather than a paint operator.
+// The look-ahead reads to the end of that first object however many anchors it has, so each call reads one object.
 const isClipPath = (cursor: Cursor): boolean => {
   const line = peekLine(cursor);
   const opener = cursor.peekOffset(1);
   const compound = line === '0 Ae' && opener?.kind === 'line' && opener.text === '*u';
   if (!compound && (line === undefined || !/^\d+ As$/u.test(line))) return false;
-  for (let offset = compound ? 2 : 1; offset < 10_000; offset++) {
+  for (let offset = compound ? 2 : 1; ; offset++) {
     const record = cursor.peekOffset(offset);
     if (record?.kind !== 'line') return false;
     if (record.text === 'f' || record.text === 's' || record.text === 'b') return false;
@@ -322,7 +323,6 @@ const isClipPath = (cursor: Cursor): boolean => {
       return next?.kind === 'line' && next.text === 'W';
     }
   }
-  return false;
 };
 
 const isLayerTrailer = (line: string | undefined): boolean => /^0 \S+ 0 2 0 Xy$/u.test(line ?? '');
@@ -386,26 +386,39 @@ const consumeItemState = (cursor: Cursor, state: PaintState, line: string): bool
   return false;
 };
 
-const parseItems = (cursor: Cursor, ending: 'layer' | 'group' | 'clip', state: PaintState): Item[] => {
+// Depth counts the groups and clipping groups around a run of items, as validateDocument counts them, so the reader accepts every nesting the writer can produce and stops hostile nesting before the call stack runs out.
+interface ItemScope {
+  readonly ending: 'layer' | 'group' | 'clip';
+  readonly depth: number;
+}
+
+const endsScope = (cursor: Cursor, ending: ItemScope['ending'], line: string): boolean => {
+  if (ending === 'layer') return line === 'LB' || isLayerTrailer(line);
+  if (ending === 'group') return line === 'U';
+  return isClipPath(cursor);
+};
+
+const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintState): Item[] => {
+  if (depth > GROUP_NESTING_LIMIT) {
+    throw new ResourceLimitError(`native group nesting exceeds ${String(GROUP_NESTING_LIMIT)} levels at native byte ${String(cursor.at())}`);
+  }
   const items: Item[] = [];
   while (!cursor.done()) {
     const line = peekLine(cursor);
     const offset = cursor.at();
     if (line === undefined) throw unsupported('unexpected raster bytes in layer', offset);
-    if ((ending === 'layer' && (line === 'LB' || isLayerTrailer(line))) || (ending === 'group' && line === 'U') || (ending === 'clip' && isClipPath(cursor))) {
-      break;
-    }
+    if (endsScope(cursor, ending, line)) break;
     if (consumeItemState(cursor, state, line)) continue;
     if (line === '%AI5_BeginLayer') throw unsupported('sublayers are unsupported', offset);
     if (line === '0 Ae') {
       cursor.takeLine();
       const opening = cursor.takeRecord();
       const locked = state.lockState.value;
+      const inner = depth + 1;
       if (opening.text === 'q') {
-        const clipped = parseItems(cursor, 'clip', { ...state });
-        const clip: ClipGroup = { kind: 'clipGroup', locked, clip: finishClip(cursor, state), items: clipped };
-        items.push(clip);
-      } else if (opening.text === 'u') items.push(finishGroup(cursor, parseItems(cursor, 'group', { ...state }), locked));
+        const clipped = parseItems(cursor, { ending: 'clip', depth: inner }, { ...state });
+        items.push({ kind: 'clipGroup', locked, clip: finishClip(cursor, state), items: clipped });
+      } else if (opening.text === 'u') items.push(finishGroup(cursor, parseItems(cursor, { ending: 'group', depth: inner }, { ...state }), locked));
       else if (opening.text === '*u') items.push(parseCompoundPath(cursor, state));
       else throw unsupported(`unknown native group opener ${opening.text}`, opening.offset);
     } else if (/^\d+ As$/u.test(line)) {
@@ -453,7 +466,7 @@ const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
     itemLock = false;
   }
   expectLine(cursor, '0 Xw');
-  const items = parseItems(cursor, 'layer', {
+  const state: PaintState = {
     lockState: { value: itemLock },
     fillRuleState: { value: 'nonzero' },
     fillPaint: undefined,
@@ -461,7 +474,8 @@ const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
     overprintFill: false,
     overprintStroke: false,
     strokeWidth: 1,
-  });
+  };
+  const items = parseItems(cursor, { ending: 'layer', depth: 0 }, state);
   let opacity = 1;
   if (isLayerTrailer(peekLine(cursor))) {
     const trailer = cursor.takeRecord();
@@ -552,7 +566,7 @@ const unknownSetupBlocks = (records: readonly NativeRecord[]): string[] => {
 /**
  * Reads the supported native layer grammar into model coordinates under either native origin; the full PDF page date supplies the seconds and zone the native header drops.
  *
- * Malformed bytes, numbers and strings raise `ParseError` with their offset in the native data, and grammar outside what the reader supports raises `UnsupportedFeatureError`.
+ * Malformed bytes, numbers and strings raise `ParseError` with their offset in the native data, grammar outside what the reader supports raises `UnsupportedFeatureError`, and groups and clipping groups nested deeper than the writer allows raise `ResourceLimitError`.
  */
 export const readNative = (native: Uint8Array, lastModified: PdfDate): NativeReadResult => {
   const records = tokenizeNative(native);

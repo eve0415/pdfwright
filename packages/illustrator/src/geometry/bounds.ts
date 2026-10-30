@@ -35,19 +35,17 @@ const cubic = ([p0, p1, p2, p3]: readonly [number, number, number, number], t: n
   return reverse ** 3 * p0 + 3 * reverse ** 2 * t * p1 + 3 * reverse * t ** 2 * p2 + t ** 3 * p3;
 };
 
+// Solves the derivative 3a t² + 2b t + c = 0 in the form that never subtracts nearly equal terms: q = −(b + sgn(b) √(b² − 3ac)), with roots q / 3a and c / q.
+// A raised quadratic has a = 0 in exact arithmetic but a rounding residual in floating point that grows with the coordinates, so no fixed threshold on a can tell the cases apart; with this form the residual sends q / 3a far outside (0, 1) and c / q stays the quadratic's own extremum.
 const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): number[] => {
   const a = -p0 + 3 * p1 - 3 * p2 + p3;
   const b = 3 * p0 - 6 * p1 + 3 * p2;
   const c = -3 * p0 + 3 * p1;
-  if (Math.abs(a) < 1e-12) {
-    if (Math.abs(b) < 1e-12) return [];
-    const t = -c / (2 * b);
-    return t > 0 && t < 1 ? [t] : [];
-  }
   const discriminant = b * b - 3 * a * c;
   if (discriminant < 0) return [];
-  const root = Math.sqrt(discriminant);
-  return [(-b - root) / (3 * a), (-b + root) / (3 * a)].filter(t => t > 0 && t < 1);
+  const q = -(b + (b < 0 ? -1 : 1) * Math.sqrt(discriminant));
+  // A zero a or q makes its quotient infinite or NaN, which the range test drops.
+  return [q / (3 * a), c / q].filter(t => t > 0 && t < 1);
 };
 
 const subpathBounds = (subpath: Subpath): Bounds => {

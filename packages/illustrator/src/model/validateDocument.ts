@@ -7,6 +7,9 @@ import { escapeXmlIdentifier } from '../native/nativeString.ts';
 
 import { coordinateNumber } from './coordinateNumber.ts';
 
+/** The deepest group and clipping-group nesting a document may have, counted from a layer's own items; the reader holds native data to the same limit. */
+export const GROUP_NESTING_LIMIT = 128;
+
 const coordinate = (value: unknown): number => {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) throw new ValidationError('coordinate must be finite', 'illustrator-model');
@@ -224,7 +227,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
     }
   };
   const items = (values: readonly Item[], depth: number): void => {
-    if (depth > 128) throw new ValidationError('group nesting cannot exceed 128 levels', 'illustrator-model');
+    if (depth > GROUP_NESTING_LIMIT) throw new ValidationError(`group nesting cannot exceed ${String(GROUP_NESTING_LIMIT)} levels`, 'illustrator-model');
     for (const item of values) {
       switch (item.kind) {
         case 'path': {
