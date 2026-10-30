@@ -156,6 +156,32 @@ describe('loading documents', () => {
   });
 });
 
+describe('loading large cross-reference stream dictionaries', () => {
+  const original = {
+    xref: 'stream',
+    objects: [catalog, pages, { number: 3, body: '(old)' }, ...Array.from({ length: 2400 }, (_, index) => ({ number: 10 + 3 * index, body: 'null' }))],
+    trailer: '/Root 1 0 R',
+  } as const;
+  const update = { objects: [{ number: 3, body: '(new)' }], trailer: '/Root 1 0 R' };
+
+  it.each([
+    { target: 'startxref', sections: [original], expected: ['intact', []], value: 'old' },
+    { target: 'Prev in a stream section', sections: [original, { ...update, xref: 'stream' }], expected: ['intact', []], value: 'new' },
+    {
+      target: 'Prev in a classic section',
+      sections: [original, { ...update, xref: 'classic' }],
+      expected: ['tolerated', ['mixed-xref-chain']],
+      value: 'new',
+    },
+  ] as const)('reads the dictionary through $target', ({ sections, expected, value }) => {
+    const pdf = buildPdf(sections);
+    const document = loadDocument(pdf.bytes);
+    expect(summary(document)).toStrictEqual(expected);
+    expect(document.structure.sections.map(section => section.kind)).toStrictEqual(sections.map(section => section.xref).toReversed());
+    expect(document.get(pdfReference(3, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes(value), encoding: 'literal' });
+  });
+});
+
 describe('documents that require a full rewrite', () => {
   it('rewrites in auto mode and refuses an incremental save once an edit requires a full rewrite', () => {
     const document = loadDocument(base.bytes);
