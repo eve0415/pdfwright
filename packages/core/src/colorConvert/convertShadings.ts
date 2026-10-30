@@ -1,7 +1,7 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
+import type { PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ColorEntryState, RewriteColorOptions, ShadingUse } from './rewriteContent.ts';
@@ -13,13 +13,13 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { createPdfFunction } from '../function/pdfFunction.ts';
+import { createPdfFunctionReader } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
-import { deleteDiscarded } from './discardedObjects.ts';
+import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
@@ -201,10 +201,13 @@ const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject 
   return decoded;
 };
 
-const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): PdfFunction => {
-  if (value.kind !== 'array') return createPdfFunction(decodedFunction(document, value), child => decodedFunction(document, child));
+const functionReader = (document: LoadedDocument): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(document, item));
+
+const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
+  const read = functionReader(document);
+  if (value.kind !== 'array') return read(value);
   if (value.items.length !== channels) return invalid('shading Function array disagrees with its colour space');
-  const functions = value.items.map(item => createPdfFunction(decodedFunction(document, item), child => decodedFunction(document, child)));
+  const functions = value.items.map(item => read(item));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
 
@@ -226,13 +229,14 @@ const backgroundFor = (value: PdfDirectObject | undefined, channels: number, tra
   return pdfArray([...output].map(component => pdfReal(component)));
 };
 
-const stitchedShading = (context: ShadingContext, source: PdfObject, transform: ColorTransform): ConvertedCmykFunction =>
-  stitchCmykFunction(context.document, source, child => {
+const stitchedShading = (context: ShadingContext, source: PdfObject, transform: ColorTransform): ConvertedCmykFunction => {
+  const read = functionReader(context.document);
+  return stitchCmykFunction(context.document, source, child => {
     const decoded = decodedFunction(context.document, child);
     if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('stitching subfunction is invalid');
-    const entries = decoded.kind === 'stream' ? decoded.dictionary : decoded.entries;
-    const domain = arrayNumbers(entries.get(DOMAIN), 2);
-    const fn = createPdfFunction(decoded);
+    const fn = read(decoded);
+    const { domain } = fn;
+    if (domain.length !== 2) return invalid('stitching subfunction must take one input');
     const evaluate = (input: readonly number[]): Float64Array => {
       const output = new Float64Array(4);
       transform.convert(Float64Array.from(fn(input)), output);
@@ -240,6 +244,7 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
     };
     return sampleCmykFunction({ dimensions: 1, domain, evaluate, destination: context.options.outputProfile, minimumGrid: 2, midpointTolerance: 0.5 });
   });
+};
 
 const sampledShading = (config: {
   context: ShadingContext;
@@ -268,27 +273,7 @@ const sampledShading = (config: {
 const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): PdfReference[] => {
   const internals = internalsOf(document);
   if (internals === undefined) return invalid('document internals are unavailable');
-  const discarded: PdfReference[] = [];
-  const seen = new Set<number>();
-  const pending: PdfDirectObject[] = [functionValue];
-  for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
-    if (value.kind === 'array') {
-      pending.push(...value.items);
-      continue;
-    }
-    if (value.kind === 'reference') {
-      if (seen.has(value.objectNumber)) continue;
-      seen.add(value.objectNumber);
-      discarded.push(value);
-    }
-    const object = internals.objects.deref(value);
-    let entries: PdfDictionaryEntries | undefined = undefined;
-    if (object?.kind === 'dictionary') ({ entries } = object);
-    else if (object?.kind === 'stream') ({ dictionary: entries } = object);
-    const children = entries?.get(pdfName('Functions').bytes);
-    if (children !== undefined) pending.push(children);
-  }
-  return discarded;
+  return discardedFunctionObjects(internals, functionValue);
 };
 
 const planShading = (

@@ -20,7 +20,7 @@ export const stitchCmykFunction = (document: LoadedDocument, source: PdfObject, 
   if (source.kind !== 'dictionary') throw new ValidationError('stitching function is not a dictionary', 'color-space');
   const internals = internalsOf(document);
   if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const children = source.entries.get(pdfName('Functions').bytes);
+  const children = internals.objects.deref(source.entries.get(pdfName('Functions').bytes));
   if (children?.kind !== 'array' || children.items.length === 0) throw new ValidationError('stitching function has no subfunctions', 'color-space');
   const functions: SampledCmykFunction[] = [];
   for (const item of children.items) {

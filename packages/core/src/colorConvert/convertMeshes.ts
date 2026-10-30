@@ -1,7 +1,7 @@
 import type { ColorSource, ColorTransform } from '../color/createColorTransform.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
-import type { PdfFunction } from '../function/pdfFunction.ts';
+import type { PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { ResourceVisit } from '../resourceGraph/walkResources.ts';
 import type { MeshSampleOptions } from './meshSamples.ts';
@@ -13,12 +13,12 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
-import { createPdfFunction } from '../function/pdfFunction.ts';
+import { createPdfFunctionReader } from '../function/pdfFunction.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
-import { deleteDiscarded } from './discardedObjects.ts';
+import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { convertMeshSamples } from './meshSamples.ts';
 import { subdivideMesh } from './meshSubdivision.ts';
 import { checkConversionRefusals } from './preflight.ts';
@@ -179,10 +179,13 @@ const decodedFunction = (scan: MeshScan, value: PdfObject): PdfObject => {
   return { kind: 'stream', dictionary: object.dictionary, data };
 };
 
-const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): PdfFunction => {
-  if (value.kind !== 'array') return createPdfFunction(decodedFunction(scan, value), child => decodedFunction(scan, child));
+const functionReader = (scan: MeshScan): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(scan, item));
+
+const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
+  const read = functionReader(scan);
+  if (value.kind !== 'array') return read(value);
   if (value.items.length !== channels) return invalid('mesh Function array disagrees with its colour space');
-  const functions = value.items.map(item => createPdfFunction(decodedFunction(scan, item), child => decodedFunction(scan, child)));
+  const functions = value.items.map(item => read(item));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
 
@@ -195,12 +198,13 @@ const convertedMeshFunction = (
   if (original.kind === 'dictionary' && original.entries.get(pdfName('FunctionType').bytes)?.kind === 'integer') {
     const type = original.entries.get(pdfName('FunctionType').bytes);
     if (type?.kind === 'integer' && type.value === 3) {
+      const read = functionReader(scan);
       return stitchCmykFunction(scan.document, original, child => {
         const decoded = decodedFunction(scan, child);
         if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('mesh stitching subfunction is invalid');
-        const entries = decoded.kind === 'dictionary' ? decoded.entries : decoded.dictionary;
-        const childDomain = arrayNumbers(entries.get(pdfName('Domain').bytes), 2);
-        const fn = createPdfFunction(decoded, item => decodedFunction(scan, item));
+        const fn = read(decoded);
+        const childDomain = fn.domain;
+        if (childDomain.length !== 2) return invalid('mesh stitching subfunction must take one input');
         const evaluate = (input: readonly number[]): Float64Array => {
           const output = new Float64Array(4);
           transform.convert(Float64Array.from(fn(input)), output);
@@ -237,12 +241,9 @@ const functionMesh = (
   const sampled = convertedMeshFunction(scan, { value: functionValue, channels, transform, domain: decode.slice(4, 6) });
   const discarded: PdfReference[] = [];
   if (color.kind === 'reference') discarded.push(color);
-  if (functionValue.kind === 'reference') discarded.push(functionValue);
-  const original = decodedFunction(scan, functionValue);
-  if (original.kind === 'dictionary') {
-    const children = original.entries.get(pdfName('Functions').bytes);
-    if (children?.kind === 'array') for (const child of children.items) if (child.kind === 'reference') discarded.push(child);
-  }
+  const internals = internalsOf(scan.document);
+  if (internals === undefined) return invalid('document internals are unavailable');
+  discarded.push(...discardedFunctionObjects(internals, functionValue));
   const originalDecode = shading.dictionary.get(DECODE);
   if (originalDecode === undefined) return invalid('function-driven mesh Decode is missing');
   return {

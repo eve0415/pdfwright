@@ -18,6 +18,21 @@ describe('calculator operators', () => {
     expect(calculator('{ true false eq { 1 } { 0 } ifelse }')([])).toStrictEqual([0]);
   });
 
+  it('shifts 32-bit integers with zero fill in bitshift', () => {
+    const cases: [string, number][] = [
+      ['7 3', 56],
+      ['142 -3', 17],
+      ['-1 -1', 2_147_483_647],
+      ['-8 -1', 2_147_483_644],
+      ['-1 0', -1],
+      ['1073741824 1', -2_147_483_648],
+      ['3 31', -2_147_483_648],
+      ['1 32', 0],
+      ['-1 -32', 0],
+    ];
+    expect(cases.map(([operands]) => calculator(`{ ${operands} bitshift }`)([])[0])).toStrictEqual(cases.map(([, expected]) => expected));
+  });
+
   it('keeps transcendental calculator outputs identical across runtimes', () => {
     const functions = ['{ 720 mul sin }', '{ 720 mul cos }', '{ ln }', '{ log }', '{ 0.5 exch atan }', '{ 0.7 exch exp }'].map(body =>
       createCalculatorFunction(new TextEncoder().encode(body), 1, 1),

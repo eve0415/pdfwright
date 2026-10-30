@@ -407,7 +407,7 @@ The checker labels [“PDF/X in a Nutshell” (PDF Association, 2017)](https://p
 - `createColorTransform` and `parseIccProfile` evaluate and inspect ICC colour profiles, and `srgbColorSource` and `srgbProfileBytes` supply the bundled sRGB profile.
 - `writeGtsPdfxOutputIntent`, `writePdfX4Metadata`, `preparePdfX4Pages`, `registeredPrintingConditions` and `pdfX4Rules` expose the individual PDF/X-4 preparation and checking steps.
 - `PdfDocument` also exposes image placement, transparency groups and page-piece data for new documents.
-- `createPdfFunction` evaluates supported PDF function objects.
+- `createPdfFunction` evaluates supported PDF function objects, reading every entry and array element that is an indirect reference through its resolver, and the function it returns exposes its `domain`. `createPdfFunctionReader` builds several functions through one resolver. Either builds each indirect function object once however many stitching functions refer to it, and throws `ResourceLimitError` when functions nest deeper than 16, refer to themselves, or need more than 65,536 function objects for one reader.
 - `createDeflateStream`, `deflateRaw`, `deflateZlib`, `inflateChunks`, `inflateRaw`, `inflateZlib`, `md5` and `adler32` expose compression and digest helpers.
 - `decodeJpeg`, `decodePng` and `pngToRgba8` decode JPEG and PNG files with their ICC profiles, Exif orientation and PNG colour chunks; the [`@pdfwright/core` README](packages/core/README.md#decoding-images) documents their output, errors and limits.
 - The `pdfArray`, `pdfDictionary`, `pdfInteger`, `pdfLiteralString`, `pdfName`, `pdfNameFromBytes`, `pdfReal`, `pdfReference` and `pdfString` constructors work with `PdfDictionaryEntries` and `serializeObject`.
