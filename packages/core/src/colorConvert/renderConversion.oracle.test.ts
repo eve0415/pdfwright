@@ -175,7 +175,7 @@ const convertedMeshBytes = (pdf: Uint8Array): MeshBytes => {
   const type = shading.dictionary.get(pdfName('ShadingType').bytes);
   if (type?.kind !== 'integer' || type.value !== 4) throw new Error('converted mesh is not Type 4');
   const data = decodedData(internals, shading);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return { data, compressedBytes: shading.data.length };
 };
 

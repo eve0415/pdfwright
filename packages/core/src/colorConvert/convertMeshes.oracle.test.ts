@@ -410,7 +410,7 @@ const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: reado
   const functionStream = document.get(reference);
   if (functionStream.kind !== 'stream') throw new Error('sampled mesh function is missing');
   const data = decodedData(internals, functionStream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data });
 };
 

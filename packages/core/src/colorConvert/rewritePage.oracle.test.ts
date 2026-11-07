@@ -82,7 +82,7 @@ const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const stream = internals.objects.deref(page.entries.get(pdfName('Contents').bytes));
   if (stream?.kind !== 'stream') throw new Error('missing content stream');
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 
@@ -143,7 +143,7 @@ const xObjectData = (document: ReturnType<typeof loadDocument>, name: string): U
   const internals = internalsOf(document);
   if (stream.kind !== 'stream' || internals === undefined) throw new Error('image stream is missing');
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return data;
 };
 

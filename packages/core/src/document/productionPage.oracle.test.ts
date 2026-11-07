@@ -41,16 +41,16 @@ const entry = (dictionary: unknown, name: string): QpdfField => {
 const pageDictionary = (json: unknown): QpdfField => {
   const pages = entry(json, 'pages').value;
   const qpdf = entry(json, 'qpdf').value;
-  if (!Array.isArray(pages) || !Array.isArray(qpdf)) throw new Error('qpdf omitted pages or objects');
+  if (!Array.isArray(pages) || !Array.isArray(qpdf)) throw new TypeError('qpdf omitted pages or objects');
   const reference = entry(pages[0], 'object').value;
-  if (typeof reference !== 'string') throw new Error('qpdf omitted page reference');
+  if (typeof reference !== 'string') throw new TypeError('qpdf omitted page reference');
   const object = entry(qpdf[1], `obj:${reference}`).value;
   return entry(object, 'value');
 };
 
 const qpdfObjects = (json: unknown): QpdfField => {
   const sections = entry(json, 'qpdf').value;
-  if (!Array.isArray(sections)) throw new Error('qpdf omitted objects');
+  if (!Array.isArray(sections)) throw new TypeError('qpdf omitted objects');
   return { value: sections[1] };
 };
 

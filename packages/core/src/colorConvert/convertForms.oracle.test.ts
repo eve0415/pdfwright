@@ -38,7 +38,7 @@ const formText = (document: ReturnType<typeof loadDocument>): string => {
   const internals = internalsOf(document);
   if (form.kind !== 'stream' || internals === undefined) throw new Error('form is missing');
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 
@@ -162,7 +162,7 @@ const textOf = (document: ReturnType<typeof loadDocument>, reference: ReturnType
   const internals = internalsOf(document);
   if (form.kind !== 'stream' || internals === undefined) throw new Error('form is missing');
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 
@@ -173,7 +173,7 @@ const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const stream = internals.objects.deref(page.entries.get(pdfName('Contents').bytes));
   if (stream?.kind !== 'stream') throw new Error('page content is missing');
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 
@@ -188,7 +188,7 @@ const formImageData = (document: ReturnType<typeof loadDocument>, reference: Ret
   const image = xobjects.entries.get(pdfName('PWIM0').bytes);
   if (image?.kind !== 'reference') throw new Error('converted image is missing');
   const data = decodedData(internals, streamValue(document.get(image)));
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return data;
 };
 

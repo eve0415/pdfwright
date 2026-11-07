@@ -19,7 +19,7 @@ const rows = Readable.from(
 );
 for await (const value of rows.pipe(createDeflate())) {
   const chunk: unknown = value;
-  if (!(chunk instanceof Uint8Array)) throw new Error('deflate returned non-byte data');
+  if (!(chunk instanceof Uint8Array)) throw new TypeError('deflate returned non-byte data');
   compressed.push(Uint8Array.from(chunk));
 }
 const sourceBytes = new Uint8Array(compressed.reduce((sum, chunk) => sum + chunk.length, 0));

@@ -173,7 +173,7 @@ const spot = (document: ReturnType<typeof loadDocument>): ConvertedSpot => {
   const stream = document.get(tint);
   if (stream.kind !== 'stream') throw new Error('tint function is missing');
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: stream.dictionary, data });
   return { name: name.bytes, alternate: new TextDecoder('latin1').decode(alternate.bytes), evaluate: tintValue => evaluate([tintValue]) };
 };
@@ -200,7 +200,7 @@ const deviceN = (document: ReturnType<typeof loadDocument>): ConvertedDeviceN =>
   const stream = document.get(tint);
   if (stream.kind !== 'stream') throw new Error('DeviceN tint function is missing');
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: stream.dictionary, data });
   return { names: decodedNames, alternate: new TextDecoder('latin1').decode(alternate.bytes), evaluate: (first, second) => evaluate([first, second]) };
 };
