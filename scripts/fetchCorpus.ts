@@ -24,7 +24,7 @@ const readManifest = async (): Promise<Manifest> => {
   if (typeof zip !== 'object' || zip === null || !('url' in zip) || typeof zip.url !== 'string' || !('sha256' in zip) || typeof zip.sha256 !== 'string') {
     throw new Error('manifest.json has no zip url and hash');
   }
-  if (!Array.isArray(files)) throw new Error('manifest.json files is not a list');
+  if (!Array.isArray(files)) throw new TypeError('manifest.json files is not a list');
   const listed: { name: string; sha256: string }[] = [];
   for (const entry of new Set<unknown>(files)) {
     if (

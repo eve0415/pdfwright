@@ -302,7 +302,7 @@ const meshMaskSample = (document: ReturnType<typeof loadDocument>) => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('internals are unavailable');
   const data = decodedData(internals, shading);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   const reader = new MeshBitReader(data);
   reader.read(2);
   reader.read(8);
@@ -320,7 +320,7 @@ const maskFunction = (document: ReturnType<typeof loadDocument>) => {
   const decoded = (value: ReturnType<typeof document.get>) => {
     if (value.kind !== 'stream') return value;
     const data = decodedData(internals, value);
-    if (typeof data === 'string') throw new Error(data);
+    if (typeof data === 'string') throw new TypeError(data);
     return { kind: 'stream' as const, dictionary: value.dictionary, data };
   };
   const root = decoded(document.get(reference));
@@ -342,7 +342,7 @@ const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('internals are unavailable');
   const data = decodedData(internals, functionObject);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: functionObject.dictionary, data });
   return { color: shading.entries.get(pdfName('ColorSpace').bytes), start: evaluate([0])[0], end: evaluate([1])[0] };
 };
@@ -353,7 +353,7 @@ const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('internals are unavailable');
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   const [operation] = readContent(data, internals.maxNesting);
   if (operation?.inlineImage === undefined) throw new Error('inline image is missing');
   const decoded = inflateZlib(operation.inlineImage.data);
@@ -386,7 +386,7 @@ const maskImage = (document: ReturnType<typeof loadDocument>) => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('internals are unavailable');
   const data = decodedData(internals, image);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return { color: image.dictionary.get(pdfName('ColorSpace').bytes), data, reference: reference.objectNumber };
 };
 
@@ -407,7 +407,7 @@ const contentAt = (document: ReturnType<typeof loadDocument>, number: number): s
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('document internals are missing');
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 

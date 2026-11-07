@@ -34,7 +34,7 @@ const fileInside = (directory: string, relative: string, extensions: readonly st
 };
 
 const numberField = (value: unknown, name: string): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`invalid Illustrator export ${name}`);
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`invalid Illustrator export ${name}`);
   return value;
 };
 

@@ -70,7 +70,7 @@ const content = (document: ReturnType<typeof loadDocument>, number: number): str
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('document internals are unavailable');
   const data = decodedData(internals, object);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return latin1Text(data);
 };
 

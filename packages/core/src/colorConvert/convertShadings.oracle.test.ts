@@ -224,7 +224,7 @@ const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: re
   const internals = internalsOf(document);
   if (functionStream.kind !== 'stream' || internals === undefined) throw new Error('shading function stream is missing');
   const bytes = decodedData(internals, functionStream);
-  if (typeof bytes === 'string') throw new Error(bytes);
+  if (typeof bytes === 'string') throw new TypeError(bytes);
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data: bytes });
 };
 
@@ -316,7 +316,7 @@ const convertedShading = (document: ReturnType<typeof loadDocument>): ConvertedS
   const internals = internalsOf(document);
   if (functionStream.kind !== 'stream' || internals === undefined) throw new Error('shading function is missing');
   const bytes = decodedData(internals, functionStream);
-  if (typeof bytes === 'string') throw new Error(bytes);
+  if (typeof bytes === 'string') throw new TypeError(bytes);
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data: bytes });
   return {
     space: new TextDecoder('latin1').decode(color.bytes),

@@ -241,7 +241,7 @@ const imageData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('image is missing');
   const data = decodedData(internals, image);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return data;
 };
 
@@ -261,7 +261,7 @@ const stencilData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const internals = internalsOf(document);
   if (internals === undefined) throw new Error('missing document internals');
   const data = decodedData(internals, stencil);
-  if (typeof data === 'string') throw new Error(data);
+  if (typeof data === 'string') throw new TypeError(data);
   return data;
 };
 

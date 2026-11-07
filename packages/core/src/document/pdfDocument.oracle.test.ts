@@ -54,10 +54,10 @@ const boxForPage = (entries: readonly [string, unknown][], page: unknown, boxNam
   const value: unknown = indirect.value;
   if (typeof value !== 'object' || value === null) throw new Error(`qpdf omitted a page ${boxName}`);
   const box: unknown = Object.entries(value).find(([entryName]) => entryName === boxName)?.[1];
-  if (!Array.isArray(box)) throw new Error(`qpdf omitted a page ${boxName}`);
+  if (!Array.isArray(box)) throw new TypeError(`qpdf omitted a page ${boxName}`);
   const mediaBox: unknown[] = box;
   return mediaBox.map(number => {
-    if (typeof number !== 'number') throw new Error('qpdf returned a nonnumeric MediaBox');
+    if (typeof number !== 'number') throw new TypeError('qpdf returned a nonnumeric MediaBox');
     return String(number);
   });
 };

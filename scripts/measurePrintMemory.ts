@@ -60,7 +60,7 @@ const createFixture = async (filePath: string): Promise<void> => {
       write('stream\n');
       const streamAt = length;
       for await (const chunk of Readable.from(imageRows()).pipe(createDeflate({ level: 1 }))) {
-        if (!(chunk instanceof Uint8Array)) throw new Error('deflate returned non-byte data');
+        if (!(chunk instanceof Uint8Array)) throw new TypeError('deflate returned non-byte data');
         write(chunk);
       }
       const streamLength = length - streamAt;

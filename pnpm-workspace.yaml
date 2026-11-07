@@ -10,4 +10,4 @@ allowBuilds:
   workerd: false
 
 catalog:
-  tsdown: 0.23.3
+  tsdown: 0.23.7
