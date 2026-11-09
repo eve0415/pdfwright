@@ -7,7 +7,7 @@ workflows:
         - 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e'
-        - 'taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037'
+        - 'taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941'
     '.github/workflows/update.yaml':
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333'
@@ -39,8 +39,8 @@ dependencies:
         commit: 'sha1-fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e'
         owner_id: 21320719
         repo_id: 1235693694
-    'taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037':
-        ref: 'v2.87.32'
-        commit: 'sha1-5488ac5a951645ce95062214902ac4b6bc1a1037'
+    'taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941':
+        ref: 'v2.89.1'
+        commit: 'sha1-682ce6c3c696a4cd5168a05f98e51aa02b877941'
         owner_id: 43724913
         repo_id: 442947557
