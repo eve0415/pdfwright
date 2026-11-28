@@ -202,9 +202,10 @@ describe('native art bounds', () => {
 
   // ISO 32000-1:2008, 8.4.3.5: a miter join is bevelled when the miter length divided by the line width, 1 / sin(φ / 2) for a join angle φ, exceeds the miter limit of 10.
   // A line along y = 50 arrives at (100, 50) and leaves at angle φ back towards the start; an unbevelled tip lies at (100 + 5 cot(φ / 2), 45).
+  // Just below the limit the tip lies near 100 + 5√99 ≈ 149.7, about 45 points beyond the bevel's 105, so a ratio within 1e-6 of 10 still separates the two.
   it.each([
-    { join: 'miters', ratio: 9.99, maxX: 100 + 5 * Math.sqrt(9.99 ** 2 - 1) },
-    { join: 'bevels', ratio: 10.01, maxX: 105 },
+    { join: 'miters', ratio: 10 - 1e-6, maxX: 100 + 5 * Math.sqrt((10 - 1e-6) ** 2 - 1) },
+    { join: 'bevels', ratio: 10 + 1e-6, maxX: 105 },
   ])('$join a join whose miter ratio is $ratio', ({ ratio, maxX }) => {
     const angle = 2 * Math.asin(1 / ratio);
     const document = strokedDocument(
