@@ -643,12 +643,11 @@ describe('spot alternate conversion', () => {
   });
 
   it.each([
-    { name: 'a DeviceN with a Type 3 tint', space: '[/DeviceN[/A]/DeviceRGB 6 0 R]' },
     { name: 'a Separation with a two-input tint', space: '[/Separation/Spot/DeviceRGB 7 0 R]' },
     { name: 'a two-colorant DeviceN with a one-input tint', space: '[/DeviceN[/A/B]/DeviceRGB 8 0 R]' },
   ])('refuses $name', ({ space }) => {
     const document = loadDocument(
-      separationPdf(space, '<</FunctionType 3/Domain[0 1]/Functions[<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>]/Bounds[]/Encode[0 1]>>', {
+      separationPdf(space, '<</FunctionType 2/Domain[0 1]/C0[1 1 1]/C1[0 0 0]/N 1>>', {
         objects: [
           {
             number: 7,
@@ -661,8 +660,9 @@ describe('spot alternate conversion', () => {
         ],
       }),
     );
+    // ISO 32000-1:2008, 8.6.6.4–8.6.6.5: a tint transform takes one input per colorant, so these spaces are invalid.
     expect(() => convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(
-      expect.objectContaining({ reason: 'color-space' }),
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
     );
   });
 
