@@ -3,6 +3,7 @@ import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { TestPage } from '../testing/textPdf.ts';
 import type { ColorSelectEvent, ColorSpaceUse, CoverEvent, InterpretOptions, InterpretResult, PaintEvent, TextShowEvent } from './interpreter.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -1061,5 +1062,70 @@ describe('damaged content', () => {
     const options: InterpretOptions = {};
     Reflect.set(options, 'annotations', 'bogus');
     expect(() => interpretPage(textPdf({ pages: [{ content: '' }] }), 0, options)).toThrow(InvalidArgumentError);
+  });
+});
+
+type Six = readonly [number, number, number, number, number, number];
+
+// The product of [a b 0; c d 0; e f 1] matrices written out row by row (ISO 32000-1:2008, 8.3.4), apart from the library's own.
+const product = ([a, b, c, d, e, f]: Six, [a2, b2, c2, d2, e2, f2]: Six): Six => [
+  a * a2 + b * c2,
+  a * b2 + b * d2,
+  c * a2 + d * c2,
+  c * b2 + d * d2,
+  e * a2 + f * c2 + e2,
+  e * b2 + f * d2 + f2,
+];
+
+// Translations, scalings and quarter turns with small integer entries: every product is exact, and none is singular, so no step hides an earlier one.
+const offset = fc.integer({ min: -10, max: 10 });
+const factor = fc.constantFrom(-2, -1, 2);
+const matrices = fc.oneof(
+  fc.tuple(offset, offset).map(([x, y]): Six => [1, 0, 0, 1, x, y]),
+  fc.tuple(factor, factor).map(([x, y]): Six => [x, 0, 0, y, 0, 0]),
+  fc.constant<Six>([0, 1, -1, 0, 0, 0]),
+);
+const stackSteps = fc.array(
+  fc.oneof(
+    fc.constant({ kind: 'q' } as const),
+    fc.constant({ kind: 'Q' } as const),
+    fc.constant({ kind: 'show' } as const),
+    matrices.map(matrix => ({ kind: 'cm', matrix }) as const),
+  ),
+  { minLength: 12, maxLength: 24 },
+);
+
+describe('properties', () => {
+  it('shows text under the CTM a stack of q, Q and cm gives', () => {
+    fc.assert(
+      fc.property(stackSteps, steps => {
+        const operators: Array<string> = [];
+        const expected: Array<Six> = [];
+        const saved: Array<Six> = [];
+        let ctm: Six = [1, 0, 0, 1, 0, 0];
+        for (const step of steps) {
+          if (step.kind === 'q') {
+            saved.push(ctm);
+            operators.push('q');
+          } else if (step.kind === 'Q') {
+            // Only a Q that has a saved state to restore, so that the sequence balances.
+            const restored = saved.pop();
+            if (restored !== undefined) {
+              ctm = restored;
+              operators.push('Q');
+            }
+          } else if (step.kind === 'cm') {
+            ctm = product(step.matrix, ctm);
+            operators.push(`${step.matrix.join(' ')} cm`);
+          } else {
+            expected.push(ctm);
+            operators.push('BT /F1 10 Tf (A) Tj ET');
+          }
+        }
+        expect(textRun(operators.join(' ')).texts.map(text => text.state.ctm.map(value => value + 0))).toStrictEqual(
+          expected.map(matrix => matrix.map(value => value + 0)),
+        );
+      }),
+    );
   });
 });
