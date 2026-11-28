@@ -210,7 +210,7 @@ const planCarriers = (
   return count;
 };
 
-/** Converts Indexed lookup tables in effective page ColorSpace resources and in the own resources of every form, tiling pattern, Type 3 font and appearance stream they reach, without changing painted indices. */
+/** Converts Indexed lookup tables in effective page ColorSpace resources and in the own resources of every form, tiling pattern, Type 3 font and appearance stream they reach, without changing painted indices. A soft-mask group and what only it reaches keep their lookups. */
 export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteColorOptions): IndexedConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);

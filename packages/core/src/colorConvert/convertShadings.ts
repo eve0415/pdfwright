@@ -616,7 +616,7 @@ const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<Carr
   return discarded;
 };
 
-/** Converts function, axial and radial shading functions while preserving geometry and stops. ISO 32000-1:2008, 8.7.4.5.2–4 and Tables 79–81 define their domains, coordinates and functions. */
+/** Converts function, axial and radial shading functions while preserving geometry and stops. ISO 32000-1:2008, 8.7.4.5.2–4 and Tables 79–81 define their domains, coordinates and functions. A direct shading is converted in page resources and in the own resources of every form, tiling pattern, Type 3 font and appearance stream a page reaches, but not in a soft-mask group or what only it reaches. */
 export const convertShadings = (document: LoadedDocument, options: RewriteColorOptions): ShadingConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
