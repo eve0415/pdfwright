@@ -450,6 +450,28 @@ describe('pdfx structural checker', () => {
       expect(statusOf(document, 'X4-JS')).toBe(status);
     });
 
+    const stale = { number: 9, body: '/JavaScript' };
+    it.each<[string, ReadonlyArray<TestObject>, LoadOptions, 'violation' | 'passed' | 'not-checked']>([
+      ['alone', [{ number: 4, body: '<</S 9 1 R/JS(x)>>' }, stale], {}, 'not-checked'],
+      [
+        'followed by a JavaScript action',
+        [{ number: 4, body: '<</S 9 1 R/JS(x)/Next 5 0 R>>' }, { number: 5, body: '<</S/JavaScript/JS(x)>>' }, stale],
+        {},
+        'violation',
+      ],
+      [
+        'after a JavaScript action',
+        [{ number: 4, body: '<</S/JavaScript/JS(x)/Next 5 0 R>>' }, { number: 5, body: '<</S 9 1 R/JS(x)>>' }, stale],
+        {},
+        'violation',
+      ],
+      ['alone, loaded to read it as null', [{ number: 4, body: '<</S 9 1 R/JS(x)>>' }, stale], { generationMismatch: 'null' }, 'passed'],
+    ])('checks an action whose S names another generation of an object, %s', (_, extra, options, status) => {
+      const report = checkPdfX4(raw({ catalog: '/OpenAction 4 0 R', extra }, options));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-JS')?.status).toBe(status);
+    });
+
     it.each<[string, (document: LoadedDocument) => Fields, 'violation' | 'passed' | 'not-checked']>([
       [
         'an XFA entry',
