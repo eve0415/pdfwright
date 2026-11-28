@@ -315,8 +315,10 @@ describe('properties', () => {
   });
 
   it('reads each operation again from its span alone', () => {
-    // Each inline image follows an operator, so that BI has no operands.
-    const image = fc.integer({ min: 0, max: 255 }).map(sample => `q BI /W 1 /H 1 /BPC 8 /CS /G ID ${String.fromCodePoint(sample)} EI`);
+    // An inline image follows an operator, an operand that BI then carries, or whatever unit comes before it.
+    const image = fc
+      .tuple(fc.constantFrom('q ', '0 ', ''), fc.integer({ min: 0, max: 255 }))
+      .map(([before, sample]) => `${before}BI /W 1 /H 1 /BPC 8 /CS /G ID ${String.fromCodePoint(sample)} EI`);
     fc.assert(
       fc.property(fc.array(fc.oneof(fc.constantFrom(...OPERAND_UNITS, ...OPERATOR_UNITS), image), { maxLength: 30 }), sequence => {
         const bytes = latin1Bytes(sequence.join(' '));
