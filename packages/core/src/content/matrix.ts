@@ -13,14 +13,6 @@ export const multiply = (left: Matrix, right: Matrix): Matrix => {
   return [a * a2 + b * c2, a * b2 + b * d2, c * a2 + d * c2, c * b2 + d * d2, e * a2 + f * c2 + e2, e * b2 + f * d2 + f2];
 };
 
-/** The inverse, or undefined when the matrix is singular or its inverse is not finite. */
-export const invert = (matrix: Matrix): Matrix | undefined => {
-  const [a, b, c, d, e, f] = matrix;
-  const determinant = a * d - b * c;
-  const inverse: Matrix = [d / determinant, -b / determinant, -c / determinant, a / determinant, (c * f - d * e) / determinant, (b * e - a * f) / determinant];
-  return determinant !== 0 && inverse.every(value => Number.isFinite(value)) ? inverse : undefined;
-};
-
 /** ISO 32000-1:2008, 8.3.4: "x′ = a × x + c × y + e" and "y′ = b × x + d × y + f". */
 export const transformPoint = (matrix: Matrix, x: number, y: number): readonly [number, number] => {
   const [a, b, c, d, e, f] = matrix;
