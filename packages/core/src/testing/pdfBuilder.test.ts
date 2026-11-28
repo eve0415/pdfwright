@@ -1,4 +1,9 @@
+import type { TestSection } from './pdfBuilder.ts';
+
 import { describe, expect, it } from 'vitest';
+
+import { loadDocument } from '../document/loadDocument.ts';
+import { pdfReference } from '../object/pdfObject.ts';
 
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from './pdfBuilder.ts';
 
@@ -60,5 +65,97 @@ describe('sections the builder refuses', () => {
     ]);
     expect(pdf.text.includes('9 65535 obj\n(free soon)\nendobj')).toBe(true);
     expect(pdf.offsets.get(10)).toBe(pdf.text.lastIndexOf('10 0 obj\n(reused)'));
+  });
+});
+
+// An original classic section, a stream update with an object stream, and a hybrid update whose stream indexes a member the classic table omits.
+const ORIGINAL = { xref: 'classic', objects: [CATALOG, PAGES, { number: 3, body: '(three)' }], trailer: '/Root 1 0 R' } as const satisfies TestSection;
+const STREAM_UPDATE = {
+  xref: 'stream',
+  objects: [{ number: 3, generation: 1, body: '(three again)' }],
+  objectStreams: [
+    {
+      number: 5,
+      members: [
+        { number: 4, body: '(four)' },
+        { number: 6, body: '[6]' },
+      ],
+    },
+  ],
+  trailer: '/Root 1 0 R',
+} as const satisfies TestSection;
+const HYBRID_UPDATE = {
+  xref: 'hybrid',
+  objects: [{ number: 7, body: '(seven)' }],
+  objectStreams: [{ number: 8, members: [{ number: 9, body: '(nine)' }] }],
+  trailer: '/Root 1 0 R',
+} as const satisfies TestSection;
+const CHAIN = [ORIGINAL, STREAM_UPDATE, HYBRID_UPDATE];
+
+describe('built files', () => {
+  const pdf = buildPdf(CHAIN, { prefix: 'JUNK', header: '%PDF-1.5' });
+
+  it('records the offset of the newest copy of each top-level object', () => {
+    expect([...pdf.offsets.keys()].toSorted((left, right) => left - right)).toStrictEqual([1, 2, 3, 5, 7, 8]);
+    const headers = [...pdf.offsets].map(([number, offset]) => [number, pdf.text.slice(offset, pdf.text.indexOf('\n', offset))]);
+    expect(headers.toSorted(([left], [right]) => Number(left) - Number(right))).toStrictEqual([
+      [1, '1 0 obj'],
+      [2, '2 0 obj'],
+      [3, '3 1 obj'],
+      [5, '5 0 obj'],
+      [7, '7 0 obj'],
+      [8, '8 0 obj'],
+    ]);
+  });
+
+  it('records each section offset, links each to the one before and ends with a startxref to the newest', () => {
+    const [classic, stream, hybrid] = pdf.sections;
+    expect(pdf.sections).toHaveLength(3);
+    expect([
+      pdf.text.startsWith('xref\n', classic),
+      /^\d+ 0 obj\n<<\/Type\/XRef\//u.test(pdf.text.slice(stream)),
+      pdf.text.startsWith('xref\n', hybrid),
+    ]).toStrictEqual([true, true, true]);
+    const trailers = [...pdf.text.matchAll(/\/Prev (\d+)/gu)].map(match => Number(match[1]));
+    expect(trailers).toStrictEqual([classic, stream]);
+    const startxrefs = [...pdf.text.matchAll(/startxref\n(\d+)\n%%EOF\n/gu)].map(match => Number(match[1]));
+    expect(startxrefs).toStrictEqual([classic, stream, hybrid]);
+    expect(pdf.text.endsWith(`startxref\n${String(hybrid)}\n%%EOF\n`)).toBe(true);
+  });
+
+  // The library tolerates a Prev chain that switches between classic and stream sections only with a warning, so each chain stays on one side.
+  it.each([
+    [
+      'a classic section and a hybrid update',
+      [ORIGINAL, HYBRID_UPDATE],
+      ['classic', 'classic'],
+      [
+        [3, 0, 'string'],
+        [7, 0, 'string'],
+        [9, 0, 'string'],
+      ],
+      11,
+    ],
+    [
+      'a stream section and a stream update with an object stream',
+      [{ ...ORIGINAL, xref: 'stream' }, STREAM_UPDATE],
+      ['stream', 'stream'],
+      [
+        [3, 1, 'string'],
+        [4, 0, 'string'],
+        [6, 0, 'array'],
+      ],
+      9,
+    ],
+  ] as const)('loads %s intact, members included, with Size one above the highest number, its streams included', (_, sections, kinds, references, size) => {
+    const built = buildPdf(sections);
+    const document = loadDocument(built.bytes);
+    expect([document.structure.status, document.warnings, document.structure.sections.map(section => section.kind), built.size]).toStrictEqual([
+      'intact',
+      [],
+      kinds,
+      size,
+    ]);
+    expect(references.map(([number, generation]) => [number, generation, document.get(pdfReference(number, generation)).kind])).toStrictEqual(references);
   });
 });
