@@ -16,7 +16,7 @@ const hue = (b: number, aPrime: number): number => {
   return degrees === 0 && b < 0 ? 360 : degrees;
 };
 
-const hueDifference =(first: number, second: number, chromaProduct: number, opposite: boolean): number => {
+const hueDifference = (first: number, second: number, chromaProduct: number, opposite: boolean): number => {
   if (chromaProduct === 0) {
     return 0;
   }
