@@ -392,6 +392,37 @@ describe('codespace checks', () => {
     expect(shown).toStrictEqual(Array.from({ length: 1250 }, () => 2));
   });
 
+  it('counts the checks of a form, a tiling pattern cell and an annotation appearance against the limit of the page that draws them', () => {
+    // 625 misses in each of the page, the form and the pattern cell take 7,500,000 checks; the annotation appearance's 626th miss passes 10,000,000 and none of the four streams does alone.
+    const misses = (count: number): string => `<${'FFFF'.repeat(count)}>`;
+    const nested = `/Resources<<${SHARING_RESOURCES}>>`;
+    const objects = [
+      ...sharing(WIDE_CMAP),
+      form(140, `/BBox[0 0 10 10]${nested}`, `BT /W2 1 Tf ${misses(625)} Tj ET`),
+      { number: 141, body: streamBody(`/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5${nested}`, `BT /W1 1 Tf ${misses(625)} Tj ET`) },
+      annotation(142, '/F 4/AP<</N 143 0 R>>'),
+      form(143, `/BBox[0 0 10 5]${nested}`, `BT /W2 1 Tf ${misses(626)} Tj ET`),
+    ];
+    const content = `BT /W1 1 Tf ${misses(625)} Tj ET /X1 Do /Pattern cs /P1 scn 0 0 5 5 re f`;
+    const resources = `${SHARING_RESOURCES}/XObject<</X1 140 0 R>>/Pattern<</P1 141 0 R>>`;
+    const document = textPdf({ pages: [{ content, resources, entries: '/Annots[142 0 R]' }], objects });
+    const shown: Array<number> = [];
+    let thrown: unknown;
+    try {
+      interpretPage(document, 0, {
+        annotations: 'all',
+        text: event => {
+          shown.push(event.glyphs.length);
+        },
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ResourceLimitError);
+    expect(thrown).toMatchObject({ code: 'resource-limit' });
+    expect(shown).toStrictEqual([625, 625, 625]);
+  });
+
   it('counts each page apart, so pages of a document sharing one font cache and one CMap each have the whole limit', () => {
     // Each page shows 1500 misses, 6,000,000 checks: the two pages together pass the limit of 10,000,000 and each alone does not.
     const page = { content: `BT /W1 1 Tf <${'FFFF'.repeat(750)}> Tj /W2 1 Tf <${'FFFF'.repeat(750)}> Tj ET`, resources: SHARING_RESOURCES };
