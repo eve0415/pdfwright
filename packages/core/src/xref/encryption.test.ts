@@ -31,6 +31,7 @@ describe('encryption detection', () => {
     expect(() => refuse(chainOf(['/Root 1 0 R/Encrypt<</Filter/Standard>>'], 'stream'))).toThrow(EncryptedDocumentError);
   });
 
+  // ISO 32000-1:2008, 7.5.8.4: a hybrid section's XRefStm stream is consulted with its classic section, so its dictionary is one of the trailers checked under 7.6.1.
   it('refuses an Encrypt entry that only the XRefStm stream of a hybrid section holds', () => {
     const pdf = buildPdf([
       { xref: 'classic', objects: [{ number: 1, body: '<<>>' }], trailer: '/Root 1 0 R' },

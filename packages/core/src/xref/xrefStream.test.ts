@@ -127,6 +127,7 @@ describe('cross-reference streams', () => {
     expect(warnings.map(warning => warning.code)).toStrictEqual(['xref-stream-trailing-data', 'xref-stream-index-order']);
   });
 
+  // ISO 32000-1:2008, 7.5.8.2, Table 17, Index: "Subsections cannot overlap"; one that starts where the previous one ends does not.
   it('warns about subsections that overlap but not about adjacent ones', () => {
     expect(read('/Type/XRef/Size 3/W[1 1 1]/Index[1 1 2 1]', Uint8Array.of(1, 1, 0, 1, 2, 0)).warnings).toStrictEqual([]);
     expect(read('/Type/XRef/Size 3/W[1 1 1]/Index[1 2 2 1]', Uint8Array.of(1, 1, 0, 1, 2, 0, 1, 3, 0)).warnings.map(warning => warning.code)).toStrictEqual([
