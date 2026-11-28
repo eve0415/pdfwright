@@ -133,8 +133,10 @@ describe('icc basic tags', () => {
       Array.from({ length: 8 }, () => 0x1_00_00),
     );
     expect(() => readCurve(typeFive, 0, typeFive.length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
-    const header = parametricTag(0, [0x1_00_00]);
-    expect(() => readCurve(header, 0, 11)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+    // ICC.1:2022, 10.18 Table 67: the function type sits at bytes 8 and 9, so a tag that ends at byte 9 cannot hold it.
+    const header = parametricTag(0, [0x1_00_00]).slice(0, 9);
+    expect(() => readCurve(header, 0, header.length)).toThrow(InvalidProfileError);
+    expect(() => readCurve(header, 0, header.length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
   });
 
   it('reads negative parametric parameters', () => {
