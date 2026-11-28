@@ -120,4 +120,42 @@ describe('glyph bounds of TrueType programs', () => {
       'unreadable',
     ]);
   });
+
+  it.each([
+    { label: 'an indexToLocFormat of 2', head: head(1000, 2), kind: 'unreadable' },
+    { label: 'a unitsPerEm of 15', head: head(15, 0), kind: 'unreadable' },
+    { label: 'a unitsPerEm of 16', head: head(16, 0), kind: 'bounds' },
+    { label: 'a unitsPerEm of 16384', head: head(16_384, 0), kind: 'bounds' },
+    { label: 'a unitsPerEm of 16385', head: head(16_385, 0), kind: 'unreadable' },
+  ])('reads a program with $label as $kind', ({ head: headTable, kind }) => {
+    // The OpenType specification's head chapter: unitsPerEm is "Set to a value from 16 to 16384", and indexToLocFormat is "0 for short offsets (Offset16), 1 for long (Offset32)".
+    const font = program([
+      ['head', headTable],
+      ['maxp', maxp(0)],
+      ['loca', u16(0)],
+      ['glyf', []],
+    ]);
+    expect(readTrueTypeGlyphBounds(font).kind).toBe(kind);
+  });
+
+  it('reports glyf outlines without a maxp table as unreadable', () => {
+    const font = program([
+      ['head', head(1000, 0)],
+      ['loca', u16(0)],
+      ['glyf', []],
+    ]);
+    expect(readTrueTypeGlyphBounds(font).kind).toBe('unreadable');
+  });
+
+  it('gives no box for an entry shorter than a glyph header and reads one exactly as long', () => {
+    const header = glyph(0, 0, 100, 100);
+    const font = program([
+      ['head', head(1000, 1)],
+      ['maxp', maxp(2)],
+      // Glyph 0 holds 8 bytes, two short of the 10-byte header; glyph 1 holds the whole header.
+      ['loca', u32(0, 8, 18)],
+      ['glyf', [...header.slice(0, 8), ...header]],
+    ]);
+    expect(boundsOf(font, [0, 1])).toStrictEqual([undefined, [0, 0, 0.1, 0.1]]);
+  });
 });
