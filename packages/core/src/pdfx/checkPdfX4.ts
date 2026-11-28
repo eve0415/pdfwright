@@ -77,6 +77,8 @@ const entriesOf = (context: Context, value: PdfDirectObject | undefined): PdfDic
   }
   return resolved?.kind === 'stream' ? resolved.dictionary : undefined;
 };
+// ISO 32000-1:2008, 7.3.10: an indirect reference may stand wherever a direct object may appear.
+const resolvedName = (context: Context, value: PdfDirectObject | undefined): string | undefined => nameOf(context.internals.objects.deref(value));
 const resolvedText = (context: Context, entries: PdfDictionaryEntries, name: string): string | undefined => {
   const stored = entries.get(key(name));
   return textOf(context.internals.objects.deref(stored));
@@ -345,7 +347,11 @@ const javascript: Check = context => {
   if (names?.has(key('JavaScript')) === true) {
     return violation('the JavaScript name tree is present');
   }
-  const script = globalCheck(context, value => value.kind === 'dictionary' && nameOf(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
+  const script = globalCheck(
+    context,
+    value => value.kind === 'dictionary' && resolvedName(context, value.entries.get(key('S'))) === 'JavaScript',
+    'JavaScript action',
+  );
   if (script.status !== 'passed') {
     return script;
   }
@@ -433,8 +439,8 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
         return (
           entries.has(key('EmbeddedFiles')) ||
           entries.has(key('EF')) ||
-          nameOf(entries.get(key('Subtype'))) === 'FileAttachment' ||
-          nameOf(entries.get(key('Type'))) === 'EmbeddedFile'
+          resolvedName(context, entries.get(key('Subtype'))) === 'FileAttachment' ||
+          resolvedName(context, entries.get(key('Type'))) === 'EmbeddedFile'
         );
       },
       'embedded file or FileAttachment annotation',
