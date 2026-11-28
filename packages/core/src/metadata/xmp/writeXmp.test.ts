@@ -1,5 +1,7 @@
+import type { XmpValue } from './readXmp.ts';
 import type { ManagedValues } from './writeXmp.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ValidationError } from '../../error/validationError.ts';
@@ -82,5 +84,30 @@ describe('writing XMP packets', () => {
     for (const value of ['\u{1}', 'a\u{FFFE}', '\u{FFFF}', '\u{D800}', 'b\u{DC00}']) {
       expect(() => newPacket({ ...VALUES, title: value })).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'xmp-unrepresentable' }));
     }
+  });
+});
+
+const valueOf = (bytes: Uint8Array, localName: string): XmpValue | undefined => {
+  const read = readXmp(bytes);
+  return read.ok ? read.packet.properties.find(property => property.localName === localName)?.value : undefined;
+};
+
+describe('properties', () => {
+  // XML 1.0, 2.11: a literal carriage return reads back as a line feed, so the writer escapes it and the values read back unchanged.
+  const value = fc
+    .array(fc.constantFrom('a', ' ', '&', '<', '>', '"', '\t', '\r', '\n', '山', '\u{1F600}'), { maxLength: 12 })
+    .map(characters => characters.join(''));
+
+  it('writes a new packet that reads back with the values given', () => {
+    fc.assert(
+      fc.property(value, value, value, (title, author, keywords) => {
+        const bytes = newPacket({ ...VALUES, title, author, keywords });
+        expect([valueOf(bytes, 'title'), valueOf(bytes, 'creator'), valueOf(bytes, 'Keywords')]).toStrictEqual([
+          { kind: 'array', type: 'Alt', items: [{ text: title, language: 'x-default' }] },
+          { kind: 'array', type: 'Seq', items: [{ text: author, language: undefined }] },
+          { kind: 'text', text: keywords, language: undefined },
+        ]);
+      }),
+    );
   });
 });
