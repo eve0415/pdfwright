@@ -98,7 +98,7 @@ describe('classic cross-reference sections', () => {
     expect(entries(read('xref\n0 0\ntrailer\n<</Size 1>>'))).toStrictEqual([]);
   });
 
-  it.each([7, 1024])('reads a section split into %i-byte segments as it reads one segment', chunk => {
+  it.each([1, 7])('reads a section split into %i-byte segments as it reads one segment', chunk => {
     const text = 'xref\n0 3\n0000000000 65535 f \n0000000017 00000 n \n0000000081 00002 n \n9 1\n0000000331 00000 n \ntrailer\n<</Size 10/Root 1 0 R>>\n';
     const whole = read(text);
     const segmented = read(text, { chunk });
