@@ -734,6 +734,27 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 7)).toHaveLength(1);
   });
 
+  it('reads an indirect Type 3 font once however often Tf selects it while the object cache drops it', () => {
+    const document = single(
+      '<</Font<</A 5 0 R>>/ExtGState<</GS 7 0 R>>>>',
+      streamBody('', 'BT /A 12 Tf (a) Tj /A 12 Tf (a) Tj /A 12 Tf (a) Tj ET'),
+      [
+        { number: 5, body: shownType3('<</a 6 0 R>>') },
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 1>>' },
+      ],
+      '',
+      { parsedObjectCacheBytes: 1 },
+    );
+    const parts = internalsOf(document);
+    if (parts === undefined) {
+      throw new Error('document internals are unavailable');
+    }
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    expect(addedGroups(document)).toStrictEqual([]);
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 5)).toHaveLength(1);
+  });
+
   it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
     ['a form that Do draws after Tf names it', '<</Font<</F 5 0 R>>/XObject<</X 5 0 R>>>>', 'BT /F 12 Tf ET /X Do', [], ''],
     [
