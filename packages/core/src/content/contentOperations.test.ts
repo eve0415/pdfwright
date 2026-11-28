@@ -177,6 +177,26 @@ describe('content operations', () => {
     ]);
   });
 
+  it.each([
+    ['an inline image', '0 BI /W 1 /H 1 /BPC 8 /CS /G ID A EI', 38],
+    ['a BI without ID', '0 BI /W 1 Q', 6],
+    ['a BI that the content ends before ID', '0 BI', 6],
+  ])('starts the span of %s at the operand before BI', (_, content, end) => {
+    // SpannedContentOperation.start: "First operand byte, or the operator byte when it has no operands."
+    const [, image] = readContentSpans(latin1Bytes(`q ${content}`), 32);
+    expect([image?.operator, image?.operands, image?.offset, image?.start, image?.end]).toStrictEqual(['BI', [integer(0)], 4, 2, end]);
+  });
+
+  it('starts the span of a BI at BI when its operand is in an earlier stream', () => {
+    const spans = [...readContentSpans([latin1Bytes('0'), latin1Bytes('BI /W 1 /H 1 /BPC 8 /CS /G ID A EI')], 32)].map(operation => [
+      operation.stream,
+      operation.offset,
+      operation.start,
+      operation.end,
+    ]);
+    expect(spans).toStrictEqual([[1, 0, 0, 34]]);
+  });
+
   it('leaves the parameters of a BI without ID to the next operator', () => {
     expect(operations('BI /W 1 Q')).toStrictEqual([
       { operator: 'BI', operands: [], stream: 0, offset: 0 },
