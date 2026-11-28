@@ -438,6 +438,32 @@ describe('font inventory', () => {
     ]);
   });
 
+  it.each(['/F1 107 0 R/F2 106 0 R', '/F1 106 0 R/F2 107 0 R'])('orders fonts that only AcroForm default resources name by object number: %s', fonts => {
+    const result = listFonts(
+      loadDocument(
+        textPdfBytes({ pages: [{ resources: '' }], objects: [helvetica(106), helvetica(107)], catalog: `/AcroForm<</DR<</Font<<${fonts}>>>>/Fields[]>>` }),
+      ),
+    );
+    expect(result.fonts.map(font => font.key)).toStrictEqual(['106.0', '107.0']);
+  });
+
+  it('orders a font a page reaches before AcroForm-only fonts with lower object numbers', () => {
+    const result = listFonts(
+      loadDocument(
+        textPdfBytes({
+          pages: [{ resources: '/Font<</F1 108 0 R>>' }],
+          objects: [helvetica(106), helvetica(107), helvetica(108)],
+          catalog: '/AcroForm<</DR<</Font<</F1 107 0 R/F2 108 0 R/F3 106 0 R>>>>/Fields[]>>',
+        }),
+      ),
+    );
+    expect(result.fonts.map(font => [font.key, font.pages])).toStrictEqual([
+      ['108.0', [0]],
+      ['106.0', []],
+      ['107.0', []],
+    ]);
+  });
+
   it('keys a direct font in a form as content interpretation does', () => {
     const result = inventory(
       [{ resources: '/XObject<</X1 130 0 R>>' }],
