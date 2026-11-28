@@ -549,23 +549,27 @@ export class ResolvedTexts {
         link({ kind: 'object', key: referenceKey(item) });
       } else if (item?.kind === 'array') {
         open.push({ segments: [], links: [], run: '[', whole: '[' });
-        const items: Array<Step> = [];
-        for (const [index, entry] of item.items.entries()) {
+        // Pushed one at a time, in reverse, since a call takes only so many arguments.
+        steps.push({ kind: 'close', text: ']' });
+        for (let index = item.items.length - 1; index >= 0; index -= 1) {
+          steps.push({ kind: 'value', value: item.items[index], producer: undefined });
           if (index > 0) {
-            items.push({ kind: 'text', text: ' ' });
+            steps.push({ kind: 'text', text: ' ' });
           }
-          items.push({ kind: 'value', value: entry, producer: undefined });
         }
-        steps.push({ kind: 'close', text: ']' }, ...items.toReversed());
       } else if (item?.kind === 'dictionary' || item?.kind === 'stream') {
         open.push({ segments: [], links: [], run: '<<', whole: '<<' });
-        steps.push(
-          {
-            kind: 'close',
-            text: item.kind === 'stream' ? `>>stream${hex(step.producer === undefined ? md5(item.data) : producedDigest(step.producer))}` : '>>',
-          },
-          ...this.entrySteps(item.kind === 'stream' ? item.dictionary : item.entries, item.kind === 'stream').toReversed(),
-        );
+        steps.push({
+          kind: 'close',
+          text: item.kind === 'stream' ? `>>stream${hex(step.producer === undefined ? md5(item.data) : producedDigest(step.producer))}` : '>>',
+        });
+        const entries = this.entrySteps(item.kind === 'stream' ? item.dictionary : item.entries, item.kind === 'stream');
+        for (let index = entries.length - 1; index >= 0; index -= 1) {
+          const entry = entries[index];
+          if (entry !== undefined) {
+            steps.push(entry);
+          }
+        }
       } else {
         add(this.leafText(item), true);
       }
