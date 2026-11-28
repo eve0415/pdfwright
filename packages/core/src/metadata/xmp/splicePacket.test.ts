@@ -174,7 +174,7 @@ describe('splicing managed properties into an existing packet', () => {
   // The result is read back, so a property the splice did not know of and left in place is caught rather than shipped.
   it.each([
     ['a legacy property', '<pdf:Title>Legacy</pdf:Title>', 'Title'],
-    ['a second occurrence of a managed property', '<pdf:Producer>Old</pdf:Producer>', 'Producer'],
+    ['a second occurrence of a managed property', '<pdf:Producer>New producer</pdf:Producer>', 'Producer'],
   ])('refuses a result that still holds %s', (_name, property, omitted) => {
     const read = readXmp(
       encode(`<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${property}</rdf:Description></rdf:RDF>`),
