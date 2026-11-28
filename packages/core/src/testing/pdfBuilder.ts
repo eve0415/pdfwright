@@ -14,8 +14,17 @@ export interface TestObjectStream {
   readonly dictionary?: string;
 }
 
+/** A free cross-reference entry. */
+export interface TestFreeObject {
+  readonly number: number;
+  /** The generation the object number takes when it is next used. */
+  readonly generation: number;
+}
+
 export interface TestSection {
   readonly objects: ReadonlyArray<TestObject>;
+  /** Free entries, linked in ascending order from the head at object 0 under ISO 32000-1:2008, 7.5.4; omitted, every free entry points at object 0 with generation 65535. */
+  readonly free?: ReadonlyArray<TestFreeObject>;
   /** A hybrid section writes top-level objects to a classic section whose XRefStm entry names a cross-reference stream for object-stream members. */
   readonly xref: 'classic' | 'stream' | 'hybrid';
   /** Trailer entries other than Size and Prev, such as "/Root 1 0 R". */
@@ -70,14 +79,21 @@ export const streamBody = (dictionary: string, data: string): string => `<<${dic
 
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
 
+// ISO 32000-1:2008, 7.5.4: an in-use entry gives a byte offset and a free entry the next free object number, each with a generation.
+const classicLine = (entry: Entry | undefined): string => {
+  if (entry === undefined) {
+    return `0000000000 65535 f \n`;
+  }
+  return `${pad(entry.second, 10)} ${pad(entry.third, 5)} ${entry.type === 1 ? 'n' : 'f'} \n`;
+};
+
 const classicTable = (entries: ReadonlyMap<number, Entry>, first: boolean): string => {
   const numbers = [...entries.keys()].toSorted((left, right) => left - right);
   if (first) {
     const highest = numbers.at(-1) ?? 0;
     let text = `xref\n0 ${String(highest + 1)}\n`;
     for (let number = 0; number <= highest; number++) {
-      const entry = entries.get(number);
-      text += entry?.type === 1 ? `${pad(entry.second, 10)} ${pad(entry.third, 5)} n \n` : `0000000000 65535 f \n`;
+      text += classicLine(entries.get(number));
     }
     return text;
   }
@@ -89,8 +105,7 @@ const classicTable = (entries: ReadonlyMap<number, Entry>, first: boolean): stri
     }
     text += `${String(numbers[index])} ${String(end - index + 1)}\n`;
     for (let run = index; run <= end; run++) {
-      const entry = entries.get(numbers[run] ?? 0);
-      text += entry?.type === 1 ? `${pad(entry.second, 10)} ${pad(entry.third, 5)} n \n` : `0000000000 65535 f \n`;
+      text += classicLine(entries.get(numbers[run] ?? 0));
     }
     index = end + 1;
   }
@@ -123,7 +138,7 @@ const streamTable = (entries: ReadonlyMap<number, Entry>): StreamTable => {
 const highestNumber = (sections: ReadonlyArray<TestSection>): number => {
   let highest = 0;
   for (const section of sections) {
-    for (const object of [...section.objects, ...(section.objectStreams ?? [])]) {
+    for (const object of [...section.objects, ...(section.objectStreams ?? []), ...(section.free ?? [])]) {
       highest = Math.max(highest, object.number);
     }
     for (const stream of section.objectStreams ?? []) {
@@ -174,6 +189,13 @@ class TestPdfWriter {
       const dictionary = `/Type/ObjStm/N ${String(stream.members.length)}/First ${String(header.length + 1)}${stream.dictionary ?? ''}`;
       this.text += `${String(stream.number)} 0 obj\n${streamBody(dictionary, `${header}\n${body}`)}\nendobj\n`;
     }
+    const free = (section.free ?? []).toSorted((left, right) => left.number - right.number);
+    if (free.length > 0) {
+      entries.set(0, { type: 0, second: free[0]?.number ?? 0, third: 65_535 });
+      for (const [index, object] of free.entries()) {
+        entries.set(object.number, { type: 0, second: free[index + 1]?.number ?? 0, third: object.generation });
+      }
+    }
     return entries;
   }
 
@@ -192,7 +214,7 @@ class TestPdfWriter {
       const number = this.streamNumber(section);
       const streamOffset = this.text.length;
       this.xrefStream(number, new Map([...entries].filter(([, entry]) => entry.type === 2)), '');
-      const visible = new Map([...[...entries].filter(([, entry]) => entry.type === 1), [number, { type: 1, second: streamOffset, third: 0 }] as const]);
+      const visible = new Map([...[...entries].filter(([, entry]) => entry.type !== 2), [number, { type: 1, second: streamOffset, third: 0 }] as const]);
       offset = this.text.length;
       this.text += `${classicTable(visible, first)}trailer\n<</Size ${String(this.size)}${prev}/XRefStm ${String(streamOffset)}${trailer}>>\n`;
     } else if (section.xref === 'classic') {
@@ -200,7 +222,7 @@ class TestPdfWriter {
     } else {
       const number = this.streamNumber(section);
       entries.set(number, { type: 1, second: offset, third: 0 });
-      if (first) {
+      if (first && !entries.has(0)) {
         entries.set(0, { type: 0, second: 0, third: 65_535 });
       }
       this.xrefStream(number, entries, `${prev}${trailer}`);
@@ -224,8 +246,25 @@ const checkSection = (section: TestSection, index: number): void => {
       throw new RangeError(`section ${String(index)} has object ${String(object.number)} ${String(generation)}, which a cross-reference entry cannot hold`);
     }
   }
+  const free = section.free ?? [];
+  for (const [position, object] of free.entries()) {
+    const taken = objects.some(other => other.number === object.number) || free.findIndex(other => other.number === object.number) !== position;
+    if (
+      !Number.isSafeInteger(object.number) ||
+      object.number < 1 ||
+      !Number.isInteger(object.generation) ||
+      object.generation < 0 ||
+      object.generation > 65_535 ||
+      taken
+    ) {
+      throw new RangeError(`section ${String(index)} cannot list object ${String(object.number)} ${String(object.generation)} as free`);
+    }
+  }
   const stream = section.xrefStreamNumber;
-  if (stream !== undefined && (section.xref === 'classic' || !Number.isSafeInteger(stream) || stream < 1 || objects.some(object => object.number === stream))) {
+  if (
+    stream !== undefined &&
+    (section.xref === 'classic' || !Number.isSafeInteger(stream) || stream < 1 || [...objects, ...free].some(object => object.number === stream))
+  ) {
     throw new RangeError(`section ${String(index)} cannot number its cross-reference stream ${String(stream)}`);
   }
 };

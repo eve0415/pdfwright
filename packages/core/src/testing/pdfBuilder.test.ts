@@ -159,3 +159,84 @@ describe('built files', () => {
     expect(references.map(([number, generation]) => [number, generation, document.get(pdfReference(number, generation)).kind])).toStrictEqual(references);
   });
 });
+
+const xrefLines = (text: string, from: number): Array<string> => text.slice(from, text.indexOf('trailer', from)).replace(/\n$/u, '').split('\n');
+
+// The rows of an unfiltered W[1 4 2] cross-reference stream, as [type, field 2, field 3].
+const streamRows = (text: string, from: number): Array<readonly [number, number, number]> => {
+  const start = text.indexOf('stream\n', from) + 'stream\n'.length;
+  const data = latin1Bytes(text.slice(start, text.indexOf('\nendstream', start)));
+  return Array.from({ length: data.length / 7 }, (_, row) => {
+    const at = (index: number): number => data[row * 7 + index] ?? Number.NaN;
+    return [at(0), ((at(1) * 256 + at(2)) * 256 + at(3)) * 256 + at(4), at(5) * 256 + at(6)] as const;
+  });
+};
+
+describe('free lists', () => {
+  const objects = [CATALOG, PAGES, { number: 4, body: '(four)' }];
+
+  it('links the free entries of a classic table in ascending order from object 0', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'classic',
+        objects,
+        free: [
+          { number: 5, generation: 1 },
+          { number: 3, generation: 2 },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const offset = (number: number): string => String(pdf.offsets.get(number)).padStart(10, '0');
+    expect(xrefLines(pdf.text, pdf.sections[0] ?? 0)).toStrictEqual([
+      'xref',
+      '0 6',
+      '0000000003 65535 f ',
+      `${offset(1)} 00000 n `,
+      `${offset(2)} 00000 n `,
+      '0000000005 00002 f ',
+      `${offset(4)} 00000 n `,
+      '0000000000 00001 f ',
+    ]);
+    expect([pdf.size, loadDocument(pdf.bytes).structure.status]).toStrictEqual([6, 'intact']);
+  });
+
+  it('writes the free list of a cross-reference stream as type 0 entries', () => {
+    const pdf = buildPdf([{ xref: 'stream', objects, free: [{ number: 3, generation: 7 }], trailer: '/Root 1 0 R' }]);
+    const rows = streamRows(pdf.text, pdf.sections[0] ?? 0);
+    expect(rows.filter(([type]) => type === 0)).toStrictEqual([
+      [0, 3, 65_535],
+      [0, 0, 7],
+    ]);
+    expect([rows.length, rows[3], loadDocument(pdf.bytes).structure.status]).toStrictEqual([6, [0, 0, 7], 'intact']);
+  });
+
+  it('updates the head at object 0 when an incremental section frees an object', () => {
+    const pdf = buildPdf([
+      { xref: 'classic', objects: [...objects, { number: 3, body: '(three)' }], trailer: '/Root 1 0 R' },
+      { xref: 'classic', objects: [], free: [{ number: 3, generation: 1 }], trailer: '/Root 1 0 R' },
+    ]);
+    expect(xrefLines(pdf.text, pdf.sections[1] ?? 0)).toStrictEqual(['xref', '0 1', '0000000003 65535 f ', '3 1', '0000000000 00001 f ']);
+    const document = loadDocument(pdf.bytes);
+    expect([document.structure.status, document.get(pdfReference(3, 0)).kind]).toStrictEqual(['intact', 'null']);
+  });
+
+  it.each([
+    ['an object in use', [{ number: 4, generation: 1 }]],
+    ['object 0', [{ number: 0, generation: 1 }]],
+    ['a generation above 65535', [{ number: 3, generation: 65_536 }]],
+    [
+      'the same object twice',
+      [
+        { number: 3, generation: 1 },
+        { number: 3, generation: 2 },
+      ],
+    ],
+  ])('refuses to list %s as free', (_, free) => {
+    expect(() => buildPdf([{ xref: 'classic', objects, free }])).toThrow(RangeError);
+  });
+
+  it('refuses a cross-reference stream numbered like a free object', () => {
+    expect(() => buildPdf([{ xref: 'stream', objects, free: [{ number: 9, generation: 1 }], xrefStreamNumber: 9 }])).toThrow(RangeError);
+  });
+});
