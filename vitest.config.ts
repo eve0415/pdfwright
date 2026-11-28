@@ -7,7 +7,6 @@ import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
-// A `.oracle` test runs only in the oracle project and a `.node` test only in the node project; every other test runs in all five runtimes.
 const include = ['packages/*/src/**/*.test.ts', 'tests/**/*.test.ts'];
 const oracleInclude = ['packages/*/src/**/*.oracle.test.ts', 'tests/**/*.oracle.test.ts'];
 const nodeInclude = ['packages/*/src/**/*.node.test.ts', 'tests/**/*.node.test.ts', 'scripts/**/*.node.test.ts'];
