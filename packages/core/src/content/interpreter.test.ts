@@ -131,6 +131,30 @@ describe('graphics state', () => {
     ]);
   });
 
+  it('ignores a Q with no saved state to restore', () => {
+    // ISO 32000-1:2008, 8.4.4, Table 57: Q restores "the most recently saved state", and here there is none.
+    const { texts, result } = textRun('2 0 0 2 0 0 cm Q BT /F1 10 Tf (A) Tj ET');
+    expect([texts.map(text => text.state.ctm), result.warnings]).toStrictEqual([[[2, 0, 0, 2, 0, 0]], []]);
+  });
+
+  it('reports a colour operand that is not a number, and SC drops a name operand', () => {
+    // 8.6.8, Table 74: SC takes numbers only; SCN also takes a pattern name.
+    const { paints, result } = textRun('(x) sc /DeviceRGB CS 1 0 0 /P SC 0 0 10 10 re S');
+    expect([paints.map(paint => paint.colorSpaces[0]?.components), result.warnings.map(warning => warning.code)]).toStrictEqual([
+      [[1, 0, 0]],
+      ['bad-operands'],
+    ]);
+  });
+
+  it('reports a graphics state parameter dictionary that is not a dictionary, or whose Font entry has no size', () => {
+    const { texts, result } = textRun('BT /F1 10 Tf /Bad gs (A) Tj /NoSize gs (A) Tj ET', [], '/ExtGState<</Bad 5/NoSize<</Font[101 0 R]>>>>');
+    expect([texts.map(text => text.state.fontSize), result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([
+      [10, 10],
+      false,
+      ['resource-missing', 'bad-operands'],
+    ]);
+  });
+
   it('reads the streams of a Contents array with one operand stack', () => {
     const { texts, result } = run({ content: ['BT /F1 10', 'Tf (A) Tj ET'], resources: FONT_RESOURCES });
     expect([texts.length, result.complete, result.warnings]).toStrictEqual([1, true, []]);
@@ -306,6 +330,12 @@ describe('clipping', () => {
     expect([covers.map(cover => cover.rectangle), texts[0]?.state.clip.classifyPoint(250, 250)]).toStrictEqual([[[0, 0, 200, 200]], 'inside']);
   });
 
+  it('keeps the CTM a path was started under when cm appears inside the path object', () => {
+    // 8.2 and Annex L, Figure 9 do not allow cm inside a path object; the triangle is built under the identity in force at its m.
+    const { texts } = textRun('0 0 m 2 0 0 2 0 0 cm 50 0 l 50 50 l h W n BT /F1 10 Tf (A) Tj ET');
+    expect([texts[0]?.state.clip.classifyPoint(40, 10), texts[0]?.state.clip.classifyPoint(90, 10)]).toStrictEqual(['inside', 'outside']);
+  });
+
   it('builds clips from curves and applies the even-odd rule of W*', () => {
     const { texts } = textRun(
       '0 50 m 0 77.6 22.4 100 50 100 c 77.6 100 100 77.6 100 50 c 100 22.4 77.6 0 50 0 c 22.4 0 0 22.4 0 50 c h W n BT /F1 10 Tf (A) Tj ET 0 0 m 100 0 l 100 100 l 0 100 l h 25 25 m 75 25 l 75 75 l 25 75 l h W* n BT /F1 10 Tf (A) Tj ET',
@@ -351,6 +381,32 @@ describe('transparency', () => {
       second?.blendMode,
       third?.blendMode,
     ]).toStrictEqual([0.5, 0.25, 'Multiply', 'Luminosity', { kind: 'reference', objectNumber: 110, generation: 0 }, undefined, 'Normal', 'Screen']);
+  });
+
+  it('reads Compatible as Normal, a blend mode array with no recognised name as Normal, and keeps the blend mode when BM is absent', () => {
+    const resources = `${STATES.slice(0, -2)}/Compat<</BM/Compatible>>/Unlisted<</BM[/NoSuchMode]>>>>`;
+    const { texts } = textRun(
+      'BT /F1 10 Tf /Multiply gs /Compat gs (A) Tj /Multiply gs /Unlisted gs (A) Tj /Multiply gs /Half gs (A) Tj ET',
+      [GROUP],
+      resources,
+    );
+    // ISO 32000-1:2008, 11.7.4.2: "The Compatible blend mode shall be treated as equivalent to Normal"; 11.6.3 falls back to Normal when no name in the array is recognised.
+    expect(texts.map(text => text.state.blendMode)).toStrictEqual(['Normal', 'Normal', 'Multiply']);
+  });
+
+  it('composites a group inside a group with the product of their alphas and the outer blend mode', () => {
+    const { paints } = run({ content: '/Half gs /Multiply gs /Outer Do', resources: `${STATES}/XObject<</Outer 120 0 R>>` }, [
+      GROUP,
+      form(
+        120,
+        '/BBox[0 0 100 100]/Group<</S/Transparency>>/Resources<</ExtGState<</Half<</ca 0.5>>/Scr<</BM/Screen>>>>/XObject<</Inner 121 0 R>>>>',
+        '/Half gs /Scr gs /Inner Do',
+      ),
+      form(121, '/BBox[0 0 100 100]/Group<</S/Transparency>>', '0 0 1 1 re f'),
+    ]);
+    expect(paints.map(paint => [paint.state.fillAlpha, paint.state.blendMode, paint.state.group])).toStrictEqual([
+      [1, 'Normal', { alpha: 0.25, blendMode: 'Multiply', softMasked: false }],
+    ]);
   });
 
   it('reports opaque fills of axis-aligned rectangles in page space', () => {
@@ -440,6 +496,13 @@ describe('transparency', () => {
 });
 
 describe('marked content', () => {
+  it('allows 64 nested graphics states and marked-content sequences', () => {
+    expect([textRun('q '.repeat(64)).result.warnings, textRun('/Span BMC '.repeat(64)).result.warnings.map(warning => warning.code)]).toStrictEqual([
+      [],
+      ['marked-content-unbalanced'],
+    ]);
+  });
+
   it('limits graphics and marked-content nesting', () => {
     expect(() => textRun('q '.repeat(65))).toThrow(ResourceLimitError);
     expect(() => textRun('/Span BMC '.repeat(65))).toThrow(ResourceLimitError);
