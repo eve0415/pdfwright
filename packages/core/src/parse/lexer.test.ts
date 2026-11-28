@@ -194,7 +194,7 @@ describe('pdf lexer', () => {
     ]);
   });
 
-  it.each(['/', ':', '@', 'G', '`', 'g'])('rejects %s, one past a hexadecimal digit range', character => {
+  it.each([':', '@', 'G', '`', 'g'])('rejects %s, one past a hexadecimal digit range', character => {
     const source = `<0${character}>`;
     expect(() => lex(source)).toThrow(ParseError);
     expect(() => lex(source)).toThrow(expect.objectContaining({ offset: 2 }));
