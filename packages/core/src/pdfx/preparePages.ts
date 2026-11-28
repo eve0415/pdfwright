@@ -75,12 +75,16 @@ class TransparencyScan {
     this.page = page;
   }
 
-  // Each form, pattern or glyph procedure is read inside the content that uses it, so a chain of distinct objects is bounded by maxNesting rather than by the call stack.
-  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
+  // Each form, pattern, glyph procedure or appearance subdictionary is read inside the one that uses it, so a chain of distinct objects is bounded by maxNesting rather than by the call stack.
+  private enter(): void {
     if (this.depth >= this.internals.maxNesting) {
-      throw new ResourceLimitError(`content streams nest deeper than maxNesting (${String(this.internals.maxNesting)})`);
+      throw new ResourceLimitError(`content streams and appearance subdictionaries nest deeper than maxNesting (${String(this.internals.maxNesting)})`);
     }
     this.depth++;
+  }
+
+  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
+    this.enter();
     const found = this.operations(bytes, resources);
     this.depth--;
     return found;
@@ -211,12 +215,16 @@ class TransparencyScan {
     if (object?.kind !== 'dictionary') {
       return false;
     }
+    this.enter();
+    let found = false;
     for (const [, child] of object.entries.entries()) {
       if (this.appearance(child, resources)) {
-        return true;
+        found = true;
+        break;
       }
     }
-    return false;
+    this.depth--;
+    return found;
   }
 
   annotations(value: PdfDirectObject | undefined, resources: PdfDictionaryEntries): boolean {
@@ -325,7 +333,7 @@ const defaultTrim = (boxes: EffectiveBoxes, index: number): readonly [number, nu
   return [left, bottom, right, top];
 };
 
-/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. A Type 3 font that the content selects, with Tf or a graphics state Font entry, uses transparency when any of its glyph procedures does, whichever glyphs are shown, and one that cannot be decoded throws ValidationError `unreadable-resource`. Forms, patterns and glyph procedures nested more than the document's maxNesting levels below the page content throw ResourceLimitError. */
+/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. A Type 3 font that the content selects, with Tf or a graphics state Font entry, uses transparency when any of its glyph procedures does, whichever glyphs are shown, and one that cannot be decoded throws ValidationError `unreadable-resource`. Forms, patterns, glyph procedures and annotation appearance subdictionaries nested more than the document's maxNesting levels deep throw ResourceLimitError. */
 export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOptions = {}): PdfX4PageChange => {
   const internals = internalsOf(document);
   if (internals === undefined) {
