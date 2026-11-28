@@ -19,6 +19,7 @@
     "@vitest/browser-playwright": "5.1.2",
     "bun": "npm:bun@1.4.5",
     "deno": "npm:deno@2.9.6",
+    "fast-check": "4.11.0",
     "fflate": "0.8.3",
     "fzstd": "0.1.1",
     "oxfmt": "0.80.0",

@@ -1,5 +1,6 @@
 import type { Runtime } from './providedContext.ts';
 
+import { readConfigureGlobal } from 'fast-check';
 import { describe, expect, inject, it } from 'vitest';
 
 import { PdfwrightError } from '../packages/core/src/index.ts';
@@ -26,6 +27,12 @@ const detectRuntime = (): Runtime => {
 describe('runtime', () => {
   it('runs the test body in the runtime its project is configured for', () => {
     expect(detectRuntime()).toBe(inject('runtime'));
+  });
+
+  it('runs properties with a fixed seed and a bounded number of runs', () => {
+    // fast-check draws a fresh seed and runs 100 times unless the setup file configured it.
+    const { seed, numRuns } = readConfigureGlobal();
+    expect([typeof seed, typeof numRuns]).toStrictEqual(['number', 'number']);
   });
 
   it('loads every package entry', () => {

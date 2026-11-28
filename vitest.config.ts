@@ -25,7 +25,7 @@ const projects = (): Array<TestProjectInlineConfiguration> => {
     { test: { ...project('node'), include: [...include, 'scripts/**/*.node.test.ts'] } },
     { test: { name: 'oracle', include: oracleInclude, provide: { runtime: 'node' } } },
     {
-      optimizeDeps: { include: ['fflate', 'fzstd', 'pako'] },
+      optimizeDeps: { include: ['fast-check', 'fflate', 'fzstd', 'pako'] },
       test: {
         ...project('browser'),
         browser: { enabled: true, headless: true, provider: playwright(), instances: [{ browser: 'chromium' }] },
@@ -58,6 +58,7 @@ export default defineConfig({
     unstubGlobals: true,
     expect: { requireAssertions: true },
     sequence: { shuffle: true },
+    setupFiles: ['tests/setupFastCheck.ts'],
     projects: projects(),
   },
 });
