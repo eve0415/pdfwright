@@ -67,6 +67,8 @@ const editMember = (document: LoadedDocument): void => {
   document.set(pdfReference(5, 0), pdfName('Changed'));
 };
 
+const hintStream = { number: 10, body: streamBody('/S 0', 'hints') };
+
 // A linearized file whose H entry gives the offset of object 10, its hint stream, in ten digits so that the offsets do not depend on its value.
 const linearizedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
   { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
@@ -74,7 +76,17 @@ const linearizedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
   pages,
   page,
   content,
-  { number: 10, body: streamBody('', 'hints') },
+  hintStream,
+];
+
+// The same file with the hint stream between the content stream and the page, so that a prefix of the right length puts one of them where the other reading of H falls.
+const interleavedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
+  { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
+  catalog,
+  pages,
+  content,
+  hintStream,
+  page,
 ];
 
 // A classic PDF 1.4 file whose update adds one object far above the others, so that no section lists the numbers between.
@@ -370,7 +382,7 @@ describe('full rewrite', () => {
     ]).toStrictEqual([true, 'stream', ['linearization-removed'], { kind: 'null' }, { kind: 'null' }, 1, 'intact']);
   });
 
-  // The loader reads offsets relative to a header that bytes precede, or else as absolute offsets; H is read the same way as the cross-reference offsets.
+  // The loader reads offsets relative to a header that bytes precede, or else as absolute offsets; the hint stream is found under either reading of H.
   it.each([
     ['relative to the header', 'relative', 4],
     ['from the start of the file', 'absolute', 0],
@@ -391,6 +403,32 @@ describe('full rewrite', () => {
       reloaded.get(pdfReference(10, 0)),
       reloaded.structure.status,
     ]).toStrictEqual([4, shift, true, 'stream', ['linearization-removed', 'junk-dropped'], { kind: 'null' }, { kind: 'null' }, 'intact']);
+  });
+
+  // When bytes precede the header, H may count from the start of the file or, like the sections, from the header; a live object that the other reading names is kept.
+  it.each([
+    ['from the start of the file, with the page where the header-relative reading falls', 'absolute', 3],
+    ['from the header, with the content stream where the absolute reading falls', 'relative', 4],
+  ] as const)('keeps a live object at the other reading of H in a linearized file with bytes before its header, with H counted %s', (_, reading, victim) => {
+    const draft = buildPdf([{ xref: 'classic', objects: interleavedObjects(0), trailer: '/Root 1 0 R' }]);
+    const hint = draft.offsets.get(10) ?? 0;
+    const prefixLength = reading === 'absolute' ? (draft.offsets.get(3) ?? 0) - hint : hint - (draft.offsets.get(4) ?? 0);
+    const linearized = buildPdf([{ xref: 'classic', objects: interleavedObjects(reading === 'absolute' ? hint + prefixLength : hint), trailer: '/Root 1 0 R' }]);
+    const document = loadDocument(latin1Bytes(`${'J'.repeat(prefixLength)}${linearized.text}`));
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      prefixLength > 0,
+      document.structure.headerOffset,
+      internalsOf(document)?.base?.shift,
+      document.structure.linearized,
+      document.get(pdfReference(10, 0)).kind,
+      saved.warnings.map(warning => warning.code),
+      deepEqual(reloaded.get(pdfReference(victim, 0)), document.get(pdfReference(victim, 0)), 'strict'),
+      reloaded.get(pdfReference(10, 0)),
+      reloaded.pageCount,
+      reloaded.structure.status,
+    ]).toStrictEqual([true, prefixLength, prefixLength, true, 'stream', ['linearization-removed', 'junk-dropped'], true, { kind: 'null' }, 1, 'intact']);
   });
 
   it.each([
