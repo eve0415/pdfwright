@@ -331,6 +331,10 @@ describe('illustrator document validation', () => {
       expect(outcomeOf(withStart({ numerator: 5n, denominator: 1n }, 0))).toBe('accepted');
     });
 
+    it('accepts a 10-point rational whose numerator alone is beyond Number range', () => {
+      expect(outcomeOf(withStart({ numerator: 10n ** 309n, denominator: 10n ** 308n }, 0))).toBe('accepted');
+    });
+
     // A 100 × 200 artboard sits on the 16383-point Illustrator canvas with its origin at floor(8191.5 − 50) = 8141 points from the canvas's left edge and floor(8191.5 − 100) = 8091 points from its bottom edge.
     const artboard = { width: 100, height: 200 };
     it.each([

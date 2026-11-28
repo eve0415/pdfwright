@@ -31,6 +31,14 @@ describe('coordinate numbers', () => {
     { case: 'ten, both terms beyond Number range', numerator: 10n ** 401n, denominator: 10n ** 400n, expected: 10 },
     { case: 'minus ten, both terms beyond Number range', numerator: -(10n ** 401n), denominator: 10n ** 400n, expected: -10 },
     { case: 'a third, both terms beyond Number range', numerator: 10n ** 400n, denominator: 3n * 10n ** 400n, expected: 1 / 3 },
+    // 10^308 is within Number range and 10^309 is not, so each of these has exactly one term beyond it.
+    { case: 'ten, only the numerator beyond Number range', numerator: 10n ** 309n, denominator: 10n ** 308n, expected: 10 },
+    { case: 'a tenth, only the denominator beyond Number range', numerator: 10n ** 308n, denominator: 10n ** 309n, expected: 0.1 },
+    { case: 'a hundred, only the numerator beyond Number range', numerator: 10n ** 310n, denominator: 10n ** 308n, expected: 100 },
+    { case: 'a hundredth, only the denominator beyond Number range', numerator: 10n ** 308n, denominator: 10n ** 310n, expected: 0.01 },
+    // Scaling both terms down by the same power of ten would leave nothing of a small other term.
+    { case: 'a quotient near the largest number over a one-digit denominator', numerator: 10n ** 309n, denominator: 7n, expected: 1.4285714285714286e308 },
+    { case: 'a subnormal quotient of a one-digit numerator', numerator: 1n, denominator: 10n ** 309n, expected: 1e-309 },
   ])('converts $case', ({ numerator, denominator, expected }) => {
     expect(Math.abs(coordinateNumber({ numerator, denominator }) - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-15);
   });
