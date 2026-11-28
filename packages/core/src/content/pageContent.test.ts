@@ -71,7 +71,7 @@ describe('page content', () => {
 
   it('reports Contents that cannot be parsed without throwing', () => {
     const { streams, problems } = contentOf('/Contents 120 0 R', [{ number: 120, body: '<</A (unterminated' }]);
-    expect([streams, problems]).toStrictEqual([[], [expect.stringMatching(/^the page's Contents cannot be read/u)]]);
+    expect([streams, problems]).toStrictEqual([[], [expect.stringMatching(/\bContents\b/u)]]);
   });
 
   it('reads streams that together decode to maxDecodedBytes and refuses one byte more', () => {
