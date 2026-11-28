@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { readPlate, renderGsCmykPixel, renderPlates } from '../../../../scripts/plateOracle.ts';
+import { readPlate, renderGsCmykPixel, renderPlates, renderRgbPixel } from '../../../../scripts/plateOracle.ts';
 
 import { textPdfBytes } from './textPdf.ts';
 
@@ -16,6 +16,10 @@ const spotPage = textPdfBytes({
   objects: [{ number: 100, body: '<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 1 0 0]/N 1>>' }],
 });
 const cyanPage = textPdfBytes({ pages: [{ content: '1 0 0 0 k 10 10 20 20 re f' }] });
+// Page 1 paints a cyan square and a blue one, and page 2 paints magenta and red in their places, so a renderer that draws page 2 reads other values.
+const twoPages = textPdfBytes({
+  pages: [{ content: '1 0 0 0 k 10 10 20 20 re f 0 0 1 rg 40 10 20 20 re f' }, { content: '0 1 0 0 k 10 10 20 20 re f 1 0 0 rg 40 10 20 20 re f' }],
+});
 // Ghostscript cannot draw a page whose Contents is a string, and still exits 0 with blank plates.
 const undrawablePage = textPdfBytes({ pages: [{ entries: '/Contents 100 0 R' }], objects: [{ number: 100, body: '(not a content stream)' }] });
 
@@ -65,5 +69,30 @@ describe('Ghostscript plates', () => {
       renderGsCmykPixel(await written(directory, 'cyan.pdf', cyanPage), path.join(directory, 'cmyk.tif'), 20, 780),
     );
     expect(pixel).toStrictEqual([255, 0, 0, 0]);
+  });
+});
+
+describe('page 1 of a two-page file', () => {
+  it('is the page Ghostscript separates', async () => {
+    const ink = await withDirectory(async directory => {
+      const plates = await renderPlates(await written(directory, 'two.pdf', twoPages), path.join(directory, 'plates'), true);
+      const [cyan, magenta] = await Promise.all([readPlate(plates, new TextEncoder().encode('Cyan')), readPlate(plates, new TextEncoder().encode('Magenta'))]);
+      return [cyan.inkAt(20, 780), magenta.inkAt(20, 780)];
+    });
+    expect(ink).toStrictEqual([255, 0]);
+  });
+
+  it('is the page Ghostscript draws in CMYK', async () => {
+    const pixel = await withDirectory(async directory =>
+      renderGsCmykPixel(await written(directory, 'two.pdf', twoPages), path.join(directory, 'cmyk.tif'), 20, 780),
+    );
+    expect(pixel).toStrictEqual([255, 0, 0, 0]);
+  });
+
+  it('is the page MuPDF draws in RGB', async () => {
+    const pixel = await withDirectory(async directory =>
+      renderRgbPixel(await written(directory, 'two.pdf', twoPages), path.join(directory, 'rgb.pam'), 50, 780),
+    );
+    expect(pixel).toStrictEqual([0, 0, 255]);
   });
 });

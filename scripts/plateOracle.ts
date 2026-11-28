@@ -50,6 +50,8 @@ export const renderPlates = async (pdfFile: string, directory: string, includePr
     '-q',
     '-dNOPAUSE',
     '-dBATCH',
+    '-dFirstPage=1',
+    '-dLastPage=1',
     '-sDEVICE=tiffsep',
     '-sCompression=none',
     '-r72',
@@ -223,7 +225,7 @@ export const parsePam = (bytes: Uint8Array): TiffData => {
 
 /** The RGB value of one pixel of page 1 as MuPDF draws it at 72 dpi. */
 export const renderRgbPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number]> => {
-  const child = spawn('mutool', ['draw', '-q', '-O', '2', '-c', 'rgb', '-F', 'pam', '-o', output, pdfFile]);
+  const child = spawn('mutool', ['draw', '-q', '-O', '2', '-c', 'rgb', '-F', 'pam', '-o', output, pdfFile, '1']);
   const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
   if (closed[0] !== 0) {
     throw new Error(`MuPDF exited ${String(closed[0])}: ${stderr}`);
@@ -238,7 +240,18 @@ export const renderRgbPixel = async (...[pdfFile, output, x, y]: [string, string
 
 /** The CMYK value of one pixel of page 1 as Ghostscript draws it at 72 dpi with tiff32nc. */
 export const renderGsCmykPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number, number]> => {
-  await runGhostscript(['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiff32nc', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
+  await runGhostscript([
+    '-q',
+    '-dNOPAUSE',
+    '-dBATCH',
+    '-dFirstPage=1',
+    '-dLastPage=1',
+    '-sDEVICE=tiff32nc',
+    '-sCompression=none',
+    '-r72',
+    `-sOutputFile=${output}`,
+    pdfFile,
+  ]);
   const tiff = parseTiff(await readFile(output));
   if (tiff.samplesPerPixel !== 4) {
     throw new Error('invalid Ghostscript CMYK TIFF pixel');
