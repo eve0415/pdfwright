@@ -81,25 +81,25 @@ describe('pdf dates', () => {
   });
 
   it.each([
-    [new Date('2024-01-01T00:00:00.999Z'), 0, 'D:20240101000000Z'],
-    [new Date('2024-01-01T00:00:00Z'), 1439, "D:20240101235900+23'59"],
-    [new Date('2024-01-01T00:00:00Z'), -1439, "D:20231231000100-23'59"],
-    [new Date('9999-12-31T23:59:59Z'), 0, 'D:99991231235959Z'],
-    [new Date('0000-01-01T00:00:00Z'), 0, 'D:00000101000000Z'],
-  ])('converts %s at offset %i minutes, dropping milliseconds, as %s', (date, offsetMinutes, expected) => {
-    expect(pdfDateString(pdfDateFromDate(date, offsetMinutes))).toBe(expected);
+    ['2024-01-01T00:00:00.999Z', 0, 'D:20240101000000Z'],
+    ['2024-01-01T00:00:00Z', 1439, "D:20240101235900+23'59"],
+    ['2024-01-01T00:00:00Z', -1439, "D:20231231000100-23'59"],
+    ['9999-12-31T23:59:59Z', 0, 'D:99991231235959Z'],
+    ['0000-01-01T00:00:00Z', 0, 'D:00000101000000Z'],
+  ])('converts %s at offset %s minutes, dropping milliseconds, as %s', (instant, offsetMinutes, expected) => {
+    expect(pdfDateString(pdfDateFromDate(new Date(instant), offsetMinutes))).toBe(expected);
   });
 
   it.each([
-    [new Date(Number.NaN), 0],
-    [new Date('2024-01-01T00:00:00Z'), 1440],
-    [new Date('2024-01-01T00:00:00Z'), -1440],
-    [new Date('2024-01-01T00:00:00Z'), 1.5],
-    [new Date('9999-12-31T23:59:59Z'), 1],
-    [new Date('0000-01-01T00:00:00Z'), -1],
-    [new Date('+010000-01-01T00:00:00Z'), 0],
-  ])('rejects converting %s at offset %i minutes', (date, offsetMinutes) => {
-    expect(() => pdfDateFromDate(date, offsetMinutes)).toThrow(ValidationError);
+    ['an invalid date', 0],
+    ['2024-01-01T00:00:00Z', 1440],
+    ['2024-01-01T00:00:00Z', -1440],
+    ['2024-01-01T00:00:00Z', 1.5],
+    ['9999-12-31T23:59:59Z', 1],
+    ['0000-01-01T00:00:00Z', -1],
+    ['+010000-01-01T00:00:00Z', 0],
+  ])('rejects converting %s at offset %s minutes', (instant, offsetMinutes) => {
+    expect(() => pdfDateFromDate(new Date(instant), offsetMinutes)).toThrow(ValidationError);
   });
 });
 

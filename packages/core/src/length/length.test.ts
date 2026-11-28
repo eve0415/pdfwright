@@ -62,11 +62,11 @@ describe('exact lengths', () => {
   });
 
   it.each([
-    [mm(-3), pt(0), -1],
-    [pt(0), mm(-3), 1],
-    [pt(-1), pt(-2), 1],
-    [pt(-2), pt(-1), -1],
-  ])('compares negative length %o with %o as %i', (left, right, expected) => {
+    ['mm(-3)', 'pt(0)', -1, mm(-3), pt(0)],
+    ['pt(0)', 'mm(-3)', 1, pt(0), mm(-3)],
+    ['pt(-1)', 'pt(-2)', 1, pt(-1), pt(-2)],
+    ['pt(-2)', 'pt(-1)', -1, pt(-2), pt(-1)],
+  ])('compares %s with %s as %i', (_, __, expected, left, right) => {
     expect(compare(left, right)).toBe(expected);
   });
 
