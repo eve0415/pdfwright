@@ -1,7 +1,11 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { md5 } from '../hash/md5.ts';
+
 import { deltaE2000 } from './deltaE2000.ts';
+
+const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 // Sharma, Wu and Dalal, "The CIEDE2000 color-difference formula: implementation notes, supplementary test data, and mathematical observations", Color Research & Application 30(1), 2005, Table 1: L*a*b* pairs and their ΔE00 with unit parametric factors, to four decimals.
 const SHARMA_PAIRS = [
@@ -49,9 +53,54 @@ describe('CIEDE2000', () => {
     },
   );
 
+  // Opposite chroma vectors differ in hue by exactly 180°, where CIEDE2000 takes the unwrapped branch for both the hue difference and the mean hue, as Sharma pairs 10 and 14 show. Expected values are computed in double arithmetic with that branch taken; the neighbouring rows sit just past and just short of the tie.
+  it.each([
+    { first: [50, 128, 128], second: [50, -128, -128], expected: 78.2259 },
+    { first: [50, 127, 64], second: [50, -127, -64], expected: 89.3818 },
+    { first: [50, 0.092, 0.21], second: [50, -0.092, -0.21], expected: 0.49996 },
+    { first: [50, 10, 20], second: [50, -30, -60], expected: 43.3569 },
+    { first: [50, -30, -60], second: [50, 10, 20], expected: 43.3569 },
+    { first: [50, -60, 10], second: [50, 120, -20], expected: 63.462 },
+    { first: [50, 120, -20], second: [50, -60, 10], expected: 63.462 },
+    { first: [50, -128, 2], second: [50, 64, -1], expected: 97.3545 },
+    { first: [50, 64, -1], second: [50, -128, 2], expected: 97.3545 },
+    { first: [50, 128, 128], second: [50, -128, -128.01], expected: 109.8544 },
+    { first: [50, 128, 128], second: [50, -128, -127.99], expected: 78.2262 },
+  ])('gives ΔE00 $expected for $first against $second, around a hue difference of 180°', ({ first, second, expected }) => {
+    expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
+  });
+
+  // A tiny negative b* puts the hue just below 360°, which rounds to 360 rather than 0, so against a hue of 180° the mean hue stays at 270° whether or not the pair is an exact tie. Expected values are computed in double arithmetic with the hue kept at 360°.
+  it.each([
+    { first: [50, 100, -1e-14], second: [50, -100, 1e-14], expected: 96.1024 },
+    { first: [50, -100, 1e-14], second: [50, 100, -1e-14], expected: 96.1024 },
+    { first: [50, 100, -1e-14], second: [50, -50, 0], expected: 68.7222 },
+    { first: [50, -50, 0], second: [50, 100, -1e-14], expected: 68.7222 },
+  ])('gives ΔE00 $expected for $first against $second, with one hue just below 360°', ({ first, second, expected }) => {
+    expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
+  });
+
   it('gives zero for a colour against itself, including a neutral one', () => {
     expect(deltaE2000([50, 2.5, 0], [50, 2.5, 0])).toBe(0);
     expect(deltaE2000([50, 0, 0], [50, 0, 0])).toBe(0);
+  });
+
+  // Mesh subdivision and sampled-function fitting compare ΔE00 against a threshold, so the bits must not depend on the engine's own trigonometry.
+  it('keeps the same float64 digest over 20,000 pairs in every runtime', () => {
+    const count = 20_000;
+    const bytes = new Uint8Array(count * 8);
+    const view = new DataView(bytes.buffer);
+    let seed = 12_345;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      return seed / 4_294_967_296;
+    };
+    for (let index = 0; index < count; index++) {
+      const first = [next() * 100, next() * 255 - 128, next() * 255 - 128];
+      const second = [next() * 100, next() * 255 - 128, next() * 255 - 128];
+      view.setFloat64(index * 8, deltaE2000(first, second), true);
+    }
+    expect(hex(md5(bytes))).toBe('9c53be55c717ea7a7a7b89e00284d18b');
   });
 });
 

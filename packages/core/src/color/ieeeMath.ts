@@ -193,5 +193,13 @@ export const deterministicPow = (base: number, exponent: number): number => {
     square *
       (EXP_COEFFICIENTS[0] + square * (EXP_COEFFICIENTS[1] + square * (EXP_COEFFICIENTS[2] + square * (EXP_COEFFICIENTS[3] + square * EXP_COEFFICIENTS[4]))));
   const correction = (z * approx) / (approx - 2) - (w + z * w);
-  return (1 - (correction - z)) * pow2(whole);
+  const mantissa = 1 - (correction - z);
+  // pow2 cannot represent 2^1024 or 2^-1075, so move one factor of two into the mantissa, which is exact, and let the final product round once.
+  if (whole > 1023) {
+    return mantissa * 2 * pow2(whole - 1);
+  }
+  if (whole < -1074) {
+    return (mantissa / 2) * pow2(whole + 1);
+  }
+  return mantissa * pow2(whole);
 };
