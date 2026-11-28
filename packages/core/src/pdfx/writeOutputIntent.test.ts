@@ -9,6 +9,7 @@ import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgb from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -490,6 +491,30 @@ describe('gts pdfx output intent', () => {
     const document = withIntents('[4 0 R]', objects);
     const replaced = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect([replaced.action, replaced.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['other'], ['GTS_PDFX']]);
+  });
+
+  it('replaces an intent whose OutputConditionIdentifier names another generation, and refuses an intent it keeps with that identifier', () => {
+    const objects = [
+      { number: 4, body: '<</S/GTS_PDFA1/OutputConditionIdentifier 9 1 R/DestOutputProfile 5 0 R>>' },
+      { number: 5, body: streamBody('', 'x') },
+      { number: 9, body: '(x)' },
+    ];
+    const document = withIntents('[4 0 R]', objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect(document.get(pdfReference(4, 0)).kind).toBe('null');
+    // The identifier of a kept GTS_PDFX intent decides whether its descriptions are kept, so there the reference the loader refuses stands.
+    const kept = withIntents('[4 0 R]', objects);
+    const profileReference = kept.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const sameProfile = new PdfDictionaryEntries([
+      [pdfName('S').bytes, pdfName('GTS_PDFX')],
+      [pdfName('OutputConditionIdentifier').bytes, pdfReference(9, 1)],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    kept.set(pdfReference(4, 0), pdfDictionary(sameProfile));
+    const write = () => writeGtsPdfxOutputIntent(kept, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect(write).toThrow(GenerationMismatchError);
+    expect(write).toThrow(/9 1 R/u);
   });
 
   it.each<[string, LoadOptions, string]>([
