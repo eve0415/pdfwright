@@ -26,7 +26,10 @@ describe('numberDeviation', () => {
     expect(numberDeviation(model([path(1.25, 1.5)]), model([path(1, 2)]))).toBe(0.5);
   });
 
-  it('is infinite when one model holds an extra item', () => {
-    expect(numberDeviation(model([path(1, 2), path(1, 2)]), model([path(1, 2)]))).toBe(Number.POSITIVE_INFINITY);
+  it('is infinite when either model holds an extra item', () => {
+    expect([
+      numberDeviation(model([path(1, 2), path(1, 2)]), model([path(1, 2)])),
+      numberDeviation(model([path(1, 2)]), model([path(1, 2), path(1, 2)])),
+    ]).toStrictEqual([Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY]);
   });
 });
