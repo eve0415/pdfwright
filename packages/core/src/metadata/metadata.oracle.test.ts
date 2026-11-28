@@ -303,6 +303,8 @@ describe('metadata in the corpus', () => {
   it('keeps every creator of a packet when the edit sets another key', async () => {
     const names = await corpusFiles(GOVDOCS);
     const present = names.filter(name => name === '000150.pdf');
+    // The manifest lists the file, so once any govdocs1 file is fetched, and always in CI, a missing one fails rather than passing on an empty comparison.
+    expect(present).toStrictEqual(names.length > 0 || env['CI'] !== undefined ? ['000150.pdf'] : []);
     const creators = await Promise.all(present.map(async name => [name, await creatorsAfterKeywords(name)] as const));
     expect(Object.fromEntries(creators)).toStrictEqual(
       Object.fromEntries(present.map(name => [name, ['C. Lambert', 'Y. Cheng', 'D. Dobson', 'J. Hangas', 'M. Jagner', 'J. Warner']])),
