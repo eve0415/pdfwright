@@ -123,12 +123,23 @@ const version = (value: string) => `<pdfxid:GTS_PDFXVersion>${value}</pdfxid:GTS
 const trappedXmp = (value: string) => `<pdf:Trapped>${value}</pdf:Trapped>`;
 
 // ISO 32000-1:2008, 12.6.4.16 and 12.6.4.7: a JavaScript action carries JS, and a URI action carries URI.
-const action = (document: LoadedDocument, subtype: 'JavaScript' | 'URI') =>
+// 7.3.10: S may be an indirect reference to the name.
+const action = (document: LoadedDocument, subtype: 'JavaScript' | 'URI', indirect = false) =>
   document.object(
     pdfDictionary(
       entries([
-        ['S', pdfName(subtype)],
+        ['S', indirect ? document.object(pdfName(subtype)) : pdfName(subtype)],
         [subtype === 'JavaScript' ? 'JS' : 'URI', pdfLiteralString('x')],
+      ]),
+    ),
+  );
+
+const annotation = (document: LoadedDocument, subtype: PdfDirectObject) =>
+  document.object(
+    pdfDictionary(
+      entries([
+        ['Type', pdfName('Annot')],
+        ['Subtype', subtype],
       ]),
     ),
   );
@@ -429,6 +440,8 @@ describe('pdfx structural checker', () => {
       ['a JavaScript name tree', 'Names', document => pdfDictionary(entries([['JavaScript', document.object(pdfDictionary())]])), 'violation'],
       ['a reachable JavaScript action', 'OpenAction', document => action(document, 'JavaScript'), 'violation'],
       ['a reachable URI action', 'OpenAction', document => action(document, 'URI'), 'passed'],
+      ['a JavaScript action whose S is indirect', 'OpenAction', document => action(document, 'JavaScript', true), 'violation'],
+      ['a URI action whose S is indirect', 'OpenAction', document => action(document, 'URI', true), 'passed'],
       ['an additional action that runs JavaScript', 'AA', document => pdfDictionary(entries([['O', action(document, 'JavaScript')]])), 'violation'],
       ['an additional action that opens a URI', 'AA', document => pdfDictionary(entries([['O', action(document, 'URI')]])), 'not-checked'],
     ])('checks a document with %s', (_, name, value, status) => {
@@ -593,6 +606,15 @@ describe('pdfx structural checker', () => {
           ),
         'violation',
       ],
+      // ISO 32000-1:2008, 7.3.10: Subtype and Type may be indirect references to the name.
+      ['a FileAttachment annotation whose Subtype is indirect', document => annotation(document, document.object(pdfName('FileAttachment'))), 'violation'],
+      ['a Text annotation whose Subtype is indirect', document => annotation(document, document.object(pdfName('Text'))), 'passed'],
+      [
+        'a stream whose Type EmbeddedFile is indirect',
+        document => stream(document, Uint8Array.of(1), [['Type', document.object(pdfName('EmbeddedFile'))]]),
+        'violation',
+      ],
+      ['a stream whose Type XObject is indirect', document => stream(document, Uint8Array.of(1), [['Type', document.object(pdfName('XObject'))]]), 'passed'],
     ])('checks a catalog that references %s', (_, value, status) => {
       const document = raw();
       setCatalogEntry(document, 'Extra', value(document));
