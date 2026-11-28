@@ -108,6 +108,23 @@ describe('calculator programs', () => {
     expect(() => calculator(body)).toThrow(pattern);
   });
 
+  // ISO 32000-1:2008, 7.2.2, Table 1: the white-space characters are NUL, HT, LF, FF, CR and SP, and every other byte outside the delimiters is regular.
+  const separatedBy = (byte: number): Uint8Array => Uint8Array.from([...new TextEncoder().encode('{ 1 2'), byte, ...new TextEncoder().encode('add }')]);
+
+  it('separates tokens at every PDF white-space character', () => {
+    const outputs = [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20].map(byte => createCalculatorFunction(separatedBy(byte), 0, 1)([]));
+    expect(outputs).toStrictEqual([[3], [3], [3], [3], [3], [3]]);
+  });
+
+  it.each([
+    ['vertical tab', 0x0b],
+    ['no-break space', 0xa0],
+  ])('reads a %s as part of a token', (_, byte) => {
+    const run = () => createCalculatorFunction(separatedBy(byte), 0, 1)([]);
+    expect(run).toThrow(ParseError);
+    expect(run).toThrow(/unknown operator/);
+  });
+
   it('builds 16 levels of braces and rejects 17', () => {
     expect(calculator(nestedBraces(15))([])).toStrictEqual([1]);
     expect(() => calculator(nestedBraces(16))).toThrow(ResourceLimitError);
