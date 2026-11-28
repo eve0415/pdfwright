@@ -447,3 +447,16 @@ describe('Type 3 fonts that a graphics state selects', () => {
     expect(close((glyph?.slice(1) ?? []).map(Number), cmykOf(0, 1, 0))).toBe(true);
   });
 });
+
+describe('deeply nested carriers', () => {
+  it('converts a lookup in the innermost of 5,000 nested tiling patterns', () => {
+    const depth = 5000;
+    const objects = Array.from({ length: depth }, (_, index) => ({
+      number: 5 + index,
+      body: streamBody(`${PATTERN}${index === depth - 1 ? OWN_INDEXED : `/Resources<</Pattern<</P ${String(6 + index)} 0 R>>>>`}`, '/CS1 cs 0 sc'),
+    }));
+    const document = carrierPdf('/Resources<</Pattern<</P 5 0 R>>>>', objects);
+    expect(convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed).toBe(1);
+    expectIndexed(ownResource(document, 4 + depth, 'ColorSpace', 'CS1'));
+  });
+});
