@@ -399,6 +399,33 @@ describe('gts pdfx output intent', () => {
     expect([result.action, subtypesOf(document)]).toStrictEqual([subtype === 'GTS_PDFX' ? 'updated' : 'added', subtypes]);
   });
 
+  it.each<[string, number, string]>([
+    ['another generation of an object', 1, '/GTS_PDFA1'],
+    ['an object that cannot be parsed', 0, '<</Broken (unterminated'],
+  ])('reads an existing intent whose S names %s as another subtype', (_, generation, body) => {
+    // ISO 32000-1:2008, 7.3.10: a reference that names no object is the null object, so S gives no name.
+    const objects = [
+      { number: 4, body: `<</S 9 ${String(generation)} R>>` },
+      { number: 9, body },
+    ];
+    const kept = withIntents('[4 0 R]', objects);
+    const profileReference = kept.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const sameProfile = new PdfDictionaryEntries([
+      [pdfName('S').bytes, pdfReference(9, generation)],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    kept.set(pdfReference(4, 0), pdfDictionary(sameProfile));
+    const added = writeGtsPdfxOutputIntent(kept, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect([added.action, added.removedSubtypes, kept.catalog().get(pdfName('OutputIntents').bytes)]).toStrictEqual([
+      'added',
+      [],
+      { kind: 'array', items: [expect.objectContaining({ kind: 'reference' }), pdfReference(4, 0)] },
+    ]);
+    const document = withIntents('[4 0 R]', objects);
+    const replaced = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([replaced.action, replaced.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['other'], ['GTS_PDFX']]);
+  });
+
   it('writes N 4 on a reused profile that lacks it', () => {
     // ISO 32000-1:2008, 8.6.5.5, Table 66: N is required in an ICC profile stream.
     const { document, profileReference } = withIntent(profile);
