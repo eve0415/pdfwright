@@ -600,7 +600,7 @@ describe('pdfx page preparation', () => {
 
   it.each<[string, number, number, number, number]>([
     ['names looked up again', 10, 1, 30, 280],
-    ['CharProcs entries once', 10, 30, 1, 48],
+    ['CharProcs entries once', 4, 60, 1, 66],
   ])(
     'reads glyph procedures that fonts with different Resources share for as many steps as maxDecodedBytes and refuses one more, counting %s',
     (_, fonts, glyphs, names, steps) => {
