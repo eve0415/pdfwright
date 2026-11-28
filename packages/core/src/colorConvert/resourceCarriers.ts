@@ -106,7 +106,7 @@ class CarrierWalk {
 
 /**
  * Lists, from a page's effective resources and its annotations' appearances, every form XObject, tiling pattern, Type 3 font and appearance stream that has its own Resources dictionary, nested to any depth.
- * Soft-mask groups are left to the luminosity and group passes. Objects in `seen` are skipped and every listed one is added to it, which ends cycles and lists an object shared by pages once.
+ * Soft-mask groups and what only they reach are not listed. Objects in `seen` are skipped and every listed one is added to it, which ends cycles and lists an object shared by pages once.
  */
 export const resourceCarriers = (
   internals: DocumentInternals,
