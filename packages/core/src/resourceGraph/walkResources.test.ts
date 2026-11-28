@@ -256,10 +256,11 @@ describe('resource walks', () => {
   });
 
   it('names each font with the key content interpretation selects it by: by reference, or by resource name and the owner of its resource dictionary', () => {
+    // The graphics state and the font resource share the name F1, so the two direct fonts have distinct keys only while the graphics state key names its category.
     const helvetica = '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>';
     const type3 = `/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</g 32 0 R>>/Encoding<</Differences[0/g]>>/FirstChar 0/LastChar 0/Widths[0]`;
     const document = internals(
-      `/Contents 40 0 R/Resources<</Font<</F1 ${helvetica}/F2 30 0 R/T3 31 0 R>>/ExtGState<</GS1<</Font[${helvetica} 12]>>>>/XObject<</X1 10 0 R/X2 12 0 R>>>>`,
+      `/Contents 40 0 R/Resources<</Font<</F1 ${helvetica}/F2 30 0 R/T3 31 0 R>>/ExtGState<</F1<</Font[${helvetica} 12]>>>>/XObject<</X1 10 0 R/X2 12 0 R>>>>`,
       [
         { number: 10, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F3 ${helvetica}>>>>`, 'BT /F3 1 Tf ET') },
         { number: 12, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources 20 0 R', 'BT /F4 1 Tf ET') },
@@ -267,7 +268,7 @@ describe('resource walks', () => {
         { number: 30, body: helvetica },
         { number: 31, body: `<<${type3}/Resources<</Font<</F5 ${helvetica}>>>>>>` },
         { number: 32, body: streamBody('', '0 0 d0 /F5 1 Tf') },
-        { number: 40, body: streamBody('', String.raw`/GS1 gs BT /F1 1 Tf /F2 1 Tf /T3 1 Tf (\0) Tj ET /X1 Do /X2 Do`) },
+        { number: 40, body: streamBody('', String.raw`/F1 gs BT /F1 1 Tf /F2 1 Tf /T3 1 Tf (\0) Tj ET /X1 Do /X2 Do`) },
       ],
     );
     const selected = new Set<string>();
