@@ -29,10 +29,13 @@ const decodePlateName = (fileName: string): Uint8Array => {
   return Uint8Array.from(bytes);
 };
 
+// Ghostscript exits 0 when it cannot draw a page and writes blank output, which would read as "no ink", so its notice is an error here.
+const DRAWING_ERROR = 'Page drawing error';
+
 const runGhostscript = async (args: ReadonlyArray<string>): Promise<void> => {
   const child = spawn('gs', args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-  if (closed[0] !== 0) {
+  if (closed[0] !== 0 || `${stdout}${stderr}`.includes(DRAWING_ERROR)) {
     throw new Error(`Ghostscript exited ${String(closed[0])}: ${stdout}${stderr}`);
   }
 };
