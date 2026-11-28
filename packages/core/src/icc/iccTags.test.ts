@@ -112,9 +112,12 @@ describe('icc basic tags', () => {
     { name: 'one entry', count: 1, length: 13 },
     { name: 'two entries', count: 2, length: 15 },
   ])('rejects a curveType with $name one byte short', ({ count, length }) => {
-    const bytes = curvTag(count, length + 4);
-    expect(() => readCurve(bytes, 0, length)).toThrow(InvalidProfileError);
-    expect(() => readCurve(bytes, 0, length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+    // One buffer ends at the limit and one runs past it, so neither the bytes past the limit nor their absence decides the result.
+    const padded = curvTag(count, length + 4);
+    for (const bytes of [padded.slice(0, length), padded]) {
+      expect(() => readCurve(bytes, 0, length)).toThrow(InvalidProfileError);
+      expect(() => readCurve(bytes, 0, length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+    }
   });
 
   it.each([0, 1, 2, 3, 4] as const)('reads parametric function type %i at exactly its length and rejects one byte less', functionType => {
@@ -228,8 +231,10 @@ describe('icc basic tags', () => {
       fc.assert(
         fc.property(curveTags, fc.nat(), ({ bytes }, cut) => {
           const limit = cut % bytes.length;
-          expect(() => readCurve(bytes, 0, limit)).toThrow(InvalidProfileError);
-          expect(() => readCurve(bytes, 0, limit)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+          for (const truncated of [bytes.slice(0, limit), bytes]) {
+            expect(() => readCurve(truncated, 0, limit)).toThrow(InvalidProfileError);
+            expect(() => readCurve(truncated, 0, limit)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+          }
         }),
       );
     });
