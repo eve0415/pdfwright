@@ -769,6 +769,21 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 5)).toHaveLength(1);
   });
 
+  it('reads a Type 3 font that Tf selects after a reference to another generation of it', () => {
+    const document = single(
+      '<</Font<</A 5 1 R/B 5 0 R>>/ExtGState<</GS 7 0 R>>>>',
+      streamBody('', 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET'),
+      [
+        { number: 5, body: shownType3('<</a 6 0 R>>') },
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 0.5>>' },
+      ],
+      '',
+      { generationMismatch: 'null' },
+    );
+    expect(addedGroups(document)).toStrictEqual([0]);
+  });
+
   it('reads a glyph procedure once for two direct Type 3 fonts whose direct CharProcs and Resources have the same entries', () => {
     const font = type3Font('<</a 6 0 R>>', '<</ExtGState<</GS 9 0 R>>>>');
     const document = single(`<</Font<</A ${font}/B ${font}>>>>`, streamBody('', 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET'), [
