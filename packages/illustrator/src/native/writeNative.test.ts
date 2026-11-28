@@ -1,9 +1,26 @@
-import type { IllustratorDocument, Layer, PathItem } from '../model/illustratorDocument.ts';
+import type { IllustratorDocument, Item, Layer, PathItem, SpotColor, Subpath } from '../model/illustratorDocument.ts';
 
-import { pdfDate } from '@pdfwright/core';
+import { ValidationError, pdfDate } from '@pdfwright/core';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { readNative } from '../read/readNative.ts';
+
+import { nameBasedUuid } from './nameBasedUuid.ts';
 import { writeNative } from './writeNative.ts';
+
+const artboardUuid = (bytes: Uint8Array): string | undefined =>
+  /%_\(([0-9a-f-]{36})\) \/String \(ArtboardUUID\) ,\r/u.exec(new TextDecoder().decode(bytes))?.[1];
+// Searches the bytes rather than decoded text, because multi-byte layer names would shift string offsets.
+const indexOf = (bytes: Uint8Array, marker: string): number => {
+  const needle = new TextEncoder().encode(marker);
+  for (let start = 0; start + needle.length <= bytes.length; start++) {
+    if (needle.every((byte, index) => bytes[start + index] === byte)) {
+      return start;
+    }
+  }
+  return -1;
+};
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 0, offset: 'Z' });
 const path: PathItem = {
@@ -84,15 +101,88 @@ describe('native data assembly', () => {
     const second = writeNative(document);
     expect(first.bytes).toStrictEqual(second.bytes);
     const changed = writeNative({ ...document, layers: [{ ...hiddenLayer, name: 'Hidden' }, baseLayer] });
-    expect(changed.bytes).not.toStrictEqual(first.bytes);
-    const text = new TextDecoder().decode(first.bytes);
-    expect(text).toMatch(/%_\([0-9a-f-]{36}\) \/String \(ArtboardUUID\) ,\r/u);
-    expect(text).not.toContain('c2pa');
+    const uuid = artboardUuid(first.bytes);
+    expect(uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-3[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+    expect(artboardUuid(second.bytes)).toBe(uuid);
+    expect(artboardUuid(changed.bytes)).not.toBe(uuid);
+  });
+
+  it('derives the artboard UUID from the layer bytes between the setup and the page trailer', () => {
+    const { bytes } = writeNative(document);
+    const setupEnd = indexOf(bytes, '%%EndSetup\r') + '%%EndSetup\r'.length;
+    const layers = bytes.slice(setupEnd, indexOf(bytes, '%%PageTrailer\r'));
+    expect(new TextDecoder().decode(layers)).toMatch(/^%AI5_BeginLayer\r[^]*%AI5_EndLayer--\r$/u);
+    expect(artboardUuid(bytes)).toBe(nameBasedUuid('artboard', layers));
+  });
+
+  it('ends with the page trailer after the last layer', () => {
+    expect(new TextDecoder().decode(writeNative(document).bytes)).toMatch(
+      /%AI5_EndLayer--\r%%PageTrailer\rgsave annotatepage grestore showpage\r%%Trailer\r%%EOF\r$/u,
+    );
+  });
+
+  it('validates the document before writing it', () => {
+    expect(() => writeNative({ ...document, artboard: { width: 0, height: 70 } })).toThrow(ValidationError);
   });
 
   it('moves native coordinates to the artboard’s top-left origin', () => {
     const text = new TextDecoder().decode(writeNative(document, { nativeOrigin: 'artboard-top-left' }).bytes);
     expect(text).toContain('1 -68 m\r');
     expect(text).toContain('%_0 0 /RealPointRelToROrigin\r');
+  });
+});
+
+describe('properties', () => {
+  const spots: ReadonlyArray<SpotColor> = [
+    { name: 'White', alternate: [0.2, 0, 0, 0] },
+    { name: 'Cut', alternate: [0, 1, 0, 0] },
+  ];
+  const coordinate = fc.integer({ min: 0, max: 60 });
+  const paint = fc.oneof(
+    fc.record({
+      kind: fc.constant('process'),
+      cmyk: fc.tuple(fc.constantFrom(0, 0.5, 1), fc.constantFrom(0, 1), fc.constantFrom(0, 1), fc.constantFrom(0, 1)),
+    }),
+    fc.record({ kind: fc.constant('spot'), spot: fc.constantFrom(...spots), tint: fc.constantFrom(0.25, 1) }),
+  );
+  const subpath = fc.tuple(coordinate, coordinate, fc.integer({ min: 1, max: 30 }), fc.integer({ min: 1, max: 30 })).map(([x, y, width, height]): Subpath => ({
+    start: [x, y],
+    segments: [
+      { kind: 'line', to: [x + width, y] },
+      { kind: 'curve', control1: [x + width, y + height], control2: [x, y + height], to: [x, y + height], anchor: 'smooth' },
+    ],
+  }));
+  const geometry = fc.record({
+    subpaths: fc.array(subpath, { minLength: 1, maxLength: 2 }),
+    fillRule: fc.constantFrom('nonzero' as const, 'evenodd' as const),
+  });
+  const pathItem = fc.record({ kind: fc.constant('path'), locked: fc.boolean(), geometry, fill: fc.record({ paint, overprint: fc.boolean() }) });
+  const item: fc.Arbitrary<Item> = fc.letrec<{ item: Item }>(tie => ({
+    item: fc.oneof(
+      { depthSize: 'small' },
+      pathItem,
+      fc.record({
+        kind: fc.constant('group'),
+        opacity: fc.constantFrom(0.5, 1),
+        isolated: fc.boolean(),
+        items: fc.array(tie('item'), { minLength: 1, maxLength: 2 }),
+      }),
+      fc.record({ kind: fc.constant('clipGroup'), clip: geometry, items: fc.array(tie('item'), { minLength: 1, maxLength: 2 }) }),
+    ),
+  })).item;
+  const model = fc
+    .array(fc.record({ visible: fc.boolean(), locked: fc.boolean(), opacity: fc.constantFrom(0.3, 1), items: fc.array(item, { maxLength: 3 }) }), {
+      minLength: 1,
+      maxLength: 3,
+    })
+    .map((layers): IllustratorDocument => ({ ...document, layers: layers.map((layer, index): Layer => ({ ...layer, name: `Layer ${String(index + 1)}` })) }));
+
+  it('writes the same bytes again after reading its own output', () => {
+    fc.assert(
+      fc.property(model, original => {
+        const first = writeNative(original).bytes;
+        expect(writeNative(readNative(first, date).document).bytes).toStrictEqual(first);
+      }),
+    );
   });
 });
