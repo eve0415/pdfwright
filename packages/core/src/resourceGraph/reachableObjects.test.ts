@@ -107,12 +107,21 @@ describe('objects reachable from the trailer', () => {
 
   it('lists an object stored in an object stream with generation 0', () => {
     // ISO 32000-1:2008, 7.5.7: "The generation number of an object stream and of any compressed object shall be zero."
+    // Object 6 is the second member, so its index within the object stream, which the cross-reference stream records in place of a generation (7.5.8.3, Table 18), is 1.
     const document = loadDocument(
       buildPdf([
         {
           xref: 'stream',
           objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R/A 6 0 R>>' }, ...PAGES],
-          objectStreams: [{ number: 9, members: [{ number: 6, body: '<</B 7 0 R>>' }] }],
+          objectStreams: [
+            {
+              number: 9,
+              members: [
+                { number: 8, body: '<<>>' },
+                { number: 6, body: '<</B 7 0 R>>' },
+              ],
+            },
+          ],
           trailer: '/Root 1 0 R',
         },
       ]).bytes,
