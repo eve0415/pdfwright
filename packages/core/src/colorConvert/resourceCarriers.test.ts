@@ -588,6 +588,18 @@ describe('direct Type 3 fonts reached again through an indirect object', () => {
     },
   );
 
+  it.each(sharedFonts('ColorSpace', INDEXED))(
+    'converts and saves a whole document with a direct Type 3 font that $shape',
+    ({ page, objects, count, paths }) => {
+      const document = carrierPdf(page, objects, 'BT /F 12 Tf 10 10 Td (A) Tj ET');
+      expect(convertToCmyk(document, FULL_OPTIONS).indexed.indexed).toBe(count);
+      const reloaded = loadDocument(document.save().toBytes());
+      for (const [owner, keys] of paths) {
+        expectIndexed(at(reloaded, owner, keys));
+      }
+    },
+  );
+
   it.each(passes.flatMap(pass => sharingHolders(pass.category, pass.value).map(holder => ({ ...pass, ...holder }))))(
     'converts the shared $pass entry once for every holder when $holder',
     ({ convert, check, page, objects, paths }) => {
