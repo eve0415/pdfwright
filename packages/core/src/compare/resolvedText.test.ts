@@ -109,6 +109,13 @@ describe('reference cycles', () => {
     const renumbered = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[21 0 R 22 0 R]'], 3);
     expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
   });
+
+  it('describes a cycle the same whether a dictionary in it is direct or indirect', () => {
+    const direct = textOf(['<</D<</Y 20 0 R/V 1>>/W 2>>']);
+    const indirect = textOf(['<</D 21 0 R/W 2>>', '<</Y 20 0 R/V 1>>']);
+    const otherValue = textOf(['<</D 21 0 R/W 2>>', '<</Y 20 0 R/V 3>>']);
+    expect([direct === indirect, direct === otherValue]).toStrictEqual([true, false]);
+  });
 });
 
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
