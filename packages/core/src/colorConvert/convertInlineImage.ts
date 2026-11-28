@@ -333,9 +333,11 @@ export const convertInlineImage = (config: InlineConfig): ConvertedInlineImage |
   }
   const output = writer.toUint8Array();
   const compressed = deflateZlib(output);
-  const asXObject = output.length > 4096;
-  const replacement = asXObject
-    ? `/${config.xObjectName} Do`
-    : `BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /CMYK ${INLINE_FLATE_FILTER} ID\n${latin1(encodeAscii85(compressed))}\nEI`;
-  return { replacement, width, height, bits: outputBits, data: compressed, asXObject };
+  // An image stays inline only while both its samples and the ASCII85 text written between ID and EI fit in 4 KB; a larger one becomes an image XObject.
+  const encoded = output.length > 4096 ? undefined : encodeAscii85(compressed);
+  if (encoded === undefined || encoded.length > 4096) {
+    return { replacement: `/${config.xObjectName} Do`, width, height, bits: outputBits, data: compressed, asXObject: true };
+  }
+  const replacement = `BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /CMYK ${INLINE_FLATE_FILTER} ID\n${latin1(encoded)}\nEI`;
+  return { replacement, width, height, bits: outputBits, data: compressed, asXObject: false };
 };
