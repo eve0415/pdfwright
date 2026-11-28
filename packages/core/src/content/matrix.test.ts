@@ -1,5 +1,6 @@
 import type { Matrix } from './matrix.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { IDENTITY, invert, multiply, transformPoint } from './matrix.ts';
@@ -31,6 +32,11 @@ describe('affine matrices', () => {
     ]);
   });
 
+  it('multiplies matrices with every entry set as the 3×3 product', () => {
+    // ISO 32000-1:2008, 8.3.4: [a b 0; c d 0; e f 1] × [a′ b′ 0; c′ d′ 0; e′ f′ 1], whose cross terms b·c′ and c·b′ vanish for scalings and translations.
+    expect(multiply([1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12])).toStrictEqual([25, 28, 57, 64, 100, 112]);
+  });
+
   it('keeps a matrix unchanged when multiplied by the identity on either side', () => {
     const matrix: Matrix = [0, 3.125, -3.125, 0, 40, 16];
     expect([multiply(IDENTITY, matrix), multiply(matrix, IDENTITY)]).toStrictEqual([matrix, matrix]);
@@ -43,5 +49,33 @@ describe('affine matrices', () => {
 
   it('has no inverse for a singular matrix', () => {
     expect([invert([1, 2, 2, 4, 0, 0]), invert([0, 0, 0, 0, 1, 1]), invert([1e-320, 0, 0, 1e-320, 0, 0])]).toStrictEqual([undefined, undefined, undefined]);
+  });
+
+  it('has no inverse when the determinant is not zero but an entry of the inverse is not finite', () => {
+    // The determinant 1e-309 is a subnormal number, and 1 / 1e-309 overflows to Infinity.
+    expect(invert([1, 0, 0, 1e-309, 0, 0])).toBeUndefined();
+  });
+});
+
+// Integer entries small enough that every product and sum is exact in double arithmetic, so equality needs no tolerance.
+const entry = fc.integer({ min: -1000, max: 1000 });
+const matrices = fc.tuple(entry, entry, entry, entry, entry, entry);
+
+describe('properties', () => {
+  it('transforms a point by a product as by its left factor and then its right one', () => {
+    fc.assert(
+      fc.property(matrices, matrices, fc.integer({ min: -1000, max: 1000 }), fc.integer({ min: -1000, max: 1000 }), (left, right, x, y) => {
+        const [x1, y1] = transformPoint(left, x, y);
+        expect(transformPoint(multiply(left, right), x, y)).toStrictEqual(transformPoint(right, x1, y1));
+      }),
+    );
+  });
+
+  it('multiplies associatively', () => {
+    fc.assert(
+      fc.property(matrices, matrices, matrices, (a, b, c) => {
+        expect(multiply(multiply(a, b), c)).toStrictEqual(multiply(a, multiply(b, c)));
+      }),
+    );
   });
 });
