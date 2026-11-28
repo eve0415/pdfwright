@@ -152,11 +152,11 @@ const samePlan = (left: FormPlan, right: FormPlan): boolean => {
   return true;
 };
 
-const assign = (scope: Scope, use: FormUse, plan: FormPlan): void => {
+const assign = (internals: DocumentInternals, scope: Scope, use: FormUse, plan: FormPlan): void => {
   const key = bytesKey(use.name);
   const existing = scope.assignments.get(key);
   if (existing !== undefined && existing.plan !== plan) {
-    const category = scope.resources.get(XOBJECT);
+    const category = internals.objects.deref(scope.resources.get(XOBJECT));
     const used = category?.kind === 'dictionary' ? category.entries : undefined;
     for (let index = 0; ; index++) {
       const name = pdfName(`PWFORM${String(index)}`).bytes;
@@ -296,7 +296,7 @@ class FormPlanner {
           this.plans.push(plan);
         }
       }
-      assign(scope, use, plan);
+      assign(this.internals, scope, use, plan);
     }
   }
 
