@@ -82,7 +82,7 @@ describe('message digest', () => {
 
 describe('properties', () => {
   it('gives the one-shot digest for input split at any points', () => {
-    const splitInput = fc.uint8Array({ maxLength: 400 }).chain(bytes =>
+    const splitInput = fc.uint8Array({ maxLength: 400, size: 'max' }).chain(bytes =>
       fc.tuple(
         fc.constant(bytes),
         fc.uniqueArray(fc.integer({ min: 0, max: bytes.length }), { maxLength: 8 }).map(cuts => cuts.toSorted((left, right) => left - right)),
