@@ -37,8 +37,8 @@ describe('object serialization', () => {
     [-0, '0'],
     [1, '1'],
     [-1, '-1'],
-    [2147483647, '2147483647'],
-    [-2147483647, '-2147483647'],
+    [2_147_483_647, '2147483647'],
+    [-2_147_483_647, '-2147483647'],
   ])('writes an in-range whole real %s as the integer token %s', (value, expected) => {
     for (const fractionDigits of [0, 5, 10]) {
       for (const real of [pdfReal(value), pdfReal(pt(value))]) {
@@ -48,8 +48,8 @@ describe('object serialization', () => {
   });
 
   it.each([
-    [2147483648, '2147483648.0'],
-    [-2147483648, '-2147483648.0'],
+    [2_147_483_648, '2147483648.0'],
+    [-2_147_483_648, '-2147483648.0'],
     [3e9, '3000000000.0'],
     [-3e9, '-3000000000.0'],
     [1e21, '1000000000000000000000.0'],
@@ -70,12 +70,12 @@ describe('object serialization', () => {
   it.each([
     [2.5, 0, '2'],
     [-0.000005, 5, '0'],
-    [2147483647.4, 0, '2147483647'],
-    [-2147483647.4, 0, '-2147483647'],
-    [2147483647.5, 0, '2147483648.0'],
-    [-2147483647.5, 0, '-2147483648.0'],
-    [2147483648.5, 5, '2147483648.5'],
-    [-2147483648.5, 5, '-2147483648.5'],
+    [2_147_483_647.4, 0, '2147483647'],
+    [-2_147_483_647.4, 0, '-2147483647'],
+    [2_147_483_647.5, 0, '2147483648.0'],
+    [-2_147_483_647.5, 0, '-2147483648.0'],
+    [2_147_483_648.5, 5, '2147483648.5'],
+    [-2_147_483_648.5, 5, '-2147483648.5'],
   ])('writes the rounded value of %s at %i digits as %s', (value, fractionDigits, expected) => {
     for (const real of [pdfReal(value), pdfReal(pt(value))]) {
       expect(ascii(serializeObject(real, { fractionDigits }))).toBe(expected);
@@ -158,12 +158,12 @@ describe('object serialization', () => {
   });
 
   it('never writes exponent notation for real values', () => {
-    let state = 123456789;
+    let state = 123_456_789;
     for (let index = 0; index < 10_000; index++) {
-      state = xor(state, (state * 8192) % 4294967296);
-      state = xor(state, Math.floor(state / 131072));
-      state = xor(state, (state * 32) % 4294967296);
-      const value = (state / 4294967296) * 10 ** ((index % 20) - 8);
+      state = xor(state, (state * 8192) % 4_294_967_296);
+      state = xor(state, Math.floor(state / 131_072));
+      state = xor(state, (state * 32) % 4_294_967_296);
+      const value = (state / 4_294_967_296) * 10 ** ((index % 20) - 8);
       expect(write(pdfReal(value))).not.toMatch(/[eE]/u);
     }
   });

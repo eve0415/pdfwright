@@ -18,7 +18,7 @@ interface Bounds {
 const ICC_IDENTIFIER = [0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0];
 // Exif APP1 data begins with "Exif" and two null bytes, followed by a TIFF header.
 const EXIF_IDENTIFIER = [0x45, 0x78, 0x69, 0x66, 0, 0];
-const ORIENTATION_TAG = 0x0112;
+const ORIENTATION_TAG = 0x01_12;
 const SHORT_TYPE = 3;
 
 const startsWith = (data: Uint8Array, bounds: Bounds, prefix: ReadonlyArray<number>): boolean =>
@@ -91,10 +91,10 @@ export const readExifOrientation = (data: Uint8Array, bounds: Bounds): ExifOrien
   }
   const view = new DataView(data.buffer, data.byteOffset + tiff, length);
   const order = view.getUint16(0);
-  if (order !== 0x4949 && order !== 0x4d4d) {
+  if (order !== 0x49_49 && order !== 0x4d_4d) {
     return undefined;
   }
-  const little = order === 0x4949;
+  const little = order === 0x49_49;
   if (view.getUint16(2, little) !== 42) {
     return undefined;
   }

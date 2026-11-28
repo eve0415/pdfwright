@@ -132,10 +132,10 @@ export const pdfDictionary = (entries: PdfDictionaryEntries = new PdfDictionaryE
  * @throws InvalidArgumentError with no reason for either invalid bound.
  */
 export const pdfReference = (objectNumber: number, generation: number): Extract<PdfObject, { kind: 'reference' }> => {
-  if (!Number.isSafeInteger(objectNumber) || objectNumber < 1 || objectNumber > 2147483647) {
+  if (!Number.isSafeInteger(objectNumber) || objectNumber < 1 || objectNumber > 2_147_483_647) {
     throw new InvalidArgumentError('invalid object number');
   }
-  if (!Number.isSafeInteger(generation) || generation < 0 || generation > 65535) {
+  if (!Number.isSafeInteger(generation) || generation < 0 || generation > 65_535) {
     throw new InvalidArgumentError('invalid generation');
   }
   return { kind: 'reference', objectNumber, generation };

@@ -80,15 +80,15 @@ export const readLut = (bytes: Uint8Array, offset: number, limit: number): Table
     throw new InvalidProfileError('truncated ICC LUT data', 'bad-tag-data', { offset });
   }
   const matrix: Matrix3 = [
-    view.getInt32(offset + 12) / 65536,
-    view.getInt32(offset + 16) / 65536,
-    view.getInt32(offset + 20) / 65536,
-    view.getInt32(offset + 24) / 65536,
-    view.getInt32(offset + 28) / 65536,
-    view.getInt32(offset + 32) / 65536,
-    view.getInt32(offset + 36) / 65536,
-    view.getInt32(offset + 40) / 65536,
-    view.getInt32(offset + 44) / 65536,
+    view.getInt32(offset + 12) / 65_536,
+    view.getInt32(offset + 16) / 65_536,
+    view.getInt32(offset + 20) / 65_536,
+    view.getInt32(offset + 24) / 65_536,
+    view.getInt32(offset + 28) / 65_536,
+    view.getInt32(offset + 32) / 65_536,
+    view.getInt32(offset + 36) / 65_536,
+    view.getInt32(offset + 40) / 65_536,
+    view.getInt32(offset + 44) / 65_536,
   ];
   const inputStart = offset + headerSize;
   const clutStart = inputStart + inputBytes;

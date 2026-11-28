@@ -28,7 +28,7 @@ export const writeDocument = (objects: ReadonlyArray<IndirectObject>, trailer: P
   const ordered = objects.toSorted((left, right) => left.objectNumber - right.objectNumber);
   for (let index = 0; index < ordered.length; index++) {
     const object = ordered[index];
-    if (object?.objectNumber !== index + 1 || !Number.isInteger(object.generation) || object.generation < 0 || object.generation > 65535) {
+    if (object?.objectNumber !== index + 1 || !Number.isInteger(object.generation) || object.generation < 0 || object.generation > 65_535) {
       throw new InvalidArgumentError('indirect objects must have contiguous positive numbers and valid generations');
     }
   }
@@ -58,7 +58,7 @@ export const writeDocument = (objects: ReadonlyArray<IndirectObject>, trailer: P
   const xrefOffset = byteLength;
   // ISO 32000-1:2008, 7.5.4 requires one subsection beginning at object 0 for an initial xref section and exactly 20 bytes per entry.
   writer.writeAscii(`xref\n0 ${String(ordered.length + 1)}\n`);
-  writer.writeAscii(xrefEntry(0, 65535, 'f'));
+  writer.writeAscii(xrefEntry(0, 65_535, 'f'));
   for (let index = 0; index < ordered.length; index++) {
     const offset = offsets[index] ?? 0;
     const generation = ordered[index]?.generation ?? 0;

@@ -86,7 +86,7 @@ export const sampleCmykFunction = (config: CmykFunctionConfig): SampledCmykFunct
   const sampled = samples(config);
   const writer = new ByteWriter();
   for (const value of sampled.values) {
-    const quantized = Math.round(value * 65535);
+    const quantized = Math.round(value * 65_535);
     writer.writeByte(Math.floor(quantized / 256));
     writer.writeByte(quantized % 256);
   }

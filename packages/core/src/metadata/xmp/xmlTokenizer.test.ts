@@ -36,7 +36,7 @@ const encodeUnits = (text: string, bigEndian: boolean, width: 2 | 4): Uint8Array
   const bytes: Array<number> = [];
   for (const character of `\u{FEFF}${text}`) {
     const code = character.codePointAt(0) ?? 0;
-    const units = width === 4 || code < 0x10000 ? [code] : [0xd800 + Math.floor((code - 0x10000) / 1024), 0xdc00 + ((code - 0x10000) % 1024)];
+    const units = width === 4 || code < 0x1_00_00 ? [code] : [0xd8_00 + Math.floor((code - 0x1_00_00) / 1024), 0xdc_00 + ((code - 0x1_00_00) % 1024)];
     for (const unit of units) {
       const unitBytes = Array.from({ length: width }, (_, index) => Math.floor(unit / 256 ** (width - 1 - index)) % 256);
       bytes.push(...(bigEndian ? unitBytes : unitBytes.toReversed()));

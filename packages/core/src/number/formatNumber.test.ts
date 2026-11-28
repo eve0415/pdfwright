@@ -61,9 +61,9 @@ describe('number formatting', () => {
       expect(() => formatNumber(1, digits)).toThrow(InvalidArgumentError);
     }
     expect(() => formatNumber(3.404e38, 5)).toThrow(InvalidArgumentError);
-    expect(formatInteger(2147483647)).toBe('2147483647');
-    expect(formatInteger(-2147483647)).toBe('-2147483647');
-    for (const value of [2147483648, -2147483648, 1.5, Number.MAX_SAFE_INTEGER, Infinity]) {
+    expect(formatInteger(2_147_483_647)).toBe('2147483647');
+    expect(formatInteger(-2_147_483_647)).toBe('-2147483647');
+    for (const value of [2_147_483_648, -2_147_483_648, 1.5, Number.MAX_SAFE_INTEGER, Infinity]) {
       expect(() => formatInteger(value)).toThrow(InvalidArgumentError);
     }
   });

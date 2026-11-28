@@ -86,7 +86,7 @@ describe('illustrator document validation', () => {
   });
 
   it('rejects invalid geometry, opacity, color components and raster sizes', () => {
-    expect(validates({ ...document, artboard: { width: 16384, height: 10 } })).toThrow(ValidationError);
+    expect(validates({ ...document, artboard: { width: 16_384, height: 10 } })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', opacity: 1.1, items: [path] }] })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { subpaths: [{ ...square, start: [Infinity, 0] }] } }] }] })).toThrow(
       ValidationError,

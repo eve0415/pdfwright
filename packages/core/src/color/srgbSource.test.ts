@@ -77,13 +77,13 @@ describe('built-in sRGB source', () => {
   it('follows the IEC 61966-2-1 decoding function within the 16-bit precision of its curv table', () => {
     const curves = rgbCurves(srgbColorSource().profile);
     let maximum = 0;
-    for (let index = 0; index <= 65535; index++) {
-      const value = index / 65535;
+    for (let index = 0; index <= 65_535; index++) {
+      const value = index / 65_535;
       for (const curve of curves) {
         maximum = Math.max(maximum, Math.abs(evaluateCurve(curve, value) - decode(value)));
       }
     }
-    expect(maximum).toBeLessThan(1 / 65535);
+    expect(maximum).toBeLessThan(1 / 65_535);
   });
 
   it('agrees with the IEC 61966-2-1 definition and with other sRGB profiles within 0.035 ΔE2000', () => {

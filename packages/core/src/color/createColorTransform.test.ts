@@ -249,16 +249,16 @@ describe('icc colour transforms', () => {
         expect(output8[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 255));
       }
     }
-    const input16 = Uint16Array.of(0, 0, 0, 32768, 32768, 32768, 65535, 65535, 65535);
+    const input16 = Uint16Array.of(0, 0, 0, 32_768, 32_768, 32_768, 65_535, 65_535, 65_535);
     const output16 = new Uint16Array(12);
     transform.convertRow16(input16, output16, 3);
     for (let pixel = 0; pixel < 3; pixel++) {
       transform.convert(
-        Float64Array.from(input16.subarray(pixel * 3, pixel * 3 + 3), value => value / 65535),
+        Float64Array.from(input16.subarray(pixel * 3, pixel * 3 + 3), value => value / 65_535),
         scalar,
       );
       for (let channel = 0; channel < 4; channel++) {
-        expect(output16[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 65535));
+        expect(output16[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 65_535));
       }
     }
   });

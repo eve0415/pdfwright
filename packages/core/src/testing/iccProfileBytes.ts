@@ -9,7 +9,7 @@ const padded = (length: number): number => Math.ceil(length / 4) * 4;
 
 const setFixed = (view: DataView, offset: number, value: number): void => {
   // ICC.1:2022, 4.6: s15Fixed16Number.
-  view.setInt32(offset, Math.round(value * 65536));
+  view.setInt32(offset, Math.round(value * 65_536));
 };
 
 /** An XYZType tag holding one XYZ number under ICC.1:2022, 10.31. */

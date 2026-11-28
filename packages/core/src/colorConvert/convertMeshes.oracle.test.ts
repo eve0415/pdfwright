@@ -399,7 +399,7 @@ const cornerCoordinates = (vertices: ReadonlyArray<{ readonly x: number; readonl
       .map(vertex => `${String(vertex.x)},${String(vertex.y)}`),
   );
 
-const decodeCoordinate = (raw: number): number => (raw / 65535) * 100;
+const decodeCoordinate = (raw: number): number => (raw / 65_535) * 100;
 
 const interpolatedAt = (data: Uint8Array, x: number, y: number): ReadonlyArray<number> => {
   const vertices = triangleVertices(data);

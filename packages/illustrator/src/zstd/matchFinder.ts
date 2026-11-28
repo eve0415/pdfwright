@@ -35,12 +35,12 @@ const join = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 
 /** Greedily finds LZ matches with a 2 MiB window and a fixed 16-entry hash-chain search. */
 export const createMatchFinder = (input: Uint8Array): MatchFinder => {
-  const head = new Int32Array(65536).fill(-1);
+  const head = new Int32Array(65_536).fill(-1);
   const previous = new Int32Array(input.length).fill(-1);
   let nextStart = 0;
   const hashAt = (position: number): number => {
     const word = ((input[position] ?? 0) << 24) | ((input[position + 1] ?? 0) << 16) | ((input[position + 2] ?? 0) << 8) | (input[position + 3] ?? 0);
-    return (Math.imul(word, 0x9e3779b1) >>> 16) & 0xffff;
+    return (Math.imul(word, 0x9e_37_79_b1) >>> 16) & 0xff_ff;
   };
   const insert = (position: number): void => {
     if (position + MIN_MATCH > input.length) {

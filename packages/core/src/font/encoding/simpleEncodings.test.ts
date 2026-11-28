@@ -74,7 +74,18 @@ describe('the encodings of Annex D', () => {
 
   it('maps PDFDocEncoding codes to Unicode by D.3', () => {
     const codes = [0x00, 0x09, 0x18, 0x41, 0x7f, 0x80, 0x9f, 0xa0, 0xad, 0xe9];
-    expect(codes.map(code => pdfDocEncodingUnicode(code))).toStrictEqual([undefined, 0x09, 0x2d8, 0x41, undefined, 0x2022, undefined, 0x20ac, undefined, 0xe9]);
+    expect(codes.map(code => pdfDocEncodingUnicode(code))).toStrictEqual([
+      undefined,
+      0x09,
+      0x2_d8,
+      0x41,
+      undefined,
+      0x20_22,
+      undefined,
+      0x20_ac,
+      undefined,
+      0xe9,
+    ]);
   });
 
   it('selects the encodings Table 114 names', () => {

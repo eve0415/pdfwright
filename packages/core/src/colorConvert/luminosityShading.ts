@@ -133,7 +133,7 @@ const sampleGray = (config: {
     });
     const rgb = evaluate(input);
     const luminance = Math.min(1, Math.max(0, gray(rgb)));
-    const sample = Math.round(luminance * 65535);
+    const sample = Math.round(luminance * 65_535);
     writer.writeByte(Math.floor(sample / 256));
     writer.writeByte(sample % 256);
   }

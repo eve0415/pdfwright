@@ -23,7 +23,7 @@ describe('pdf dates', () => {
     const valid = { year: 2024, month: 2, day: 29, hour: 23, minute: 59, second: 59, offset: 'Z' as const };
     for (const wrong of [
       { year: -1 },
-      { year: 10000 },
+      { year: 10_000 },
       { month: 0 },
       { month: 13 },
       { day: 0 },

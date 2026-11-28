@@ -199,8 +199,8 @@ const verticesOf = (data: Uint8Array): ReadonlyArray<MeshVertex> => {
   }
   const vertices: Array<MeshVertex> = [];
   for (let offset = 0; offset < data.length; offset += 9) {
-    const x = (((data[offset + 1] ?? 0) * 256 + (data[offset + 2] ?? 0)) / 65535) * 100;
-    const y = (((data[offset + 3] ?? 0) * 256 + (data[offset + 4] ?? 0)) / 65535) * 100;
+    const x = (((data[offset + 1] ?? 0) * 256 + (data[offset + 2] ?? 0)) / 65_535) * 100;
+    const y = (((data[offset + 3] ?? 0) * 256 + (data[offset + 4] ?? 0)) / 65_535) * 100;
     const color = [...data.subarray(offset + 5, offset + 9)].map(value => value / 255);
     vertices.push({ x, y, color });
   }

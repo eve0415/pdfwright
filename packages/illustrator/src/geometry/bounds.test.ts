@@ -146,8 +146,8 @@ describe('native art bounds', () => {
   it.each([
     { start: [10.5, 20.25], control: [30, 70.5], end: [60.75, 5] },
     { start: [100, 200.9], control: [600, 3000.4], end: [1100, 0.3] },
-    { start: [12000.4, 29001], control: [25000, 1], end: [38000.2, 29000.7] },
-    { start: [1000000, 0.8], control: [1500000, 3000000.1], end: [2000000.5, 0.3] },
+    { start: [12_000.4, 29_001], control: [25_000, 1], end: [38_000.2, 29_000.7] },
+    { start: [1_000_000, 0.8], control: [1_500_000, 3_000_000.1], end: [2_000_000.5, 0.3] },
   ] as const)('finds the extrema of the quadratic from $start through $control to $end', ({ start, control, end }) => {
     const document: IllustratorDocument = {
       artboard: { width: 3_000_000, height: 3_000_000 },
@@ -262,6 +262,6 @@ describe('native art bounds', () => {
       ],
     };
     expect(artBounds(document)).toStrictEqual({ minX: 2, minY: 3, maxX: 6, maxY: 8 });
-    expect(artBounds({ ...document, layers: [] })).toStrictEqual({ minX: 0, minY: 0, maxX: 36000 / 127, maxY: 50 });
+    expect(artBounds({ ...document, layers: [] })).toStrictEqual({ minX: 0, minY: 0, maxX: 36_000 / 127, maxY: 50 });
   });
 });

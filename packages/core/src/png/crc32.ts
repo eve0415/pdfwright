@@ -4,7 +4,7 @@ const TABLE = ((): Uint32Array => {
   for (let index = 0; index < 256; index++) {
     let value = index;
     for (let bit = 0; bit < 8; bit++) {
-      value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+      value = (value & 1) === 1 ? 0xed_b8_83_20 ^ (value >>> 1) : value >>> 1;
     }
     table[index] = value;
   }

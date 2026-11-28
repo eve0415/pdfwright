@@ -88,7 +88,7 @@ const expandReferences = (raw: string, offset: number): string => {
       }
       result += replacement;
     } else {
-      if (code > 0x10ffff || !isCharacter(code)) {
+      if (code > 0x10_ff_ff || !isCharacter(code)) {
         throw new RefusalError('invalid-character', offset + at);
       }
       result += String.fromCodePoint(code);
@@ -391,7 +391,7 @@ const decodeUtf32 = (bytes: Uint8Array, bigEndian: boolean): string | undefined 
   for (let index = 0; index < bytes.length; index += 4) {
     const [first = 0, second = 0, third = 0, fourth = 0] = bigEndian ? bytes.subarray(index, index + 4) : bytes.subarray(index, index + 4).toReversed();
     const code = ((first * 256 + second) * 256 + third) * 256 + fourth;
-    if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+    if (code > 0x10_ff_ff || (code >= 0xd8_00 && code <= 0xdf_ff)) {
       return undefined;
     }
     text += String.fromCodePoint(code);

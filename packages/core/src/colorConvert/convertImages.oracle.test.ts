@@ -194,8 +194,8 @@ const jp2Color = (enumeration: number): Uint8Array =>
   );
 
 const be32 = (value: number): Array<number> => [
-  Math.floor(value / 16777216) % 256,
-  Math.floor(value / 65536) % 256,
+  Math.floor(value / 16_777_216) % 256,
+  Math.floor(value / 65_536) % 256,
   Math.floor(value / 256) % 256,
   value % 256,
 ];
@@ -429,7 +429,7 @@ describe('image colour conversion', () => {
     convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
     const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
     const expected = new Uint16Array(4);
-    transform.convertRow16(Uint16Array.of(0x8000, 0x4000, 0xffff), expected, 1);
+    transform.convertRow16(Uint16Array.of(0x80_00, 0x40_00, 0xff_ff), expected, 1);
     const bytes = Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256]));
     expect(imageData(document)).toStrictEqual(bytes);
   });
@@ -437,7 +437,7 @@ describe('image colour conversion', () => {
   it('replaces an RGB colour-key mask with an explicit stencil', () => {
     const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { mask: '/Mask[0 0 0 0 0 0]' }));
     convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
-    expect(stencilData(document)).toStrictEqual(Uint8Array.of(0b10000000));
+    expect(stencilData(document)).toStrictEqual(Uint8Array.of(0b1000_0000));
   });
 
   it('uses the parser predictor before converting a Flate image', () => {

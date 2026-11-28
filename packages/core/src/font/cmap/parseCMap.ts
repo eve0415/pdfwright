@@ -100,8 +100,8 @@ const utf16Units = (bytes: Uint8Array): Array<number> => {
   return units;
 };
 
-const isHigh = (unit: number | undefined): boolean => unit !== undefined && unit >= 0xd800 && unit <= 0xdbff;
-const isLow = (unit: number | undefined): boolean => unit !== undefined && unit >= 0xdc00 && unit <= 0xdfff;
+const isHigh = (unit: number | undefined): boolean => unit !== undefined && unit >= 0xd8_00 && unit <= 0xdb_ff;
+const isLow = (unit: number | undefined): boolean => unit !== undefined && unit >= 0xdc_00 && unit <= 0xdf_ff;
 
 /** Text of UTF-16 code units with surrogate pairs joined. */
 /** Text decoded from UTF-16, and whether a lone surrogate in it became U+FFFD. */
@@ -117,7 +117,7 @@ export const utf16Text = (units: ReadonlyArray<number>): Utf16Text => {
     const unit = units[index] ?? 0;
     const next = units[index + 1];
     if (isHigh(unit) && isLow(next)) {
-      text += String.fromCodePoint(0x10000 + (unit - 0xd800) * 1024 + ((next ?? 0) - 0xdc00));
+      text += String.fromCodePoint(0x1_00_00 + (unit - 0xd8_00) * 1024 + ((next ?? 0) - 0xdc_00));
       index++;
     } else if (isHigh(unit) || isLow(unit)) {
       text += '�';

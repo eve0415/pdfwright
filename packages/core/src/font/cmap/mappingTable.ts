@@ -7,7 +7,7 @@ export interface CMapCode {
 }
 
 // Codes of different lengths are different codes (9.7.6.2: "looked up in the character code mappings for codes of that length"), so the key carries the length above the 32-bit value.
-const keyOf = (length: number, value: number): number => length * 0x100000000 + value;
+const keyOf = (length: number, value: number): number => length * 0x1_00_00_00_00 + value;
 
 /**
  * Mappings of one kind, looked up by code: single-code mappings by key, the rest by binary search over ranges sorted by their low bound.

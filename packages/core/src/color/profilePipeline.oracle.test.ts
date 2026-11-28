@@ -131,7 +131,7 @@ describe('profile pipelines against LittleCMS transicc', () => {
     expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 
-  it.each([[[65535, 0]], [[65535, 40000, 12000, 0]], [[65535, 52000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
+  it.each([[[65_535, 0]], [[65_535, 40_000, 12_000, 0]], [[65_535, 52_000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
     const from = grayProfile('XYZ ', 1);
     const to = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs: 'XYZ ', tags: [['kTRC', sampledCurveTag(samples)]] });
     expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);

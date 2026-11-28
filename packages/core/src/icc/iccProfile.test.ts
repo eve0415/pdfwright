@@ -59,14 +59,14 @@ describe('icc profile basic tags', () => {
     view.setUint32(152, 20);
     bytes.set(new TextEncoder().encode('curv'), 156);
     view.setUint32(164, 1);
-    view.setUint16(168, 0x0200);
+    view.setUint16(168, 0x02_00);
     bytes.set(new TextEncoder().encode('XYZ '), 172);
-    view.setInt32(180, 0x0000f6d6);
-    view.setInt32(184, 0x00010000);
-    view.setInt32(188, 0x0000d32d);
+    view.setInt32(180, 0x00_00_f6_d6);
+    view.setInt32(184, 0x00_01_00_00);
+    view.setInt32(188, 0x00_00_d3_2d);
     const profile = parseIccProfile(bytes);
     expect(profile.trc).toStrictEqual({ gray: { kind: 'gamma', gamma: 2 } });
-    expect(profile.mediaWhitePoint).toStrictEqual({ x: 0xf6d6 / 65536, y: 1, z: 0xd32d / 65536 });
+    expect(profile.mediaWhitePoint).toStrictEqual({ x: 0xf6_d6 / 65_536, y: 1, z: 0xd3_2d / 65_536 });
     expect(profile.identity).toHaveLength(16);
   });
 

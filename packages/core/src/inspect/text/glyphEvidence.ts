@@ -6,7 +6,7 @@ export type EmbeddedCmap = Pick<TrueTypeCmap, 'glyph' | 'characters' | 'variant'
 /** What an embedded cmap says about a drawn glyph: it maps the glyph's text to that glyph, it maps it to another glyph, or it says nothing. */
 export type CmapEvidence = { readonly kind: 'confirmed' } | { readonly kind: 'silent' } | { readonly kind: 'disagrees'; readonly expected: number };
 
-const isSelector = (codePoint: number): boolean => (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0xe0100 && codePoint <= 0xe01ef);
+const isSelector = (codePoint: number): boolean => (codePoint >= 0xfe_00 && codePoint <= 0xfe_0f) || (codePoint >= 0xe_01_00 && codePoint <= 0xe_01_ef);
 
 // The glyph a cmap gives a base character with a variation selector: the variant's own glyph, or the base character's glyph when the sequence uses the default one.
 const variantGlyph = (cmap: EmbeddedCmap, base: number, selector: number): number | undefined => {

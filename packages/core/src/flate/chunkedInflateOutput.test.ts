@@ -4,12 +4,12 @@ import { ChunkedInflateOutput } from './chunkedInflateOutput.ts';
 
 describe('chunked inflate output', () => {
   it('takes ready chunks without allocating a collection per symbol', () => {
-    const output = new ChunkedInflateOutput(65537);
+    const output = new ChunkedInflateOutput(65_537);
     expect(output.take()).toBeUndefined();
-    for (let index = 0; index < 65536; index++) {
+    for (let index = 0; index < 65_536; index++) {
       output.push(65);
     }
-    expect(output.take()).toHaveLength(65536);
+    expect(output.take()).toHaveLength(65_536);
     expect(output.take()).toBeUndefined();
     output.push(66);
     expect(output.finish()).toStrictEqual(Uint8Array.of(66));

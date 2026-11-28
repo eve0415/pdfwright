@@ -105,7 +105,6 @@ export default defineConfig({
     'react-hooks/rules-of-hooks': 'off',
     'import/no-nodejs-modules': 'error',
 
-    'unicorn/numeric-separators-style': 'off',
     'quality/no-array-filter-map': 'off',
     '@nkzw/no-instanceof': 'off',
   },

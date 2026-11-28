@@ -7,7 +7,7 @@ import { decimalRational, formatRational } from './decimal.ts';
 export const DEFAULT_FRACTION_DIGITS = 5;
 
 // ISO 32000-1:2008, Annex C, Table C.1 gives the integer range; this writer uses the symmetric bound.
-export const MAX_INTEGER = 2147483647;
+export const MAX_INTEGER = 2_147_483_647;
 
 // ISO 32000-1:2008, 7.3.3 prohibits exponential syntax in numeric objects.
 /** Formats a finite number without exponential notation; object serialization adds a decimal point for whole values outside the supported integer range. */

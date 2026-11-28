@@ -69,7 +69,7 @@ class InflateOutput {
   }
 
   copy(distance: number, length: number, offset: number): void {
-    if (distance < 1 || distance > this.bytes.length || distance > 32768) {
+    if (distance < 1 || distance > this.bytes.length || distance > 32_768) {
       throw new ParseError('invalid backward distance', offset);
     }
     this.reserve(length);
@@ -182,7 +182,7 @@ const decodeRaw = (data: Uint8Array, limit: number): DecodedRaw => {
       reader.alignByte();
       const length = reader.readBits(16);
       const complement = reader.readBits(16);
-      if (((length ^ complement) & 0xffff) !== 0xffff) {
+      if (((length ^ complement) & 0xff_ff) !== 0xff_ff) {
         throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
       }
       for (let index = 0; index < length; index++) {
@@ -225,8 +225,8 @@ export const inflateZlib = (data: Uint8Array, options?: InflateOptions): Inflate
   } else {
     // RFC 1950, 2.2 stores the Adler-32 checksum most-significant byte first.
     const expected =
-      ((data[trailerOffset] ?? 0) * 16777216 +
-        (data[trailerOffset + 1] ?? 0) * 65536 +
+      ((data[trailerOffset] ?? 0) * 16_777_216 +
+        (data[trailerOffset + 1] ?? 0) * 65_536 +
         (data[trailerOffset + 2] ?? 0) * 256 +
         (data[trailerOffset + 3] ?? 0)) >>>
       0;
@@ -311,7 +311,7 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Arra
       reader.alignByte();
       const length = reader.readBits(16);
       const complement = reader.readBits(16);
-      if (((length ^ complement) & 0xffff) !== 0xffff) {
+      if (((length ^ complement) & 0xff_ff) !== 0xff_ff) {
         throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
       }
       for (let index = 0; index < length; index++) {

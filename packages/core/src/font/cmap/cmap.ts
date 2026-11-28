@@ -46,7 +46,7 @@ const unicodeOf = (mapping: UnicodeMapping, value: number): string | undefined =
   if (units.length > 0) {
     units[units.length - 1] = (units.at(-1) ?? 0) + (value - mapping.low);
   }
-  return utf16Text(units.map(unit => (unit > 0xffff ? 0xfffd : unit))).text;
+  return utf16Text(units.map(unit => (unit > 0xff_ff ? 0xff_fd : unit))).text;
 };
 
 /**

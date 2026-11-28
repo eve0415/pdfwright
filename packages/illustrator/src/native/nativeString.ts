@@ -6,7 +6,7 @@ const encoder = new TextEncoder();
 export const escapeNativeString = (value: string, encoding: 'utf8' | 'ascii' = 'utf8'): Uint8Array => {
   for (const character of value) {
     const code = character.codePointAt(0);
-    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) {
+    if (code !== undefined && code >= 0xd8_00 && code <= 0xdf_ff) {
       throw new ValidationError('native strings cannot contain lone surrogates', 'illustrator-model');
     }
   }

@@ -318,7 +318,7 @@ const embeddedGlyphs = (font: FontModel): ReadonlyArray<number | undefined> | st
   if (reading?.kind !== 'cmap') {
     return reading?.kind ?? 'none';
   }
-  return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x3042), reading.cmap.glyph(0x42)];
+  return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x30_42), reading.cmap.glyph(0x42)];
 };
 
 describe('embedded TrueType programs', () => {

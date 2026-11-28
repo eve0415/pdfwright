@@ -21,7 +21,7 @@ const utf16 = (text: string): string => {
   const bytes: Array<number> = [];
   for (const character of text) {
     const codePoint = character.codePointAt(0) ?? 0;
-    const units = codePoint < 0x10000 ? [codePoint] : [0xd800 + Math.floor((codePoint - 0x10000) / 0x400), 0xdc00 + ((codePoint - 0x10000) % 0x400)];
+    const units = codePoint < 0x1_00_00 ? [codePoint] : [0xd8_00 + Math.floor((codePoint - 0x1_00_00) / 0x4_00), 0xdc_00 + ((codePoint - 0x1_00_00) % 0x4_00)];
     for (const unit of units) {
       bytes.push(Math.floor(unit / 256), unit % 256);
     }
@@ -113,7 +113,7 @@ const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${
 
 /** A TrueType program whose glyph 1, for U+FF08, has ink from `left` to 900 thousandths across and from −100 to 800 up. */
 const inkedAt = (left: number): Uint8Array =>
-  syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [left, -100, 900, 800] }], characters: [[0xff08, 1]] });
+  syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [left, -100, 900, 800] }], characters: [[0xff_08, 1]] });
 
 /** A Type 3 font, E, whose glyph a is drawn by the procedure. */
 const type3Drawn = (procedure: string): ReadonlyArray<TestObject> => [
@@ -171,8 +171,8 @@ describe('text matching', () => {
 
   it('keeps full-width and half-width forms and compatibility ideographs apart', () => {
     // NFC would rewrite U+FA19, a registered compatibility ideograph, as U+795E; matchText normalises neither side.
-    const compatibility = String.fromCodePoint(0xfa19);
-    const unified = String.fromCodePoint(0x795e);
+    const compatibility = String.fromCodePoint(0xfa_19);
+    const unified = String.fromCodePoint(0x79_5e);
     expect(summaryOf({ texts: ['Ａ', 'ｶ', compatibility], content: line(3) }, `Aカ${unified}`)).toStrictEqual([
       'mismatch',
       `Ａｶ${compatibility}`,
@@ -512,9 +512,9 @@ describe('text matching', () => {
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box, box, box, box, box],
         characters: [
-          [0xff21, 1],
-          [0x4fad, 3],
-          [0x845b, 4],
+          [0xff_21, 1],
+          [0x4f_ad, 3],
+          [0x84_5b, 4],
         ],
         variations,
       });
@@ -580,7 +580,7 @@ describe('text matching', () => {
     it('reports a glyph half an em wide whose text is a full-width or wide character, as hwid draws beside other text', () => {
       // Chromium's hwid alternates keep ToUnicode U+FF21 but are 500 thousandths wide in W; palt and other positioning features leave W at 1000.
       // A subset that keeps only the alternate has no U+FF21 in its cmap; a half-width A is no evidence, and in a font that shows such characters at proportional widths, as Ｂ at 700 here, nor is a half-em Ａ.
-      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c71, 1]] });
+      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c_71, 1]] });
       const texts = ['山', 'Ａ', 'A', 'Ｂ'];
       const proof = { texts, program: unlisted, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 3)} ET`, widths: '/W[2[500]3[500]]' };
       expect(summaryOf(proof, '山ＡA')).toStrictEqual([
@@ -594,7 +594,7 @@ describe('text matching', () => {
 
     it('reports a glyph whose own character the cmap maps to it but whose folded character it does not list', () => {
       // Chromium's subset cmap lists every code point of a retained glyph, so a font that maps U+2F2D but not U+5C71 to the glyph draws the radical, not 山.
-      const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f2d, 1]] });
+      const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f_2d, 1]] });
       expect(summaryOf({ texts: ['⼭'], program: radical, content: line(1) }, '山')).toStrictEqual([
         'mismatch',
         '山',
@@ -608,9 +608,9 @@ describe('text matching', () => {
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box, box, box],
         characters: [
-          [0x5c71, 1],
-          [0x7530, 2],
-          [0x3001, 3],
+          [0x5c_71, 1],
+          [0x75_30, 2],
+          [0x30_01, 3],
         ],
       });
       const texts = ['山', '田', '、', '、'];
@@ -629,10 +629,10 @@ describe('text matching', () => {
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box],
         characters: [
-          [0x2f3e, 1],
-          [0x6238, 1],
-          [0x4fad, 2],
-          [0x5118, 1],
+          [0x2f_3e, 1],
+          [0x62_38, 1],
+          [0x4f_ad, 2],
+          [0x51_18, 1],
         ],
       });
       const result = match({ texts: ['⼾'], program: shared, content: line(1) }, '戸');
@@ -649,9 +649,9 @@ describe('text matching', () => {
 
     it('confirms a variation sequence through the format 14 subtable', () => {
       const texts = [null, null, null, '葛', '葛󠄀'];
-      const withVariant = program([{ selector: 0xe0100, defaults: [], glyphs: [[0x845b, 5]] }]);
+      const withVariant = program([{ selector: 0xe_01_00, defaults: [], glyphs: [[0x84_5b, 5]] }]);
       expect(statusOf({ texts, program: withVariant, content: `BT /T 10 Tf 100 700 Td ${show(5)} ET` }, '葛󠄀')).toBe('match');
-      const defaultVariant = program([{ selector: 0xe0100, defaults: [0x845b], glyphs: [] }]);
+      const defaultVariant = program([{ selector: 0xe_01_00, defaults: [0x84_5b], glyphs: [] }]);
       expect(statusOf({ texts, program: defaultVariant, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('match');
       expect(statusOf({ texts, program: plain, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('unverified');
     });

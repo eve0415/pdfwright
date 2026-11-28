@@ -23,13 +23,13 @@ const largeData = (): Uint8Array => {
 
 const randomData = (): Uint8Array => {
   const random = new Uint8Array(1024 * 1024);
-  let state = 0x12345678;
+  let state = 0x12_34_56_78;
   for (let index = 0; index < random.length; index++) {
-    state = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) % 4_294_967_296;
     if (state < 0) {
-      state += 4294967296;
+      state += 4_294_967_296;
     }
-    random[index] = Math.floor(state / 16777216);
+    random[index] = Math.floor(state / 16_777_216);
   }
   return random;
 };

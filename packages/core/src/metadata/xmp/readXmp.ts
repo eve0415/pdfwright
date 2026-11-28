@@ -325,15 +325,15 @@ const codePointBytes = (code: number, encoding: XmlEncoding): number => {
     return 4;
   }
   if (encoding === 'utf-16be' || encoding === 'utf-16le') {
-    return code > 0xffff ? 4 : 2;
+    return code > 0xff_ff ? 4 : 2;
   }
   if (code < 0x80) {
     return 1;
   }
-  if (code < 0x800) {
+  if (code < 0x8_00) {
     return 2;
   }
-  return code > 0xffff ? 4 : 3;
+  return code > 0xff_ff ? 4 : 3;
 };
 
 // Byte offsets of text offsets, in one pass over the text; every offset given lies between code points, since the text decoded without error.
@@ -346,7 +346,7 @@ const byteOffsets = (text: string, encoding: XmlEncoding, offsets: ReadonlyArray
     while (index < offset) {
       const code = text.codePointAt(index) ?? 0;
       bytes += codePointBytes(code, encoding);
-      index += code > 0xffff ? 2 : 1;
+      index += code > 0xff_ff ? 2 : 1;
     }
     result.set(offset, bytes);
   }

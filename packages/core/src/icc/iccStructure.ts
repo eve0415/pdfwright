@@ -101,7 +101,7 @@ const space = (text: string, offset: number): DataColorSpace => {
   throw new InvalidProfileError(`unknown ICC colour space ${text}`, 'unknown-color-space', { offset });
 };
 
-const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65536;
+const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65_536;
 
 const readHeader = (bytes: Uint8Array, view: DataView): IccHeader => {
   // ICC.1:2022, 7.2.1 Table 17 fixes all header field positions and the 128-byte header length.

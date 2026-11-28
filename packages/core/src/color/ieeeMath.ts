@@ -47,7 +47,7 @@ const pow2 = (exponent: number): number => {
   }
   bits.setFloat64(0, 0);
   if (exponent >= -1022) {
-    bits.setUint32(0, (exponent + 1023) * 0x100000);
+    bits.setUint32(0, (exponent + 1023) * 0x10_00_00);
   } else if (exponent >= -1042) {
     let mantissa = 1;
     for (let index = 0; index < exponent + 1042; index++) {
@@ -71,8 +71,8 @@ export const deterministicCbrt = (value: number): number => {
   const sign = value < 0 ? -1 : 1;
   const x = Math.abs(value);
   const h = high(x);
-  const seedHigh = h < 0x00100000 ? high(pow2(54) * x) : h;
-  let t = withHigh(0, Math.floor(seedHigh / 3) + (h < 0x00100000 ? 696219795 : 715094163));
+  const seedHigh = h < 0x00_10_00_00 ? high(pow2(54) * x) : h;
+  let t = withHigh(0, Math.floor(seedHigh / 3) + (h < 0x00_10_00_00 ? 696_219_795 : 715_094_163));
   const r = (t * t) / x;
   const s = 5.42857142857142815906e-1 + r * t;
   t *= 3.57142857142857150787e-1 + 1.6071428571428572063 / (s + 1.41428571428571436819 - 7.0530612244897961105e-1 / s);
@@ -127,20 +127,20 @@ export const deterministicPow = (base: number, exponent: number): number => {
   let scaled = base;
   let h = high(scaled);
   let n = 0;
-  if (h < 0x00100000) {
-    scaled *= 9007199254740992;
+  if (h < 0x00_10_00_00) {
+    scaled *= 9_007_199_254_740_992;
     n -= 53;
     h = high(scaled);
   }
-  n += Math.floor(h / 1048576) - 1023;
-  const fraction = h % 1048576;
+  n += Math.floor(h / 1_048_576) - 1023;
+  const fraction = h % 1_048_576;
   let interval = 0;
-  let normalizedHigh = fraction + 0x3ff00000;
-  if (fraction > 0x3988e && fraction < 0xbb67a) {
+  let normalizedHigh = fraction + 0x3f_f0_00_00;
+  if (fraction > 0x3_98_8e && fraction < 0xb_b6_7a) {
     interval = 1;
-  } else if (fraction >= 0xbb67a) {
+  } else if (fraction >= 0xb_b6_7a) {
     n++;
-    normalizedHigh -= 0x00100000;
+    normalizedHigh -= 0x00_10_00_00;
   }
   scaled = withHigh(scaled, normalizedHigh);
   const bp = interval === 0 ? 1 : 1.5;
@@ -148,7 +148,7 @@ export const deterministicPow = (base: number, exponent: number): number => {
   const v = 1 / (scaled + bp);
   const s = u * v;
   const sHigh = chop(s);
-  const tHigh = withHigh(0, Math.floor(normalizedHigh / 2) + 0x20000000 + 0x00080000 + interval * 262144);
+  const tHigh = withHigh(0, Math.floor(normalizedHigh / 2) + 0x20_00_00_00 + 0x00_08_00_00 + interval * 262_144);
   const tLow = scaled - (tHigh - bp);
   const sLow = v * (u - sHigh * tHigh - sHigh * tLow);
   let s2 = s * s;

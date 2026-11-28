@@ -36,12 +36,12 @@ export const pdfTextString = (value: string): PdfDirectObject => {
     if (!selfMapped(code)) {
       ascii = false;
     }
-    if (code >= 0xd800 && code <= 0xdfff) {
+    if (code >= 0xd8_00 && code <= 0xdf_ff) {
       throw new ValidationError('text contains an unpaired UTF-16 surrogate');
     }
-    if (code > 0xffff) {
-      const scalar = code - 0x10000;
-      units.push(0xd800 + Math.floor(scalar / 1024), 0xdc00 + (scalar % 1024));
+    if (code > 0xff_ff) {
+      const scalar = code - 0x1_00_00;
+      units.push(0xd8_00 + Math.floor(scalar / 1024), 0xdc_00 + (scalar % 1024));
       index++;
     } else {
       units.push(code);
@@ -140,10 +140,10 @@ const readUtf16 = (bytes: Uint8Array): TextString => {
     const unit = (bytes[index] ?? 0) * 256 + (bytes[index + 1] ?? 0);
     const next = (bytes[index + 2] ?? 0) * 256 + (bytes[index + 3] ?? 0);
     index += 2;
-    if (unit >= 0xd800 && unit <= 0xdbff && index + 1 < bytes.length && next >= 0xdc00 && next <= 0xdfff) {
-      text += String.fromCodePoint(0x10000 + (unit - 0xd800) * 1024 + (next - 0xdc00));
+    if (unit >= 0xd8_00 && unit <= 0xdb_ff && index + 1 < bytes.length && next >= 0xdc_00 && next <= 0xdf_ff) {
+      text += String.fromCodePoint(0x1_00_00 + (unit - 0xd8_00) * 1024 + (next - 0xdc_00));
       index += 2;
-    } else if (unit >= 0xd800 && unit <= 0xdfff) {
+    } else if (unit >= 0xd8_00 && unit <= 0xdf_ff) {
       text += '\uFFFD';
       replaced++;
     } else {
@@ -169,7 +169,7 @@ export const readTextString = (bytes: Uint8Array): TextString => {
     if (unicode === undefined) {
       replaced++;
     }
-    text += String.fromCodePoint(unicode ?? 0xfffd);
+    text += String.fromCodePoint(unicode ?? 0xff_fd);
   }
   return { text, encoding: 'pdfdoc', languages: [], replaced };
 };

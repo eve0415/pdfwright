@@ -13,7 +13,7 @@ const u32 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(
 
 // A font program holding only a table directory and the given tables, each at a 4-byte aligned offset.
 const program = (tables: ReadonlyArray<readonly [string, ReadonlyArray<number>]>): Uint8Array => {
-  const header = [...u32(0x00010000), ...u16(tables.length, 0, 0, 0)];
+  const header = [...u32(0x00_01_00_00), ...u16(tables.length, 0, 0, 0)];
   let offset = header.length + 16 * tables.length;
   const directory: Array<number> = [];
   const bodies: Array<number> = [];
@@ -30,7 +30,7 @@ const zeros = (length: number): Array<number> => Array.from({ length }, () => 0)
 
 // head with unitsPerEm at byte 18 and indexToLocFormat at byte 50; maxp with numGlyphs at byte 4.
 const head = (unitsPerEm: number, format: number): Array<number> => [...zeros(18), ...u16(unitsPerEm), ...zeros(30), ...u16(format, 0)];
-const maxp = (glyphs: number): Array<number> => [...u32(0x00005000), ...u16(glyphs)];
+const maxp = (glyphs: number): Array<number> => [...u32(0x00_00_50_00), ...u16(glyphs)];
 
 // A glyf header: numberOfContours, xMin, yMin, xMax, yMax, as 16-bit two's complement.
 const glyph = (...box: ReadonlyArray<number>): Array<number> => u16(1, ...box.map(value => (value < 0 ? value + 65_536 : value)));
@@ -67,7 +67,7 @@ describe('glyph bounds of TrueType programs', () => {
     const font = program([
       ['head', head(1000, 1)],
       ['maxp', maxp(1)],
-      ['loca', u32(0xffffffff, 0xffffffff)],
+      ['loca', u32(0xff_ff_ff_ff, 0xff_ff_ff_ff)],
       ['glyf', []],
     ]);
     expect(boundsOf(font, [0])).toStrictEqual([undefined]);

@@ -29,7 +29,7 @@ export interface PrivateDataLayout {
 }
 
 const ZSTANDARD_WRAPPER = new TextEncoder().encode('%AI24_ZStandard_Data');
-const CHUNK_SIZE = 65536;
+const CHUNK_SIZE = 65_536;
 const compress = (bytes: Uint8Array, compression: NativeCompression): Uint8Array => {
   if (compression === 'zstandard') {
     return encodeZstandardFrame(bytes);

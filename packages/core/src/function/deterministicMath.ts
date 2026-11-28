@@ -43,18 +43,18 @@ export const deterministicLog = (value: number): number => {
   let x = value;
   let word = high(x);
   let exponent = 0;
-  if (word < 0x00100000) {
+  if (word < 0x00_10_00_00) {
     x *= 1.8014398509481984e16;
     exponent -= 54;
     word = high(x);
   }
-  exponent += Math.floor(word / 0x100000) - 1023;
-  const fraction = word % 0x100000;
-  const upper = fraction + 0x95f64 >= 0x100000 ? 0x100000 : 0;
-  x = withHigh(x, fraction + (upper === 0 ? 0x3ff00000 : 0x3fe00000));
-  exponent += upper / 0x100000;
+  exponent += Math.floor(word / 0x10_00_00) - 1023;
+  const fraction = word % 0x10_00_00;
+  const upper = fraction + 0x9_5f_64 >= 0x10_00_00 ? 0x10_00_00 : 0;
+  x = withHigh(x, fraction + (upper === 0 ? 0x3f_f0_00_00 : 0x3f_e0_00_00));
+  exponent += upper / 0x10_00_00;
   const f = x - 1;
-  if ((2 + fraction) % 0x100000 < 3) {
+  if ((2 + fraction) % 0x10_00_00 < 3) {
     if (f === 0) {
       return exponent === 0 ? 0 : exponent * LN2_HIGH + exponent * LN2_LOW;
     }
@@ -67,7 +67,7 @@ export const deterministicLog = (value: number): number => {
   const even = w * (LOG_COEFFICIENTS[1] + w * (LOG_COEFFICIENTS[3] + w * LOG_COEFFICIENTS[5]));
   const odd = z * (LOG_COEFFICIENTS[0] + w * (LOG_COEFFICIENTS[2] + w * (LOG_COEFFICIENTS[4] + w * LOG_COEFFICIENTS[6])));
   const correction = even + odd;
-  if (fraction > 0x6147a && fraction < 0x6b851) {
+  if (fraction > 0x6_14_7a && fraction < 0x6_b8_51) {
     const halfSquare = 0.5 * f * f;
     return exponent === 0
       ? f - (halfSquare - s * (halfSquare + correction))

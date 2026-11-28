@@ -57,7 +57,7 @@ const exifSegment = (
   return segment(0xe1, [...ascii('Exif'), 0, 0, ...tiff]);
 };
 
-const orientation = (order: 'II' | 'MM', value: number): Array<number> => exifSegment(order, { tag: 0x0112, type: 3, count: 1, value });
+const orientation = (order: 'II' | 'MM', value: number): Array<number> => exifSegment(order, { tag: 0x01_12, type: 3, count: 1, value });
 
 const decodeReason = (jpeg: Uint8Array): ParseReason | undefined => {
   try {
@@ -133,9 +133,9 @@ describe('decodeJpeg public surface', () => {
     const unreadable = [
       orientation('II', 0),
       orientation('MM', 9),
-      exifSegment('II', { tag: 0x0112, type: 4, count: 1, value: 6 }),
-      exifSegment('II', { tag: 0x0112, type: 3, count: 2, value: 6 }),
-      exifSegment('MM', { tag: 0x0110, type: 3, count: 1, value: 6 }),
+      exifSegment('II', { tag: 0x01_12, type: 4, count: 1, value: 6 }),
+      exifSegment('II', { tag: 0x01_12, type: 3, count: 2, value: 6 }),
+      exifSegment('MM', { tag: 0x01_10, type: 3, count: 1, value: 6 }),
       segment(0xe1, [...ascii('Exif'), 0, 0, ...ascii('XX'), 0, 42]),
       segment(0xe1, [...ascii('Exif'), 0, 0, ...ascii('II'), 42, 0, 255, 255, 0, 0]),
       segment(0xe1, [...ascii('http://ns.adobe.com/xap/1.0/'), 0]),

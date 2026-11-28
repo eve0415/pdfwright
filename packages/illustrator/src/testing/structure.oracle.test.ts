@@ -125,7 +125,7 @@ describe('local Illustrator structure comparison', () => {
       facts.frameHeaderDescriptor,
       facts.windowDescriptor,
     ]).toStrictEqual([9, 30, 2, 30, 0, 0x58]);
-    expect(facts.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(facts.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65_536), sample.lastLength]);
     expect(facts.pageDate).toStrictEqual(facts.applicationDate);
     expect([lines.filter(line => line === '%AI5_BeginLayer').length, records.filter(record => record.kind === 'rasterData').length]).toStrictEqual([
       sample.layers,
@@ -161,7 +161,7 @@ describe('local Illustrator structure comparison', () => {
     expect(read.document).toStrictEqual(readIllustratorPdf(bytes).document);
     expect(read.nativeOrigin).toBe('artboard-bottom-left');
     expect(read.compression).toStrictEqual({ kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: 0x58 });
-    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65_536), sample.lastLength]);
     expect(read.lastModified.page).toStrictEqual(read.lastModified.application);
   });
 

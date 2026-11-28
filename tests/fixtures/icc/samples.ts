@@ -50,7 +50,7 @@ export const samples = (): Array<Rgb> => {
     [0, 128, 0],
     [0, 0, 128],
   );
-  let state = 0x9e3779b97f4a7c15n;
+  let state = 0x9e_37_79_b9_7f_4a_7c_15n;
   const modulus = 2n ** 64n;
   for (let sample = 0; sample < 1000; sample++) {
     const rgb: Array<number> = [];

@@ -17,22 +17,22 @@ describe('icc basic tags', () => {
     type(gamma, 'curv');
     const gammaView = new DataView(gamma.buffer);
     gammaView.setUint32(8, 1);
-    gammaView.setUint16(12, 0x0233);
+    gammaView.setUint16(12, 0x02_33);
     expect(readCurve(gamma, 0, gamma.length).curve).toStrictEqual({ kind: 'gamma', gamma: 563 / 256 });
     const table = new Uint8Array(18);
     type(table, 'curv');
     const tableView = new DataView(table.buffer);
     tableView.setUint32(8, 3);
     tableView.setUint16(12, 0);
-    tableView.setUint16(14, 32768);
-    tableView.setUint16(16, 65535);
-    expect(readCurve(table, 0, table.length).curve).toStrictEqual({ kind: 'table', values: Uint16Array.of(0, 32768, 65535) });
+    tableView.setUint16(14, 32_768);
+    tableView.setUint16(16, 65_535);
+    expect(readCurve(table, 0, table.length).curve).toStrictEqual({ kind: 'table', values: Uint16Array.of(0, 32_768, 65_535) });
     const parametric = new Uint8Array(32);
     type(parametric, 'para');
     const paramView = new DataView(parametric.buffer);
     paramView.setUint16(8, 3);
     for (let index = 0; index < 5; index++) {
-      paramView.setInt32(12 + index * 4, (index + 1) * 65536);
+      paramView.setInt32(12 + index * 4, (index + 1) * 65_536);
     }
     expect(readCurve(parametric, 0, parametric.length).curve).toStrictEqual({ kind: 'parametric', functionType: 3, params: [1, 2, 3, 4, 5] });
   });
@@ -41,15 +41,15 @@ describe('icc basic tags', () => {
     const xyz = new Uint8Array(20);
     type(xyz, 'XYZ ');
     const xyzView = new DataView(xyz.buffer);
-    xyzView.setInt32(8, 0x0000f6d6);
-    xyzView.setInt32(12, 0x00010000);
-    xyzView.setInt32(16, 0x0000d32d);
-    expect(readXyz(xyz, 0, xyz.length)).toStrictEqual({ x: 0xf6d6 / 65536, y: 1, z: 0xd32d / 65536 });
+    xyzView.setInt32(8, 0x00_00_f6_d6);
+    xyzView.setInt32(12, 0x00_01_00_00);
+    xyzView.setInt32(16, 0x00_00_d3_2d);
+    expect(readXyz(xyz, 0, xyz.length)).toStrictEqual({ x: 0xf6_d6 / 65_536, y: 1, z: 0xd3_2d / 65_536 });
     const sf32 = new Uint8Array(44);
     type(sf32, 'sf32');
     const view = new DataView(sf32.buffer);
     for (let index = 0; index < 9; index++) {
-      view.setInt32(8 + index * 4, index * 65536);
+      view.setInt32(8 + index * 4, index * 65_536);
     }
     expect(readSf32(sf32, 0, sf32.length)).toStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     expect(() => readCurve(xyz, 0, 11)).toThrow(InvalidProfileError);

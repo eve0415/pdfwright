@@ -274,8 +274,8 @@ const realVerticalCids = (program: Uint8Array): readonly [number, number] => {
   if (reading.kind !== 'cmap') {
     throw new Error('IPAGothic has no readable Unicode cmap');
   }
-  const first = reading.cmap.glyph(0x4e00);
-  const second = reading.cmap.glyph(0x4e8c);
+  const first = reading.cmap.glyph(0x4e_00);
+  const second = reading.cmap.glyph(0x4e_8c);
   if (first === undefined || second === undefined) {
     throw new Error('IPAGothic lacks the test glyphs');
   }

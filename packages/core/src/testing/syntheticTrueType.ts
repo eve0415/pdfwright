@@ -67,9 +67,9 @@ const extent = (glyphs: ReadonlyArray<SyntheticGlyph>, index: 0 | 1 | 2 | 3, pic
 };
 
 const format4 = (characters: ReadonlyArray<readonly [number, number]>): Array<number> => {
-  const bmp = characters.filter(([codePoint]) => codePoint <= 0xfffe).toSorted(([left], [right]) => left - right);
+  const bmp = characters.filter(([codePoint]) => codePoint <= 0xff_fe).toSorted(([left], [right]) => left - right);
   // One segment per character, with the delta that maps it to its glyph, and the terminal 0xFFFF segment.
-  const segments = [...bmp.map(([codePoint, glyph]) => [codePoint, (glyph - codePoint + 65_536) % 65_536] as const), [0xffff, 1] as const];
+  const segments = [...bmp.map(([codePoint, glyph]) => [codePoint, (glyph - codePoint + 65_536) % 65_536] as const), [0xff_ff, 1] as const];
   const count = segments.length;
   const power = 2 ** Math.floor(Math.log2(count));
   const body = [
@@ -109,7 +109,7 @@ const format14 = (variations: ReadonlyArray<SyntheticVariations>): Array<number>
 
 const cmapTable = (options: SyntheticFontOptions): Array<number> => {
   const subtables: Array<readonly [number, number, Array<number>]> = [[3, 1, format4(options.characters)]];
-  if (options.characters.some(([codePoint]) => codePoint > 0xffff)) {
+  if (options.characters.some(([codePoint]) => codePoint > 0xff_ff)) {
     subtables.push([3, 10, format12(options.characters)]);
   }
   if (options.variations !== undefined) {
@@ -140,7 +140,7 @@ const nameTable = (name: string): Array<number> => {
   const strings: Array<number> = [];
   for (const [platform, encoding, language] of [
     [1, 0, 0],
-    [3, 1, 0x409],
+    [3, 1, 0x4_09],
   ] as const) {
     for (const [id, text] of values) {
       const data = platform === 1 ? tag(text) : Array.from(text, character => u16(character.codePointAt(0) ?? 0)).flat();
@@ -166,22 +166,25 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
     offsets.push((offsets.at(-1) ?? 0) + outline.length);
   }
   const codePoints = options.characters.map(([codePoint]) => codePoint);
-  const firstChar = Math.min(0xffff, ...codePoints);
-  const lastChar = Math.min(0xffff, Math.max(0, ...codePoints));
+  const firstChar = Math.min(0xff_ff, ...codePoints);
+  const lastChar = Math.min(0xff_ff, Math.max(0, ...codePoints));
   const verticalAdvance = (glyph: SyntheticGlyph): number => glyph.vertical?.advance ?? unitsPerEm;
   const tables: ReadonlyArray<readonly [string, Array<number>]> = [
     // head: version, fontRevision, checkSumAdjustment (set below), magicNumber, flags, unitsPerEm, created, modified, bounding box, macStyle, lowestRecPPEM, fontDirectionHint, indexToLocFormat 1 (long offsets), glyphDataFormat.
-    ['head', [...u32(0x00010000, 0x00010000, 0, 0x5f0f3cf5), ...u16(3, unitsPerEm), ...u32(0, 0, 0, 0), ...u16(xMin, yMin, xMax, yMax, 0, 8, 2, 1, 0)]],
+    [
+      'head',
+      [...u32(0x00_01_00_00, 0x00_01_00_00, 0, 0x5f_0f_3c_f5), ...u16(3, unitsPerEm), ...u32(0, 0, 0, 0), ...u16(xMin, yMin, xMax, yMax, 0, 8, 2, 1, 0)],
+    ],
     // hhea: version, ascender, descender, lineGap, advanceWidthMax, minLeftSideBearing, minRightSideBearing, xMaxExtent, caret slope and offset, four reserved fields, metricDataFormat, numberOfHMetrics.
-    ['hhea', [...u32(0x00010000), ...u16(ascender, descender, 0, maxAdvance, xMin, 0, xMax, 1, 0, 0, 0, 0, 0, 0, 0, glyphs.length)]],
+    ['hhea', [...u32(0x00_01_00_00), ...u16(ascender, descender, 0, maxAdvance, xMin, 0, xMax, 1, 0, 0, 0, 0, 0, 0, 0, glyphs.length)]],
     // maxp version 1.0: numGlyphs, then the limits of a font whose glyphs are four-point contours without instructions.
-    ['maxp', [...u32(0x00010000), ...u16(glyphs.length, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0)]],
+    ['maxp', [...u32(0x00_01_00_00), ...u16(glyphs.length, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0)]],
     ['loca', u32(...offsets)],
     ['glyf', outlines.flat()],
     ['hmtx', glyphs.flatMap(glyph => u16(glyph.advance, glyph.box?.[0] ?? 0))],
     ['cmap', cmapTable(options)],
     // post version 3.0: no glyph names.
-    ['post', [...u32(0x00030000, 0), ...u16(-100, 50), ...u32(0, 0, 0, 0, 0)]],
+    ['post', [...u32(0x00_03_00_00, 0), ...u16(-100, 50), ...u32(0, 0, 0, 0, 0)]],
     ['name', nameTable(options.name)],
     // OS/2 version 4: average width, weight 400, width class 5, fsType 0 (installable embedding), sub- and superscript metrics, strikeout, family class, PANOSE, Unicode ranges, vendor, fsSelection REGULAR, character range, typographic and Windows metrics, code page ranges, x-height, cap height, default and break characters, usMaxContext.
     [
@@ -200,7 +203,7 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
     [
       'vhea',
       [
-        ...u32(0x00011000),
+        ...u32(0x00_01_10_00),
         ...u16(
           unitsPerEm / 2,
           -unitsPerEm / 2,
@@ -225,7 +228,7 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   ];
   const sorted = tables.toSorted(([left], [right]) => (left < right ? -1 : 1));
   const power = 2 ** Math.floor(Math.log2(sorted.length));
-  const header = [...u32(0x00010000), ...u16(sorted.length, 16 * power, Math.log2(power), 16 * sorted.length - 16 * power)];
+  const header = [...u32(0x00_01_00_00), ...u16(sorted.length, 16 * power, Math.log2(power), 16 * sorted.length - 16 * power)];
   let offset = header.length + 16 * sorted.length;
   const directory: Array<number> = [];
   const bodies: Array<number> = [];
@@ -241,7 +244,7 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   }
   const font = [...header, ...directory, ...bodies];
   // head.checkSumAdjustment is 0xB1B0AFBA minus the checksum of the whole font computed with the field at 0.
-  const adjustment = (0xb1b0afba - checksum(font) + 4_294_967_296) % 4_294_967_296;
+  const adjustment = (0xb1_b0_af_ba - checksum(font) + 4_294_967_296) % 4_294_967_296;
   font.splice(headOffset + 8, 4, ...u32(adjustment));
   return Uint8Array.from(font);
 };

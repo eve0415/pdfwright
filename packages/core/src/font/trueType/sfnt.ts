@@ -31,7 +31,7 @@ export const sfntReader = (data: Uint8Array): SfntReader => {
 export const findTable = (data: Uint8Array, tag: string): Uint8Array | undefined => {
   const read = sfntReader(data);
   const version = read.u32(0);
-  if (version !== 0x00010000 && version !== 0x74727565 && version !== 0x4f54544f) {
+  if (version !== 0x00_01_00_00 && version !== 0x74_72_75_65 && version !== 0x4f_54_54_4f) {
     throw new ParseError('the program is not a TrueType or OpenType font', 0);
   }
   const count = read.u16(4);

@@ -55,7 +55,7 @@ const nativeName = (value: string, name: string): void => {
     if (code !== undefined && (code < 32 || code === 127)) {
       throw new ValidationError(`${name} cannot contain control characters`, 'illustrator-model');
     }
-    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) {
+    if (code !== undefined && code >= 0xd8_00 && code <= 0xdf_ff) {
       throw new ValidationError(`${name} cannot contain lone surrogates`, 'illustrator-model');
     }
   }
@@ -106,7 +106,7 @@ const validateBleed = (bleed: unknown, width: number, height: number): void => {
       }
     }
     const [top = 0, right = top, bottom = top, left = top] = amounts;
-    if (width + left + right > 14400 || height + top + bottom > 14400) {
+    if (width + left + right > 14_400 || height + top + bottom > 14_400) {
       throw new ValidationError('page dimensions including bleed cannot exceed 14400 points', 'illustrator-model');
     }
   }
@@ -133,7 +133,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
   knownFields(document, ['artboard', 'layers', 'lastModified', 'title'], 'document');
   const width = coordinate(document.artboard.width);
   const height = coordinate(document.artboard.height);
-  if (width <= 0 || height <= 0 || width > 14400 || height > 14400) {
+  if (width <= 0 || height <= 0 || width > 14_400 || height > 14_400) {
     throw new ValidationError('artboard dimensions must be in (0, 14400] points', 'illustrator-model');
   }
   validateHeader(document, width, height);
@@ -143,7 +143,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
   const point = (value: Point): void => {
     const x = coordinate(value[0]);
     const y = coordinate(value[1]);
-    if (x < -rulerX || x > 16383 - rulerX || y < -rulerY || y > 16383 - rulerY) {
+    if (x < -rulerX || x > 16_383 - rulerX || y < -rulerY || y > 16_383 - rulerY) {
       throw new ValidationError('native coordinate lies outside the Illustrator canvas', 'illustrator-model');
     }
   };
@@ -247,7 +247,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
       knownFields(item.stroke, ['paint', 'width', 'overprint'], 'stroke');
       optionalBoolean(item.stroke.overprint, 'stroke overprint');
       checkPaint(item.stroke.paint);
-      if (positive(item.stroke.width, 'stroke width') > 14400) {
+      if (positive(item.stroke.width, 'stroke width') > 14_400) {
         throw new ValidationError('stroke width cannot exceed 14400 points', 'illustrator-model');
       }
     }

@@ -22,7 +22,7 @@ const boxAt = (bytes: Uint8Array, offset: number, boundary: number): Box | undef
     if (offset + 16 > boundary) {
       return undefined;
     }
-    length = view.getUint32(offset + 8) * 4294967296 + view.getUint32(offset + 12);
+    length = view.getUint32(offset + 8) * 4_294_967_296 + view.getUint32(offset + 12);
     header = 16;
   } else if (declared === 0) {
     length = boundary - offset;

@@ -4,7 +4,7 @@ import type { Xyz } from '../icc/iccStructure.ts';
 import { deterministicCbrt } from './ieeeMath.ts';
 
 export const D50: Xyz = { x: 0.9642, y: 1, z: 0.8249 };
-export const XYZ_SCALE: number = 1 + 32767 / 32768;
+export const XYZ_SCALE: number = 1 + 32_767 / 32_768;
 const DELTA = 6 / 29;
 const CUBE_THRESHOLD = DELTA * DELTA * DELTA;
 const LINEAR_DIVISOR = 3 * DELTA * DELTA;
@@ -36,7 +36,7 @@ export const encodePcs = (values: ReadonlyArray<number>, pcs: 'XYZ' | 'Lab', con
     return values.map(value => clamp(value / XYZ_SCALE));
   }
   if (config.tag.kind === 'lut16') {
-    return [clamp(((values[0] ?? 0) * 652.8) / 65535), clamp((((values[1] ?? 0) + 128) * 256) / 65535), clamp((((values[2] ?? 0) + 128) * 256) / 65535)];
+    return [clamp(((values[0] ?? 0) * 652.8) / 65_535), clamp((((values[1] ?? 0) + 128) * 256) / 65_535), clamp((((values[2] ?? 0) + 128) * 256) / 65_535)];
   }
   const divisor = adobeLut8(config.tag, config.option) ? 256 : 255;
   return [clamp((values[0] ?? 0) / 100), clamp(((values[1] ?? 0) + 128) / divisor), clamp(((values[2] ?? 0) + 128) / divisor)];
@@ -47,7 +47,7 @@ export const decodePcs = (values: ReadonlyArray<number>, pcs: 'XYZ' | 'Lab', con
     return values.map(value => value * XYZ_SCALE);
   }
   if (config.tag.kind === 'lut16') {
-    return [((values[0] ?? 0) * 65535) / 652.8, ((values[1] ?? 0) * 65535) / 256 - 128, ((values[2] ?? 0) * 65535) / 256 - 128];
+    return [((values[0] ?? 0) * 65_535) / 652.8, ((values[1] ?? 0) * 65_535) / 256 - 128, ((values[2] ?? 0) * 65_535) / 256 - 128];
   }
   const multiplier = adobeLut8(config.tag, config.option) ? 256 : 255;
   return [(values[0] ?? 0) * 100, (values[1] ?? 0) * multiplier - 128, (values[2] ?? 0) * multiplier - 128];

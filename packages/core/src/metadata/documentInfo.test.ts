@@ -98,7 +98,7 @@ describe('reading text strings', () => {
   });
 
   it('decodes UTF-16BE with surrogate pairs and replaces unpaired surrogates and an odd final byte', () => {
-    expect(readTextString(utf16(0x5c71, 0xd842, 0xdfb7, 0xd800, 0x0041))).toStrictEqual({
+    expect(readTextString(utf16(0x5c_71, 0xd8_42, 0xdf_b7, 0xd8_00, 0x00_41))).toStrictEqual({
       text: '山\u{20BB7}�A',
       encoding: 'utf-16be',
       languages: [],
@@ -108,7 +108,7 @@ describe('reading text strings', () => {
   });
 
   it('removes language escapes and reports their codes', () => {
-    const bytes = utf16(0x1b, 0x6a61, 0x1b, 0x5c71, 0x1b, 0x656e, 0x5553, 0x1b, 0x41);
+    const bytes = utf16(0x1b, 0x6a_61, 0x1b, 0x5c_71, 0x1b, 0x65_6e, 0x55_53, 0x1b, 0x41);
     expect(readTextString(bytes)).toStrictEqual({ text: '山A', encoding: 'utf-16be', languages: ['ja', 'en-US'], replaced: 0 });
   });
 
@@ -123,7 +123,7 @@ describe('reading text strings', () => {
 describe('reading document information', () => {
   it('reads text strings, names and other values by key', () => {
     const entries = new PdfDictionaryEntries([
-      [pdfName('Title').bytes, pdfString(utf16(0x65e5, 0x672c))],
+      [pdfName('Title').bytes, pdfString(utf16(0x65_e5, 0x67_2c))],
       [pdfName('Trapped').bytes, pdfName('True')],
       [pdfName('Pages').bytes, pdfInteger(3)],
       [pdfName('Author').bytes, pdfReference(7, 0)],

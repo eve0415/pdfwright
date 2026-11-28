@@ -121,7 +121,7 @@ const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> 
   };
   return {
     glyph: (codePoint: number): number | undefined => {
-      if (codePoint > 0xffff) {
+      if (codePoint > 0xff_ff) {
         return undefined;
       }
       const segment = bySearch(segments, codePoint);
@@ -149,7 +149,7 @@ const format12 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'>
     const at = 16 + 12 * index;
     const start = read.u32(at);
     const end = read.u32(at + 4);
-    if (start > end || end > 0x10ffff || (groups.length > 0 && start <= (groups.at(-1)?.end ?? 0))) {
+    if (start > end || end > 0x10_ff_ff || (groups.length > 0 && start <= (groups.at(-1)?.end ?? 0))) {
       throw new ParseError('the format 12 groups are not ordered and disjoint', 0);
     }
     groups.push({ start, end, glyph: read.u32(at + 8) });

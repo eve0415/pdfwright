@@ -73,14 +73,18 @@ const sameNameArray = (left: Token, right: Token): boolean => left.kind === 'nam
 
 describe('pdf lexer', () => {
   it('reads the integer and real forms of 7.3.3', () => {
-    expect(summaries('123 43445 +17 -98 0')).toStrictEqual([123, 43445, 17, -98, 0]);
+    expect(summaries('123 43445 +17 -98 0')).toStrictEqual([123, 43_445, 17, -98, 0]);
     expect(summaries('34.5 -3.62 +123.6 4. -.002 0.0 .5')).toStrictEqual([34.5, -3.62, 123.6, 4, -0.002, 0, 0.5]);
     expect(lex('4. 4').tokens.map(token => token.kind)).toStrictEqual(['real', 'integer']);
   });
 
   it('keeps malformed numbers as invalid tokens instead of inventing values', () => {
     expect(summaries('--5 1.2.3 3e2 - . +')).toStrictEqual(Array.from({ length: 6 }, () => 'malformed-number'));
-    expect(summaries('9007199254740991 9007199254740993 -9007199254740993')).toStrictEqual([9007199254740991, 'integer-out-of-range', 'integer-out-of-range']);
+    expect(summaries('9007199254740991 9007199254740993 -9007199254740993')).toStrictEqual([
+      9_007_199_254_740_991,
+      'integer-out-of-range',
+      'integer-out-of-range',
+    ]);
     expect(summaries(`1${'0'.repeat(400)}.0`)).toStrictEqual(['real-out-of-range']);
     expect(lex(' --300 ').tokens).toStrictEqual([{ kind: 'invalid', reason: 'malformed-number', start: 1, end: 6 }]);
   });

@@ -29,7 +29,7 @@ const node = (clut: Clut, coordinates: ReadonlyArray<number>, channel: number): 
   for (let axis = 0; axis < clut.inputChannels; axis++) {
     index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
   }
-  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (clut.values instanceof Uint8Array ? 255 : 65535);
+  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (clut.values instanceof Uint8Array ? 255 : 65_535);
 };
 
 const interpolateThree = (

@@ -19,7 +19,7 @@ export interface ReadCurve {
   readonly consumed: number;
 }
 
-const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65536;
+const fixed = (view: DataView, offset: number): number => view.getInt32(offset) / 65_536;
 
 const check = (bytes: Uint8Array, offset: number, span: { limit: number; required: number }): void => {
   if (offset < 0 || span.limit > bytes.length || span.limit < offset || span.required > span.limit - offset) {

@@ -193,7 +193,7 @@ class TestPdfWriter {
       const number = this.streamNumber(section);
       entries.set(number, { type: 1, second: offset, third: 0 });
       if (first) {
-        entries.set(0, { type: 0, second: 0, third: 65535 });
+        entries.set(0, { type: 0, second: 0, third: 65_535 });
       }
       this.xrefStream(number, entries, `${prev}${trailer}`);
     }

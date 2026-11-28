@@ -16,13 +16,13 @@ import { inflateChunks, inflateRaw, inflateZlib } from './inflate.ts';
 
 const dataSet = (): Array<Uint8Array> => {
   const random = new Uint8Array(1024 * 1024);
-  let state = 0x12345678;
+  let state = 0x12_34_56_78;
   for (let index = 0; index < random.length; index++) {
-    state = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) % 4_294_967_296;
     if (state < 0) {
-      state += 4294967296;
+      state += 4_294_967_296;
     }
-    random[index] = Math.floor(state / 16777216);
+    random[index] = Math.floor(state / 16_777_216);
   }
   const text = new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
   return [new Uint8Array(), new Uint8Array([123]), text, random];
@@ -194,10 +194,10 @@ describe('chunked zlib inflate', () => {
   });
 
   it('rejects malformed later blocks before yielding earlier decoded bytes', () => {
-    const bytes = new Uint8Array(2 + 5 + 65535 + 6 + 1 + 4);
+    const bytes = new Uint8Array(2 + 5 + 65_535 + 6 + 1 + 4);
     bytes.set([0x78, 0x01, 0, 255, 255, 0, 0]);
-    bytes.fill(65, 7, 7 + 65535);
-    bytes.set([0, 1, 0, 254, 255, 65, 7], 7 + 65535);
+    bytes.fill(65, 7, 7 + 65_535);
+    bytes.set([0, 1, 0, 254, 255, 65, 7], 7 + 65_535);
     const stream = inflateChunks(bytes);
     expect(() => stream.next()).toThrow(ParseError);
   });
@@ -206,7 +206,7 @@ describe('chunked zlib inflate', () => {
     const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
     const chunks = [...inflateChunks(deflateZlib(input))];
     expect(chunks.length).toBeGreaterThan(1);
-    expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65536);
+    expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65_536);
     const restored = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
     let offset = 0;
     for (const chunk of chunks) {

@@ -3,7 +3,7 @@ import { LATIN_PDF_DOC_CODES, pdfDocEncodingUnicode } from './simpleEncodings.ts
 
 const UPPER_HEX = /^[0-9A-F]+$/u;
 
-const isScalar = (value: number): boolean => (value >= 0 && value <= 0xd7ff) || (value >= 0xe000 && value <= 0x10ffff);
+const isScalar = (value: number): boolean => (value >= 0 && value <= 0xd7_ff) || (value >= 0xe0_00 && value <= 0x10_ff_ff);
 
 // Adobe Glyph List Specification, section 2: "if the component is of the form ‘uni’ … followed by a sequence of uppercase hexadecimal digits …, if the length of that sequence is a multiple of four, and if each group of four digits represents a value in the ranges 0000 through D7FF or E000 through FFFF, then interpret each as a Unicode scalar value".
 const uniText = (digits: string): string | undefined => {

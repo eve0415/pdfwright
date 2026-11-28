@@ -53,8 +53,8 @@ describe('resolved CMaps', () => {
   it('builds in Identity-H and Identity-V without a provider', () => {
     const resolver = new CMapResolver(document(), undefined);
     const horizontal = cmapOf(resolver.named('Identity-H'));
-    expect(horizontal.read(Uint8Array.of(0x4e, 0x00, 0x41), 0)).toStrictEqual({ code: { value: 0x4e00, length: 2 }, valid: true });
-    expect(horizontal.cid({ value: 0x4e00, length: 2 })).toBe(0x4e00);
+    expect(horizontal.read(Uint8Array.of(0x4e, 0x00, 0x41), 0)).toStrictEqual({ code: { value: 0x4e_00, length: 2 }, valid: true });
+    expect(horizontal.cid({ value: 0x4e_00, length: 2 })).toBe(0x4e_00);
     expect([horizontal.writingMode, cmapOf(resolver.named('Identity-V')).writingMode]).toStrictEqual([0, 1]);
   });
 

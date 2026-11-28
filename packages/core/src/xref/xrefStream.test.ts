@@ -85,7 +85,7 @@ describe('cross-reference streams', () => {
     const { section } = read('/Type/XRef/Size 30/W[1 4 2]/Index[3 1 20 2]/Filter/FlateDecode/DecodeParms<</Columns 7/Predictor 12>>', data);
     expect(entries(section)).toStrictEqual([
       [3, 'file', 16, 0],
-      [20, 'file', 65536, 1],
+      [20, 'file', 65_536, 1],
       [21, 'compressed', 7, 4],
     ]);
   });

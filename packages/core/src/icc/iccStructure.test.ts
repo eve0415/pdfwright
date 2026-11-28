@@ -21,9 +21,9 @@ const profile = (): Uint8Array => {
   ascii(bytes, 16, 'CMYK');
   ascii(bytes, 20, 'Lab ');
   ascii(bytes, 36, 'acsp');
-  view.setInt32(68, 0x0000f6d6);
-  view.setInt32(72, 0x00010000);
-  view.setInt32(76, 0x0000d32d);
+  view.setInt32(68, 0x00_00_f6_d6);
+  view.setInt32(72, 0x00_01_00_00);
+  view.setInt32(76, 0x00_00_d3_2d);
   view.setUint32(128, 2);
   ascii(bytes, 132, 'A2B0');
   view.setUint32(136, 156);

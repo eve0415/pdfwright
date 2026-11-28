@@ -43,19 +43,19 @@ FE44;300F FE47;FF3B FE48;FF3D
 `);
 
 const LIGATURES: Array<[number, string]> = [
-  [0xfb00, 'ff'],
-  [0xfb01, 'fi'],
-  [0xfb02, 'fl'],
-  [0xfb03, 'ffi'],
-  [0xfb04, 'ffl'],
-  [0xfb05, 'ſt'],
-  [0xfb06, 'st'],
+  [0xfb_00, 'ff'],
+  [0xfb_01, 'fi'],
+  [0xfb_02, 'fl'],
+  [0xfb_03, 'ffi'],
+  [0xfb_04, 'ffl'],
+  [0xfb_05, 'ſt'],
+  [0xfb_06, 'st'],
 ];
 
 // Every code point each fold changes.
 const folded = (fold: TextFold): Array<[number, string]> => {
   const result: Array<[number, string]> = [];
-  for (let codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
+  for (let codePoint = 0; codePoint <= 0x10_ff_ff; codePoint++) {
     const to = foldOf(fold, codePoint);
     if (to !== undefined) {
       result.push([codePoint, to]);
@@ -64,24 +64,24 @@ const folded = (fold: TextFold): Array<[number, string]> => {
   return result;
 };
 
-const KANGXI = Array.from({ length: 0x2fd6 - 0x2f00 }, (_, index) => 0x2f00 + index);
+const KANGXI = Array.from({ length: 0x2f_d6 - 0x2f_00 }, (_, index) => 0x2f_00 + index);
 
 describe('text folds', () => {
   it('folds every Kangxi radical to its compatibility decomposition except U+2F2A, U+2F2C and U+2F3E, and the supplement and strokes by the table', () => {
-    const exceptions = new Set([0x2f2a, 0x2f2c, 0x2f3e]);
+    const exceptions = new Set([0x2f_2a, 0x2f_2c, 0x2f_3e]);
     const kangxi: Array<[number, string]> = KANGXI.filter(codePoint => !exceptions.has(codePoint)).map(codePoint => [
       codePoint,
       String.fromCodePoint(codePoint).normalize('NFKC'),
     ]);
     expect(folded('radicals')).toStrictEqual([
-      ...SUPPLEMENT_AND_STROKES.filter(([codePoint]) => codePoint < 0x2f00),
+      ...SUPPLEMENT_AND_STROKES.filter(([codePoint]) => codePoint < 0x2f_00),
       ...kangxi,
-      ...SUPPLEMENT_AND_STROKES.filter(([codePoint]) => codePoint > 0x2fd5),
+      ...SUPPLEMENT_AND_STROKES.filter(([codePoint]) => codePoint > 0x2f_d5),
     ]);
   });
 
   it('folds exactly the vertical forms, the ligatures and the hyphenation point', () => {
-    expect([folded('vertical-forms'), folded('ligatures'), folded('shared-glyphs')]).toStrictEqual([VERTICAL_FORMS, LIGATURES, [[0x2027, '・']]]);
+    expect([folded('vertical-forms'), folded('ligatures'), folded('shared-glyphs')]).toStrictEqual([VERTICAL_FORMS, LIGATURES, [[0x20_27, '・']]]);
   });
 
   it('lists each fold it applies', () => {

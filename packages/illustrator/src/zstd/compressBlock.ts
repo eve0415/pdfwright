@@ -104,10 +104,10 @@ const sequenceCount = (count: number): Uint8Array => {
   if (count < 128) {
     return Uint8Array.of(count);
   }
-  if (count < 0x7f00) {
+  if (count < 0x7f_00) {
     return Uint8Array.of(128 + (count >>> 8), count & 255);
   }
-  const value = count - 0x7f00;
+  const value = count - 0x7f_00;
   return Uint8Array.of(255, value & 255, (value >>> 8) & 255);
 };
 

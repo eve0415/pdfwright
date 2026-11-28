@@ -67,7 +67,7 @@ describe('illustrator private-data container', () => {
   });
 
   it('splits wrapped data every 65536 bytes and sets NumBlock only for multiple streams', () => {
-    const bytes = new Uint8Array(70000);
+    const bytes = new Uint8Array(70_000);
     for (let index = 0; index < bytes.length; index++) {
       bytes[index] = index % 256;
     }
@@ -80,9 +80,9 @@ describe('illustrator private-data container', () => {
     });
     const loaded = loadDocument(document.save().toBytes());
     const { entries } = privateData(loaded);
-    expect(layout.blockLengths).toStrictEqual([65536, 4493]);
+    expect(layout.blockLengths).toStrictEqual([65_536, 4493]);
     expect(entries.get(key('NumBlock'))).toStrictEqual({ kind: 'integer', value: 2 });
-    expect(streamData(loaded, entries, 'AIPDFPrivateData1')).toHaveLength(65536);
+    expect(streamData(loaded, entries, 'AIPDFPrivateData1')).toHaveLength(65_536);
     expect(streamData(loaded, entries, 'AIPDFPrivateData2')).toHaveLength(4493);
   });
 

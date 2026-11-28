@@ -26,7 +26,7 @@ const compressionLevel = (options?: DeflateOptions): number => {
 const writeStored = (writer: BitWriter, data: Uint8Array, final: boolean): void => {
   let offset = 0;
   do {
-    const length = Math.min(65535, data.length - offset);
+    const length = Math.min(65_535, data.length - offset);
     writer.writeBits(final && offset + length === data.length ? 1 : 0, 3);
     writer.alignByte();
     writer.writeByte(length & 255);
@@ -81,7 +81,7 @@ export class ZlibDeflater {
 
   constructor(options?: DeflateOptions) {
     this.level = compressionLevel(options);
-    this.blockBytes = this.level === 0 ? 65535 * 16 : BLOCK_BYTES;
+    this.blockBytes = this.level === 0 ? 65_535 * 16 : BLOCK_BYTES;
     // RFC 1950, 2.2 stores CMF/FLG with FCHECK making the header divisible by 31.
     let flevel = 3;
     if (this.level <= 1) {
@@ -165,8 +165,8 @@ export const createDeflateStream = (options?: DeflateOptions): DeflateStream => 
         throw new InvalidArgumentError('deflate stream is finished');
       }
       const parts: Array<Uint8Array> = [];
-      for (let offset = 0; offset < data.length; offset += 65536) {
-        encoder.write(data.subarray(offset, offset + 65536));
+      for (let offset = 0; offset < data.length; offset += 65_536) {
+        encoder.write(data.subarray(offset, offset + 65_536));
         const part = encoder.drain();
         if (part.length > 0) {
           parts.push(part);

@@ -125,7 +125,7 @@ export interface TextMatch {
 }
 
 // Variation selectors: U+FE00–U+FE0F and U+E0100–U+E01EF.
-const isSelector = (codePoint: number): boolean => (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0xe0100 && codePoint <= 0xe01ef);
+const isSelector = (codePoint: number): boolean => (codePoint >= 0xfe_00 && codePoint <= 0xfe_0f) || (codePoint >= 0xe_01_00 && codePoint <= 0xe_01_ef);
 
 const WHITE_SPACE = /\p{White_Space}/u;
 
