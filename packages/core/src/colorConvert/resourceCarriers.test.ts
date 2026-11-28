@@ -549,6 +549,12 @@ const sharingHolders = (category: string, value: string) =>
       ],
     },
     {
+      holder: 'fonts nest through Resources',
+      page: `/Resources<</Font<</F <<${TYPE3}/Resources 7 0 R>>>>>>`,
+      objects: [GLYPH, { number: 7, body: `<</Font<</G <<${TYPE3}/Resources 8 0 R>>>>>>` }, { number: 8, body: `<</${category}<</X1 ${value}>>>>` }],
+      paths: [[3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'G', 'Resources', category, 'X1']]],
+    },
+    {
       holder: 'a page and form share a Font category',
       page: '/Resources<</Font 7 0 R/XObject<</Fm 8 0 R>>>>',
       objects: [
