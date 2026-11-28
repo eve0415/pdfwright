@@ -132,10 +132,10 @@ export class ObjectIndex {
     };
   }
 
-  /** Marks an in-use entry as free, as for an in-file entry whose offset is 0. */
+  /** Marks an in-use entry as free, as for an in-file entry whose offset is 0; a number without an entry stays absent. */
   free(objectNumber: number): void {
     const slot = this.slot(objectNumber);
-    if (slot >= 0) {
+    if (slot >= 0 && this.types[slot] !== ABSENT) {
       this.types[slot] = FREE;
     }
   }
