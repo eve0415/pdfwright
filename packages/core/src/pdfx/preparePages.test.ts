@@ -594,6 +594,34 @@ describe('pdfx page preparation', () => {
     },
   );
 
+  it('reads a shared glyph procedure again, for as many steps as maxDecodedBytes, in each font that it selects before its first read ends', () => {
+    // Font 10 + i names GS opaque, except the last, and names N font 11 + i; the glyph selects N, so each read of it opens the next font before it ends.
+    const glyph = '0 0 d0 /GS gs BT /N 1 Tf ET';
+    const fonts = 5;
+    const chain = (maxDecodedBytes: number) =>
+      single(
+        '<</Font<</F 10 0 R>>>>',
+        streamBody('', 'BT /F 1 Tf ET'),
+        [
+          ...Array.from({ length: fonts }, (_, font) => ({
+            number: 10 + font,
+            body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS ${font === fonts - 1 ? '7' : '9'} 0 R>>/Font<</N ${String(11 + font)} 0 R>>>>>>`,
+          })),
+          { number: 6, body: streamBody('', glyph) },
+          { number: 7, body: '<</ca 0.5>>' },
+          { number: 9, body: '<</ca 1>>' },
+        ],
+        '',
+        { maxDecodedBytes },
+      );
+    // One step for the CharProcs entry of each font, and one for each byte of each read after the first.
+    const steps = fonts + (fonts - 1) * glyph.length;
+    expect(addedGroups(chain(steps))).toStrictEqual([0]);
+    const prepare = () => preparePdfX4Pages(chain(steps - 1));
+    expect(prepare).toThrow(ResourceLimitError);
+    expect(prepare).toThrow(new RegExp(`glyph procedures .*maxDecodedBytes \\(${String(steps - 1)}\\)`, 'u'));
+  });
+
   it.each<[string, string, ReadonlyArray<TestObject>, LoadOptions]>([
     ['an indirect font', '<</Font<</T3 5 0 R>>>>', [{ number: 5, body: '<<FONT>>' }], {}],
     ['a direct font', '<</Font<</T3 <<FONT>>>>>>', [], {}],
