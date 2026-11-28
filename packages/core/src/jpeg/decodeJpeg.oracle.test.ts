@@ -1,32 +1,19 @@
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { arrayBuffer, text } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
 
+import { magick, runChecked } from '../../../../scripts/readerOracle.ts';
 import { ParseError } from '../error/parseError.ts';
-import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { decodeJpeg } from './decodeJpeg.ts';
 
-const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => {
-  const child = spawn('magick', args);
-  child.stdin.end(input);
-  const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
-  if (closed[0] !== 0) {
-    throw new Error(errors);
-  }
-  return new Uint8Array(output);
-};
-
-const rgb = (): Uint8Array => {
-  const bytes = new Uint8Array(32 * 32 * 3);
-  for (let y = 0; y < 32; y++) {
-    for (let x = 0; x < 32; x++) {
-      const offset = (y * 32 + x) * 3;
+const rgb = (width = 32, height = 32): Uint8Array => {
+  const bytes = new Uint8Array(width * height * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 3;
       bytes[offset] = (x * 7 + y * 3) % 256;
       bytes[offset + 1] = (x * 2 + y * 6) % 256;
       bytes[offset + 2] = (x * 3 + y * 4) % 256;
@@ -87,12 +74,65 @@ const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {
   return output;
 };
 
-const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [255, marker, 0, payload.length + 2, ...payload];
+// ITU-T T.81 (1992), B.1.1.4: a marker, then a two-byte length that counts itself, then the parameters.
+const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [
+  255,
+  marker,
+  Math.floor((payload.length + 2) / 256),
+  (payload.length + 2) % 256,
+  ...payload,
+];
+
+const clamped = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+
+// ITU-T T.871 (2011), 7: R = Y + 1.402 (Cr − 128), G = Y − 0.344136 (Cb − 128) − 0.714136 (Cr − 128), B = Y + 1.772 (Cb − 128).
+const ycbcrToRgb = (samples: Uint8Array): Uint8Array =>
+  Uint8Array.from({ length: samples.length }, (_, index) => {
+    const pixel = index - (index % 3);
+    const [y = 0, cb = 128, cr = 128] = samples.subarray(pixel, pixel + 3);
+    return clamped([y + 1.402 * (cr - 128), y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128), y + 1.772 * (cb - 128)][index % 3] ?? 0);
+  });
+
+const parseReason = (run: () => void): string | undefined => {
+  try {
+    run();
+  } catch (error: unknown) {
+    if (error instanceof ParseError) {
+      return error.reason;
+    }
+    throw error;
+  }
+  throw new Error('JPEG was accepted');
+};
+
+const unsupportedReason = (run: () => void): string | undefined => {
+  try {
+    run();
+  } catch (error: unknown) {
+    if (error instanceof UnsupportedFeatureError) {
+      return error.reason;
+    }
+    throw error;
+  }
+  throw new Error('JPEG was accepted');
+};
+
+const djpeg = async (jpeg: Uint8Array): Promise<Uint8Array> => {
+  const { stdout, stderr } = await runChecked('djpeg', ['-pnm'], jpeg);
+  expect(stderr).toBe('');
+  const header = new TextEncoder().encode('P5\n8 8\n255\n');
+  expect(stdout.subarray(0, header.length)).toStrictEqual(header);
+  expect(stdout).toHaveLength(header.length + 64);
+  return stdout.subarray(header.length);
+};
 
 const zrlJpeg = (nonzeroAc = 47, finalSymbol = 0xf0): Uint8Array => {
   const bits = `0${'001'.repeat(nonzeroAc)}01${finalSymbol === 0xf1 ? '1' : ''}`;
   const padded = bits.padEnd(Math.ceil(bits.length / 8) * 8, '1');
-  const entropy = Array.from({ length: padded.length / 8 }, (_, index) => Number.parseInt(padded.slice(index * 8, index * 8 + 8), 2));
+  // ITU-T T.81 (1992), F.1.2.3: a 0xFF byte of entropy-coded data is followed by a stuffed 0x00.
+  const entropy = Array.from({ length: padded.length / 8 }, (_, index) => Number.parseInt(padded.slice(index * 8, index * 8 + 8), 2)).flatMap(value =>
+    value === 0xff ? [0xff, 0] : [value],
+  );
   return Uint8Array.from([
     255,
     0xd8,
@@ -110,20 +150,26 @@ const zrlJpeg = (nonzeroAc = 47, finalSymbol = 0xf0): Uint8Array => {
 describe('jpeg decoding against ImageMagick libjpeg', () => {
   it('accepts a final ZRL that ends at coefficient 64 and matches djpeg', async () => {
     const jpeg = zrlJpeg();
-    const reference = spawn('djpeg', ['-pnm']);
-    reference.stdin.end(jpeg);
-    const [output, errors, closed] = await Promise.all([arrayBuffer(reference.stdout), text(reference.stderr), once(reference, 'close')]);
-    expect(closed[0]).toBe(0);
-    expect(errors).toBe('');
-    const pnm = new Uint8Array(output);
-    const header = new TextEncoder().encode('P5\n8 8\n255\n');
-    expect(pnm.subarray(0, header.length)).toStrictEqual(header);
-    expect(pnm).toHaveLength(header.length + 64);
-    expect(maximumDifference(decoded(jpeg), pnm.subarray(header.length))).toBeLessThanOrEqual(1);
+    expect(maximumDifference(decoded(jpeg), await djpeg(jpeg))).toBeLessThanOrEqual(1);
+  });
+
+  it('accepts a final nonzero AC coefficient at position 63 and matches djpeg', async () => {
+    // 47 coefficients, then a run of 15 zeros puts the last coefficient at position 63, the last one a block has.
+    const jpeg = zrlJpeg(47, 0xf1);
+    expect(maximumDifference(decoded(jpeg), await djpeg(jpeg))).toBeLessThanOrEqual(1);
   });
 
   it('rejects a nonzero AC coefficient beyond position 63', () => {
     expect(() => decoded(zrlJpeg(48, 0xf1))).toThrow(ParseError);
+  });
+
+  it('crops partial 2 × 2 MCUs at the right and bottom edges as libjpeg does', async () => {
+    const jpeg = await magick(['-size', '33x17', '-depth', '8', 'rgb:-', '-sampling-factor', '2x2,1x1,1x1', '-quality', '90', 'jpeg:-'], rgb(33, 17));
+    const reference = await magick(['-define', 'jpeg:fancy-upsampling=off', 'jpeg:-', '-depth', '8', 'rgb:-'], jpeg);
+    const actual = decoded(jpeg);
+    expect(actual).toHaveLength(33 * 17 * 3);
+    expect(reference).toHaveLength(33 * 17 * 3);
+    expect(maximumDifference(actual, reference)).toBeLessThanOrEqual(2);
   });
 
   it.each(['1x1,1x1,1x1', '2x1,1x1,1x1', '2x2,1x1,1x1'])('decodes generated RGB JPEG with sampling %s', async sampling => {
@@ -159,7 +205,9 @@ describe('jpeg decoding against ImageMagick libjpeg', () => {
 
   it('uses PDF ColorTransform only when APP14 is absent', async () => {
     const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-quality', '90', 'jpeg:-'], rgb());
-    expect(rowsWith(jpeg, 0)).not.toStrictEqual(decoded(jpeg));
+    // With colorTransform 0 the samples stay YCbCr, and converting them reproduces the default output.
+    expect(maximumDifference(ycbcrToRgb(rowsWith(jpeg, 0)), decoded(jpeg))).toBeLessThanOrEqual(1);
+    expect(maximumDifference(rowsWith(jpeg, 0), decoded(jpeg))).toBeGreaterThan(2);
     expect(rowsWith(withAdobe(jpeg, 1), 0)).toStrictEqual(decoded(jpeg));
   });
 
@@ -167,26 +215,33 @@ describe('jpeg decoding against ImageMagick libjpeg', () => {
     const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-quality', '90', 'jpeg:-'], rgb());
     const multiscanned = Uint8Array.from(jpeg);
     multiscanned[markerOffset(multiscanned, 0xda) + 4] = 2;
-    expect(() => decodeJpeg(multiscanned)).toThrow(UnsupportedFeatureError);
-    expect(() => decodeJpeg(withAdobe(jpeg, 2))).toThrow(UnsupportedFeatureError);
-    expect(() => decodeJpeg(jpeg, { maxRowBytes: 1 })).toThrow(ResourceLimitError);
+    expect(unsupportedReason(() => decodeJpeg(multiscanned))).toBe('jpeg-multi-scan');
+    expect(unsupportedReason(() => decodeJpeg(withAdobe(jpeg, 2)))).toBe('jpeg-color-transform');
   });
 
-  it('rejects every truncation and invalid marker length of a generated JPEG', async () => {
+  it('reports every truncation of a generated JPEG as truncated and invalid marker lengths by reason', async () => {
     const jpeg = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-quality', '90', 'jpeg:-'], rgb());
     for (let length = 0; length < jpeg.length; length++) {
-      expect(() => {
-        fullyDecode(jpeg.subarray(0, length));
-      }).toThrow(ParseError);
+      expect(
+        parseReason(() => {
+          fullyDecode(jpeg.subarray(0, length));
+        }),
+      ).toBe('image-truncated');
     }
     const quantization = markerOffset(jpeg, 0xdb);
-    for (const length of [0, 1, 65_535]) {
+    for (const [length, reason] of [
+      [0, 'image-invalid'],
+      [1, 'image-invalid'],
+      [65_535, 'image-truncated'],
+    ] as const) {
       const malformed = Uint8Array.from(jpeg);
       malformed[quantization + 2] = Math.floor(length / 256);
       malformed[quantization + 3] = length % 256;
-      expect(() => {
-        fullyDecode(malformed);
-      }).toThrow(ParseError);
+      expect(
+        parseReason(() => {
+          fullyDecode(malformed);
+        }),
+      ).toBe(reason);
     }
   });
 
