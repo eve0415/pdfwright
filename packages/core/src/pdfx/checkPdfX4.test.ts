@@ -512,6 +512,23 @@ describe('pdfx structural checker', () => {
       expect(statusOf(document, 'X4-LZW')).toBe('violation');
     });
 
+    it.each<[string, string]>([
+      ['after', '[9 1 R/LZWDecode]'],
+      ['before', '[/LZWDecode 9 1 R]'],
+    ])('finds an LZW filter %s a filter that names another generation of an object', (_, filters) => {
+      const report = checkPdfX4(
+        raw({
+          catalog: '/X 5 0 R',
+          extra: [
+            { number: 5, body: streamBody(`/Filter${filters}`, 'x') },
+            { number: 9, body: '/x' },
+          ],
+        }),
+      );
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
+    });
+
     it.each<[string, 'violation' | 'passed']>([
       ['BI /W 1 /H 1 /BPC 8 /CS /G /F /AHx ID\n00>\nEI', 'passed'],
       [lzwImage, 'violation'],
