@@ -878,8 +878,9 @@ describe('image colour conversion', () => {
         header(jp2Box('ihdr', new Uint8Array(14))),
         header(jp2Box('ihdr', new Uint8Array(14)), colr([1, 0, 0, 0, 0, 0, 16])),
         joined([signature, xl(colr([1, 0, 0, 0, 0, 0, 16]))]),
+        joined([jp2Box('jP  ', Uint8Array.of(0x0d, 0x0a, 0x87, 0x0a, 0, 0, 0, 0)), jp2Box('jp2h', colr([1, 0, 0, 0, 0, 0, 16]))]),
       ].map(bytes => jpxHasRgbColor(bytes, limit)),
-    ).toStrictEqual([true, false, false, true, false, false, true, true]);
+    ).toStrictEqual([true, false, false, true, false, false, true, true, false]);
   });
 
   it('reads an embedded JP2 profile of exactly the limit and refuses one byte more', () => {
@@ -1049,6 +1050,10 @@ describe('properties', () => {
       fc.uint8Array({ maxLength: 64 }).map(tail => joined([jp2Signature, tail])),
       fc.uint8Array({ maxLength: 64 }).map(payload => joined([jp2Signature, jp2Box('jp2h', payload)])),
       fc.uint8Array({ maxLength: 64 }).map(payload => joined([jp2Signature, jp2Box('jp2h', jp2Box('colr', payload))])),
+      // A colr box that names method 1 or 2 and ends the file within the fields that method needs.
+      fc
+        .tuple(fc.constantFrom(1, 2), fc.uint8Array({ maxLength: 6 }))
+        .map(([method, payload]) => joined([jp2Signature, jp2Box('jp2h', jp2Box('colr', Uint8Array.of(method, ...payload)))])),
     );
     fc.assert(
       fc.property(bytes, input => {
