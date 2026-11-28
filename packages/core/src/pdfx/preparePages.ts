@@ -45,31 +45,38 @@ const numeric = (value: PdfObject | undefined): number | undefined => {
   return value?.kind === 'real' && typeof value.value === 'number' ? value.value : undefined;
 };
 
+// Each token is a tag that only one kind uses, then the length of its text and the text, so two different objects never spell the same text.
+const token = (parts: Array<string>, tag: string, text: string): void => {
+  parts.push(`${tag}${String(text.length)}:${text}`);
+};
+
 // Spells a direct object out with its references unresolved, so that two dictionaries with the same entries, such as one the object cache parsed again, give the same text.
 const directText = (value: PdfDirectObject, parts: Array<string>): void => {
   switch (value.kind) {
     case 'null':
-      parts.push('n');
+      parts.push('z');
       return;
     case 'boolean':
       parts.push(value.value ? 't' : 'f');
       return;
     case 'integer':
-      parts.push(`i${String(value.value)}`);
+      token(parts, 'i', String(value.value));
       return;
     case 'real':
-      parts.push(typeof value.value === 'number' ? `r${String(value.value)}` : `r${String(value.value.numerator)}/${String(value.value.denominator)}`);
+      token(parts, 'r', typeof value.value === 'number' ? String(value.value) : `${String(value.value.numerator)}/${String(value.value.denominator)}`);
       return;
     case 'reference':
-      parts.push(`R${String(value.objectNumber)} ${String(value.generation)}`);
+      token(parts, 'R', `${String(value.objectNumber)} ${String(value.generation)}`);
       return;
     case 'name':
-    case 'string':
-    case 'invalid': {
-      const text = latin1.decode(value.bytes);
-      parts.push(`${value.kind.charAt(0)}${String(text.length)}:${text}`);
+      token(parts, 'n', latin1.decode(value.bytes));
       return;
-    }
+    case 'string':
+      token(parts, 's', latin1.decode(value.bytes));
+      return;
+    case 'invalid':
+      token(parts, 'x', latin1.decode(value.bytes));
+      return;
     case 'array':
       parts.push('[');
       for (const item of value.items) {
@@ -80,8 +87,7 @@ const directText = (value: PdfDirectObject, parts: Array<string>): void => {
     case 'dictionary':
       parts.push('<');
       for (const [name, item] of value.entries.entries()) {
-        const text = latin1.decode(name);
-        parts.push(`${String(text.length)}:${text}`);
+        token(parts, 'k', latin1.decode(name));
         directText(item, parts);
       }
       parts.push('>');
