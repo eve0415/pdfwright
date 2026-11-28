@@ -1,4 +1,5 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
+import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ResourceOrigin, ResourceVisit, UnreadableObject } from './walkResources.ts';
@@ -8,19 +9,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { inherited } from '../document/loadedPage.ts';
+import { ParseError } from '../error/parseError.ts';
 import { fontKey, pageResourcesOwner } from '../font/loadFont.ts';
 import { pdfName } from '../object/pdfObject.ts';
-import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
-import { walkResources } from './walkResources.ts';
+import { walkAcroFormResources, walkResources } from './walkResources.ts';
 
-const internals = (page: string, objects: ReadonlyArray<TestObject>, tree = ''): DocumentInternals => {
+const internals = (page: string, objects: ReadonlyArray<TestObject>, tree = '', catalog = ''): DocumentInternals => {
   const document = loadDocument(
     buildPdf([
       {
         xref: 'classic',
         objects: [
-          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 1, body: `<</Type/Catalog/Pages 2 0 R${catalog}>>` },
           { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]${tree}>>` },
           { number: 3, body: `<</Type/Page/Parent 2 0 R${page}>>` },
           ...objects,
@@ -97,10 +99,43 @@ const describeOrigin = (origin: ResourceOrigin): string =>
 const reads = (calls: ReadonlyArray<readonly [PdfDirectObject | undefined]>, objectNumber: number): number =>
   calls.filter(([value]) => value?.kind === 'reference' && value.objectNumber === objectNumber).length;
 
+const TYPE3 = '/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<<>>/Encoding<</Differences[]>>/FirstChar 0/LastChar 0/Widths[0]';
+const HELVETICA = '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>';
+
+const firstPage = (document: DocumentInternals): PageEntry => {
+  const [page] = document.pages;
+  if (page === undefined) {
+    throw new Error('the document has no page');
+  }
+  return page;
+};
+
 const form = (number: number, resources: string): TestObject => ({
   number,
   body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources ${resources}`, ''),
 });
+
+interface AcroFormWalk {
+  readonly visits: ReadonlyArray<readonly [number | undefined, ReadonlyArray<ResourceOrigin>]>;
+  readonly keys: ReadonlyArray<string>;
+  readonly from: ReadonlyArray<string>;
+}
+
+const walkForm = (catalog: string, objects: ReadonlyArray<TestObject>): AcroFormWalk => {
+  const document = internals('', objects, '', catalog);
+  const visits: Array<readonly [number | undefined, ReadonlyArray<ResourceOrigin>]> = [];
+  const keys: Array<string> = [];
+  const unreadable = walkAcroFormResources(document, {
+    resources: undefined,
+    visit: ({ reference: own, origins }) => {
+      visits.push([own?.objectNumber, origins]);
+    },
+    font: ({ value, owner, name }) => {
+      keys.push(fontKey(value, owner, name));
+    },
+  });
+  return { visits, keys, from: unreadable.map(({ from }) => from) };
+};
 
 describe('resource walks', () => {
   it('reports a form reached from page content and from an annotation once, with both origins', () => {
@@ -257,5 +292,129 @@ describe('resource walks', () => {
         .unreadable.map(({ from }) => from)
         .toSorted(),
     ).toStrictEqual(['Annots', 'Resources']);
+  });
+  it('ends a cycle through a form that draws itself, with the form as the one origin of its resources', () => {
+    const document = internals('/Resources 20 0 R', [{ number: 20, body: '<</XObject<</X1 10 0 R>>>>' }, form(10, '<</XObject<</X 10 0 R>>>>')]);
+    const walked = walk(document);
+    expect([walked.visits.length, originsOf(walked, 20), originsOf(walked)]).toStrictEqual([
+      2,
+      [{ kind: 'page' }],
+      [{ kind: 'form', reference: reference(10) }],
+    ]);
+  });
+
+  it('adds a Type 3 font that an appearance reaches before the page resources are read as an origin of the page resources', () => {
+    // The annotation's appearance is walked first, so the font names the page resources before the walk has read them.
+    const document = internals('/Resources 20 0 R/Annots[11 0 R]', [
+      { number: 20, body: '<<>>' },
+      { number: 11, body: '<</Type/Annot/Subtype/Square/Rect[0 0 1 1]/F 4/AP<</N 10 0 R>>>>' },
+      form(10, '<</Font<</T1 12 0 R>>>>'),
+      { number: 12, body: `<<${TYPE3}>>` },
+    ]);
+    expect(unordered(originsOf(walk(document), 20))).toStrictEqual(
+      unordered([{ kind: 'page' }, { kind: 'type3', font: reference(12), inheritsPageResources: true }]),
+    );
+  });
+
+  it('names a font in an indirect graphics state parameter dictionary by that dictionary alone, with an empty name', () => {
+    const document = internals('/Resources<</ExtGState<</GS1 40 0 R>>>>', [{ number: 40, body: `<</Font[${HELVETICA} 12]>>` }]);
+    const fonts: Array<{ readonly name: string; readonly owner: string }> = [];
+    walkResources(document, firstPage(document), {
+      resources: inherited(document.objects, firstPage(document), { key: pdfName('Resources').bytes })?.value,
+      font: ({ name, owner }) => {
+        fonts.push({ name: latin1Text(name), owner });
+      },
+    });
+    expect(fonts).toStrictEqual([{ name: '', owner: '40.0:ExtGState' }]);
+  });
+
+  it('reads the resource dictionaries in the order it reports them', () => {
+    const document = internals('/Resources 20 0 R', [
+      { number: 20, body: '<</XObject<</X1 10 0 R/X2 12 0 R>>>>' },
+      form(10, '21 0 R'),
+      form(12, '22 0 R'),
+      { number: 21, body: '<<>>' },
+      { number: 22, body: '<<>>' },
+    ]);
+    const page = firstPage(document);
+    const resources = inherited(document.objects, page, { key: pdfName('Resources').bytes })?.value;
+    const deref = vi.spyOn(document.objects, 'deref');
+    const visited: Array<number | undefined> = [];
+    walkResources(document, page, {
+      resources,
+      visit: ({ reference: own }) => {
+        visited.push(own?.objectNumber);
+      },
+    });
+    const read = deref.mock.calls.flatMap(([value]) => (value?.kind === 'reference' && value.objectNumber >= 20 ? [value.objectNumber] : []));
+    expect(visited).toStrictEqual(read);
+  });
+
+  describe('a font handler', () => {
+    const document = internals('/Resources<</Font<</F1 30 0 R/F2 31 0 R>>>>', [
+      { number: 30, body: HELVETICA },
+      { number: 31, body: HELVETICA },
+    ]);
+    const resources = inherited(document.objects, firstPage(document), { key: pdfName('Resources').bytes })?.value;
+
+    it('that throws ParseError reports the font as unreadable and the walk goes on to the other fonts', () => {
+      const fonts: Array<PdfDirectObject> = [];
+      const unreadable = walkResources(document, firstPage(document), {
+        resources,
+        font: ({ value }) => {
+          fonts.push(value);
+          if (value.kind === 'reference' && value.objectNumber === 30) {
+            throw new ParseError('font 30 is broken', 0);
+          }
+        },
+      });
+      expect([unreadable, unordered(fonts)]).toStrictEqual([[{ from: 'Resources', reason: 'font 30 is broken' }], unordered([reference(30), reference(31)])]);
+    });
+
+    it('that throws any other error stops the walk with that error', () => {
+      expect(() =>
+        walkResources(document, firstPage(document), {
+          resources,
+          font: () => {
+            throw new TypeError('not a parse failure');
+          },
+        }),
+      ).toThrow(TypeError);
+    });
+  });
+
+  describe('AcroForm default resources', () => {
+    // ISO 32000-1:2008, 12.7.2, Table 218: DR is the AcroForm's default resource dictionary.
+    it.each([
+      {
+        name: 'a direct DR, whose direct fonts it names after AcroForm/DR',
+        catalog: `/AcroForm<</Fields[]/DR<</Font<</F1 ${HELVETICA}>>>>>>`,
+        objects: [],
+        expected: { visits: [[undefined, [{ kind: 'acroform' }]]], keys: ['direct:AcroForm/DR:4631'], from: [] },
+      },
+      {
+        name: 'an indirect DR, whose direct fonts it names after the dictionary',
+        catalog: '/AcroForm 15 0 R',
+        objects: [
+          { number: 15, body: '<</Fields[]/DR 20 0 R>>' },
+          { number: 20, body: `<</Font<</F1 ${HELVETICA}>>>>` },
+        ],
+        expected: { visits: [[20, [{ kind: 'acroform' }]]], keys: ['direct:20.0:4631'], from: [] },
+      },
+      {
+        name: 'a DR it cannot parse',
+        catalog: '/AcroForm<</Fields[]/DR 20 0 R>>',
+        objects: [{ number: 20, body: '<</Font (unterminated' }],
+        expected: { visits: [], keys: [], from: ['AcroForm'] },
+      },
+      {
+        name: 'an AcroForm it cannot parse',
+        catalog: '/AcroForm 15 0 R',
+        objects: [{ number: 15, body: '<</Fields (unterminated' }],
+        expected: { visits: [], keys: [], from: ['AcroForm'] },
+      },
+    ])('walks $name', ({ catalog, objects, expected }) => {
+      expect(walkForm(catalog, objects)).toStrictEqual(expected);
+    });
   });
 });
