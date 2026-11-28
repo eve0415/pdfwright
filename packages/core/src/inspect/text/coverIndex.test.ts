@@ -132,14 +132,24 @@ const TOLERANCE = 1e-6;
 const inside = ([left, bottom, right, top]: CoverEvent['rectangle'], x: number, y: number): boolean =>
   x >= left - TOLERANCE && x <= right + TOLERANCE && y >= bottom - TOLERANCE && y <= top + TOLERANCE;
 
-// Integer coordinates, so that points often fall on edges and cell boundaries; small rectangles go to the grid's cells and large ones to its row and column bands, and either may reach past the bounds or lie outside them. fast-check keeps an array to about ten items unless its size is raised.
-const rectangleOf = (size: number): fc.Arbitrary<CoverEvent['rectangle']> =>
+// Integer coordinates, so that points often fall on edges and cell boundaries; small rectangles go to the grid's cells, wide ones to its row bands and tall ones to its column bands, and any may reach past the bounds or lie outside them. fast-check keeps an array to about ten items unless its size is raised.
+const rectangleOf = (maxWidth: number, maxHeight: number): fc.Arbitrary<CoverEvent['rectangle']> =>
   fc
-    .tuple(fc.integer({ min: -20, max: 120 }), fc.integer({ min: -20, max: 120 }), fc.integer({ min: 0, max: size }), fc.integer({ min: 0, max: size }))
+    .tuple(
+      fc.integer({ min: -20, max: 120 }),
+      fc.integer({ min: -20, max: 120 }),
+      fc.integer({ min: 0, max: maxWidth }),
+      fc.integer({ min: 0, max: maxHeight }),
+    )
     .map(([left, bottom, width, height]) => [left, bottom, left + width, bottom + height] as const);
 
 describe('properties', () => {
-  const rectangle = fc.oneof({ arbitrary: rectangleOf(12), weight: 4 }, { arbitrary: rectangleOf(120), weight: 1 });
+  const rectangle = fc.oneof(
+    { arbitrary: rectangleOf(12, 12), weight: 4 },
+    { arbitrary: rectangleOf(120, 12), weight: 1 },
+    { arbitrary: rectangleOf(12, 120), weight: 1 },
+    { arbitrary: rectangleOf(120, 120), weight: 1 },
+  );
   const scene = fc.record({
     width: fc.integer({ min: 0, max: 100 }),
     height: fc.integer({ min: 0, max: 100 }),
