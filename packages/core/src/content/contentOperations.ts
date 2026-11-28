@@ -4,6 +4,7 @@ import type { LexContext, Token } from '../parse/lexer.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
+import { WindowEndError } from '../parse/windowEndError.ts';
 
 import { inlineImageData } from './inlineImageData.ts';
 
@@ -68,12 +69,57 @@ interface PendingImage {
   readonly offset: number;
 }
 
+/** An array or dictionary operand that a stream ends inside: its bytes in each stream so far, and the arrays and dictionaries still open. */
+interface OpenOperand {
+  readonly pieces: Array<Uint8Array>;
+  readonly stream: number;
+  readonly offset: number;
+  depth: number;
+}
+
+/** Where the arrays and dictionaries open before a stream close in it, or how many are still open at its end. */
+interface Closing {
+  readonly end?: number;
+  readonly depth: number;
+}
+
+/** Lexes bytes from start, counting arrays and dictionaries opened and closed from depth, and returns the end of the token that closes the last one, or the depth still open at the end. */
+const closingEnd = (bytes: Uint8Array, start: number, depth: number, context: LexContext): Closing => {
+  const lexer = new Lexer({ bytes, base: 0, final: true }, start, context);
+  let open = depth;
+  for (let token = lexer.next(); token.kind !== 'eof'; token = lexer.next()) {
+    if (token.kind === 'arrayOpen' || token.kind === 'dictionaryOpen') {
+      open++;
+    } else if ((token.kind === 'arrayClose' || token.kind === 'dictionaryClose') && --open === 0) {
+      return { end: token.end, depth: 0 };
+    }
+  }
+  return { depth: open };
+};
+
+const LINE_FEED = 0x0a;
+
+// The pieces of an operand, one white-space byte between them so that no two tokens join.
+const joined = (pieces: ReadonlyArray<Uint8Array>): Uint8Array => {
+  const bytes = new Uint8Array(pieces.reduce((sum, piece) => sum + piece.length + 1, -1));
+  let position = 0;
+  for (const piece of pieces) {
+    if (position > 0) {
+      bytes[position - 1] = LINE_FEED;
+    }
+    bytes.set(piece, position);
+    position += piece.length + 1;
+  }
+  return bytes;
+};
+
 /** Reads operations from successive streams with one operand stack, as the streams of a page's Contents array are read. */
 class OperationReader {
   private readonly maxNesting: number;
   private operands: Array<ContentOperand> = [];
   private firstOperand: { readonly stream: number; readonly offset: number } | undefined = undefined;
   private image: PendingImage | undefined = undefined;
+  private open: OpenOperand | undefined = undefined;
 
   constructor(maxNesting: number) {
     this.maxNesting = maxNesting;
@@ -94,8 +140,36 @@ class OperationReader {
     this.operands.push(operand);
   }
 
-  *read(bytes: Uint8Array, stream: number): Generator<SpannedContentOperation> {
-    const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
+  // Continues an operand left open by the streams before, and returns where the operations after it start, or undefined when this stream ends inside it too.
+  private resume(open: OpenOperand, bytes: Uint8Array, last: boolean, context: LexContext): number | undefined {
+    const closed = closingEnd(bytes, 0, open.depth, context);
+    if (closed.end === undefined && !last) {
+      open.pieces.push(bytes);
+      open.depth = closed.depth;
+      return undefined;
+    }
+    this.open = undefined;
+    const end = closed.end ?? bytes.length;
+    open.pieces.push(bytes.subarray(0, end));
+    // Parsed once from all its pieces; still open after the last stream, it throws ParseError as it would in one stream.
+    const lexer = new Lexer({ bytes: joined(open.pieces), base: open.offset, final: true }, 0, context);
+    this.append(parseObject(lexer, this.maxNesting, MAX_CONTENT_OPERANDS), open.stream, open.offset);
+    return end;
+  }
+
+  *read(bytes: Uint8Array, stream: number, last: boolean): Generator<SpannedContentOperation> {
+    const context = quiet();
+    let start = 0;
+    if (this.open !== undefined) {
+      const resumed = this.resume(this.open, bytes, last, context);
+      if (resumed === undefined) {
+        return;
+      }
+      start = resumed;
+    }
+    const lexer = new Lexer({ bytes, base: 0, final: true }, start, context);
+    // A stream other than the last may end inside an array or dictionary operand, which this lexer reports by throwing WindowEndError.
+    const unfinished = last ? undefined : new Lexer({ bytes, base: 0, final: false }, 0, context);
     for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
       if (isStray(token)) {
         lexer.next();
@@ -105,6 +179,24 @@ class OperationReader {
       if (!isOperator(token)) {
         if (this.operands.length >= MAX_CONTENT_OPERANDS) {
           throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
+        }
+        if (unfinished !== undefined && (token.kind === 'arrayOpen' || token.kind === 'dictionaryOpen')) {
+          unfinished.seek(token.start);
+          let operand: ContentOperand;
+          try {
+            operand = parseObject(unfinished, this.maxNesting, MAX_CONTENT_OPERANDS);
+          } catch (error: unknown) {
+            if (!(error instanceof WindowEndError)) {
+              throw error;
+            }
+            // Lexing the piece alone throws ParseError for a token that the end of the stream cuts, such as a string.
+            const { depth } = closingEnd(bytes, token.start, 0, context);
+            this.open = { pieces: [bytes.subarray(token.start)], stream, offset: token.start, depth };
+            return;
+          }
+          lexer.seek(unfinished.position);
+          this.append(operand, stream, token.start);
+          continue;
         }
         this.append(parseObject(lexer, this.maxNesting, MAX_CONTENT_OPERANDS), stream, token.start);
         continue;
@@ -154,7 +246,7 @@ class OperationReader {
 
 /**
  * Reads content operations with their parsed operands (ISO 32000-1:2008, 7.8.2), from one stream or from the streams of a page's Contents array.
- * Streams are lexed one at a time with one operand stack across them: Table 30 says "The division between streams may occur only at the boundaries between lexical tokens", so no token spans two streams but an operation may.
+ * Streams are lexed one at a time with one operand stack across them: Table 30 says "The division between streams may occur only at the boundaries between lexical tokens", so no token spans two streams but an operation, or an array or dictionary operand, may.
  * Operands left after the last operator are the generator's return value. Iterating throws ParseError for an operand that cannot be read, such as an unterminated string, and ResourceLimitError for nesting deeper than maxNesting.
  */
 export const readContentSpans = function* (
@@ -164,7 +256,7 @@ export const readContentSpans = function* (
   const reader = new OperationReader(maxNesting);
   const streams: ReadonlyArray<Uint8Array> = Array.isArray(content) ? content : [content];
   for (const [index, bytes] of streams.entries()) {
-    yield* reader.read(bytes, index);
+    yield* reader.read(bytes, index, index === streams.length - 1);
   }
   return yield* reader.finish();
 };
