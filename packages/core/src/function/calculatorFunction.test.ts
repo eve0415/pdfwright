@@ -26,6 +26,11 @@ describe('calculator operators', () => {
     expect(calculator('{ -1.5 round }')([])).toStrictEqual([-1]);
   });
 
+  it('rounds to the nearest integer where adding one half would itself round', () => {
+    // 0.49999999999999994 + 0.5 and 4503599627370497 + 0.5 both round up to the next double, so floor(x + 0.5) is one too high for each.
+    expect([calculator('{ 0.49999999999999994 round }')([]), calculator('{ 4503599627370497 round }')([])]).toStrictEqual([[0], [4_503_599_627_370_497]]);
+  });
+
   it('compares boolean operands in eq and ne', () => {
     expect(calculator('{ true true eq { 1 } { 0 } ifelse }')([])).toStrictEqual([1]);
     expect(calculator('{ true false ne { 1 } { 0 } ifelse }')([])).toStrictEqual([1]);
