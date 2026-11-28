@@ -65,7 +65,12 @@ describe('appending page content', () => {
         if (key === 'subarray') {
           return target.subarray.bind(target);
         }
-        return typeof key === 'string' && /^\d+$/u.test(key) ? target[Number(key)] : undefined;
+        if (typeof key === 'string' && /^\d+$/u.test(key)) {
+          return target[Number(key)];
+        }
+        // Every other property is forwarded unbound, so a native method such as the iterator is called with the proxy as its receiver.
+        const forwarded: unknown = Reflect.get(target, key);
+        return forwarded;
       },
     });
     expect(() => {
@@ -89,7 +94,12 @@ describe('appending page content', () => {
         if (key === 'length') {
           return target.length;
         }
-        return key === 'subarray' ? target.subarray.bind(target) : undefined;
+        if (key === 'subarray') {
+          return target.subarray.bind(target);
+        }
+        // Every other property is forwarded unbound, so a native method such as the iterator is called with the proxy as its receiver.
+        const forwarded: unknown = Reflect.get(target, key);
+        return forwarded;
       },
     });
     document.page(0).appendContent(proxied, { isolate: false });
