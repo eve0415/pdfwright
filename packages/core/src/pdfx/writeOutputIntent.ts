@@ -226,12 +226,8 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
     catalog.set(key('Version'), pdfName('1.6'));
   }
   document.set(root, pdfDictionary(catalog));
-  // Intents may list one intent twice or share a profile, and a reference to a free object or another generation names no object (ISO 32000-1:2008, 7.3.10), so only an object still in use at the referenced generation is deleted.
-  // Past that check, delete refuses only an object stream that holds objects in use (ISO 32000-1:2008, 7.5.7), which those objects still need, so it is kept.
+  // Intents may list one intent twice or share a profile, and a reference to a free object or another generation names no object (ISO 32000-1:2008, 7.3.10); delete refuses those, and an object stream that holds objects in use (7.5.7), which those objects still need, so each of them is kept.
   const remove = (reference: PdfReference): void => {
-    if (internals.objects.generationOf(reference.objectNumber) !== reference.generation) {
-      return;
-    }
     try {
       document.delete(reference);
     } catch (error: unknown) {
