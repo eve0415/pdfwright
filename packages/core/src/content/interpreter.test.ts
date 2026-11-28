@@ -10,6 +10,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { FontCache } from '../font/loadFont.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 import { textPdf, textPdfBytes } from '../testing/textPdf.ts';
 
@@ -351,6 +352,79 @@ describe('text state', () => {
     expect(() => interpretPage(document, 0, { maxGlyphs: -1 })).toThrow(InvalidArgumentError);
     expect(() => interpretPage(document, 0, { maxGlyphs: 1.5 })).toThrow(InvalidArgumentError);
     expect(interpretPage(document, 0, { maxGlyphs: 0 }).complete).toBe(true);
+  });
+});
+
+// Fonts W1 and W2 share an embedded CMap of 2000 one-code ranges <0000> to <07CF>: the code FFFF matches none, so it costs 4000 checks, 2000 to read and 2000 to consume as invalid.
+const WIDE_RANGES = Array.from({ length: 2000 }, (_, index) => `<${index.toString(16).padStart(4, '0')}>`.repeat(2));
+const WIDE_CMAP = Array.from(
+  { length: 20 },
+  (_, block) => `100 begincodespacerange ${WIDE_RANGES.slice(block * 100, block * 100 + 100).join(' ')} endcodespacerange`,
+).join('\n');
+// The 4 codespace ranges of 90ms-RKSJ-H (ISO 32000-1:2008, 9.7.5.4, EXAMPLE): the code 8140 is compared with the two 1-byte ranges and then with <8140> <9FFC>, so it costs 3 checks.
+const SHIFT_JIS_CMAP = '4 begincodespacerange <00> <80> <8140> <9FFC> <A0> <DF> <E040> <FCFC> endcodespacerange';
+const sharing = (cmap: string): Array<TestObject> => [
+  CID_FONT,
+  { number: 120, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding 122 0 R/DescendantFonts[104 0 R]>>' },
+  { number: 121, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding 122 0 R/DescendantFonts[104 0 R]>>' },
+  { number: 122, body: streamBody('/Type/CMap/CMapName/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>', cmap) },
+];
+const SHARING_RESOURCES = '/Font<</W1 120 0 R/W2 121 0 R>>';
+
+describe('codespace checks', () => {
+  it('counts the checks of every string a page shows against one limit, so many short strings end in ResourceLimitError', () => {
+    // One TJ operation shows 1300 strings of two misses, 8000 checks each: the first 1250 take the count to its limit of 10,000,000, and the next check passes it.
+    const content = `BT /W1 1 Tf [${'<FFFFFFFF> '.repeat(650)}] TJ /W2 1 Tf [${'<FFFFFFFF> '.repeat(650)}] TJ ET`;
+    const document = textPdf({ pages: [{ content, resources: SHARING_RESOURCES }], objects: sharing(WIDE_CMAP) });
+    const shown: Array<number> = [];
+    let thrown: unknown;
+    try {
+      interpretPage(document, 0, {
+        text: event => {
+          shown.push(event.glyphs.length);
+        },
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ResourceLimitError);
+    expect(thrown).toMatchObject({ code: 'resource-limit' });
+    expect(shown).toStrictEqual(Array.from({ length: 1250 }, () => 2));
+  });
+
+  it('counts each page apart, so pages of a document sharing one font cache and one CMap each have the whole limit', () => {
+    // Each page shows 1500 misses, 6,000,000 checks: the two pages together pass the limit of 10,000,000 and each alone does not.
+    const page = { content: `BT /W1 1 Tf <${'FFFF'.repeat(750)}> Tj /W2 1 Tf <${'FFFF'.repeat(750)}> Tj ET`, resources: SHARING_RESOURCES };
+    const document = textPdf({ pages: [page, page], objects: sharing(WIDE_CMAP) });
+    const fonts = new FontCache(document, undefined);
+    const shown = [0, 1].map(index => {
+      const glyphs: Array<number> = [];
+      interpretPage(document, index, {
+        fonts,
+        text: event => {
+          glyphs.push(event.glyphs.length);
+        },
+      });
+      return glyphs;
+    });
+    expect(shown).toStrictEqual([
+      [750, 750],
+      [750, 750],
+    ]);
+  });
+
+  it('shows 999,000 codes of two fonts that share a CMap of the 90ms-RKSJ-H ranges on one page', () => {
+    // 999,000 codes 8140 cost 2,997,000 checks, within the limit and within the default maxGlyphs of 1,000,000.
+    const string = `<${'8140'.repeat(166_500)}>`;
+    const content = `BT /W1 1 Tf ${string} Tj ${string} Tj ${string} Tj /W2 1 Tf ${string} Tj ${string} Tj ${string} Tj ET`;
+    const document = textPdf({ pages: [{ content, resources: SHARING_RESOURCES }], objects: sharing(SHIFT_JIS_CMAP) });
+    const shown: Array<number> = [];
+    interpretPage(document, 0, {
+      text: event => {
+        shown.push(event.glyphs.length);
+      },
+    });
+    expect(shown).toStrictEqual(Array.from({ length: 6 }, () => 166_500));
   });
 });
 
