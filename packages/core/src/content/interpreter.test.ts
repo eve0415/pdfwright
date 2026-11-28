@@ -370,6 +370,8 @@ const sharing = (cmap: string): Array<TestObject> => [
   { number: 122, body: streamBody('/Type/CMap/CMapName/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>', cmap) },
 ];
 const SHARING_RESOURCES = '/Font<</W1 120 0 R/W2 121 0 R>>';
+// A string of codes FFFF, each a miss in the shared CMap of 2000 ranges.
+const misses = (count: number): string => `<${'FFFF'.repeat(count)}>`;
 
 describe('codespace checks', () => {
   it('counts the checks of every string a page shows against one limit, so many short strings end in ResourceLimitError', () => {
@@ -394,7 +396,6 @@ describe('codespace checks', () => {
 
   it('counts the checks of a form, a tiling pattern cell and an annotation appearance against the limit of the page that draws them', () => {
     // 625 misses in each of the page, the form and the pattern cell take 7,500,000 checks; the annotation appearance's 626th miss passes 10,000,000 and none of the four streams does alone.
-    const misses = (count: number): string => `<${'FFFF'.repeat(count)}>`;
     const nested = `/Resources<<${SHARING_RESOURCES}>>`;
     const objects = [
       ...sharing(WIDE_CMAP),
