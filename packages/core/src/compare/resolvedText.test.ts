@@ -198,6 +198,27 @@ describe('reference cycles', () => {
   });
 });
 
+describe('wide values', () => {
+  // Wider than the arguments a call can take on any engine the library runs on.
+  const WIDEST = 200_000;
+
+  it('reads an array of many items', () => {
+    const internals = internalsOrThrow([`[${'1 '.repeat(WIDEST)}2]`]);
+    expect(new ResolvedTexts(internals).text(internals.objects.deref(pdfReference(FIRST, 0)))).toBe(`[${'n1 '.repeat(WIDEST)}n2]`);
+  });
+
+  it('reads a dictionary of many entries', () => {
+    const entries = Array.from({ length: WIDEST }, (_, index) => `/K${String(index)} ${String(index % 2)}`);
+    const internals = internalsOrThrow([
+      `<<${entries.join('')}>>`,
+      `<<${entries.toReversed().join('')}>>`,
+      `<<${entries.with(-1, `/K${String(WIDEST - 1)} 2`).join('')}>>`,
+    ]);
+    const texts = [FIRST, 21, 22].map(number => new ResolvedTexts(internals).text(internals.objects.deref(pdfReference(number, 0))));
+    expect([texts[0] === texts[1], texts[0] === texts[2]]).toStrictEqual([true, false]);
+  });
+});
+
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
 const anyObjects = fc.integer({ min: 1, max: 4 }).chain(count => {
   const item = fc.oneof(
