@@ -38,7 +38,75 @@ const internalsFor = (bodies: ReadonlyArray<string>): DocumentInternals | undefi
   return internalsOf(loadDocument(buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes));
 };
 
+const internalsOrThrow = (bodies: ReadonlyArray<string>): DocumentInternals => {
+  const internals = internalsFor(bodies);
+  if (internals === undefined) {
+    throw new Error('the document has no internals');
+  }
+  return internals;
+};
+
+// The texts of the objects numbered FIRST + index in `order`, worked out one after another by one ResolvedTexts and each by a fresh one.
+const textsInOrder = (bodies: ReadonlyArray<string>, order: ReadonlyArray<number>) => {
+  const internals = internalsOrThrow(bodies);
+  const shared = new ResolvedTexts(internals);
+  return {
+    shared: order.map(index => shared.text(pdfReference(FIRST + index, 0))),
+    alone: order.map(index => new ResolvedTexts(internals).text(pdfReference(FIRST + index, 0))),
+  };
+};
+
+const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
+  items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
+
+describe('reference cycles', () => {
+  // ISO 32000-1:2008, 7.3.7 gives the order of dictionary entries no meaning, so the text of an object cannot depend on which object a walk met first.
+  it.each([
+    { name: 'a two-object cycle', bodies: ['[21 0 R 1]', '[20 0 R 2]'] },
+    { name: 'a three-object cycle', bodies: ['[21 0 R 1]', '[22 0 R 2]', '[20 0 R 3]'] },
+    { name: 'a self-reference and an object that refers to it', bodies: ['[20 0 R 1]', '[20 0 R 2]'] },
+    { name: 'a cycle and an acyclic object that leads into it', bodies: ['[21 0 R 1]', '[20 0 R 2]', '<</K 20 0 R/L 21 0 R>>'] },
+  ])('gives each object the same text in every order, for $name', ({ bodies }) => {
+    for (const order of permutations([...bodies.keys()])) {
+      const { shared, alone } = textsInOrder(bodies, order);
+      expect(shared).toStrictEqual(alone);
+    }
+  });
+
+  it('distinguishes cycles whose objects hold different values', () => {
+    const [one, two] = [textsInOrder(['[21 0 R 1]', '[20 0 R 2]'], [0, 1]).alone, textsInOrder(['[21 0 R 1]', '[20 0 R 3]'], [0, 1]).alone];
+    expect([one[0] === two[0], one[1] === two[1], one[0] === one[1]]).toStrictEqual([false, false, false]);
+  });
+});
+
+// Objects whose references may lead anywhere among them, so that cycles of any length arise.
+const anyObjects = fc.integer({ min: 1, max: 4 }).chain(count => {
+  const item = fc.oneof(
+    fc.integer({ min: 0, max: 2 }).map(String),
+    fc.integer({ min: 0, max: count - 1 }).map(index => `${String(FIRST + index)} 0 R`),
+  );
+  return fc.array(
+    fc.oneof(
+      fc.array(item, { maxLength: 3 }).map(items => `[${items.join(' ')}]`),
+      fc.array(item, { maxLength: 3 }).map(items => `<<${items.map((value, position) => `/K${String(position)} ${value}`).join('')}>>`),
+    ),
+    { minLength: count, maxLength: count },
+  );
+});
+
 describe('properties', () => {
+  it('gives an object the same text whichever objects had their texts worked out before it, when references form cycles', () => {
+    const graphs = anyObjects.chain(bodies =>
+      fc.record({ bodies: fc.constant(bodies), order: fc.shuffledSubarray([...bodies.keys()], { minLength: bodies.length, maxLength: bodies.length }) }),
+    );
+    fc.assert(
+      fc.property(graphs, ({ bodies, order }) => {
+        const { shared, alone } = textsInOrder(bodies, order);
+        expect(shared).toStrictEqual(alone);
+      }),
+    );
+  });
+
   it('gives an object the same text whichever objects had their texts worked out before it', () => {
     const graphs = acyclicObjects.chain(bodies =>
       fc.record({ bodies: fc.constant(bodies), order: fc.shuffledSubarray([...bodies.keys()], { minLength: bodies.length, maxLength: bodies.length }) }),

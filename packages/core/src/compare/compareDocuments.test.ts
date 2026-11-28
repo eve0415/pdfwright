@@ -319,28 +319,60 @@ const documentSpec: fc.Arbitrary<DocumentSpec> = fc.array(pageSpec, { minLength:
   }),
 );
 
-// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, and a page and its content for each page.
-const objectNumbers = (spec: DocumentSpec): Array<number> => [1, 2, 3, 4, 5, 6, 7, 8, ...spec.pages.flatMap((_, index) => [10 + 2 * index, 11 + 2 * index])];
+// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, a page and its content for each page, the fonts' encodings and the content's decode parameters.
+const objectNumbers = (spec: DocumentSpec): Array<number> => [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  ...spec.pages.flatMap((_, index) => [10 + 2 * index, 11 + 2 * index]),
+  30,
+  31,
+  32,
+  33,
+  34,
+];
 
-// Writes the document with each object number n written as number(n), so that one shape can be numbered in different ways.
-const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = logical => logical): Uint8Array => {
+const hexText = (text: string): string => Array.from(text, character => (character.codePointAt(0) ?? 0).toString(16).padStart(2, '0')).join('');
+
+// Writes the document with each object number n written as number(n), so that one shape can be numbered in different ways, and with each page's fonts listed in reverse when `reversed` is set.
+// The fonts' encodings form one reference cycle and the content streams' decode parameters another, and different pages and fonts enter each cycle at different objects.
+const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = logical => logical, reversed = false): Uint8Array => {
   const ref = (logical: number): string => `${String(number(logical))} 0 R`;
+  const fontEntries = (fonts: ReadonlyArray<number>): string =>
+    (reversed ? fonts.toReversed() : fonts).map(font => `/F${String(font)} ${ref(3 + font)}`).join('');
   const objects: Array<TestObject> = [
     { number: number(1), body: `<</Type/Catalog/Pages ${ref(2)}${spec.outline === null ? '' : `/Outlines ${ref(7)}`}>>` },
     {
       number: number(2),
       body: `<</Type/Pages/Kids[${spec.pages.map((_, index) => ref(10 + 2 * index)).join(' ')}]/Count ${String(spec.pages.length)}/MediaBox[0 0 200 300]>>`,
     },
-    ...FONTS.map((font, index): TestObject => ({ number: number(3 + index), body: `<</Type/Font/Subtype/Type1/BaseFont/${font}>>` })),
+    ...FONTS.map((font, index): TestObject => ({
+      number: number(3 + index),
+      body: `<</Type/Font/Subtype/Type1/BaseFont/${font}/Encoding ${ref(30 + index)}>>`,
+    })),
+    ...FONTS.map((_, index): TestObject => ({
+      number: number(30 + index),
+      body: `<</Type/Encoding/Differences[32/g${String(index)}]/Next ${ref(30 + ((index + 1) % FONTS.length))}>>`,
+    })),
+    { number: number(33), body: `<</Next ${ref(34)}>>` },
+    { number: number(34), body: `<</Next ${ref(33)}>>` },
     { number: number(6), body: `<</Title(${spec.title ?? ''})>>` },
     { number: number(7), body: `<</Count 1/First ${ref(8)}/Last ${ref(8)}>>` },
     { number: number(8), body: `<</Title(Item)/Parent ${ref(7)}/Dest[${ref(10 + 2 * (spec.outline ?? 0))}/Fit]>>` },
     ...spec.pages.flatMap((page, index): Array<TestObject> => [
       {
         number: number(10 + 2 * index),
-        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${page.fonts.map(font => `/F${String(font)} ${ref(3 + font)}`).join('')}>>>>>>`,
+        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${fontEntries(page.fonts)}>>>>>>`,
       },
-      { number: number(11 + 2 * index), body: streamBody('', page.operations.join(' ')) },
+      {
+        number: number(11 + 2 * index),
+        body: streamBody(`/Filter/ASCIIHexDecode/DecodeParms ${ref(33 + (index % 2))}`, `${hexText(page.operations.join(' '))}>`),
+      },
     ]),
   ];
   return buildPdf([{ xref: 'classic', objects, trailer: `/Root ${ref(1)}${spec.title === null ? '' : `/Info ${ref(6)}`}` }]).bytes;
@@ -399,7 +431,7 @@ describe('properties', () => {
     );
   });
 
-  it('finds no difference between documents that number the same objects differently', () => {
+  it('finds no difference between documents that number the same objects differently and list fonts in another order', () => {
     const renumbered = documentSpec.chain(spec => {
       const numbers = objectNumbers(spec);
       return fc.record({ spec: fc.constant(spec), order: fc.shuffledSubarray(numbers, { minLength: numbers.length, maxLength: numbers.length }) });
@@ -408,7 +440,7 @@ describe('properties', () => {
       fc.property(renumbered, ({ spec, order }) => {
         const numbers = objectNumbers(spec);
         const mapping = new Map(numbers.map((logical, index) => [logical, order[index] ?? logical]));
-        const comparison = compareDocuments(loadDocument(writeSpec(spec)), loadDocument(writeSpec(spec, logical => mapping.get(logical) ?? logical)));
+        const comparison = compareDocuments(loadDocument(writeSpec(spec)), loadDocument(writeSpec(spec, logical => mapping.get(logical) ?? logical, true)));
         expect(comparison).toStrictEqual({ equal: true, differences: [] });
       }),
     );
