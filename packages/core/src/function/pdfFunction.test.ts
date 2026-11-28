@@ -314,6 +314,7 @@ describe('exponential functions', () => {
     expect([pair([0.5]), clipped([0.25]), clipped([1])]).toStrictEqual([[0.5, 1], [0.25], [0.5]]);
   });
 
+  // ISO 32000-1:2008, 7.10.3, Table 40: the function has one input, C0 and C1 have one value per output, and N is required.
   it.each([
     ['C0 and C1 of different lengths', { C0: numbers([0, 0]), N: pdfInteger(1) }, /differ/],
     ['a Domain of two inputs', { Domain: numbers([0, 1, 0, 1]), N: pdfInteger(1) }, /one input/],
@@ -337,6 +338,7 @@ describe('stitching functions', () => {
     expect([step([0.499]), step([0.5]), last([1])]).toStrictEqual([[0], [1], [0.7]]);
   });
 
+  // ISO 32000-1:2008, 7.10.4: Encode maps each subdomain onto the Domain of its subfunction, so a reversed pair reverses it.
   it('maps each subdomain through its Encode pair', () => {
     const reversed = createPdfFunction(
       functionObject(3, { Functions: pdfArray([identity(), identity()]), Bounds: numbers([0.5]), Encode: numbers([1, 0, 0, 1]) }),
@@ -344,6 +346,7 @@ describe('stitching functions', () => {
     expect([reversed([0.125]), reversed([0.75])]).toStrictEqual([[0.75], [0.5]]);
   });
 
+  // ISO 32000-1:2008, 7.10.4, Table 41: the function has one input, k subfunctions with k - 1 Bounds and 2k Encode values.
   it.each([
     ['Bounds of the wrong length', { Bounds: numbers([0.25, 0.5]) }, /invalid stitching intervals/],
     ['Encode of the wrong length', { Encode: numbers([0, 1]) }, /invalid stitching intervals/],
@@ -378,6 +381,7 @@ describe('function dictionaries', () => {
     expect([point([0]), unclipped([1])]).toStrictEqual([[0.5], [2]]);
   });
 
+  // ISO 32000-1:2008, 7.10.1, Table 38: FunctionType and Domain are required, and Domain and Range are pairs of a minimum no greater than a maximum.
   it.each([
     ['a missing FunctionType', bareFunction({ Domain: numbers([0, 1]), N: pdfInteger(1) }), /FunctionType must be a number/],
     ['an integer object', pdfInteger(2), /dictionary or stream/],
