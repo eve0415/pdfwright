@@ -57,16 +57,17 @@ export const parseNativeLiteral = (literal: string, offset: number): string => {
   if (!literal.startsWith('(') || !literal.endsWith(')')) {
     throw new ParseError('expected a PostScript literal string', offset);
   }
+  const end = literal.length - 1;
   let result = '';
-  for (let index = 1; index < literal.length - 1; index++) {
+  for (let index = 1; index < end; index++) {
     const character = literal.charAt(index);
     if (character === '\\') {
       index++;
-      const escaped = literal[index];
-      if (escaped === undefined) {
-        throw new ParseError('truncated PostScript string escape', offset);
+      // A backslash before the final parenthesis escapes it, so nothing closes the string.
+      if (index === end) {
+        throw new ParseError('unterminated PostScript literal string', offset);
       }
-      result += escaped;
+      result += literal.charAt(index);
     } else {
       result += character;
     }
