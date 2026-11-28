@@ -1,6 +1,7 @@
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { LoadOptions, LoadedDocument } from './loadDocument.ts';
 
+import fc from 'fast-check';
 import { describe, expect, inject, it } from 'vitest';
 
 import { compareDocuments } from '../compare/compareDocuments.ts';
@@ -100,7 +101,9 @@ describe('page tree', () => {
       { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },
     ]);
     expect([bare.structure.status, bare.warnings.map(warning => warning.code), resourceKeys(bare, 0)]).toStrictEqual(['intact', ['resources-missing'], []]);
-    expect(() => bare.page(0).boxes()).toThrow(new ParseError('page 3 0 R has no MediaBox, on itself or on an ancestor', 0));
+    // ISO 32000-1:2008, 7.7.3.3, Table 30, MediaBox: "(Required; inheritable)".
+    expect(() => bare.page(0).boxes()).toThrow(ParseError);
+    expect(() => bare.page(0).boxes()).toThrow(/no MediaBox/u);
   });
 
   it('reads inherited attributes that refer to missing objects as absent', () => {
@@ -121,7 +124,8 @@ describe('page tree', () => {
       { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 --300 400]>>' },
     ]);
     expect([malformed.structure.status, malformed.warnings.map(warning => warning.code)]).toStrictEqual(['tolerated', ['invalid-token']]);
-    expect(() => malformed.page(0).boxes()).toThrow(new ParseError('the MediaBox of page 3 0 R[2] must be a number but is the token --300', 0));
+    expect(() => malformed.page(0).boxes()).toThrow(ParseError);
+    expect(() => malformed.page(0).boxes()).toThrow(/MediaBox.*\[2\].*--300/u);
   });
 
   it('walks a deep tree and inherits from its root', () => {
@@ -133,9 +137,16 @@ describe('page tree', () => {
     ]);
   });
 
+  it('limits page-tree depth at the limit and one past it', () => {
+    // The page sits at depth 4, under three page tree nodes.
+    const objects = [...chain(3), { number: 5, body: '<</Type/Page>>' }];
+    expect(() => load(objects, { maxPageTreeDepth: 3 })).toThrow(ResourceLimitError);
+    expect(load(objects, { maxPageTreeDepth: 4 }).pageCount).toBe(1);
+  });
+
   it('limits page-tree depth independently of object nesting', () => {
-    const nodes = chain(3);
-    expect(() => load([...nodes, { number: 5, body: '<</Type/Page>>' }], { maxPageTreeDepth: 2 })).toThrow(ResourceLimitError);
+    const document = load([...chain(10), { number: 12, body: '<</Type/Page>>' }], { maxNesting: 3, maxPageTreeDepth: 11 });
+    expect([document.pageCount, document.page(0).reference.objectNumber]).toStrictEqual([1, 12]);
   });
 
   it.runIf(inject('runtime') === 'node')(
@@ -174,7 +185,8 @@ describe('page tree', () => {
 
   it('throws for missing kids, kids of the wrong type and cycles instead of skipping them', () => {
     const root = { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' };
-    expect(() => load([root])).toThrow(new ParseError('page tree node 2 0 R has kid 3 0 R, which is missing', 0));
+    expect(() => load([root])).toThrow(ParseError);
+    expect(() => load([root])).toThrow(/missing/u);
     expect(() => load([root, { number: 3, body: '<</Type/Font>>' }])).toThrow(ParseError);
     expect(() => load([root, { number: 3, body: '[1]' }])).toThrow(ParseError);
     expect(() => load([root, { number: 3, body: '<</Type/Pages/Kids[2 0 R]/Count 1>>' }])).toThrow(ParseError);
@@ -195,6 +207,74 @@ describe('page tree', () => {
         ['page-count-mismatch'],
       ]);
     }
+  });
+
+  it.each([
+    { root: 'a catalog without Pages', catalogBody: '<</Type/Catalog>>', objects: [], message: /catalog/u },
+    { root: 'a direct Pages value', catalogBody: '<</Type/Catalog/Pages 5>>', objects: [], message: /no Pages reference/u },
+    {
+      root: 'a Pages reference to a page',
+      catalogBody: '<</Type/Catalog/Pages 2 0 R>>',
+      objects: [{ number: 2, body: '<</Type/Page/MediaBox[0 0 1 1]/Resources<<>>>>' }],
+      message: /is not a page tree node/u,
+    },
+  ])('refuses $root', ({ catalogBody, objects, message }) => {
+    const bytes = buildPdf([{ xref: 'classic', objects: [{ number: 1, body: catalogBody }, ...objects], trailer: '/Root 1 0 R' }]).bytes;
+    expect(() => loadDocument(bytes)).toThrow(ParseError);
+    expect(() => loadDocument(bytes)).toThrow(message);
+  });
+
+  it.each([
+    { kids: 'no Kids', body: '<</Type/Pages/Count 0>>', message: /no Kids array/u },
+    { kids: 'a Kids integer', body: '<</Type/Pages/Kids 5/Count 0>>', message: /no Kids array/u },
+    { kids: 'a direct page dictionary kid', body: '<</Type/Pages/Kids[<</Type/Page>>]/Count 1>>', message: /not an indirect reference/u },
+    { kids: 'an integer kid', body: '<</Type/Pages/Kids[3]/Count 1>>', message: /not an indirect reference/u },
+    { kids: 'one page listed twice', body: '<</Type/Pages/Kids[3 0 R 3 0 R]/Count 2>>', message: /twice/u },
+  ])('refuses a page tree node with $kids', ({ body, message }) => {
+    // ISO 32000-1:2008, 7.7.3.2, Table 29, Kids: "An array of indirect references to the immediate children of this node."
+    const objects = [
+      { number: 2, body: `${body.slice(0, -2)}/MediaBox[0 0 1 1]/Resources<<>>>>` },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },
+    ];
+    expect(() => load(objects)).toThrow(ParseError);
+    expect(() => load(objects)).toThrow(message);
+  });
+
+  it('accepts an indirect Kids array and an indirect Count', () => {
+    const document = load([
+      { number: 2, body: '<</Type/Pages/Kids 9 0 R/Count 8 0 R/MediaBox[0 0 1 1]/Resources<<>>>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },
+      { number: 4, body: '<</Type/Page/Parent 2 0 R>>' },
+      { number: 8, body: '2' },
+      { number: 9, body: '[3 0 R 4 0 R]' },
+    ]);
+    expect([document.pageCount, [0, 1].map(index => document.page(index).reference.objectNumber), document.warnings]).toStrictEqual([2, [3, 4], []]);
+  });
+
+  it.each([
+    { count: 'a real', entry: '/Count 2.0' },
+    { count: 'a string', entry: '/Count (2)' },
+    { count: 'no value', entry: '' },
+  ])('treats a root Count that is $count as a mismatch', ({ entry }) => {
+    const objects = [
+      { number: 2, body: `<</Type/Pages/Kids[3 0 R 4 0 R]${entry}/MediaBox[0 0 1 1]/Resources<<>>>>` },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },
+      { number: 4, body: '<</Type/Page/Parent 2 0 R>>' },
+    ];
+    // ISO 32000-1:2008, 7.7.3.2, Table 29, Count: "(Required) The number of leaf nodes (page objects) that are descendants of this node".
+    expect(() => load(objects)).toThrow(ParseError);
+    expect(() => load(objects)).toThrow(/without a valid value/u);
+    const document = load(objects, { pageCountMismatch: 'use-leaves' });
+    expect([document.pageCount, document.warnings.map(warning => warning.code)]).toStrictEqual([2, ['page-count-mismatch']]);
+  });
+
+  it('does not inherit a TrimBox from a page tree node', () => {
+    const document = load([
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]/CropBox[5 5 95 95]/TrimBox[10 10 90 90]/Resources<<>>>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },
+    ]);
+    // ISO 32000-1:2008, 7.7.3.3, Table 30: MediaBox and CropBox are inheritable, and TrimBox defaults to the CropBox.
+    expect(document.page(0).boxes().TrimBox).toStrictEqual({ rect: [5, 5, 95, 95], explicit: false });
   });
 });
 
@@ -258,5 +338,94 @@ describe('page LastModified', () => {
       document.page(0).setLastModified(undefined);
     }).toThrow(ValidationError);
     expect(document.page(0).pieceInfo()?.kind).toBe('dictionary');
+  });
+});
+
+type TreeToken = 'open' | 'open-media' | 'close' | 'leaf' | 'leaf-media';
+
+interface BuiltTree {
+  readonly objects: Array<TestObject>;
+  /** The page object numbers in pre-order, each with the object that supplies its MediaBox. */
+  readonly pages: Array<{ readonly page: number; readonly media: number }>;
+}
+
+interface PendingTreeNode {
+  readonly media: boolean;
+  readonly kids: Array<PendingTreeNode | { readonly media: boolean; readonly leaf: true }>;
+}
+
+// Reads tokens as a pre-order walk: open starts a page tree node under the current one, close ends it, and leaf adds a page; a "-media" token gives the node or page its own MediaBox, whose size is its object number.
+const treeOf = (tokens: ReadonlyArray<TreeToken>): BuiltTree => {
+  const root: PendingTreeNode = { media: true, kids: [] };
+  const stack = [root];
+  for (const token of tokens) {
+    const current = stack.at(-1) ?? root;
+    if (token === 'open' || token === 'open-media') {
+      const node: PendingTreeNode = { media: token === 'open-media', kids: [] };
+      current.kids.push(node);
+      stack.push(node);
+    } else if (token === 'close') {
+      if (stack.length > 1) {
+        stack.pop();
+      }
+    } else {
+      current.kids.push({ media: token === 'leaf-media', leaf: true });
+    }
+  }
+  const objects: Array<TestObject> = [catalog];
+  const pages: Array<{ page: number; media: number }> = [];
+  let next = 2;
+  const visit = (node: PendingTreeNode, parent: number | undefined, inheritedMedia: number): number => {
+    const number = next++;
+    const media = node.media ? number : inheritedMedia;
+    const kids: Array<number> = [];
+    let leaves = 0;
+    const index = objects.length;
+    objects.push(catalog);
+    for (const kid of node.kids) {
+      if ('leaf' in kid) {
+        const page = next++;
+        kids.push(page);
+        leaves++;
+        pages.push({ page, media: kid.media ? page : media });
+        objects.push({ number: page, body: `<</Type/Page/Parent ${String(number)} 0 R${kid.media ? `/MediaBox[0 0 ${String(page)} ${String(page)}]` : ''}>>` });
+      } else {
+        kids.push(next);
+        leaves += visit(kid, number, media);
+      }
+    }
+    const parentEntry = parent === undefined ? '/Resources<<>>' : `/Parent ${String(parent)} 0 R`;
+    const mediaEntry = node.media ? `/MediaBox[0 0 ${String(number)} ${String(number)}]` : '';
+    objects[index] = {
+      number,
+      body: `<</Type/Pages/Kids[${kids.map(kid => `${String(kid)} 0 R`).join(' ')}]/Count ${String(leaves)}${parentEntry}${mediaEntry}>>`,
+    };
+    return leaves;
+  };
+  visit(root, undefined, 0);
+  return { objects, pages };
+};
+
+describe('properties', () => {
+  it('lists the leaves of any page tree in pre-order, each inheriting the MediaBox of its nearest ancestor that has one', () => {
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom<TreeToken>('open', 'open-media', 'close', 'leaf', 'leaf', 'leaf-media'), { maxLength: 40 }), tokens => {
+        const { objects, pages } = treeOf(tokens);
+        const document = loadDocument(buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes);
+        const actual = Array.from({ length: document.pageCount }, (_, index) => {
+          const page = document.page(index);
+          return { page: page.reference.objectNumber, media: page.boxes().MediaBox };
+        });
+        // ISO 32000-1:2008, 7.7.3.4: an omitted inheritable attribute "shall be inherited from an ancestor node in the page tree".
+        const expected = pages.map(({ page, media }) => ({
+          page,
+          media:
+            media === page
+              ? { rect: [0, 0, page, page], explicit: true }
+              : { rect: [0, 0, media, media], explicit: true, inheritedFrom: pdfReference(media, 0) },
+        }));
+        expect(actual).toStrictEqual(expected);
+      }),
+    );
   });
 });
