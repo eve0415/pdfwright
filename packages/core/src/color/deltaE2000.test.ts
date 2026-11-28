@@ -62,6 +62,8 @@ describe('CIEDE2000', () => {
     { first: [50, -30, -60], second: [50, 10, 20], expected: 43.3569 },
     { first: [50, -60, 10], second: [50, 120, -20], expected: 63.462 },
     { first: [50, 120, -20], second: [50, -60, 10], expected: 63.462 },
+    { first: [50, -128, 2], second: [50, 64, -1], expected: 97.3545 },
+    { first: [50, 64, -1], second: [50, -128, 2], expected: 97.3545 },
     { first: [50, 128, 128], second: [50, -128, -128.01], expected: 109.8544 },
     { first: [50, 128, 128], second: [50, -128, -127.99], expected: 78.2262 },
   ])('gives ΔE00 $expected for $first against $second, around a hue difference of 180°', ({ first, second, expected }) => {
