@@ -29,8 +29,8 @@ export interface PieceInfoRecord {
   value: PdfDirectObject;
 }
 
-// A record's values are PieceData objects, never functions, so a callable `entries` marks the map whatever its realm, subclass, tag or proxy.
-const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => typeof data.entries === 'function';
+// A record is a plain object, which never has a Symbol.iterator, while a map, its subclass, one from another realm and a proxy over one all do.
+const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => Symbol.iterator in data;
 
 const dataEntries = (data: PieceDataEntries): Array<[string | Uint8Array, PieceData]> => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
 
