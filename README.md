@@ -197,7 +197,7 @@ The inspection functions bound content interpretation as follows. A form, tiling
 | Direct values in one operand, including the operand |     16,384 | Fixed           | `ResourceLimitError` |
 | CMap definitions and array destinations             |     65,536 | Fixed           | `ResourceLimitError` |
 | Definitions across a resolved `usecmap` chain       |     65,536 | Fixed           | `ResourceLimitError` |
-| Codespace checks per resolved CMap                  |  1,000,000 | Fixed           | `ResourceLimitError` |
+| Codespace checks per shown string                   |  1,000,000 | Fixed           | `ResourceLimitError` |
 | Glyphs extracted per page                           |  1,000,000 | `maxGlyphs`     | `ResourceLimitError` |
 | `matchText` comparisons and search steps            |  2,000,000 | Fixed           | `ResourceLimitError` |
 | Opaque-rectangle comparisons per page               |  4,000,000 | Fixed           | `ResourceLimitError` |
