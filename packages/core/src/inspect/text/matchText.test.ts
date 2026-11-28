@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
@@ -277,6 +278,12 @@ describe('text matching', () => {
       expect(run(folds)).toThrow(/folds/u);
     }
     expect([run(undefined)(), run([])()]).toStrictEqual(['match', 'match']);
+  });
+
+  it('throws ResourceLimitError when aligning the found text with the intended text passes the alignment work bound', () => {
+    // Two thousand glyphs of 山 against two thousand Ａ share no character, so the alignment takes more than 2,000,000 steps. The glyphs run past the page, so every one is selected, and they are kept, since equal glyphs in a row would collapse as copies.
+    const proof = page({ texts: ['山'], content: `BT /T 1 Tf 0 700 Td ${show(...Array.from({ length: 2000 }, () => 1))} ET` });
+    expect(() => matchText(proof, 'Ａ'.repeat(2000), { select: () => true, duplicates: 'keep' })).toThrow(ResourceLimitError);
   });
 
   it('leaves out glyphs outside the CropBox', () => {
