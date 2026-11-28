@@ -160,7 +160,9 @@ export class MetadataReader {
   // ISO 32000-1:2008, Table 28, Metadata: "(Optional; PDF 1.4; shall be an indirect reference) A metadata stream that shall contain metadata for the document".
   xmp(catalog: PdfDictionaryEntries | undefined): DocumentPacket | undefined {
     const stored = catalog?.get(METADATA);
-    const value = this.resolve(stored);
+    const resolved = this.resolve(stored);
+    // ISO 32000-1:2008, 7.3.7: a null value is treated as an absent entry, and 7.3.10 reads a reference to an undefined object as a reference to null.
+    const value = resolved?.kind === 'null' ? undefined : resolved;
     if (stored?.kind !== 'reference' || value === undefined) {
       this.report(value === undefined ? 'xmp-missing' : 'metadata-not-stream', 'the catalog has no metadata stream');
       return undefined;

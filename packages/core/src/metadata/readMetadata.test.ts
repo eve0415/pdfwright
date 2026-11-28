@@ -200,6 +200,11 @@ describe('reading document metadata', () => {
 
   it.each([
     ['a direct dictionary', '/Metadata<</Type/Metadata/Subtype/XML>>', [], 'metadata-not-stream'],
+    // ISO 32000-1:2008, 7.3.7 treats a null value as an absent entry, and 7.3.10 treats a reference to an undefined object as a reference to null.
+    ['a reference to a missing object', '/Metadata 9 0 R', [], 'xmp-missing'],
+    ['a reference to the null object', '/Metadata 9 0 R', [{ number: 9, body: 'null' }], 'xmp-missing'],
+    ['the null object', '/Metadata null', [], 'xmp-missing'],
+    ['a direct integer', '/Metadata 9', [], 'metadata-not-stream'],
     [
       'a stream whose filter cannot decode its data',
       '/Metadata 4 0 R',
