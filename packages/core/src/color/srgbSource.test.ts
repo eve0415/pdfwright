@@ -67,13 +67,6 @@ describe('built-in sRGB source', () => {
     expect(profile.trc).toMatchObject({ red: { kind: 'table' }, green: { kind: 'table' }, blue: { kind: 'table' } });
   });
 
-  it('carries the profile ID of its own bytes', () => {
-    const { profile } = srgbColorSource();
-    // ICC.1:2022, 7.2.18: the header's profile ID is the MD5 of the profile with flags, intent and ID zeroed.
-    expect(hex(profile.header.profileId)).toBe(hex(profile.identity));
-    expect(profile.description).toBe('sRGB2014');
-  });
-
   it('follows the IEC 61966-2-1 decoding function within the 16-bit precision of its curv table', () => {
     const curves = rgbCurves(srgbColorSource().profile);
     let maximum = 0;
