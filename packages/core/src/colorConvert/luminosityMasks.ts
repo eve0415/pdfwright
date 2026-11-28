@@ -69,9 +69,14 @@ interface MaskResource {
   readonly stateName: Uint8Array;
   readonly state: PdfDictionaryEntries;
   readonly mask: PdfDictionaryEntries;
+  /** The object number of the mask's group, which a copy replaces when the group is also drawn. */
+  readonly group: number;
+  /** False when the mask dictionary changes only if its group is copied. */
+  readonly changesMask: boolean;
 }
 
 export interface LuminosityPreparation {
+  /** Mask groups that only masks use; a group that is also drawn keeps its own group conversion, because its mask gets a copy. */
   readonly groupNumbers: ReadonlySet<number>;
   readonly changed: number;
   readonly kept: number;
@@ -558,7 +563,15 @@ const planRgbLuminosityMask = (
     }
   }
   const backdropGray = cie ? cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
-  scan.resources.push({ owner, resources, stateName: Uint8Array.from(name), state, mask: convertBackdrop(mask, backdropGray) });
+  scan.resources.push({
+    owner,
+    resources,
+    stateName: Uint8Array.from(name),
+    state,
+    mask: convertBackdrop(mask, backdropGray),
+    group: groupReference.objectNumber,
+    changesMask: true,
+  });
 };
 
 const planMask = (scan: MaskScan, input: { owner: PdfReference; resources: PdfDictionaryEntries; name: Uint8Array; state: PdfDictionaryEntries }): void => {
@@ -576,6 +589,18 @@ const planMask = (scan: MaskScan, input: { owner: PdfReference; resources: PdfDi
   const groupResources = own?.kind === 'dictionary' ? own.entries : resources;
   if (subtype === 'Alpha') {
     planAlphaMask(scan, { ...groupForm, resources: groupResources });
+    if (scan.groups.has(groupForm.reference.objectNumber)) {
+      const { owner, name } = input;
+      scan.resources.push({
+        owner,
+        resources,
+        stateName: Uint8Array.from(name),
+        state,
+        mask: maskValue.entries,
+        group: groupForm.reference.objectNumber,
+        changesMask: false,
+      });
+    }
     return;
   }
   planRgbLuminosityMask(scan, { ...input, mask: maskValue.entries, groupForm, groupResources });
@@ -801,7 +826,9 @@ const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: Re
   return mapped;
 };
 
-const applyGroups = (scan: MaskScan, discarded: Array<PdfReference>): void => {
+// A group stream that is also drawn with Do or as a carrier keeps its own content for that use, so the mask gets the converted group as a new object.
+const applyGroups = (scan: MaskScan, shared: ReadonlySet<number>, discarded: Array<PdfReference>): Map<number, PdfReference> => {
+  const copies = new Map<number, PdfReference>();
   for (const plan of scan.groups.values()) {
     const dictionary = new Entries(plan.form.dictionary.entries());
     const group = new Entries(plan.group.entries());
@@ -841,13 +868,22 @@ const applyGroups = (scan: MaskScan, discarded: Array<PdfReference>): void => {
       }
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
-    scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.data });
+    const stream: PdfStream = { kind: 'stream', dictionary, data: plan.data };
+    if (shared.has(plan.reference.objectNumber)) {
+      copies.set(plan.reference.objectNumber, scan.document.object(stream));
+    } else {
+      scan.document.set(plan.reference, stream);
+    }
   }
+  return copies;
 };
 
-const applyResources = (scan: MaskScan, discarded: Array<PdfReference>): void => {
+const applyResources = (scan: MaskScan, copies: ReadonlyMap<number, PdfReference>, discarded: Array<PdfReference>): void => {
   const grouped = new Map<number, Array<MaskResource>>();
   for (const plan of scan.resources) {
+    if (!plan.changesMask && !copies.has(plan.group)) {
+      continue;
+    }
     const list = grouped.get(plan.owner.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.owner.objectNumber, list);
@@ -868,7 +904,12 @@ const applyResources = (scan: MaskScan, discarded: Array<PdfReference>): void =>
       if (oldMask?.kind === 'reference') {
         discarded.push(oldMask);
       }
-      state.set(MASK, pdfDictionary(plan.mask));
+      const mask = new Entries(plan.mask.entries());
+      const copy = copies.get(plan.group);
+      if (copy !== undefined) {
+        mask.set(MASK_GROUP, copy);
+      }
+      state.set(MASK, pdfDictionary(mask));
       const oldState = original.entries.get(plan.stateName);
       if (oldState?.kind === 'reference') {
         discarded.push(oldState);
@@ -946,8 +987,9 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
       throw new ValidationError('mask carriers cannot be read', 'unreadable-resource');
     }
   }
+  const shared = new Set([...scan.groups.keys()].filter(number => scan.seenForms.has(number) || scan.seenCarriers.has(number)));
   return {
-    groupNumbers: new Set([...scan.groups.keys(), ...scan.kept]),
+    groupNumbers: new Set([...[...scan.groups.keys()].filter(number => !shared.has(number)), ...scan.kept]),
     changed: scan.groups.size,
     kept: scan.kept.size,
     approximated: scan.approximated.size,
@@ -956,8 +998,8 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
         return;
       }
       const discarded: Array<PdfReference> = [];
-      applyGroups(scan, discarded);
-      applyResources(scan, discarded);
+      const copies = applyGroups(scan, shared, discarded);
+      applyResources(scan, copies, discarded);
       deleteDiscarded(document, internals, discarded);
       internals.objects.requireFullRewrite('color-conversion');
     },
