@@ -2,17 +2,15 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { text as streamText } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 
 import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 
+import { runChecked, runQpdf } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { deltaE2000 } from '../color/deltaE2000.ts';
 import { xyzToLab } from '../color/pcs.ts';
@@ -85,11 +83,13 @@ const lowDepthMesh = (bits: 1 | 2 | 4, color: ReadonlyArray<number>): Uint8Array
 const transicc = async (rgb: ReadonlyArray<number>): Promise<Array<number>> => {
   const sourcePath = fileURLToPath(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url));
   const destinationPath = fileURLToPath(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url));
-  const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
-  child.stdin.end(`${rgb.map(value => value * 255).join(' ')}\n`);
-  const [output, closed] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
-  expect(closed[0]).toBe(0);
-  return output
+  const run = await runChecked(
+    'transicc',
+    ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0'],
+    new TextEncoder().encode(`${rgb.map(value => value * 255).join(' ')}\n`),
+  );
+  return new TextDecoder()
+    .decode(run.stdout)
     .trim()
     .split(/\s+/u)
     .map(value => Number(value) / 100);
@@ -872,9 +872,8 @@ describe('mesh shading conversion', () => {
     try {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, document.save().toBytes());
-      const child = spawn('qpdf', ['--check', file]);
-      const events: ReadonlyArray<unknown> = await once(child, 'close');
-      expect(events.at(0)).toBe(0);
+      // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+      await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

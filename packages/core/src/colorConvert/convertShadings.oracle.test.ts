@@ -2,8 +2,6 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,6 +9,7 @@ import { stdout } from 'node:process';
 
 import { describe, expect, it } from 'vitest';
 
+import { runQpdf } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { deltaE2000 } from '../color/deltaE2000.ts';
 import { xyzToLab } from '../color/pcs.ts';
@@ -622,10 +621,8 @@ describe('function shading conversion', () => {
     try {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, document.save().toBytes());
-      const child = spawn('qpdf', ['--check', file]);
-      const events: ReadonlyArray<unknown> = await once(child, 'close');
-      const code = events.at(0);
-      expect(code).toBe(0);
+      // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+      await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
