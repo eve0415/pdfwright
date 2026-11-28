@@ -265,6 +265,17 @@ describe('gts pdfx output intent', () => {
     expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX']);
   });
 
+  it('keeps an intent with the same profile while replacing one whose profile is not an ICC profile', () => {
+    const document = loadDocument(base().bytes);
+    const kept = outputIntent(document, 'GTS_PDFA1', profile);
+    const corrupt = outputIntent(document, 'ISO_PDFE1', new TextEncoder().encode('x'.repeat(200)));
+    setCatalogEntry(document, 'OutputIntents', pdfArray([kept.intentReference, corrupt.intentReference]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, result.profile]).toStrictEqual(['replaced', ['ISO_PDFE1'], kept.profileReference]);
+    expect([document.get(corrupt.intentReference), document.get(corrupt.profileReference)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+    expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
+  });
+
   it('reuses an identical indirect profile and refuses a conflicting one by default', () => {
     const { document, profileReference } = withIntent(profile);
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
