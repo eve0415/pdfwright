@@ -138,12 +138,12 @@ describe('properties', () => {
     );
   });
 
-  it('formats any 16 bytes as a distinct uuid: GUID', () => {
-    const sixteen = fc.uint8Array({ minLength: 16, maxLength: 16 });
+  it('formats any 16 bytes as a uuid: GUID that spells out every byte', () => {
     fc.assert(
-      fc.property(sixteen, sixteen, (left, right) => {
-        expect(formatUuid(left)).toMatch(/^uuid:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u);
-        expect(formatUuid(left) === formatUuid(right)).toBe(hex(left) === hex(right));
+      fc.property(fc.uint8Array({ minLength: 16, maxLength: 16 }), value => {
+        const formatted = formatUuid(value);
+        expect(formatted).toMatch(/^uuid:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u);
+        expect(formatted.slice('uuid:'.length).replaceAll('-', '')).toBe(hex(value));
       }),
     );
   });
