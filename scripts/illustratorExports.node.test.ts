@@ -8,9 +8,9 @@ import { describe, expect, it } from 'vitest';
 import { readIllustratorExportManifest } from './illustratorExports.ts';
 
 // The export directory is named `exports` inside a temporary parent, so a sibling such as `exports-evil` shares its name as a prefix.
-const inExportDirectory = async <T>(run: (root: string) => Promise<T>): Promise<T> => {
+const inExportDirectory = async <T>(run: (root: string) => Promise<T>, name = 'exports'): Promise<T> => {
   const parent = await mkdtemp(path.join(tmpdir(), 'pdfwright-exports-'));
-  const root = path.join(parent, 'exports');
+  const root = path.join(parent, name);
   try {
     await mkdir(root);
     return await run(root);
@@ -94,12 +94,19 @@ describe('local Illustrator export manifest', () => {
     { case: 'a parent-directory path', file: '../outside.pdf' },
     { case: 'a sibling directory that shares the name as a prefix', file: '../exports-evil/a.pdf' },
     { case: 'an absolute path', file: '/etc/a.pdf' },
-    { case: 'the directory itself', file: '' },
-    { case: 'the directory itself written as a dot', file: '.' },
     { case: 'an Illustrator file', file: 'sample.ai' },
     { case: 'a text file', file: 'notes.txt' },
   ])('refuses a sample file given as $case', async ({ file }) => {
     await expect(readManifest(withSample({ file }))).rejects.toThrow(/inside the selected directory/u);
+  });
+
+  // A directory named like a PDF passes the extension check, so only the rule that the file lies below the directory refuses it.
+  it.each(['', '.', '../exports.pdf'])('refuses the directory itself, given as %j, even when its name ends in .pdf', async file => {
+    const reading = inExportDirectory(async root => {
+      await writeManifest(root, JSON.stringify(withSample({ file })));
+      return readIllustratorExportManifest(root);
+    }, 'exports.pdf');
+    await expect(reading).rejects.toThrow(/inside the selected directory/u);
   });
 
   it.each([
