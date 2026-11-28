@@ -389,7 +389,7 @@ describe('page colour conversion', () => {
     expect(result.inlineImages).toBe(1);
     expect(readInline(result.bytes).samples).toStrictEqual(rgbRow([0, 0, 0]));
     expect(rgbRow([0, 0, 0])).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F [/A85 /Fl]');
   });
 
   it('writes a small converted inline image whose zlib data holds white space, EI and white space so that it reads back whole', () => {
@@ -705,7 +705,7 @@ describe('page colour conversion', () => {
     const output = new Float64Array(4);
     createColorTransform(srgb, destination, { intent: 'relativeColorimetric', blackPointCompensation: true }).convert(Float64Array.from(rgb), output);
     expect(readInline(result.bytes).samples).toStrictEqual(Uint8Array.from(output, value => Math.round(value * 255)));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F [/A85 /Fl]');
   });
 
   it('writes a 16-bit inline RGB pixel as 16-bit big-endian CMYK', () => {
@@ -717,7 +717,7 @@ describe('page colour conversion', () => {
       1,
     );
     expect(readInline(result.bytes).samples).toStrictEqual(Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256])));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 16 /CS /CMYK /F /Fl');
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 16 /CS /CMYK /F [/A85 /Fl]');
   });
 
   it.each([

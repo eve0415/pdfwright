@@ -22,6 +22,7 @@ import { serializeObject } from '../serialize/serializeObject.ts';
 import { convertIndexedColorSpace } from './convertIndexed.ts';
 import { drainRows } from './drainRows.ts';
 import { convertImageRow } from './imageRows.ts';
+import { INLINE_FLATE_FILTER, encodeAscii85 } from './inlineAscii85.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface ConvertedInlineImage {
@@ -335,6 +336,6 @@ export const convertInlineImage = (config: InlineConfig): ConvertedInlineImage |
   const asXObject = output.length > 4096;
   const replacement = asXObject
     ? `/${config.xObjectName} Do`
-    : `BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /CMYK /F /Fl ID\n${latin1(compressed)}\nEI`;
+    : `BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /CMYK ${INLINE_FLATE_FILTER} ID\n${latin1(encodeAscii85(compressed))}\nEI`;
   return { replacement, width, height, bits: outputBits, data: compressed, asXObject };
 };
