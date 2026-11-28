@@ -91,7 +91,7 @@ const strictTypeChecked = {
 export default defineConfig({
   extends: [cloudflare],
   env: cloudflare.env,
-  ignorePatterns: [...cloudflare.ignorePatterns, 'dist', 'tools/oxlint/anti-slop'],
+  ignorePatterns: [...cloudflare.ignorePatterns, 'dist'],
   options: {
     typeAware: true,
     typeCheck: true,

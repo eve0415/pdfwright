@@ -8,20 +8,17 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 - `packages/illustrator` is `@pdfwright/illustrator`, which writes Illustrator-layered PDFs from a print-production artwork model.
 - `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names and that every package entry loads there.
 - `scripts/` holds repository scripts, which run on Node.
-- `tools/oxlint/anti-slop` is a git submodule, the [anti-slop](https://github.com/dmmulroy/anti-slop) oxlint plugin (MIT), loaded as a JS plugin.
 
 ## Setup
 
 ```sh
-git clone --recurse-submodules https://github.com/eve0415/pdfwright.git
+git clone https://github.com/eve0415/pdfwright.git
 cd pdfwright
 pnpm install
 pnpm exec playwright install --with-deps --only-shell chromium
 ```
 
 Install pnpm 11 or newer from <https://pnpm.io/installation>. pnpm downloads and runs the version the `packageManager` field pins (its `pmOnFail` setting defaults to `download`), and it installs the Node version `devEngines.runtime` pins into `node_modules/.bin`, where package scripts find it. Bun and Deno are npm devDependencies, so `pnpm install` provides them too.
-
-oxlint fails to start without the anti-slop submodule. In a clone made without `--recurse-submodules`, run `git submodule update --init --recursive`.
 
 ## The gate
 
