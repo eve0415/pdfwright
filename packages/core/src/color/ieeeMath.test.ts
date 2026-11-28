@@ -62,7 +62,13 @@ describe('deterministic ICC math', () => {
     expect(deterministicPow(base, exponent)).toBe(expected);
   });
 
-  it.each([0, -0, Infinity, -Infinity, Number.NaN])('passes %d through cbrt unchanged', value => {
+  it.each([
+    { label: '0', value: 0 },
+    { label: '-0', value: -0 },
+    { label: 'Infinity', value: Infinity },
+    { label: '-Infinity', value: -Infinity },
+    { label: 'NaN', value: Number.NaN },
+  ])('passes $label through cbrt unchanged', ({ value }) => {
     expect(deterministicCbrt(value)).toBe(value);
   });
 
