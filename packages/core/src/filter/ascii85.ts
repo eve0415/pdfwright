@@ -53,6 +53,10 @@ export const decodeAscii85 = (data: Uint8Array, maxOutputBytes: number): Uint8Ar
     for (let index = digits; index < 5; index++) {
       value = value * 85 + 84;
     }
+    // The padded group is a group of 5 characters too, so its value cannot exceed 2^32 - 1 either.
+    if (value > 0xff_ff_ff_ff) {
+      throw new ParseError('the final ASCII85Decode group exceeds 2^32 - 1', data.length);
+    }
     writeGroup(output, value, digits - 1);
   }
   return output.toUint8Array();
