@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { annotationFlags } from './annotationFlags.ts';
@@ -32,5 +33,22 @@ describe('annotation flags', () => {
     { value: -(2 ** 32) - 4, hidden: false, print: true },
   ])('reads $value by its low 32 bits', ({ value, hidden, print }) => {
     expect(annotationFlags({ kind: 'integer', value })).toStrictEqual({ hidden, print, printable: print && !hidden });
+  });
+});
+
+describe('properties', () => {
+  const WORD = 2n ** 32n;
+
+  it('reads Hidden and Print from the low 32 bits of any integer', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: Number.MIN_SAFE_INTEGER + 2 ** 32, max: Number.MAX_SAFE_INTEGER - 2 ** 32 }), value => {
+        // An independent reading of the two's-complement word in exact integer arithmetic.
+        const word = ((BigInt(value) % WORD) + WORD) % WORD;
+        const hidden = (word & 2n) !== 0n;
+        const print = (word & 4n) !== 0n;
+        const expected = { hidden, print, printable: print && !hidden };
+        expect([annotationFlags({ kind: 'integer', value }), annotationFlags({ kind: 'integer', value: value + 2 ** 32 })]).toStrictEqual([expected, expected]);
+      }),
+    );
   });
 });
