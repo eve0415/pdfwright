@@ -343,19 +343,21 @@ describe('gts pdfx output intent', () => {
     expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
   });
 
-  it.each<[string, string]>([
-    ['an object that cannot be parsed', '5 0 R'],
-    ['another generation of the profile object', '5 1 R'],
-  ])('replaces an intent whose profile reference names %s and refuses it by default', (_, reference) => {
+  it.each<[string, string, string, string]>([
+    ['an object that cannot be parsed', '5 0 R', '<</Broken (unterminated', 'null'],
+    // ISO 32000-1:2008, 7.3.10: a reference to another generation names no object, so object 5 0 is kept.
+    ['another generation of the profile object', '5 1 R', streamBody('', 'x'), 'stream'],
+  ])('replaces an intent whose profile reference names %s and refuses it by default', (_, reference, body, kept) => {
     const objects = [
       { number: 4, body: `<</S/GTS_PDFA1/DestOutputProfile ${reference}>>` },
-      { number: 5, body: '<</Broken (unterminated' },
+      { number: 5, body },
     ];
     const refused = withIntents('[4 0 R]', objects);
     expect(() => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(ParseError);
     const document = withIntents('[4 0 R]', objects);
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect([document.get(pdfReference(4, 0)).kind, document.get(pdfReference(5, 0)).kind]).toStrictEqual(['null', kept]);
     expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
   });
 
