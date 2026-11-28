@@ -249,9 +249,9 @@ describe('refusing truncated and misplaced markup', () => {
 describe('detecting UTF-32 without a byte-order mark', () => {
   // XML 1.0, Appendix F.1: without a byte-order mark, 00 00 00 3C and 3C 00 00 00 are the first "<" in UTF-32.
   it.each([
-    ['big-endian', true, 'utf-32be'],
-    ['little-endian', false, 'utf-32le'],
-  ])('decodes %s UTF-32 as %s', (_name, bigEndian, encoding) => {
+    ['big-endian', 'utf-32be', true],
+    ['little-endian', 'utf-32le', false],
+  ])('decodes %s UTF-32 as %s', (_name, encoding, bigEndian) => {
     expect(decodedText(encodeUnits('<a>山</a>', bigEndian, 4).subarray(4))).toBe(`${encoding}:<a>山</a>`);
   });
 });
