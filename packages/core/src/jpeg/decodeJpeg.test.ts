@@ -1,5 +1,6 @@
 import type { DecodeJpegOptions } from './decodeJpeg.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -182,6 +183,20 @@ const dcJpeg = (image: DcImage): Uint8Array => {
 };
 
 const decodedRows = (bytes: Uint8Array, options?: DecodeJpegOptions): Array<Uint8Array> => [...decodeJpeg(bytes, options).rows()];
+
+// The rows of a one-component DC-only image: each sample is 128 plus the DC of its data unit, predicted from the previous unit and reset at each restart.
+const grayDcRows = (image: DcImage): Array<Uint8Array> => {
+  const columns = Math.ceil(image.width / 8);
+  const interval = image.interval ?? 0;
+  const dc: Array<number> = [];
+  for (const [unit, difference] of image.differences.entries()) {
+    const previous = unit === 0 || (interval > 0 && unit % interval === 0) ? 0 : (dc[unit - 1] ?? 0);
+    dc.push(previous + difference);
+  }
+  return Array.from({ length: image.height }, (_, y) =>
+    Uint8Array.from({ length: image.width }, (_, x) => Math.max(0, Math.min(255, 128 + (dc[Math.floor(y / 8) * columns + Math.floor(x / 8)] ?? 0)))),
+  );
+};
 
 const filled = (width: number, height: number, value: number): Array<Uint8Array> => Array.from({ length: height }, () => new Uint8Array(width).fill(value));
 
@@ -560,5 +575,100 @@ describe('jpeg limits', () => {
   it('refuses an infinite limit', () => {
     expect(() => decodeJpeg(grayJpeg([0x3f]), { maxDecodedBytes: Number.POSITIVE_INFINITY })).toThrow(InvalidArgumentError);
     expect(() => decodeJpeg(grayJpeg([0x3f]), { maxRowBytes: Number.POSITIVE_INFINITY })).toThrow(InvalidArgumentError);
+  });
+});
+
+const grayImages = fc
+  .record({ width: fc.integer({ min: 1, max: 24 }), height: fc.integer({ min: 1, max: 24 }), interval: fc.integer({ min: 0, max: 3 }) })
+  .chain(({ width, height, interval }) => {
+    const units = Math.ceil(width / 8) * Math.ceil(height / 8);
+    return fc
+      .array(fc.integer({ min: -60, max: 60 }), { minLength: units, maxLength: units })
+      .map((differences): DcImage => ({ width, height, interval, differences }));
+  });
+
+const colourImages = fc
+  .record({
+    width: fc.integer({ min: 1, max: 32 }),
+    height: fc.integer({ min: 1, max: 32 }),
+    sampling: fc.constantFrom([0x11, 0x11, 0x11], [0x21, 0x11, 0x11], [0x22, 0x11, 0x11]),
+  })
+  .chain(({ width, height, sampling }) => {
+    const [luma = 0x11] = sampling;
+    const units = Math.ceil(width / (8 * Math.floor(luma / 16))) * Math.ceil(height / (8 * (luma % 16))) * (Math.floor(luma / 16) * (luma % 16) + 2);
+    return fc
+      .array(fc.integer({ min: -60, max: 60 }), { minLength: units, maxLength: units })
+      .map((differences): DcImage => ({ width, height, sampling, differences }));
+  });
+
+const clamped = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+
+// ITU-T T.871 (2011), 7: R = Y + 1.402 (Cr − 128), G = Y − 0.344136 (Cb − 128) − 0.714136 (Cr − 128), B = Y + 1.772 (Cb − 128).
+const ycbcrToRgb = (row: Uint8Array): Uint8Array =>
+  Uint8Array.from({ length: row.length }, (_, index) => {
+    const pixel = index - (index % 3);
+    const [y = 0, cb = 128, cr = 128] = row.subarray(pixel, pixel + 3);
+    return clamped([y + 1.402 * (cr - 128), y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128), y + 1.772 * (cb - 128)][index % 3] ?? 0);
+  });
+
+const maximumDifference = (actual: ReadonlyArray<Uint8Array>, expected: ReadonlyArray<Uint8Array>): number =>
+  Math.max(0, ...actual.flatMap((row, y) => [...row].map((value, x) => Math.abs(value - (expected[y]?.[x] ?? Number.NaN)))));
+
+describe('properties', () => {
+  it('decodes a DC-only grey image to 128 plus each data unit’s predicted DC, on every iteration of rows', () => {
+    fc.assert(
+      fc.property(grayImages, image => {
+        const decoded = decodeJpeg(dcJpeg(image));
+        expect([...decoded.rows()]).toStrictEqual(grayDcRows(image));
+        expect([...decoded.rows()]).toStrictEqual(grayDcRows(image));
+      }),
+    );
+  });
+
+  it('reports every prefix of a valid JPEG as truncated', () => {
+    fc.assert(
+      fc.property(grayImages, image => {
+        const bytes = dcJpeg(image);
+        for (let length = 0; length < bytes.length; length++) {
+          expect(failure(() => decodedRows(bytes.subarray(0, length)))).toStrictEqual({ type: 'parse', reason: 'image-truncated' });
+        }
+      }),
+    );
+  });
+
+  it('decodes or refuses with a library error after any one byte changes', () => {
+    const base = dcJpeg(ROBUSTNESS_BASE);
+    fc.assert(
+      fc.property(fc.nat({ max: base.length - 1 }), fc.integer({ min: 0, max: 255 }), (offset, value) => {
+        const bytes = Uint8Array.from(base);
+        bytes[offset] = value;
+        expect(['decoded', 'refused']).toContain(outcome(bytes));
+      }),
+    );
+  });
+
+  it('turns a DC-only block into the uniform sample 128 + DC / 8', () => {
+    // ITU-T T.81 (1992), A.3.3: with only S00 nonzero, every sample is S00 × (1/√2)² / 4 plus the level shift of 128. Exact halves are left out, because T.81 does not fix how the IDCT rounds them.
+    fc.assert(
+      fc.property(fc.integer({ min: -256, max: 255 }), fc.integer({ min: -3, max: 3 }), (eighth, remainder) => {
+        const block = new Int32Array(64);
+        block[0] = eighth * 8 + remainder;
+        expect(inverseDct(block)).toStrictEqual(new Uint8Array(64).fill(clamped(128 + (eighth * 8 + remainder) / 8)));
+      }),
+    );
+  });
+
+  it('agrees within 1 with the T.871 YCbCr to RGB conversion of the untransformed samples', () => {
+    fc.assert(
+      fc.property(colourImages, image => {
+        const bytes = dcJpeg(image);
+        expect(
+          maximumDifference(
+            decodedRows(bytes),
+            decodedRows(bytes, { colorTransform: 0 }).map(row => ycbcrToRgb(row)),
+          ),
+        ).toBeLessThanOrEqual(1);
+      }),
+    );
   });
 });
