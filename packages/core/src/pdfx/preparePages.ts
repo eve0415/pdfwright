@@ -306,7 +306,7 @@ const defaultTrim = (boxes: EffectiveBoxes, index: number): readonly [number, nu
   return [left, bottom, right, top];
 };
 
-/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. */
+/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. A Type 3 font that the content selects, with Tf or a graphics state Font entry, uses transparency when any of its glyph procedures does, whichever glyphs are shown, and one that cannot be decoded throws ValidationError `unreadable-resource`. */
 export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOptions = {}): PdfX4PageChange => {
   const internals = internalsOf(document);
   if (internals === undefined) {
