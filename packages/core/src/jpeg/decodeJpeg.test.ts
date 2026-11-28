@@ -382,13 +382,12 @@ describe('jpeg header segments', () => {
     ['a frame header of 5 bytes', [Q_ONE, DC_ZERO, AC_EOB, segment(0xc0, [8, 0, 8, 0, 8]), GRAY_SCAN]],
     ['a frame of width 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 0, components: [[1, 0x11, 0]] }), GRAY_SCAN]],
     ['a frame component list one byte long', [Q_ONE, DC_ZERO, AC_EOB, segment(0xc0, [8, 0, 8, 0, 8, 1, 1, 0x11, 0, 0]), GRAY_SCAN]],
-    // ITU-T T.81 (1992), B.2.2: Nf is at least 1, Hi and Vi are 1 to 4, and Tqi is 0 to 3.
+    // ITU-T T.81 (1992), B.2.2: Nf is at least 1, and Hi and Vi are 1 to 4.
     ['a frame with no components', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [] }), GRAY_SCAN]],
     ['a horizontal sampling factor of 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x01, 0]] }), GRAY_SCAN]],
     ['a vertical sampling factor of 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x10, 0]] }), GRAY_SCAN]],
     ['a horizontal sampling factor of 5', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x51, 0]] }), GRAY_SCAN]],
     ['a vertical sampling factor of 5', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x15, 0]] }), GRAY_SCAN]],
-    ['a quantization table selector of 4', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x11, 4]] }), GRAY_SCAN]],
     ['two frames', [Q_ONE, DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_FRAME, GRAY_SCAN]],
     // ITU-T T.81 (1992), B.2.3: a scan follows its frame, names frame components once each, selects tables that exist, and has length 6 + 2 × Ns.
     ['a scan before any frame', [Q_ONE, DC_ZERO, AC_EOB, GRAY_SCAN, GRAY_FRAME]],
@@ -442,6 +441,12 @@ describe('jpeg header segments', () => {
       }),
     ]);
     expect(failure(() => decodeJpeg(duplicate))).toStrictEqual({ type: 'parse', reason: 'image-invalid' });
+  });
+
+  it('refuses a frame component that selects quantization table 4', () => {
+    // ITU-T T.81 (1992), B.2.2: Tqi is 0 to 3. There is no scan after the frame, because a scan would refuse the absent table 4 with the same reason; a parser that accepted the frame reports a missing scan instead.
+    const selector = Uint8Array.from([0xff, 0xd8, ...sof({ height: 8, width: 8, components: [[1, 0x11, 4]] })]);
+    expect(failure(() => decodeJpeg(selector))).toStrictEqual({ type: 'parse', reason: 'image-invalid' });
   });
 
   // ITU-T T.81 (1992), B.2.3: a sequential scan has Ss 0, Se 63 and Ah, Al 0.
