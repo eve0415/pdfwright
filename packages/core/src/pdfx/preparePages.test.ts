@@ -346,6 +346,24 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(document)).toStrictEqual(groups);
   });
 
+  it.each<[string, string, string, Array<number>]>([
+    ['a Type 3 font with a transparent glyph', '/Subtype/Type3', '/F gs BT (a) Tj ET', [0]],
+    ['a Type 1 font', '/Subtype/Type1/BaseFont/Helvetica', '/F gs BT (a) Tj ET', []],
+    ['a Type 3 font with a transparent glyph, in a state that no gs applies', '/Subtype/Type3', 'BT (a) Tj ET', []],
+  ])('reads the font that a graphics state Font entry selects, for %s', (_, subtype, content, groups) => {
+    // ISO 32000-1:2008, 8.4.5, Table 58: Font in a graphics state parameter dictionary is an array of a font and a size, which gs selects as Tf does.
+    const document = single('<</ExtGState<</F 8 0 R>>>>', streamBody('', content), [
+      {
+        number: 5,
+        body: `<</Type/Font${subtype}/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS 7 0 R>>>>>>`,
+      },
+      { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+      { number: 7, body: '<</ca 0.5>>' },
+      { number: 8, body: '<</Font[5 0 R 12]>>' },
+    ]);
+    expect(addedGroups(document)).toStrictEqual(groups);
+  });
+
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
     const document = single('<</Font<</T3 5 0 R>>>>', streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
       {
