@@ -187,8 +187,8 @@ describe('cross-reference streams', () => {
   });
 
   it('rejects more entries than the file has bytes before decoding them', () => {
-    const zeros = deflateZlib(new Uint8Array(100_000));
-    expect(parseErrorOffset(() => read('/Type/XRef/Size 100000/W[1 0 0]/Filter/FlateDecode', zeros))).toStrictEqual({ offset: 0 });
+    // JBIG2Decode is not a filter the library decodes, so decoding first would fail with another error class.
+    expect(parseErrorOffset(() => read('/Type/XRef/Size 100000/W[1 0 0]/Filter/JBIG2Decode', new Uint8Array(4)))).toStrictEqual({ offset: 0 });
   });
 });
 
