@@ -117,24 +117,27 @@ const carrierRole = (internals: DocumentInternals, object: PdfObject): 'form' | 
   return object.kind === 'dictionary' && nameIs(internals.objects.deref(object.entries.get(SUBTYPE)), 'Type3') ? 'type3' : undefined;
 };
 
+// `depth` is how many carriers deep the entry sits below the page, counting itself.
 type PendingCarrier =
-  | { readonly kind: 'owner'; readonly value: PdfDirectObject | undefined; readonly appearance: boolean }
-  | { readonly kind: 'font'; readonly slot: FontSlot; readonly name: Uint8Array; readonly font: PdfObject };
+  | { readonly kind: 'owner'; readonly value: PdfDirectObject | undefined; readonly appearance: boolean; readonly depth: number }
+  | { readonly kind: 'font'; readonly slot: FontSlot; readonly name: Uint8Array; readonly font: PdfObject; readonly depth: number };
 
-// An explicit stack instead of recursion, so nesting depth is bounded by memory rather than the call stack. Entries are pushed in reverse and checked against `seen` when popped, which keeps the order a depth-first recursion would list; an indirect Font category is checked when its holder is walked.
+// An explicit stack instead of recursion, so nesting depth is bounded by maxNesting rather than the call stack. Entries are pushed in reverse and checked against `seen` when popped, which keeps the order a depth-first recursion would list; an indirect Font category is checked when its holder is walked.
 // A directly stored font has no object number of its own, so the walk marks the indirect objects it is reached through instead: its Font category and its Resources. Every cycle through such a font runs through one of them, so each is walked once.
 class CarrierWalk {
   readonly carriers: Array<ResourceCarrier> = [];
   private readonly internals: DocumentInternals;
   private readonly seen: CarrierSeen;
   private readonly pending: Array<PendingCarrier> = [];
+  // The shallowest depth each indirect object has been queued at. A depth-first walk can reach an object through a long path before a short one it has already queued, so an object is listed at the shallowest depth known, and forms whose own Resources each name every form do not count as nested.
+  private readonly depths = new Map<number, number>();
 
   constructor(internals: DocumentInternals, seen: CarrierSeen) {
     this.internals = internals;
     this.seen = seen;
   }
 
-  private owner(value: PdfDirectObject | undefined, appearance: boolean): void {
+  private owner(value: PdfDirectObject | undefined, appearance: boolean, queued: number): void {
     if (value?.kind !== 'reference') {
       return;
     }
@@ -153,10 +156,11 @@ class CarrierWalk {
       return;
     }
     this.seen.objects.add(value.objectNumber);
-    this.list({ kind: 'carrier', role, objects: new Set([object]), key: referenceKey(value), owner: { kind: 'object', reference: value } }, object);
+    const depth = Math.min(queued, this.depths.get(value.objectNumber) ?? queued);
+    this.list({ kind: 'carrier', role, objects: new Set([object]), key: referenceKey(value), owner: { kind: 'object', reference: value } }, object, depth);
   }
 
-  private directFont(slot: FontSlot, name: Uint8Array, font: PdfObject): void {
+  private directFont(slot: FontSlot, name: Uint8Array, font: PdfObject, depth: number): void {
     if (carrierRole(this.internals, font) !== 'type3') {
       return;
     }
@@ -174,29 +178,32 @@ class CarrierWalk {
       const objects = new Set([font]);
       this.seen.objects.add(resources.objectNumber);
       this.seen.fonts.set(resources.objectNumber, { places: [{ slot, name }], objects });
-      this.list({ kind: 'carrier', role: 'type3', objects, key: referenceKey(resources), owner: { kind: 'resources', reference: resources } }, font);
+      this.list({ kind: 'carrier', role: 'type3', objects, key: referenceKey(resources), owner: { kind: 'resources', reference: resources } }, font, depth);
       return;
     }
     const objects = new Set([font]);
     if (slot.kind === 'category') {
       const owner = { kind: 'category', reference: slot.reference, name } as const;
-      this.list({ kind: 'carrier', role: 'type3', objects, key: `${referenceKey(slot.reference)} Font ${hex(name)}`, owner }, font);
+      this.list({ kind: 'carrier', role: 'type3', objects, key: `${referenceKey(slot.reference)} Font ${hex(name)}`, owner }, font, depth);
     } else {
       const owner = { kind: 'font', holder: slot.holder, name } as const;
-      this.list({ kind: 'carrier', role: 'type3', objects, key: `${holderKey(slot.holder)} Font ${hex(name)}`, owner }, font);
+      this.list({ kind: 'carrier', role: 'type3', objects, key: `${holderKey(slot.holder)} Font ${hex(name)}`, owner }, font, depth);
     }
   }
 
-  private list(carrier: Omit<ResourceCarrier, 'resources'>, object: PdfObject): void {
+  private list(carrier: Omit<ResourceCarrier, 'resources'>, object: PdfObject, depth: number): void {
     // A carrier without its own Resources uses its parent's, which the parent's walk already covers.
     const value = entriesOf(object)?.get(RESOURCES);
     const own = this.internals.objects.deref(value);
     if (own?.kind !== 'dictionary') {
       return;
     }
+    if (depth > this.internals.maxNesting) {
+      throw new ResourceLimitError(`resource carriers nest deeper than maxNesting (${String(this.internals.maxNesting)})`);
+    }
     const listed = { ...carrier, resources: own.entries };
     this.carriers.push(listed);
-    this.enqueue(own.entries, listed, value);
+    this.enqueue(own.entries, listed, value, depth + 1);
   }
 
   // The entries of an indirect dictionary reach the same carriers whichever holder names it, so they are queued once per pass; a dictionary shared by many holders then costs its size once rather than once per holder.
@@ -230,13 +237,13 @@ class CarrierWalk {
   }
 
   // `reference` is how the holder names `resources`. When an earlier walk queued that dictionary, only the directly stored fonts of its direct Font category are queued again, because they are replaced through the holder.
-  private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined): void {
+  private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined, depth: number): void {
     const fresh = this.expand(reference);
     const found: Array<PendingCarrier> = [];
     for (const key of fresh ? [XOBJECT, PATTERN] : []) {
       const category = this.expand(resources.get(key)) ? this.internals.objects.deref(resources.get(key)) : undefined;
       for (const [, value] of category?.kind === 'dictionary' ? category.entries.entries() : []) {
-        found.push({ kind: 'owner', value, appearance: false });
+        found.push({ kind: 'owner', value, appearance: false, depth });
       }
     }
     const slot = this.fontSlot(resources.get(FONT), holder);
@@ -244,9 +251,9 @@ class CarrierWalk {
       const fonts = this.internals.objects.deref(resources.get(FONT));
       for (const [name, value] of fonts?.kind === 'dictionary' ? fonts.entries.entries() : []) {
         if (value.kind === 'dictionary') {
-          found.push({ kind: 'font', slot, name, font: value });
+          found.push({ kind: 'font', slot, name, font: value, depth });
         } else if (fresh) {
-          found.push({ kind: 'owner', value, appearance: false });
+          found.push({ kind: 'owner', value, appearance: false, depth });
         }
       }
     }
@@ -254,14 +261,24 @@ class CarrierWalk {
     const states = fresh && this.expand(resources.get(EXT_G_STATE)) ? this.internals.objects.deref(resources.get(EXT_G_STATE)) : undefined;
     for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
       const font = this.internals.objects.deref(entriesOf(this.internals.objects.deref(value))?.get(FONT));
-      found.push({ kind: 'owner', value: font?.kind === 'array' ? font.items[0] : undefined, appearance: false });
+      found.push({ kind: 'owner', value: font?.kind === 'array' ? font.items[0] : undefined, appearance: false, depth });
     }
     for (let index = found.length - 1; index >= 0; index--) {
       const item = found[index];
       if (item !== undefined) {
-        this.pending.push(item);
+        this.queue(item);
       }
     }
+  }
+
+  private queue(item: PendingCarrier): void {
+    if (item.kind === 'owner' && item.value?.kind === 'reference') {
+      const known = this.depths.get(item.value.objectNumber);
+      if (known === undefined || item.depth < known) {
+        this.depths.set(item.value.objectNumber, item.depth);
+      }
+    }
+    this.pending.push(item);
   }
 
   private drain(): void {
@@ -270,15 +287,15 @@ class CarrierWalk {
         throw new ResourceLimitError(`the resource carrier walk takes more than ${String(this.seen.maxSteps)} steps`);
       }
       if (item.kind === 'font') {
-        this.directFont(item.slot, item.name, item.font);
+        this.directFont(item.slot, item.name, item.font, item.depth);
       } else {
-        this.owner(item.value, item.appearance);
+        this.owner(item.value, item.appearance, item.depth);
       }
     }
   }
 
   resources(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
-    this.enqueue(resources, holder, undefined);
+    this.enqueue(resources, holder, undefined, 1);
     this.drain();
   }
 
@@ -295,11 +312,11 @@ class CarrierWalk {
         const variants = this.internals.objects.deref(entry);
         if (variants?.kind === 'dictionary') {
           for (const [, value] of variants.entries.entries()) {
-            this.pending.push({ kind: 'owner', value, appearance: true });
+            this.queue({ kind: 'owner', value, appearance: true, depth: 1 });
             this.drain();
           }
         } else {
-          this.pending.push({ kind: 'owner', value: entry, appearance: true });
+          this.queue({ kind: 'owner', value: entry, appearance: true, depth: 1 });
           this.drain();
         }
       }
@@ -312,7 +329,7 @@ class CarrierWalk {
  * A holder is listed before the carriers reached from it.
  * Soft-mask groups and what only they reach are not listed.
  * Indirect objects in `seen` are skipped and every listed or walked one is added to it, which ends every cycle, including one through a directly stored Type 3 font, and lists an object shared by pages or holders once, so the walk is linear in the objects it reaches.
- * Throws ResourceLimitError once the walks sharing `seen` take more than its `maxSteps` steps.
+ * Throws ResourceLimitError once the walks sharing `seen` take more than its `maxSteps` steps, or when a carrier with its own Resources sits more than the document's maxNesting carriers below the page.
  */
 export const resourceCarriers = (
   internals: DocumentInternals,

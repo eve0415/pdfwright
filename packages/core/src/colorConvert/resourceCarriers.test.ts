@@ -454,19 +454,6 @@ describe('Type 3 fonts that a graphics state selects', () => {
   });
 });
 
-describe('deeply nested carriers', () => {
-  it('converts a lookup in the innermost of 5,000 nested tiling patterns', () => {
-    const depth = 5000;
-    const objects = Array.from({ length: depth }, (_, index) => ({
-      number: 5 + index,
-      body: streamBody(`${PATTERN}${index === depth - 1 ? OWN_INDEXED : `/Resources<</Pattern<</P ${String(6 + index)} 0 R>>>>`}`, '/CS1 cs 0 sc'),
-    }));
-    const document = carrierPdf('/Resources<</Pattern<</P 5 0 R>>>>', objects);
-    expect(convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed).toBe(1);
-    expectIndexed(ownResource(document, 4 + depth, 'ColorSpace', 'CS1'));
-  });
-});
-
 const sampled = (document: LoadedDocument, owner: number, keys: ReadonlyArray<string>): ReadonlyArray<number> => {
   const shading = at(document, owner, keys);
   return functionOf(document, shading?.kind === 'dictionary' ? shading.entries.get(pdfName('Function').bytes) : undefined)([0.5]);
@@ -904,6 +891,12 @@ describe('the nesting limit of the carrier walk', () => {
   it('refuses carriers nested one level deeper than maxNesting', () => {
     expect(() => convertNested(9)).toThrow(ResourceLimitError);
     expect(() => convertNested(9)).toThrow(/maxNesting \(8\)/u);
+  });
+
+  it('converts a lookup in the innermost of 5,000 nested tiling patterns when maxNesting allows it', () => {
+    const document = nestedPatterns(5000, { maxNesting: 5000 });
+    expect(convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed).toBe(1);
+    expectIndexed(ownResource(document, 5004, 'ColorSpace', 'CS1'));
   });
 
   it('counts the shortest nesting it knows of for forms whose own Resources each name every form', () => {
