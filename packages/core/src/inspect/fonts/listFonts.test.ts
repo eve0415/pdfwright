@@ -4,6 +4,7 @@ import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { TestPage, TextPdf } from '../../testing/textPdf.ts';
 import type { FontEntry, FontInventory, ListFontsOptions } from './listFonts.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
@@ -559,5 +560,58 @@ describe('pages that show each font', () => {
   it('leaves shownOn empty when asked not to interpret content', () => {
     const result = shown([{ resources: '/Font<</F1 100 0 R>>', content: 'BT /F1 12 Tf (a) Tj ET' }], [helvetica(100)], { shownOn: false });
     expect(result).toStrictEqual([['100.0', '']]);
+  });
+});
+
+describe('properties', () => {
+  // Names biased towards a plus sign at index 6, where the subset tag rule decides.
+  const name = fc.oneof(
+    fc.stringMatching(/^[A-Z]{6}\+[A-Za-z]{0,4}$/u),
+    fc.stringMatching(/^[A-Za-z0-9]{6}\+[A-Za-z]{0,4}$/u),
+    fc.stringMatching(/^[A-Za-z0-9+]{1,10}$/u),
+  );
+
+  // ISO 32000-1:2008, 9.6.4: a subset name begins with "exactly six uppercase letters" and a plus sign.
+  it('reads a subset tag exactly when six uppercase letters precede a plus sign, and a malformed one when other characters do', () => {
+    fc.assert(
+      fc.property(name, baseFont => {
+        const font = onPage(`/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/${baseFont}/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>>>`, [
+          { number: 101, body: `<</Type/FontDescriptor/FontName/${baseFont}/Flags 32>>` },
+        ]);
+        const tagged = /^[A-Z]{6}\+/u.test(baseFont);
+        expect([font.subset, codes(font).includes('subset-tag-malformed')]).toStrictEqual([
+          tagged ? { state: 'subset', tag: baseFont.slice(0, 6) } : { state: 'not-subset' },
+          baseFont[6] === '+' && !tagged,
+        ]);
+      }),
+    );
+  });
+
+  // Pages that each list some of a set of indirect fonts in some order, and perhaps a direct font of their own.
+  const pages = fc
+    .uniqueArray(fc.integer({ min: 100, max: 1500 }), { minLength: 1, maxLength: 5 })
+    .chain(numbers => fc.array(fc.record({ fonts: fc.shuffledSubarray(numbers), direct: fc.boolean() }), { minLength: 1, maxLength: 4 }));
+
+  it('orders fonts by the first page that reaches them, then indirect fonts by object number before direct fonts', () => {
+    fc.assert(
+      fc.property(pages, generated => {
+        const numbers = [...new Set(generated.flatMap(page => page.fonts))];
+        const result = inventory(
+          generated.map(page => ({
+            resources: `/Font<<${page.fonts.map((number, index) => `/F${String(index)} ${String(number)} 0 R`).join('')}${page.direct ? '/D<</Type/Font/Subtype/Type1/BaseFont/Courier>>' : ''}>>`,
+          })),
+          numbers.map(number => helvetica(number)),
+          { shownOn: false },
+        );
+        const first = (number: number): number => generated.findIndex(page => page.fonts.includes(number));
+        const expected = generated
+          .flatMap((page, index) => [
+            ...numbers.filter(number => first(number) === index).toSorted((left, right) => left - right),
+            ...(page.direct ? ['direct'] : []),
+          ])
+          .map(font => (typeof font === 'number' ? `${String(font)}.0` : font));
+        expect(result.fonts.map(font => (font.reference === undefined ? 'direct' : font.key))).toStrictEqual(expected);
+      }),
+    );
   });
 });
