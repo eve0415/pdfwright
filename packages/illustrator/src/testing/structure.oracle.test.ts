@@ -132,7 +132,9 @@ describe('local Illustrator structure comparison', () => {
       sample.layers,
       sample.rasters,
     ]);
-    expect(facts.metaData).toStrictEqual(facts.native.slice(0, endCommentsLength(facts.native)));
+    const metaDataLength = endCommentsLength(facts.native);
+    expect(metaDataLength).toBeGreaterThan(0);
+    expect(facts.metaData).toStrictEqual(facts.native.slice(0, metaDataLength));
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file keeps observed geometry and object grammar', async sample => {
