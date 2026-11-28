@@ -116,8 +116,28 @@ const splitName = (name: string): readonly [string, string] => {
   return colon === -1 ? ['', name] : [name.slice(0, colon), name.slice(colon + 1)];
 };
 
+/** A namespace name, one object per distinct name in a packet, so that names are compared by identity rather than by their text. */
+interface Namespace {
+  readonly uri: string;
+}
+
+const XML: Namespace = { uri: XML_NAMESPACE };
+const XMLNS: Namespace = { uri: XMLNS_NAMESPACE };
+
+type Scope = ReadonlyMap<string, Namespace>;
+
+const intern = (namespaces: Map<string, Namespace>, uri: string): Namespace => {
+  const known = namespaces.get(uri);
+  if (known !== undefined) {
+    return known;
+  }
+  const namespace = { uri };
+  namespaces.set(uri, namespace);
+  return namespace;
+};
+
 // Namespaces in XML 1.0, 3 and 6: xmlns and xmlns:p attributes declare namespaces for the element and its content; xml is bound to its fixed URI.
-const declarations = (attributes: ReadonlyArray<XmlAttribute>, scope: ReadonlyMap<string, string>): ReadonlyMap<string, string> => {
+const declarations = (attributes: ReadonlyArray<XmlAttribute>, scope: Scope, namespaces: Map<string, Namespace>): Scope => {
   const declared = attributes.filter(attribute => attribute.name === 'xmlns' || attribute.name.startsWith('xmlns:'));
   if (declared.length === 0) {
     return scope;
@@ -137,17 +157,17 @@ const declarations = (attributes: ReadonlyArray<XmlAttribute>, scope: ReadonlyMa
     if (attribute.name !== 'xmlns' && attribute.value === '') {
       throw new UnreadableError('not-well-formed');
     }
-    next.set(prefix, attribute.value);
+    next.set(prefix, intern(namespaces, attribute.value));
   }
   return next;
 };
 
-const resolve = (prefix: string, scope: ReadonlyMap<string, string>, isAttribute: boolean): string | undefined => {
+const resolve = (prefix: string, scope: Scope, isAttribute: boolean): Namespace | undefined => {
   if (prefix === 'xml') {
-    return XML_NAMESPACE;
+    return XML;
   }
   if (prefix === 'xmlns') {
-    return XMLNS_NAMESPACE;
+    return XMLNS;
   }
   // Namespaces in XML 1.0, 6.2: an unprefixed attribute is in no namespace, whatever the default namespace.
   if (prefix === '' && isAttribute) {
@@ -157,35 +177,47 @@ const resolve = (prefix: string, scope: ReadonlyMap<string, string>, isAttribute
   if (namespace === undefined && prefix !== '') {
     throw new UnreadableError('unbound-prefix');
   }
-  return namespace === '' ? undefined : namespace;
+  return namespace?.uri === '' ? undefined : namespace;
 };
 
 interface OpenElement {
   readonly element: XmlElement;
-  readonly scope: ReadonlyMap<string, string>;
+  readonly scope: Scope;
 }
 
-const openElement = (token: Extract<XmlToken, { kind: 'start' }>, parent: OpenElement | undefined): OpenElement => {
-  const scope = declarations(token.attributes, parent?.scope ?? new Map<string, string>());
-  const [prefix, localName] = splitName(token.name);
-  const attributes = token.attributes.map(attribute => {
-    const [attributePrefix, attributeLocal] = splitName(attribute.name);
-    return { ...attribute, namespace: resolve(attributePrefix, scope, true), localName: attributeLocal };
-  });
-  // Namespaces in XML 1.0, 6.3, Namespace constraint Attributes Unique: it "is equivalent to requiring that no element have two attributes with the same expanded name". A local name holds no brace, so the key is unique to the pair.
-  if (attributes.length > 1) {
-    const expanded = new Set(
-      attributes.map(attribute => (attribute.namespace === undefined ? attribute.localName : `{${attribute.namespace}}${attribute.localName}`)),
-    );
-    if (expanded.size < attributes.length) {
+// Namespaces in XML 1.0, 6.3, Namespace constraint Attributes Unique: it "is equivalent to requiring that no element have two attributes with the same expanded name". The namespace is compared by identity, so the check does not read its name.
+const requireUniqueNames = (names: ReadonlyArray<{ readonly namespace: Namespace | undefined; readonly localName: string }>): void => {
+  const seen = new Map<Namespace | undefined, Set<string>>();
+  for (const { namespace, localName } of names) {
+    const localNames = seen.get(namespace) ?? new Set<string>();
+    if (localNames.has(localName)) {
       throw new UnreadableError('not-well-formed');
     }
+    localNames.add(localName);
+    seen.set(namespace, localNames);
   }
+};
+
+const openElement = (token: Extract<XmlToken, { kind: 'start' }>, parent: OpenElement | undefined, namespaces: Map<string, Namespace>): OpenElement => {
+  const scope = declarations(token.attributes, parent?.scope ?? new Map<string, Namespace>(), namespaces);
+  const [prefix, localName] = splitName(token.name);
+  const names = token.attributes.map(attribute => {
+    const [attributePrefix, attributeLocal] = splitName(attribute.name);
+    return { attribute, namespace: resolve(attributePrefix, scope, true), localName: attributeLocal };
+  });
+  if (names.length > 1) {
+    requireUniqueNames(names);
+  }
+  const attributes = names.map(({ attribute, namespace, localName: attributeLocal }) => ({
+    ...attribute,
+    namespace: namespace?.uri,
+    localName: attributeLocal,
+  }));
   const lang = attributes.find(attribute => attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang');
   const element: XmlElement = {
     name: token.name,
     selfClosing: token.selfClosing,
-    namespace: resolve(prefix, scope, false),
+    namespace: resolve(prefix, scope, false)?.uri,
     localName,
     attributes,
     language: lang === undefined ? parent?.element.language : lang.value,
@@ -228,10 +260,14 @@ const createTreeBuilder = (): BuiltTree => {
   const instructions: Array<string> = [];
   let packetEnd: number | undefined;
   const stack: Array<OpenElement> = [];
+  const namespaces = new Map([
+    [XML_NAMESPACE, XML],
+    [XMLNS_NAMESPACE, XMLNS],
+  ]);
   const accept = (token: XmlToken): void => {
     const parent = stack.at(-1);
     if (token.kind === 'start') {
-      const open = openElement(token, parent);
+      const open = openElement(token, parent, namespaces);
       if (open.element.namespace === RDF_NAMESPACE && open.element.localName === 'RDF') {
         rdfs.push(open.element);
       }
