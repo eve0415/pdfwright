@@ -2,6 +2,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
+import fc from 'fast-check';
 import { describe, expect, inject, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -10,7 +11,8 @@ import { rect } from '../document/rect.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pt } from '../length/length.ts';
-import { PdfDictionaryEntries, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { deepEqual } from '../object/deepEqual.ts';
+import { PdfDictionaryEntries, pdfArray, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -495,5 +497,71 @@ describe('full rewrite', () => {
       fileIdentifier: [new Uint8Array(16).fill(0xaa), new Uint8Array(16).fill(0xbb)],
     });
     expect(identifierOf(saved.chunks)).toStrictEqual(['aa'.repeat(16), 'bb'.repeat(16)]);
+  });
+});
+
+// Sources in each cross-reference format, objects 5 to 9 being free to edit: top-level, in an object stream, and behind a hybrid section.
+const editable = [5, 6, 7, 8, 9] as const;
+const plain = (numbers: ReadonlyArray<number>): Array<TestObject> => numbers.map(number => ({ number, body: `(object ${String(number)})` }));
+const roundTripSources: ReadonlyArray<ReadonlyArray<TestSection>> = [
+  [{ xref: 'classic', objects: [catalog, pages, page, content, ...plain(editable)], trailer: '/Root 1 0 R' }],
+  [{ xref: 'stream', objects: [catalog, pages, page, content, ...plain(editable)], trailer: '/Root 1 0 R', xrefStreamEncoding: 'flate-up' }],
+  [
+    {
+      xref: 'stream',
+      objects: [catalog, content, ...plain([8, 9])],
+      objectStreams: [{ number: 10, members: [pages, page, ...plain([5, 6, 7])] }],
+      trailer: '/Root 1 0 R',
+    },
+  ],
+  [
+    { xref: 'classic', objects: [catalog, pages, page, content, ...plain([5, 6, 7])], trailer: '/Root 1 0 R' },
+    { xref: 'hybrid', objects: [], objectStreams: [{ number: 11, members: plain([8, 9]) }], trailer: '/Root 1 0 R' },
+  ],
+];
+
+const values = fc.oneof(
+  fc.integer({ min: -9999, max: 9999 }).map(value => pdfInteger(value)),
+  fc.constantFrom('A', 'Changed').map(name => pdfName(name)),
+  fc
+    .array(
+      fc.integer({ min: 0, max: 99 }).map(value => pdfInteger(value)),
+      { maxLength: 4 },
+    )
+    .map(items => pdfArray(items)),
+);
+
+const objectEdits = fc.array(fc.record({ operation: fc.constantFrom('set', 'delete', 'add'), target: fc.constantFrom(...editable), value: values }), {
+  maxLength: 6,
+});
+
+describe('properties', () => {
+  it('rewrites any set of edits so that a reload is intact and reads every edited value', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...roundTripSources), objectEdits, (sections, changes) => {
+        const document = loadDocument(buildPdf(sections).bytes);
+        const live = new Set<number>(editable);
+        // The page objects, the editable ones and the added ones; the source's cross-reference and object streams describe its layout, which a rewrite does not keep (ISO 32000-1:2008, 7.5.7 and 7.5.8).
+        const numbers: Array<number> = [1, 2, 3, 4, ...editable];
+        for (const change of changes) {
+          if (change.operation === 'add') {
+            numbers.push(document.object(change.value).objectNumber);
+          } else if (live.has(change.target) && change.operation === 'set') {
+            document.set(pdfReference(change.target, 0), change.value);
+          } else if (live.has(change.target)) {
+            document.delete(pdfReference(change.target, 0));
+            live.delete(change.target);
+          }
+        }
+        const saved = document.save({ mode: 'full' });
+        const reloaded = loadDocument(saved.chunks);
+        expect([
+          saved.warnings,
+          reloaded.structure.status,
+          reloaded.warnings,
+          numbers.filter(number => !deepEqual(reloaded.get(pdfReference(number, 0)), document.get(pdfReference(number, 0)), 'strict')),
+        ]).toStrictEqual([[], 'intact', [], []]);
+      }),
+    );
   });
 });
