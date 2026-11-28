@@ -79,8 +79,9 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
   const version = internals.pdfX4VersionState();
   try {
     const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
-    const page = rewritePageColors(document, conversion);
+    // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do, so forms are planned from the page content before it is rewritten.
     const forms = convertForms(document, conversion);
+    const page = rewritePageColors(document, conversion);
     const images = convertImages(document, conversion);
     const indexed = convertIndexedSpaces(document, conversion);
     const spots = convertSpotSpaces(document, conversion);
