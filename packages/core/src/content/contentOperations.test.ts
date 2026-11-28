@@ -132,6 +132,19 @@ describe('content operations', () => {
       expect(() => operations(['['.repeat(33), `${']'.repeat(33)} TJ`])).toThrow(ResourceLimitError);
     });
 
+    it('reads nesting that reaches maxNesting only after the division and refuses it one past', () => {
+      expect(operations(['['.repeat(20), `${'['.repeat(12)}${']'.repeat(32)} TJ`]).map(operation => operation.operator)).toStrictEqual(['TJ']);
+      expect(() => operations(['['.repeat(20), `${'['.repeat(13)}${']'.repeat(33)} TJ`])).toThrow(ResourceLimitError);
+    });
+
+    it('refuses an array still open after the last stream as it refuses the same bytes in one stream', () => {
+      // The end of the content is read as one more value, so 16,383 values and the end pass the limit.
+      expect(() => operations(['[', '0 '.repeat(16_382)])).toThrow(ParseError);
+      expect(() => operations(['[', '0 '.repeat(16_383)])).toThrow(ResourceLimitError);
+      expect(() => operations(`[${'0 '.repeat(16_382)}`)).toThrow(ParseError);
+      expect(() => operations(`[${'0 '.repeat(16_383)}`)).toThrow(ResourceLimitError);
+    });
+
     it('reads an array of 16,384 values, the array included, and refuses one of 16,385', () => {
       const [operation] = operations([`[${'0 '.repeat(8000)}`, `${'0 '.repeat(8383)}] TJ`]);
       const [read] = operation?.operands ?? [];
