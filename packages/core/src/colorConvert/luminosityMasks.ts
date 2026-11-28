@@ -257,6 +257,19 @@ const checkPreblended = (scan: MaskScan, image: PdfStream, size: { width: number
   if (imageInteger(scan, softMask, WIDTH) !== size.width || imageInteger(scan, softMask, HEIGHT) !== size.height) {
     throw new ValidationError('luminosity image and its preblended soft mask differ in size', 'color-space');
   }
+  // ISO 32000-1:2008, 8.9.5, Table 89: the soft mask is a one-component image with 1, 2, 4, 8 or 16 bits per component and a Decode array of one pair.
+  const bits = imageInteger(scan, softMask, BITS);
+  if (![1, 2, 4, 8, 16].includes(bits)) {
+    throw new ValidationError('luminosity image soft-mask bit depth is invalid', 'color-space');
+  }
+  const decode = scan.internals.objects.deref(softMask.dictionary.get(DECODE));
+  if (decode !== undefined && (decode.kind !== 'array' || decode.items.length !== 2)) {
+    throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+  }
+  const data = decodedData(scan.internals, softMask);
+  if (typeof data === 'string' || data.length !== Math.ceil((size.width * bits) / 8) * size.height) {
+    throw new ValidationError('luminosity image soft-mask sample count is invalid', 'color-space');
+  }
   throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
 };
 
