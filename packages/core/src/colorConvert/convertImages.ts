@@ -275,7 +275,8 @@ const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: numbe
   return ranges;
 };
 
-const stencilRow = (row: Uint8Array, config: { width: number; channels: number; bits: number; ranges: ReadonlyArray<number> }): Uint8Array => {
+/** The stencil row of a colour-keyed image row, with bit 1 for each keyed pixel. */
+export const stencilRow = (row: Uint8Array, config: { width: number; channels: number; bits: number; ranges: ReadonlyArray<number> }): Uint8Array => {
   const { width, channels, bits, ranges } = config;
   // ISO 32000-1:2008, 8.9.6.4 tests the raw samples before Decode; 8.9.6.2 makes stencil bit 1 transparent by default.
   const stencil = new Uint8Array(Math.ceil(width / 8));

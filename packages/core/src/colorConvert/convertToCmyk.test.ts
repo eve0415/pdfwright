@@ -1,4 +1,5 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ConvertToCmykOptions } from './convertToCmyk.ts';
@@ -9,15 +10,22 @@ import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgbBytes from '../../../../tests/fixtures/icc/sRGB2014.icc?icc-bytes';
 import syntheticCmykBytes from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { pdfDate } from '../date/pdfDate.ts';
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodedData } from '../font/fontValues.ts';
+import { createPdfFunction } from '../function/pdfFunction.ts';
 import { pdfArray, pdfLiteralString, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
 import { writeGtsPdfxOutputIntent } from '../pdfx/writeOutputIntent.ts';
 import { gammaCurveTag, iccProfileBytes } from '../testing/iccProfileBytes.ts';
-import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
+import { MeshBitReader } from './meshBits.ts';
+import { MeshBitWriter } from './meshBitWriter.ts';
 
 const converted = (resources: string, content: string, objects: ReadonlyArray<TestObject>) => {
   const { bytes } = buildPdf([
@@ -55,6 +63,9 @@ const axial = (functionObjects: ReadonlyArray<TestObject>) =>
 
 // Each vertex is an 8-bit flag, x, y and t.
 const triangle = String.fromCodePoint(0, 0, 0, 0, 0, 100, 0, 128, 0, 0, 100, 255);
+
+// A one-input exponential function from C0 to C1.
+const exponential = (c0: string, c1: string): string => `<</FunctionType 2/Domain[0 1]/C0[${c0}]/C1[${c1}]/N 1>>`;
 
 describe('function dictionaries with indirect entries', () => {
   it('converts an axial shading whose exponential function has indirect entries', () => {
@@ -339,6 +350,683 @@ describe('refused shading functions', () => {
 });
 
 const resolved = (document: LoadedDocument, value: PdfObject | undefined): PdfObject | undefined => (value?.kind === 'reference' ? document.get(value) : value);
+
+// The decoded content of a stream object, as text.
+const streamText = (document: LoadedDocument, number: number): string => {
+  const stream = document.get(pdfReference(number, 0));
+  const internals = internalsOf(document);
+  if (stream.kind !== 'stream' || internals === undefined) {
+    throw new Error(`object ${String(number)} is not a stream`);
+  }
+  const data = decodedData(internals, stream);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return latin1Text(data);
+};
+
+// The four operands a page writes for an RGB colour set with the given operator, which a form must write for the same colour under an inherited RGB space.
+const pageCmyk = (operator: 'rg' | 'RG', rgb: string): string => {
+  const document = loadDocument(documentBytes([{ resources: '', content: `${rgb} ${operator} 0 0 10 10 re f` }], []));
+  convertToCmyk(document, cmykOptions);
+  const page = document.get(document.page(0).reference);
+  const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+  if (contents?.kind !== 'reference') {
+    throw new Error('the converted page has no content stream');
+  }
+  const cmyk = /^((?:[\d.]+ ){4})[kK] /u.exec(streamText(document, contents.objectNumber))?.[1];
+  if (cmyk === undefined) {
+    throw new Error('the converted page sets no CMYK colour');
+  }
+  return cmyk;
+};
+
+// The names a converted page draws, with the content each one resolves to and the page's XObject dictionary.
+const drawnForms = (document: LoadedDocument) => {
+  const page = document.get(document.page(0).reference);
+  const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+  const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+  const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+  const names = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => match[1] ?? '');
+  const text = (name: string): string => {
+    const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(name).bytes) : undefined;
+    return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${name}`;
+  };
+  return { names, text, xobjects: xobjects?.kind === 'dictionary' ? xobjects.entries : undefined };
+};
+
+describe('forms drawn from converted pages', () => {
+  // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do; 8.6.8: sc and SC take one operand per component of the current space.
+  it.each([
+    { name: 'fill', page: '0.2 0.4 0.6 rg', form: '0.9 0.5 0.1 sc', operator: 'rg', paint: 'sc' },
+    { name: 'stroke', page: '0.2 0.4 0.6 RG', form: '0.9 0.5 0.1 SC', operator: 'RG', paint: 'SC' },
+  ] as const)('converts the $name colour a form sets in the RGB space it inherits from the page', ({ page, form, operator, paint }) => {
+    const document = loadDocument(
+      documentBytes(
+        [{ resources: '/XObject<</Fm 5 0 R>>', content: `${page} /Fm Do` }],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', `${form} 0 0 10 10 re f`) }],
+      ),
+    );
+    const report = convertToCmyk(document, cmykOptions);
+    expect(report.forms).toStrictEqual({ forms: 1, clones: 0 });
+    expect(streamText(document, 5)).toBe(`${pageCmyk(operator, '0.9 0.5 0.1')}${paint} 0 0 10 10 re f`);
+  });
+
+  it('converts the page and both copies of a form it draws under two RGB spaces', () => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject<</Fm 5 0 R>>',
+            content: '/CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do',
+          },
+        ],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') }],
+      ),
+    );
+    const report = convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const names = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => match[1] ?? '');
+    const forms = names.map(name => {
+      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(name).bytes) : undefined;
+      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${name}`;
+    });
+    expect(report.forms).toStrictEqual({ forms: 2, clones: 1 });
+    expect(pageText).toMatch(/^\/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(new Set(names).size).toBe(2);
+    expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
+    expect(forms[0]).not.toBe(forms[1]);
+  });
+
+  // Operands left on the stack before BI are discarded with the inline image.
+  it.each([
+    { name: 'an inline image', before: '' },
+    { name: 'an inline image with stray operands before BI', before: '1 2 ' },
+  ] as const)('renames the Do of a form copy that follows $name', ({ before }) => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject<</Fm 5 0 R>>',
+            content: `${before}BI /W 1 /H 1 /BPC 8 /CS /RGB ID ${String.fromCodePoint(255, 0, 0)} EI /CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do`,
+          },
+        ],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') }],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const forms = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => {
+      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(match[1] ?? '').bytes) : undefined;
+      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${match[1] ?? ''}`;
+    });
+    expect(pageText).toMatch(/^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
+    expect(forms[0]).not.toBe(forms[1]);
+  });
+
+  it('keeps the colour space set before an inline image with a stray operand for the forms drawn after it', () => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject<</Fm 5 0 R>>',
+            content: `/CR cs 0.5 BI /W 1 /H 1 /BPC 8 /CS /RGB ID ${String.fromCodePoint(255, 0, 0)} EI 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do`,
+          },
+        ],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') }],
+      ),
+    );
+    const report = convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const forms = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => {
+      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(match[1] ?? '').bytes) : undefined;
+      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${match[1] ?? ''}`;
+    });
+    expect(report.forms).toStrictEqual({ forms: 2, clones: 1 });
+    expect(pageText).toMatch(/^\/DeviceCMYK cs BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
+    expect(forms[0]).not.toBe(forms[1]);
+  });
+
+  it('names the second copy of a form apart from an image in an indirect XObject dictionary', () => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject 9 0 R',
+            content: '/CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do /PWFORM0 Do',
+          },
+        ],
+        [
+          { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') },
+          { number: 7, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray', String.fromCodePoint(10)) },
+          { number: 9, body: '<</Fm 5 0 R/PWFORM0 7 0 R>>' },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const drawn = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => {
+      const value = xobjects?.kind === 'dictionary' ? resolved(document, xobjects.entries.get(pdfName(match[1] ?? '').bytes)) : undefined;
+      return value?.kind === 'stream' ? value.dictionary.get(pdfName('Subtype').bytes) : undefined;
+    });
+    expect(drawn).toStrictEqual([pdfName('Form'), pdfName('Form'), pdfName('Image')]);
+  });
+
+  const formSpaces = '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]/CR2[/CalRGB<</WhitePoint[0.9642 1 0.8249]>>]>>';
+  const formStream = { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') };
+  const grayImage = {
+    number: 7,
+    body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray', String.fromCodePoint(10)),
+  };
+
+  it.each([
+    { name: 'gray and RGB', states: ['0.5 g', '0.2 0.4 0.6 rg'], xobjects: '/XObject<</Fm 5 0 R>>', objects: [formStream], others: [] },
+    {
+      name: 'two RGB spaces',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg'],
+      xobjects: '/XObject<</Fm 5 0 R>>',
+      objects: [formStream],
+      others: [],
+    },
+    {
+      name: 'three RGB spaces',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
+      xobjects: '/XObject<</Fm 5 0 R>>',
+      objects: [formStream],
+      others: [],
+    },
+    {
+      name: 'three RGB spaces beside an image named like a form copy',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
+      xobjects: '/XObject<</Fm 5 0 R/PWFORM1 7 0 R>>',
+      objects: [formStream, grayImage],
+      others: [{ name: 'PWFORM1', value: pdfReference(7, 0) }],
+    },
+  ])('names one copy of a form for each state when the page draws it under $name many times', ({ states, xobjects, objects, others }) => {
+    // Each state alone shows the content its copy of the form must have.
+    const expected = states.map(state => {
+      const single = loadDocument(documentBytes([{ resources: `${formSpaces}${xobjects}`, content: `${state} /Fm Do` }], objects));
+      convertToCmyk(single, cmykOptions);
+      const { names, text } = drawnForms(single);
+      return text(names[0] ?? '');
+    });
+    const draws = Array.from({ length: 24 }, (_, index) => `${states[index % states.length] ?? ''} /Fm Do`);
+    const document = loadDocument(documentBytes([{ resources: `${formSpaces}${xobjects}`, content: draws.join(' ') }], objects));
+    const report = convertToCmyk(document, cmykOptions);
+    const { names, text, xobjects: dictionary } = drawnForms(document);
+    const copies = names.slice(0, states.length);
+    expect(report.forms).toStrictEqual({ forms: states.length, clones: states.length - 1 });
+    expect(new Set(copies).size).toBe(states.length);
+    expect(names).toStrictEqual(draws.map((_, index) => copies[index % states.length]));
+    expect(copies.map(name => text(name))).toStrictEqual(expected);
+    expect(dictionary?.size).toBe(states.length + others.length);
+    expect(others.map(({ name }) => dictionary?.get(pdfName(name).bytes))).toStrictEqual(others.map(({ value }) => value));
+  });
+});
+
+// The page paints through a luminosity soft mask whose DeviceRGB group is object 6.
+const maskPage = { resources: '/ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>', content: '/GS gs 1 0 0 rg 0 0 10 10 re f' };
+
+const maskGroup = (resources: string, content: string): TestObject => ({
+  number: 6,
+  body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<<${resources}>>`, content),
+});
+
+interface MaskResource {
+  readonly entries: PdfDictionaryEntries;
+  readonly data: Uint8Array | undefined;
+}
+
+// The stream, or the dictionary with its stream data decoded, that the mask group's resources name in the given category.
+const maskResource = (document: LoadedDocument, category: string, name: string): MaskResource => {
+  const group = document.get(pdfReference(6, 0));
+  const internals = internalsOf(document);
+  const resources = group.kind === 'stream' ? resolved(document, group.dictionary.get(pdfName('Resources').bytes)) : undefined;
+  const named = resources?.kind === 'dictionary' ? resolved(document, resources.entries.get(pdfName(category).bytes)) : undefined;
+  const object = named?.kind === 'dictionary' ? resolved(document, named.entries.get(pdfName(name).bytes)) : undefined;
+  if (object?.kind === 'dictionary') {
+    return { entries: object.entries, data: undefined };
+  }
+  if (object?.kind !== 'stream' || internals === undefined) {
+    throw new Error(`the mask group names no ${category} ${name}`);
+  }
+  const data = decodedData(internals, object);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return { entries: object.dictionary, data };
+};
+
+const maskGroupSpace = (document: LoadedDocument): PdfObject | undefined => {
+  const group = document.get(pdfReference(6, 0));
+  const attributes = group.kind === 'stream' ? resolved(document, group.dictionary.get(pdfName('Group').bytes)) : undefined;
+  return attributes?.kind === 'dictionary' ? attributes.entries.get(pdfName('CS').bytes) : undefined;
+};
+
+// Three vertices of a free-form triangle mesh, each a 2-bit flag, 8-bit x and y, and 8-bit red, green and blue.
+const rgbTriangle = (): string => {
+  const writer = new MeshBitWriter();
+  for (const vertex of [
+    [0, 0, 255, 0, 0],
+    [10, 0, 0, 255, 0],
+    [0, 10, 0, 0, 255],
+  ]) {
+    writer.write(2, 0);
+    for (const value of vertex) {
+      writer.write(8, value);
+    }
+    writer.alignByte();
+  }
+  return latin1Text(writer.finish(1024));
+};
+
+const calGray = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
+const grayImage = (space: string): TestObject => ({
+  number: 9,
+  body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace${space}`, String.fromCodePoint(128)),
+});
+const grayProfileObject: TestObject = { number: 10, body: streamBody('/N 1', latin1Text(grayProfile)) };
+const grayPaint = [
+  { name: 'a CalGray image', resources: '/XObject<</Im 9 0 R>>', content: '/Im Do', objects: [grayImage(calGray)], category: 'XObject', key: 'Im' },
+  {
+    name: 'an ICC gray image',
+    resources: '/XObject<</Im 9 0 R>>',
+    content: '/Im Do',
+    objects: [grayImage('[/ICCBased 10 0 R]'), grayProfileObject],
+    category: 'XObject',
+    key: 'Im',
+  },
+  {
+    name: 'a CalGray axial shading',
+    resources: '/Shading<</Sh1 9 0 R>>',
+    content: '/Sh1 sh',
+    objects: [{ number: 9, body: `<</ShadingType 2/ColorSpace${calGray}/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>>>` }],
+    category: 'Shading',
+    key: 'Sh1',
+  },
+] as const;
+
+// ISO 32000-1:2008, 11.6.5.3, Table 146: Matte holds one value per component of the image's colour space, so it cannot stay on the gray image as three RGB values.
+const softMasked = (matte: string, mask = '/Width 1/Height 1/BitsPerComponent 8', maskData = String.fromCodePoint(128)): ReadonlyArray<TestObject> => [
+  maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+  {
+    number: 9,
+    body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/SMask 10 0 R', String.fromCodePoint(200, 100, 50)),
+  },
+  {
+    number: 10,
+    body: streamBody(`/Type/XObject/Subtype/Image${mask}/ColorSpace/DeviceGray${matte}`, maskData),
+  },
+];
+
+// A 1 by 1 DeviceRGB image with the given extra entries and samples, whose soft mask is a valid preblended image.
+const preblendedImage = (entries: string, data: string): ReadonlyArray<TestObject> => [
+  { number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB${entries}/SMask 10 0 R`, data) },
+  {
+    number: 10,
+    body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray/Matte[1 0 0]', String.fromCodePoint(128)),
+  },
+];
+
+describe('luminosity soft masks', () => {
+  // ISO 32000-1:2008, 11.6.5.2, Table 144: a Luminosity soft mask derives its values from its group, which becomes DeviceGray, so red, green and blue paint becomes 0.3, 0.59 and 0.11 gray.
+  it('converts an RGB image the mask draws into a gray image', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+          {
+            number: 9,
+            body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB', String.fromCodePoint(255, 0, 0)),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    expect([maskGroupSpace(document), image.entries.get(pdfName('ColorSpace').bytes), image.data]).toStrictEqual([
+      pdfName('DeviceGray'),
+      pdfName('DeviceGray'),
+      Uint8Array.of(77),
+    ]);
+  });
+
+  // ISO 32000-1:2008, 8.9.6.4: a colour-key mask tests the raw RGB samples, so the gray image gets a stencil that keys the same pixels.
+  it('keys the same pixels of a colour-keyed RGB image the mask draws as gray', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+          {
+            number: 9,
+            // Red is keyed and green is not, and both become gray 77.
+            body: streamBody(
+              '/Type/XObject/Subtype/Image/Width 2/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Mask[200 255 0 10 0 10]',
+              String.fromCodePoint(255, 0, 0, 0, 130, 0),
+            ),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    const key = resolved(document, image.entries.get(pdfName('Mask').bytes));
+    const internals = internalsOf(document);
+    const stencil = key?.kind === 'stream' && internals !== undefined ? decodedData(internals, key) : 'no stencil mask';
+    const entry = (name: string): PdfObject | undefined => (key?.kind === 'stream' ? key.dictionary.get(pdfName(name).bytes) : undefined);
+    expect([image.entries.get(pdfName('ColorSpace').bytes), image.data]).toStrictEqual([pdfName('DeviceGray'), Uint8Array.of(77, 77)]);
+    expect([entry('ImageMask'), entry('Width'), entry('Height'), entry('BitsPerComponent'), stencil]).toStrictEqual([
+      { kind: 'boolean', value: true },
+      { kind: 'integer', value: 2 },
+      { kind: 'integer', value: 1 },
+      { kind: 'integer', value: 1 },
+      Uint8Array.of(0b1000_0000),
+    ]);
+  });
+
+  it('converts an RGB axial shading the mask paints into a gray shading', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'),
+          { number: 9, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function 10 0 R>>' },
+          { number: 10, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const shading = maskResource(document, 'Shading', 'Sh1');
+    const functionValue = resolved(document, shading.entries.get(pdfName('Function').bytes));
+    const internals = internalsOf(document);
+    const data = functionValue?.kind === 'stream' && internals !== undefined ? decodedData(internals, functionValue) : 'no sampled function';
+    if (functionValue?.kind !== 'stream' || typeof data === 'string') {
+      throw new Error('the gray shading has no sampled function');
+    }
+    const gray = createPdfFunction({ kind: 'stream', dictionary: functionValue.dictionary, data });
+    expect([maskGroupSpace(document), shading.entries.get(pdfName('ColorSpace').bytes)]).toStrictEqual([pdfName('DeviceGray'), pdfName('DeviceGray')]);
+    expect(gray([0])[0]).toBeCloseTo(0.3, 3);
+    expect(gray([1])[0]).toBeCloseTo(0.11, 3);
+  });
+
+  it('converts an RGB mesh shading the mask paints into gray vertices', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'),
+          {
+            number: 9,
+            body: streamBody(
+              '/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 10 0 10 0 1 0 1 0 1]',
+              rgbTriangle(),
+            ),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const shading = maskResource(document, 'Shading', 'Sh1');
+    const reader = new MeshBitReader(shading.data ?? new Uint8Array());
+    const records: Array<ReadonlyArray<number>> = [];
+    while (reader.remainingBits > 0) {
+      records.push([reader.read(2), reader.read(8), reader.read(8), reader.read(8)]);
+      reader.alignByte();
+    }
+    expect([maskGroupSpace(document), shading.entries.get(pdfName('ColorSpace').bytes)]).toStrictEqual([pdfName('DeviceGray'), pdfName('DeviceGray')]);
+    expect(records).toStrictEqual([
+      [0, 0, 0, 77],
+      [0, 10, 0, 150],
+      [0, 0, 10, 28],
+    ]);
+  });
+
+  it('converts a form the page and the mask both draw into CMYK for the page and gray for the mask', () => {
+    const document = loadDocument(
+      documentBytes(
+        [{ resources: `${maskPage.resources}/XObject<</Fm 9 0 R>>`, content: `${maskPage.content} /Fm Do` }],
+        [
+          maskGroup('/XObject<</Fm 9 0 R>>', '/Fm Do'),
+          { number: 9, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0 1 0 rg 0 0 10 10 re f') },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const masked = maskResource(document, 'XObject', 'Fm');
+    expect([latin1Text(masked.data ?? new Uint8Array()), streamText(document, 9)]).toStrictEqual([
+      '0.59 g 0 0 10 10 re f',
+      expect.stringMatching(/^(?:[\d.]+ ){4}k 0 0 10 10 re f$/u),
+    ]);
+  });
+
+  // ISO 32000-1:2008, 11.6.5.2: the mask takes its values from the group's own paint, so calibrated gray paint that the other passes would turn into CMYK inside the gray group is refused.
+  it.each(grayPaint)('refuses $name in an RGB luminosity mask and leaves the document unchanged', ({ resources, content, objects }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(UnsupportedFeatureError);
+    expect(error instanceof Error ? error.message : error).toMatch(/calibrated gray/u);
+  });
+
+  it.each(grayPaint)('keeps $name in an RGB luminosity mask when calibrated gray is kept', ({ resources, content, objects, category, key }) => {
+    const bytes = documentBytes([maskPage], [maskGroup(resources, content), ...objects]);
+    const document = loadDocument(bytes);
+    convertToCmyk(document, { ...cmykOptions, iccGray: 'keep' });
+    const source = maskResource(loadDocument(bytes), category, key);
+    const paint = maskResource(document, category, key);
+    const space = pdfName('ColorSpace').bytes;
+    expect([maskGroupSpace(document), paint.entries.get(space), paint.data]).toStrictEqual([pdfName('DeviceGray'), source.entries.get(space), source.data]);
+  });
+
+  it('refuses an RGB image with a preblended soft mask in an RGB luminosity mask and leaves the document unchanged', () => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked('/Matte[1 0 0]'))), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(UnsupportedFeatureError);
+    expect(error instanceof Error ? error.message : error).toMatch(/Matte/u);
+  });
+
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: a Matte with other than one value per image component, a preblended soft mask of another size, or a soft mask that is not a valid image (8.9.5) is malformed rather than unsupported.
+  it.each([
+    { name: 'one Matte value for an RGB image', matte: '/Matte[1]', mask: undefined, maskData: undefined },
+    { name: 'a non-numeric Matte value', matte: '/Matte[/A 0 0]', mask: undefined, maskData: undefined },
+    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', mask: '/Width 2/Height 1/BitsPerComponent 8', maskData: 'A' },
+    { name: 'a preblended soft mask taller than the image', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 2/BitsPerComponent 8', maskData: 'A' },
+    { name: 'a preblended soft mask of 3 bits per component', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 3', maskData: 'A' },
+    { name: 'a preblended soft mask with a one-value Decode', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[0]', maskData: 'A' },
+    {
+      name: 'a preblended soft mask with a non-numeric Decode',
+      matte: '/Matte[1 0 0]',
+      mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[/A /B]',
+      maskData: 'A',
+    },
+    { name: 'a preblended soft mask with no samples', matte: '/Matte[1 0 0]', mask: undefined, maskData: '' },
+  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, mask, maskData }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, mask, maskData))), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error).toMatchObject({ reason: 'color-space' });
+  });
+
+  // ISO 32000-1:2008, 8.9.5, Table 89: an image needs a Width, a Height, 1, 2, 4, 8 or 16 bits per component and the samples they imply, so paint the mask cannot convert is still rejected as malformed when it is.
+  it.each([
+    {
+      name: 'an RGB image with too few samples and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('', 'AB'),
+    },
+    {
+      name: 'an RGB image with a one-value Decode and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('/Decode[0]', 'ABC'),
+    },
+    {
+      name: 'an RGB image with a one-range colour key and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('/Mask[0 1]', 'ABC'),
+    },
+    {
+      name: 'an RGB image of 3 bits per component',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 3/ColorSpace/DeviceRGB', 'AB') }],
+    },
+    {
+      name: 'a CalGray image with too few samples',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 2/Height 2/BitsPerComponent 8/ColorSpace${calGray}`, 'A') }],
+    },
+    {
+      name: 'a CalGray image of 3 bits per component',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 2/Height 2/BitsPerComponent 3/ColorSpace${calGray}`, 'AB') }],
+    },
+    {
+      name: 'a CalGray image without a Width',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Height 2/BitsPerComponent 8/ColorSpace${calGray}`, 'ABCD') }],
+    },
+    {
+      name: 'a CalGray axial shading without a Function',
+      resources: '/Shading<</Sh1 9 0 R>>',
+      content: '/Sh1 sh',
+      objects: [{ number: 9, body: `<</ShadingType 2/ColorSpace${calGray}/Coords[0 0 10 0]>>` }],
+    },
+    {
+      name: 'an RGB axial shading without a Function after a preblended RGB image',
+      resources: '/XObject<</Im 9 0 R>>/Shading<</Sh1 11 0 R>>',
+      content: '/Im Do /Sh1 sh',
+      objects: [...preblendedImage('', 'ABC'), { number: 11, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]>>' }],
+    },
+  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ resources, content, objects }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error).toMatchObject({ reason: 'color-space' });
+  });
+
+  // A shading function of an RGB space returns one value per RGB component.
+  it.each([
+    {
+      name: 'an RGB axial shading whose function returns one value',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function${exponential('0', '1')}>>`,
+    },
+    {
+      name: 'an RGB axial shading whose function returns four values',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function${exponential('0 0 0 0', '1 1 1 1')}>>`,
+    },
+    {
+      name: 'a CalRGB radial shading whose function returns one value',
+      body: `<</ShadingType 3/ColorSpace[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]/Coords[0 0 0 0 0 10]/Function${exponential('0', '1')}>>`,
+    },
+    {
+      name: 'an RGB axial shading whose stitched functions return one value',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 3/Domain[0 1]/Functions[${exponential('0', '1')} ${exponential('1', '0')}]/Bounds[0.5]/Encode[0 1 0 1]>>>>`,
+    },
+    {
+      name: 'an RGB triangle mesh whose function returns one value',
+      body: streamBody(
+        `/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 8/Decode[0 100 0 100 0 1]/Function${exponential('0', '1')}`,
+        triangle,
+      ),
+    },
+  ])('rejects $name in an RGB luminosity mask as a page does and leaves the document unchanged', ({ body }) => {
+    const shading = { number: 9, body };
+    const onPage = refusal(loadDocument(documentBytes([{ resources: '/Shading<</Sh1 9 0 R>>', content: '/Sh1 sh' }], [shading])), cmykOptions);
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'), shading])), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(onPage.error).toBeInstanceOf(InvalidArgumentError);
+    expect(error).toBeInstanceOf(InvalidArgumentError);
+    expect(error).toMatchObject({ code: 'invalid-argument', reason: undefined });
+  });
+
+  it('keeps the soft mask of an RGB image the mask draws as gray when the image is not preblended', () => {
+    const document = loadDocument(documentBytes([maskPage], softMasked('')));
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    expect([image.entries.get(pdfName('ColorSpace').bytes), image.entries.get(pdfName('SMask').bytes)]).toStrictEqual([
+      pdfName('DeviceGray'),
+      pdfReference(10, 0),
+    ]);
+  });
+
+  // ISO 32000-1:2008, 8.10.1 and 11.6.5.2: a form drawn with Do paints with the state at Do, while the same stream as a soft-mask group only supplies mask values.
+  it.each([
+    { name: 'a luminosity mask', subtype: 'Luminosity', before: '', color: '1 0 0', mask: '0.3 g 0 0 10 10 re f', maskSpace: 'DeviceGray' },
+    {
+      name: 'a luminosity mask under an RGB fill',
+      subtype: 'Luminosity',
+      before: '0.2 0.4 0.6 rg ',
+      color: '1 0 0',
+      mask: '0.3 g 0 0 10 10 re f',
+      maskSpace: 'DeviceGray',
+    },
+    {
+      name: 'an alpha mask under the Saturation intent',
+      subtype: 'Alpha',
+      before: '/Saturation ri ',
+      color: '0.2 0.8 0.3',
+      mask: undefined,
+      maskSpace: 'DeviceCMYK',
+    },
+  ] as const)('keeps the page colour of a form that is also the group of $name', ({ subtype, before, color, mask, maskSpace }) => {
+    const form = maskGroup('', `${color} rg 0 0 10 10 re f`);
+    const pageContent = `${before}/Fx Do`;
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: `/ExtGState<</GS<</SMask<</S/${subtype}/G 6 0 R>>>>>>/XObject<</Fx 6 0 R>>`,
+            content: `q /GS gs 0 0 1 rg 0 0 10 10 re f Q ${pageContent}`,
+          },
+        ],
+        [form],
+      ),
+    );
+    // The same page without the mask shows what the form must paint when the page draws it.
+    const unmasked = loadDocument(documentBytes([{ resources: '/XObject<</Fx 6 0 R>>', content: pageContent }], [form]));
+    convertToCmyk(document, cmykOptions);
+    convertToCmyk(unmasked, cmykOptions);
+    const states = resolved(document, document.page(0).resources().get(pdfName('ExtGState').bytes));
+    const state = states?.kind === 'dictionary' ? resolved(document, states.entries.get(pdfName('GS').bytes)) : undefined;
+    const softMask = state?.kind === 'dictionary' ? resolved(document, state.entries.get(pdfName('SMask').bytes)) : undefined;
+    const group = softMask?.kind === 'dictionary' ? softMask.entries.get(pdfName('G').bytes) : undefined;
+    if (group?.kind !== 'reference') {
+      throw new Error('the soft mask has no group reference');
+    }
+    const groupSpace = (number: number): PdfObject | undefined => {
+      const stream = document.get(pdfReference(number, 0));
+      const attributes = stream.kind === 'stream' ? resolved(document, stream.dictionary.get(pdfName('Group').bytes)) : undefined;
+      return attributes?.kind === 'dictionary' ? attributes.entries.get(pdfName('CS').bytes) : undefined;
+    };
+    expect(group.objectNumber).not.toBe(6);
+    expect([streamText(document, 6), groupSpace(6)]).toStrictEqual([streamText(unmasked, 6), pdfName('DeviceCMYK')]);
+    expect([streamText(document, group.objectNumber), groupSpace(group.objectNumber)]).toStrictEqual([
+      mask ?? `${pageCmyk('rg', color)}k 0 0 10 10 re f`,
+      pdfName(maskSpace),
+    ]);
+  });
+});
 
 const pageShading = (document: LoadedDocument, page: number): PdfObject | undefined => {
   const shadings = resolved(document, document.page(page).resources().get(pdfName('Shading').bytes));

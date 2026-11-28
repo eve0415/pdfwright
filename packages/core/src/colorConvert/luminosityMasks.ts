@@ -14,6 +14,7 @@ import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -23,6 +24,7 @@ import { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.
 import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
+import { stencilRow } from './convertImages.ts';
 import { deleteDiscarded } from './discardedObjects.ts';
 import { readImageSample } from './imageRows.ts';
 import { addInlineXObjects } from './inlineResources.ts';
@@ -51,6 +53,8 @@ interface MaskGroup {
 interface GrayXObjectPlan {
   readonly name: Uint8Array;
   readonly stream: PdfStream;
+  /** The stencil that replaces a colour-key mask, written beside the gray image. */
+  readonly stencil?: PdfStream | undefined;
   readonly resources?: PdfDictionaryEntries | undefined;
   readonly children: ReadonlyArray<GrayXObjectPlan>;
   readonly shadings: ReadonlyArray<GrayShadingPlan>;
@@ -69,13 +73,20 @@ interface MaskResource {
   readonly stateName: Uint8Array;
   readonly state: PdfDictionaryEntries;
   readonly mask: PdfDictionaryEntries;
+  /** The object number of the mask's group, which a copy replaces when the group is also drawn. */
+  readonly group: number;
+  /** False when the mask dictionary changes only if its group is copied. */
+  readonly changesMask: boolean;
 }
 
 export interface LuminosityPreparation {
+  /** Mask groups that only masks use; a group that is also drawn keeps its own group conversion, because its mask gets a copy. */
   readonly groupNumbers: ReadonlySet<number>;
   readonly changed: number;
   readonly kept: number;
   readonly approximated: number;
+  /** The refusal of paint a gray mask group cannot keep, which the caller raises once the passes that check that paint have run. */
+  readonly refusal: UnsupportedFeatureError | undefined;
   apply: () => void;
 }
 
@@ -89,6 +100,7 @@ interface MaskScan {
   readonly approximated: Set<number>;
   readonly seenForms: Set<number>;
   readonly seenCarriers: Set<number>;
+  readonly refusals: Array<UnsupportedFeatureError>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -104,6 +116,7 @@ const RESOURCES = pdfName('Resources').bytes;
 const GROUP = pdfName('Group').bytes;
 const COLOR_SPACE = pdfName('CS').bytes;
 const MASK = pdfName('SMask').bytes;
+const MATTE = pdfName('Matte').bytes;
 const MASK_SUBTYPE = pdfName('S').bytes;
 const MASK_GROUP = pdfName('G').bytes;
 const BACKDROP = pdfName('BC').bytes;
@@ -115,6 +128,9 @@ const WIDTH = pdfName('Width').bytes;
 const HEIGHT = pdfName('Height').bytes;
 const BITS = pdfName('BitsPerComponent').bytes;
 const DECODE = pdfName('Decode').bytes;
+const COLOR_KEY = pdfName('Mask').bytes;
+const IMAGE_MASK = pdfName('ImageMask').bytes;
+const TYPE = pdfName('Type').bytes;
 
 const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 
@@ -204,12 +220,85 @@ const imageDecode = (scan: MaskScan, image: PdfStream): Array<number> => {
   });
 };
 
-const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): PdfStream => {
+const colorKeyRanges = (scan: MaskScan, image: PdfStream, bits: number): Array<number> | undefined => {
+  const value = scan.internals.objects.deref(image.dictionary.get(COLOR_KEY));
+  if (value?.kind !== 'array') {
+    return undefined;
+  }
+  if (value.items.length !== 6) {
+    throw new ValidationError('luminosity image colour-key mask needs three ranges', 'color-space');
+  }
+  return value.items.map(item => {
+    const resolved = scan.internals.objects.deref(item);
+    if (resolved?.kind !== 'integer' || resolved.value < 0 || resolved.value > 2 ** bits - 1) {
+      throw new ValidationError('luminosity image colour-key mask range is invalid', 'color-space');
+    }
+    return resolved.value;
+  });
+};
+
+interface GrayImage {
+  readonly stream: PdfStream;
+  readonly stencil: PdfStream | undefined;
+}
+
+// ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space, the samples are preblended with it, and the soft mask has the image's Width and Height.
+const preblendedSoftMask = (scan: MaskScan, image: PdfStream, size: { width: number; height: number }): boolean => {
+  const softMask = scan.internals.objects.deref(image.dictionary.get(MASK));
+  const matte = softMask?.kind === 'stream' ? scan.internals.objects.deref(softMask.dictionary.get(MATTE)) : undefined;
+  if (softMask?.kind !== 'stream' || matte === undefined) {
+    return false;
+  }
+  if (matte.kind !== 'array' || matte.items.length !== 3) {
+    throw new ValidationError('luminosity image soft-mask Matte does not match the image colour space', 'color-space');
+  }
+  for (const item of matte.items) {
+    const component = scan.internals.objects.deref(item);
+    if ((component?.kind !== 'integer' && component?.kind !== 'real') || typeof component.value !== 'number') {
+      throw new ValidationError('luminosity image soft-mask Matte entry is not numeric', 'color-space');
+    }
+  }
+  if (imageInteger(scan, softMask, WIDTH) !== size.width || imageInteger(scan, softMask, HEIGHT) !== size.height) {
+    throw new ValidationError('luminosity image and its preblended soft mask differ in size', 'color-space');
+  }
+  // ISO 32000-1:2008, 8.9.5, Table 89: the soft mask is a one-component image with 1, 2, 4, 8 or 16 bits per component and a Decode array of one pair.
+  const bits = imageInteger(scan, softMask, BITS);
+  if (![1, 2, 4, 8, 16].includes(bits)) {
+    throw new ValidationError('luminosity image soft-mask bit depth is invalid', 'color-space');
+  }
+  const decode = scan.internals.objects.deref(softMask.dictionary.get(DECODE));
+  if (decode !== undefined) {
+    if (decode.kind !== 'array' || decode.items.length !== 2) {
+      throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+    }
+    for (const item of decode.items) {
+      const bound = scan.internals.objects.deref(item);
+      if ((bound?.kind !== 'integer' && bound?.kind !== 'real') || typeof bound.value !== 'number') {
+        throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+      }
+    }
+  }
+  const data = decodedData(scan.internals, softMask);
+  if (typeof data === 'string' || data.length !== Math.ceil((size.width * bits) / 8) * size.height) {
+    throw new ValidationError('luminosity image soft-mask sample count is invalid', 'color-space');
+  }
+  return true;
+};
+
+// The first refusal is the one raised.
+const refuse = (scan: MaskScan, refusal: UnsupportedFeatureError): void => {
+  if (scan.refusals.length === 0) {
+    scan.refusals.push(refusal);
+  }
+};
+
+const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): GrayImage | undefined => {
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
   const bits = imageInteger(scan, image, BITS);
+  // ISO 32000-1:2008, 8.9.5, Table 89: an image has 1, 2, 4, 8 or 16 bits per component.
   if (![1, 2, 4, 8, 16].includes(bits)) {
-    throw new UnsupportedFeatureError('luminosity image bit depth is unsupported');
+    throw new ValidationError('luminosity image bit depth is invalid', 'color-space');
   }
   const inputRowBytes = Math.ceil((width * 3 * bits) / 8);
   const outputBits = bits === 16 ? 16 : 8;
@@ -225,11 +314,23 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
     throw new ValidationError('luminosity image sample count is invalid', 'color-space');
   }
   const output = new Uint8Array(outputRowBytes * height);
+  // ISO 32000-1:2008, 8.9.6.4: a colour key tests the raw RGB samples, which one gray component cannot hold, so the keyed pixels become a stencil mask (8.9.6.3).
+  const ranges = colorKeyRanges(scan, image, bits);
+  const stencilRowBytes = Math.ceil(width / 8);
+  const stencil = ranges === undefined ? undefined : new Uint8Array(stencilRowBytes * height);
   const decode = imageDecode(scan, image);
+  // A gray image cannot keep a soft mask preblended with an RGB Matte, so the image is refused once the later passes have checked the rest of the paint.
+  if (preblendedSoftMask(scan, image, { width, height })) {
+    refuse(scan, new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte'));
+    return undefined;
+  }
   const maximum = 2 ** bits - 1;
   const outputMaximum = 2 ** outputBits - 1;
   for (let row = 0; row < height; row++) {
     const input = data.subarray(row * inputRowBytes, (row + 1) * inputRowBytes);
+    if (stencil !== undefined && ranges !== undefined) {
+      stencil.set(stencilRow(input, { width, channels: 3, bits, ranges }), row * stencilRowBytes);
+    }
     for (let pixel = 0; pixel < width; pixel++) {
       const rgb = Array.from({ length: 3 }, (_, channel) => {
         const raw = readImageSample(input, pixel * 3 + channel, bits) / maximum;
@@ -252,7 +353,30 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
   dictionary.set(FILTER, pdfName('FlateDecode'));
   dictionary.delete(DECODE);
   dictionary.delete(DECODE_PARMS);
-  return { kind: 'stream', dictionary, data: deflateZlib(output) };
+  if (stencil === undefined) {
+    return { stream: { kind: 'stream', dictionary, data: deflateZlib(output) }, stencil: undefined };
+  }
+  dictionary.delete(COLOR_KEY);
+  const stencilDictionary = new Entries([
+    [TYPE, pdfName('XObject')],
+    [SUBTYPE, pdfName('Image')],
+    [IMAGE_MASK, { kind: 'boolean', value: true }],
+    [WIDTH, pdfInteger(width)],
+    [HEIGHT, pdfInteger(height)],
+    [BITS, pdfInteger(1)],
+    [FILTER, pdfName('FlateDecode')],
+  ]);
+  return {
+    stream: { kind: 'stream', dictionary, data: deflateZlib(output) },
+    stencil: { kind: 'stream', dictionary: stencilDictionary, data: deflateZlib(stencil) },
+  };
+};
+
+// The image, shading and mesh passes convert calibrated gray to CMYK unless the caller keeps it, and inside a DeviceGray mask group that CMYK paint would change the mask values. A renderer converts calibrated gray into a device blending space in its own way, so no DeviceGray value reproduces the source mask, and that paint is refused. The refusal waits for those passes, so that malformed paint is still rejected as invalid.
+const checkGrayPaint = (scan: MaskScan, paint: 'image' | 'shading'): void => {
+  if ((scan.options.iccGray ?? 'convert') === 'convert') {
+    refuse(scan, new UnsupportedFeatureError(`luminosity ${paint} has calibrated gray paint that would become CMYK`));
+  }
 };
 
 const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: ReadonlyArray<number>) => number) => {
@@ -296,6 +420,7 @@ const planGrayShadings = (
     }
     const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (space.kind === 'gray') {
+      checkGrayPaint(scan, 'shading');
       continue;
     }
     if (space.kind !== 'rgb') {
@@ -303,7 +428,13 @@ const planGrayShadings = (
     }
     const name = nameOf(scan.internals.objects.deref(color));
     const gray = name === 'DeviceRGB' || name === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-    const planned = grayFunctionShading(scan.internals, shading, gray);
+    // A shading function returns one value per component of the shading's colour space, and the shading pass rejects any other count with InvalidArgumentError.
+    const planned = grayFunctionShading(scan.internals, shading, values => {
+      if (values.length !== 3) {
+        throw new InvalidArgumentError('luminosity shading function does not return three RGB components');
+      }
+      return gray(values);
+    });
     plans.push({ name: Uint8Array.from(operand.bytes), ...planned });
   }
   return plans;
@@ -360,6 +491,7 @@ const planGrayImage = (
   }
   const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
   if (space.kind === 'gray') {
+    checkGrayPaint(scan, 'image');
     return undefined;
   }
   if (space.kind !== 'rgb') {
@@ -367,7 +499,8 @@ const planGrayImage = (
   }
   const gray = nameOf(scan.internals.objects.deref(color));
   const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-  return { name, stream: grayImage(scan, image, imageGray), children: [], shadings: [] };
+  const converted = grayImage(scan, image, imageGray);
+  return converted === undefined ? undefined : { name, ...converted, children: [], shadings: [] };
 };
 
 const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): ReadonlyArray<GrayXObjectPlan> => {
@@ -558,7 +691,15 @@ const planRgbLuminosityMask = (
     }
   }
   const backdropGray = cie ? cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc') : deviceRgbLuminosity;
-  scan.resources.push({ owner, resources, stateName: Uint8Array.from(name), state, mask: convertBackdrop(mask, backdropGray) });
+  scan.resources.push({
+    owner,
+    resources,
+    stateName: Uint8Array.from(name),
+    state,
+    mask: convertBackdrop(mask, backdropGray),
+    group: groupReference.objectNumber,
+    changesMask: true,
+  });
 };
 
 const planMask = (scan: MaskScan, input: { owner: PdfReference; resources: PdfDictionaryEntries; name: Uint8Array; state: PdfDictionaryEntries }): void => {
@@ -576,6 +717,18 @@ const planMask = (scan: MaskScan, input: { owner: PdfReference; resources: PdfDi
   const groupResources = own?.kind === 'dictionary' ? own.entries : resources;
   if (subtype === 'Alpha') {
     planAlphaMask(scan, { ...groupForm, resources: groupResources });
+    if (scan.groups.has(groupForm.reference.objectNumber)) {
+      const { owner, name } = input;
+      scan.resources.push({
+        owner,
+        resources,
+        stateName: Uint8Array.from(name),
+        state,
+        mask: maskValue.entries,
+        group: groupForm.reference.objectNumber,
+        changesMask: false,
+      });
+    }
     return;
   }
   planRgbLuminosityMask(scan, { ...input, mask: maskValue.entries, groupForm, groupResources });
@@ -794,6 +947,9 @@ const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: Re
       }
       dictionary.set(RESOURCES, pdfDictionary(mapped));
     }
+    if (plan.stencil !== undefined) {
+      dictionary.set(COLOR_KEY, scan.document.object(plan.stencil));
+    }
     xobjects.set(plan.name, scan.document.object({ kind: 'stream', dictionary, data: plan.stream.data }));
   }
   const mapped = new Entries(resources.entries());
@@ -801,7 +957,9 @@ const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: Re
   return mapped;
 };
 
-const applyGroups = (scan: MaskScan, discarded: Array<PdfReference>): void => {
+// A group stream that is also drawn with Do or as a carrier keeps its own content for that use, so the mask gets the converted group as a new object.
+const applyGroups = (scan: MaskScan, shared: ReadonlySet<number>, discarded: Array<PdfReference>): Map<number, PdfReference> => {
+  const copies = new Map<number, PdfReference>();
   for (const plan of scan.groups.values()) {
     const dictionary = new Entries(plan.form.dictionary.entries());
     const group = new Entries(plan.group.entries());
@@ -841,13 +999,22 @@ const applyGroups = (scan: MaskScan, discarded: Array<PdfReference>): void => {
       }
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
-    scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.data });
+    const stream: PdfStream = { kind: 'stream', dictionary, data: plan.data };
+    if (shared.has(plan.reference.objectNumber)) {
+      copies.set(plan.reference.objectNumber, scan.document.object(stream));
+    } else {
+      scan.document.set(plan.reference, stream);
+    }
   }
+  return copies;
 };
 
-const applyResources = (scan: MaskScan, discarded: Array<PdfReference>): void => {
+const applyResources = (scan: MaskScan, copies: ReadonlyMap<number, PdfReference>, discarded: Array<PdfReference>): void => {
   const grouped = new Map<number, Array<MaskResource>>();
   for (const plan of scan.resources) {
+    if (!plan.changesMask && !copies.has(plan.group)) {
+      continue;
+    }
     const list = grouped.get(plan.owner.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.owner.objectNumber, list);
@@ -868,7 +1035,12 @@ const applyResources = (scan: MaskScan, discarded: Array<PdfReference>): void =>
       if (oldMask?.kind === 'reference') {
         discarded.push(oldMask);
       }
-      state.set(MASK, pdfDictionary(plan.mask));
+      const mask = new Entries(plan.mask.entries());
+      const copy = copies.get(plan.group);
+      if (copy !== undefined) {
+        mask.set(MASK_GROUP, copy);
+      }
+      state.set(MASK, pdfDictionary(mask));
       const oldState = original.entries.get(plan.stateName);
       if (oldState?.kind === 'reference') {
         discarded.push(oldState);
@@ -918,6 +1090,7 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
     approximated: new Set(),
     seenForms: new Set(),
     seenCarriers: new Set(),
+    refusals: [],
   };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
@@ -946,18 +1119,20 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
       throw new ValidationError('mask carriers cannot be read', 'unreadable-resource');
     }
   }
+  const shared = new Set([...scan.groups.keys()].filter(number => scan.seenForms.has(number) || scan.seenCarriers.has(number)));
   return {
-    groupNumbers: new Set([...scan.groups.keys(), ...scan.kept]),
+    groupNumbers: new Set([...[...scan.groups.keys()].filter(number => !shared.has(number)), ...scan.kept]),
     changed: scan.groups.size,
     kept: scan.kept.size,
     approximated: scan.approximated.size,
+    refusal: scan.refusals[0],
     apply() {
       if (scan.groups.size === 0) {
         return;
       }
       const discarded: Array<PdfReference> = [];
-      applyGroups(scan, discarded);
-      applyResources(scan, discarded);
+      const copies = applyGroups(scan, shared, discarded);
+      applyResources(scan, copies, discarded);
       deleteDiscarded(document, internals, discarded);
       internals.objects.requireFullRewrite('color-conversion');
     },

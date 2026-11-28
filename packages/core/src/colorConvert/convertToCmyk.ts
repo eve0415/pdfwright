@@ -1,4 +1,5 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import type { MetadataChange } from '../metadata/setMetadata.ts';
 import type { PdfX4PageChange, PdfX4PageOptions } from '../pdfx/preparePages.ts';
 import type { PdfX4MetadataOptions } from '../pdfx/writeMetadata.ts';
@@ -79,17 +80,25 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
   const version = internals.pdfX4VersionState();
   try {
     const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
-    const page = rewritePageColors(document, conversion);
+    // ISO 32000-1:2008, 11.6.5.2, Table 144: a luminosity mask takes its values from the RGB content of its group, so masks are planned before any other pass converts that content.
+    const refusals: Array<UnsupportedFeatureError> = [];
+    const groups = convertTransparencyGroups(document, conversion, refusals);
+    // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do, so forms are planned from the page content before it is rewritten.
     const forms = convertForms(document, conversion);
+    const page = rewritePageColors(document, conversion);
     const images = convertImages(document, conversion);
     const indexed = convertIndexedSpaces(document, conversion);
     const spots = convertSpotSpaces(document, conversion);
     const shadings = convertShadings(document, conversion);
     const meshes = convertMeshShadings(document, conversion);
-    const groups = convertTransparencyGroups(document, conversion);
     const otherCarriers = convertOtherCarriers(document, conversion);
     const pageBoxes = options.pdfx === undefined || options.pdfx === false ? undefined : preparePdfX4Pages(document, options.pdfx);
     const metadata = options.pdfx === undefined || options.pdfx === false ? undefined : writePdfX4Metadata(document, options.pdfx);
+    // The mask planning refuses paint that the later passes also check, so its refusal waits for them and malformed paint is rejected as invalid first.
+    const [refusal] = refusals;
+    if (refusal !== undefined) {
+      throw refusal;
+    }
     return { page, forms, images, indexed, spots, shadings, meshes, groups, otherCarriers, outputIntent, pageBoxes, metadata };
   } catch (error: unknown) {
     internals.objects.adopt(previous);

@@ -7,6 +7,7 @@ import type { ColorEntryState, FormUse, OverprintNames, RewriteColorOptions } fr
 import type { SourceSpace } from './sourceSpace.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
+import { readContentSpans } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -39,6 +40,13 @@ interface Scope {
   readonly assignments: Map<string, Assignment>;
   readonly sourceBytes: Uint8Array;
   readonly nameEdits: Array<NameEdit>;
+  readonly generated: GeneratedNames;
+}
+
+// The names this scope gave to copies of forms, by plan, and the index its next name search starts at.
+interface GeneratedNames {
+  readonly names: Map<FormPlan, Uint8Array>;
+  next: number;
 }
 
 interface NameEdit {
@@ -152,24 +160,51 @@ const samePlan = (left: FormPlan, right: FormPlan): boolean => {
   return true;
 };
 
-const assign = (scope: Scope, use: FormUse, plan: FormPlan): void => {
+const assign = (internals: DocumentInternals, scope: Scope, use: FormUse, plan: FormPlan): void => {
   const key = bytesKey(use.name);
   const existing = scope.assignments.get(key);
   if (existing !== undefined && existing.plan !== plan) {
-    const category = scope.resources.get(XOBJECT);
+    const reused = scope.generated.names.get(plan);
+    if (reused !== undefined) {
+      scope.nameEdits.push({ start: use.start, end: use.end, text: `/${new TextDecoder('ascii').decode(reused)} Do` });
+      return;
+    }
+    const category = internals.objects.deref(scope.resources.get(XOBJECT));
     const used = category?.kind === 'dictionary' ? category.entries : undefined;
-    for (let index = 0; ; index++) {
+    for (let index = scope.generated.next; ; index++) {
       const name = pdfName(`PWFORM${String(index)}`).bytes;
       const generatedKey = bytesKey(name);
       if (used?.has(name) === true || scope.assignments.has(generatedKey)) {
         continue;
       }
+      scope.generated.next = index + 1;
+      scope.generated.names.set(plan, name);
       scope.assignments.set(generatedKey, { name, plan });
       scope.nameEdits.push({ start: use.start, end: use.end, text: `/${new TextDecoder('ascii').decode(name)} Do` });
       return;
     }
   }
   scope.assignments.set(key, { name: Uint8Array.from(use.name), plan });
+};
+
+// Page discovery needs only the graphics state at each Do. An inline image paints without changing that state, so its bytes become spaces of the same length, which keeps every Do offset, and only the page pass converts it.
+// The span of an inline image starts at any operands left on the stack before BI, which the content reader discards with the image, so blanking the span keeps them from the next operator.
+const withoutInlineImages = (bytes: Uint8Array, maxNesting: number): Uint8Array => {
+  let mayHoldImage = false;
+  for (let index = bytes.indexOf(0x42); index !== -1 && !mayHoldImage; index = bytes.indexOf(0x42, index + 1)) {
+    mayHoldImage = bytes[index + 1] === 0x49;
+  }
+  if (!mayHoldImage) {
+    return bytes;
+  }
+  let blanked: Uint8Array | undefined;
+  for (const operation of readContentSpans(bytes, maxNesting)) {
+    if (operation.operator === 'BI' && operation.inlineImage !== undefined) {
+      blanked ??= Uint8Array.from(bytes);
+      blanked.fill(0x20, operation.start, operation.end);
+    }
+  }
+  return blanked ?? bytes;
 };
 
 const applyNameEdits = (bytes: Uint8Array, edits: ReadonlyArray<NameEdit>): Uint8Array => {
@@ -254,6 +289,7 @@ class FormPlanner {
       clone,
       assignments: new Map(),
       nameEdits: [],
+      generated: { names: new Map(), next: 0 },
     };
     const key = referenceKey(reference);
     this.active.add(key);
@@ -296,7 +332,7 @@ class FormPlanner {
           this.plans.push(plan);
         }
       }
-      assign(scope, use, plan);
+      assign(this.internals, scope, use, plan);
     }
   }
 
@@ -313,12 +349,19 @@ class FormPlanner {
       }
       const resources = this.document.page(page).resources();
       const sourceBytes = combineContentStreams(content.streams);
-      const rewritten = rewriteContentColors(this.document, sourceBytes, {
+      const rewritten = rewriteContentColors(this.document, withoutInlineImages(sourceBytes, this.internals.maxNesting), {
         resources,
         options: this.options,
         overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
       });
-      const scope: PageScope = { reference: entry.reference, resources, sourceBytes, assignments: new Map(), nameEdits: [] };
+      const scope: PageScope = {
+        reference: entry.reference,
+        resources,
+        sourceBytes,
+        assignments: new Map(),
+        nameEdits: [],
+        generated: { names: new Map(), next: 0 },
+      };
       this.scanUses(scope, rewritten.formUses);
       scopes.push(scope);
     }
@@ -345,7 +388,7 @@ class FormPlanner {
       options: this.options,
       overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
     });
-    const scope: CarrierScope = { reference, stream, resources, sourceBytes, assignments: new Map(), nameEdits: [] };
+    const scope: CarrierScope = { reference, stream, resources, sourceBytes, assignments: new Map(), nameEdits: [], generated: { names: new Map(), next: 0 } };
     this.scanUses(scope, rewritten.formUses);
     scopes.push(scope);
   }
