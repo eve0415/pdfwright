@@ -199,6 +199,15 @@ const embeddedCmap = (program: Uint8Array): ReadonlyArray<unknown> =>
     font.cmapMissing,
   ]);
 
+// A Type 3 font whose code 97 (a) is one unit wide and drawn by a procedure with d1 box 0 0 1 1, which its FontMatrix moves `shift` units sideways.
+const shiftedType3 = (number: number, shift: string): ReadonlyArray<TestObject> => [
+  {
+    number,
+    body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 ${shift} 0]/CharProcs<</a ${String(number + 1)} 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`,
+  },
+  { number: number + 1, body: streamBody('', '1 0 0 0 1 1 d1 0 0 1 1 re f') },
+];
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -849,6 +858,30 @@ describe('text extraction', () => {
       expect(glyphs('1 g 90 190 30 30 re f BT /F1 10 Tf 100 200 Td (A) Tj ET').map(glyph => glyph.covered)).toStrictEqual([false]);
     });
 
+    it('marks glyphs a later rectangle covers when another glyph on the page has a quad that is not finite', () => {
+      // Two scalings by 10^200 overflow the CTM, so the first glyph's quad is not finite; the second glyph lies under the white rectangle.
+      const huge = `1${'0'.repeat(200)}.0`;
+      const shown = glyphs(
+        `q ${huge} 0 0 ${huge} 0 0 cm ${huge} 0 0 ${huge} 0 0 cm BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g 90 190 30 30 re f`,
+      );
+      expect(shown.map(glyph => [glyph.quad.every(value => Number.isFinite(value)), glyph.covered, glyph.coreHidden])).toStrictEqual([
+        [false, false, 'none'],
+        [true, true, 'entirely'],
+      ]);
+    });
+
+    it('leaves a glyph whose quad is not finite neither covered nor hidden, under a clip and a fill that span the page', () => {
+      // A point that is not finite lies outside every clip path, so testing the glyph's samples would report its core box hidden entirely.
+      const huge = `1${'0'.repeat(200)}.0`;
+      const shown = glyphs(
+        `0 0 600 800 re W n q ${huge} 0 0 ${huge} 0 0 cm ${huge} 0 0 ${huge} 0 0 cm BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g 0 0 600 800 re f`,
+      );
+      expect(shown.map(glyph => [glyph.quad.every(value => Number.isFinite(value)), glyph.covered, glyph.coreHidden])).toStrictEqual([
+        [false, false, 'none'],
+        [true, true, 'entirely'],
+      ]);
+    });
+
     it('marks glyphs that adjacent opaque rectangles cover together, or that one covers where the clip lets them show', () => {
       // The glyph's box spans 100–106 by 198–208.
       expect([
@@ -958,6 +991,47 @@ describe('text extraction', () => {
         shownIn(`${clip} BT /V 20 Tf 80 200 Td <0041> Tj ET`, '/W[65[500]]').map(glyph => glyph.coreHidden),
       );
       expect(hidden).toStrictEqual([['none'], ['partly']]);
+    });
+
+    it('marks a TrueType glyph hidden in part by a later fill over ink that rises above every advance box on the page', () => {
+      // At 10 points from (100, 700) the advance box spans 698.8–708.8, the ink 699–712 and the ink inset by 0.1 em 700–711; a fill from 709 lies above the advance box and cuts 0.2 em into the ink, and one from 711.5 misses the inset ink.
+      const program = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, { advance: 1000, box: [100, -100, 900, 1200] }],
+        characters: [[0x5c_71, 1]],
+      });
+      const hidden = ['0 709 600 20 re f', '0 711.5 600 20 re f'].map(fill =>
+        glyphs(`BT /T 10 Tf 100 700 Td <0001> Tj ET 1 g ${fill}`, embeddedFont('Identity-H', program), '/Font<</T 105 0 R>>').map(glyph => [
+          glyph.covered,
+          glyph.coreHidden,
+        ]),
+      );
+      expect(hidden).toStrictEqual([[[false, 'partly']], [[false, 'none']]]);
+    });
+
+    it('still finds a later fill over an ordinary glyph when two Type 3 glyphs have ink 2e308 points apart', () => {
+      // Each Type 3 FontMatrix moves its glyph's d1 box 1e308 units sideways, so the ink boxes lie near −1e308 and 1e308 while their advance boxes stay at (100, 600); the span between them overflows to Infinity.
+      const far = `${'1'.padEnd(309, '0')}.0`;
+      // The A at 10 points from (100, 200) spans 100–106 by 198–208; one fill covers it and the other lies beside it.
+      const states = ['90 190 40 30 re f', '120 190 40 30 re f'].map(fill =>
+        glyphs(
+          `BT /E 1 Tf 100 600 Td (a) Tj /G 1 Tf (a) Tj ET BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fill}`,
+          [...shiftedType3(120, `-${far}`), ...shiftedType3(130, far)],
+          '/Font<</F1 101 0 R/E 120 0 R/G 130 0 R>>',
+        ).map(glyph => [glyph.covered, glyph.coreHidden]),
+      );
+      expect(states).toStrictEqual([
+        [
+          [false, 'none'],
+          [false, 'none'],
+          [true, 'entirely'],
+        ],
+        [
+          [false, 'none'],
+          [false, 'none'],
+          [false, 'none'],
+        ],
+      ]);
     });
 
     it('measures a vertical TrueType glyph by its ink, placed by the position vector', () => {

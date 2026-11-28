@@ -22,6 +22,13 @@ const BOUNDS = { left: 0, bottom: 0, right: 100, top: 100 };
 // Queries a point repeatedly; the index refuses more than 4,000,000 comparisons over its life.
 const queries = (index: CoverIndex, [x, y]: readonly [number, number], count: number): Array<boolean> => Array.from({ length: count }, () => index.hides(x, y));
 
+// Whether one fill added to an index over BOUNDS hides the point.
+const hiddenByOne = (rectangle: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean => {
+  const index = new CoverIndex(BOUNDS, 1);
+  index.add(fill(rectangle));
+  return index.hides(x, y);
+};
+
 describe('cover index', () => {
   it('does not repeat comparisons for identical fills', () => {
     const index = new CoverIndex(BOUNDS, 4000);
@@ -97,6 +104,39 @@ describe('cover index', () => {
     expect(index.hides(100, 15)).toBe(true);
   });
 
+  it('keeps a fill that starts exactly 10⁻⁶ outside the bounds on any side, for a point on that edge of the bounds', () => {
+    expect([
+      hiddenByOne([100 + 1e-6, 10, 120, 20], [100, 15]),
+      hiddenByOne([-20, 10, -1e-6, 20], [0, 15]),
+      hiddenByOne([10, 100 + 1e-6, 20, 120], [15, 100]),
+      hiddenByOne([10, -20, 20, -1e-6], [15, 0]),
+    ]).toStrictEqual([true, true, true, true]);
+  });
+
+  it('skips a fill that starts further outside the bounds, even for a point inside its rectangle', () => {
+    // Callers bound the index by every box they will query, so a fill wholly outside the bounds can hide nothing they ask about.
+    const index = new CoverIndex(BOUNDS, 1);
+    index.add(fill([100.01, 10, 120, 20]));
+    expect(index.hides(110, 15)).toBe(false);
+  });
+
+  it.each([
+    ['across', { left: -1e308, bottom: 0, right: 1e308, top: 100 }],
+    ['up', { left: 0, bottom: -1e308, right: 100, top: 1e308 }],
+  ])('keeps fills when the bounds span more %s than a number can hold', (_, bounds) => {
+    // The width or height of these bounds overflows to Infinity, which no cell size divides into a count of cells.
+    const index = new CoverIndex(bounds, 3);
+    index.add(fill([10, 10, 20, 20]));
+    index.add(fill([-1e308, -1e308, 1e308, 1e308], 1, Clip.NONE.intersect(rectanglePath([50, 50, 60, 60], IDENTITY), 'nonzero')));
+    expect([index.hides(15, 15), index.hides(30, 15), index.hides(55, 55), index.hides(70, 70)]).toStrictEqual([true, false, true, false]);
+  });
+
+  it('keeps a fill whose edges lie at the extremes of bounds that overflow, for points at those extremes too', () => {
+    const index = new CoverIndex({ left: -1e308, bottom: 0, right: 1e308, top: 100 }, 3);
+    index.add(fill([-1e308, 0, 1e308, 50]));
+    expect([index.hides(-1e308, 25), index.hides(0, 25), index.hides(1e308, 25), index.hides(1e308, 75)]).toStrictEqual([true, true, true, false]);
+  });
+
   it('keeps the same rectangle again when it is painted under another clip', () => {
     // The first fill's clip excludes the query point; the second, under no clip, covers it.
     const index = new CoverIndex(BOUNDS, 1);
@@ -114,16 +154,24 @@ describe('cover index', () => {
     expect([point.hides(5, 5), line.hides(45, 5), line.hides(60, 5)]).toStrictEqual([true, true, false]);
   });
 
-  it('bounds quads, or gives undefined for none and for a coordinate that is not finite', () => {
+  it('bounds the quads whose coordinates are all finite, or gives undefined when none are', () => {
     const square: Quad = [10, 20, 30, 20, 30, 40, 10, 40];
     // The square gives the left and top edges, and the turned quad's third corner the right edge and its second corner the bottom edge.
     const turned: Quad = [52, 3, 58, -5, 60, 9, 45, 2];
+    // A quad with one coordinate that is not finite is skipped whole, so its finite coordinates (x 50, y 0) do not widen the bounds either.
     expect([
       quadBounds([]),
       quadBounds([square, turned]),
-      quadBounds([square, [10, 20, Number.NaN, 20, 30, 40, 10, 40]]),
-      quadBounds([square, [10, 20, 30, 20, 30, Infinity, 10, 40]]),
-    ]).toStrictEqual([undefined, { left: 10, bottom: -5, right: 60, top: 40 }, undefined, undefined]);
+      quadBounds([square, [50, 0, Number.NaN, 20, 30, 40, 10, 40]]),
+      quadBounds([square, [50, 0, 30, 20, 30, Infinity, 10, 40]]),
+      quadBounds([[Number.NaN, 0, 1, 0, 1, 1, 0, 1]]),
+    ]).toStrictEqual([
+      undefined,
+      { left: 10, bottom: -5, right: 60, top: 40 },
+      { left: 10, bottom: 20, right: 30, top: 40 },
+      { left: 10, bottom: 20, right: 30, top: 40 },
+      undefined,
+    ]);
   });
 });
 

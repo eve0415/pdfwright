@@ -248,7 +248,8 @@ const proportionalFonts = (glyphs: ReadonlyArray<PageGlyph>): Set<string> => {
     if (wideCharacter(glyph) === undefined || width === undefined) {
       continue;
     }
-    if (Math.abs(width - 1) > FULL_EM_TOLERANCE && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) {
+    // The full-em interval is compared at its endpoints, since a width 0.02 em from one em differs from one by slightly more than 0.02 in binary floating point (1 − 0.98 is 0.020000000000000018).
+    if ((width < 1 - FULL_EM_TOLERANCE || width > 1 + FULL_EM_TOLERANCE) && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) {
       fonts.add(glyph.font);
     }
   }
@@ -733,21 +734,22 @@ const unitsOf = (page: PageText, selected: ReadonlyArray<PageGlyph>, actualText:
   return units;
 };
 
-// An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value; the first allowed value is the default.
-const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...Array<T>]): T => {
-  if (value === undefined) {
-    return allowed[0];
-  }
+// An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value.
+const member = <T extends string>(name: string, value: T, allowed: readonly [T, ...Array<T>]): T => {
   if (!allowed.includes(value)) {
     throw new InvalidArgumentError(`matchText: ${name} ${JSON.stringify(value)} is not one of ${allowed.join(', ')}`);
   }
   return value;
 };
 
+// An omitted option takes the first allowed value as its default.
+const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...Array<T>]): T =>
+  value === undefined ? allowed[0] : member(name, value, allowed);
+
 const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   actualText: choice('actualText', options.actualText, ['checked', 'ignore']),
   whitespace: choice('whitespace', options.whitespace, ['ignore', 'exact']),
-  folds: (options.folds ?? TEXT_FOLDS).map(fold => choice('folds', fold, ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'])),
+  folds: (options.folds ?? TEXT_FOLDS).map(fold => member('folds', fold, ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'])),
   equivalents: new Map(options.equivalents),
   selectors: choice('variationSelectors', options.variationSelectors, ['require-glyph-evidence', 'ignore']),
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
@@ -819,7 +821,7 @@ const statusOf = (differences: ReadonlyArray<TextDifference>): TextMatch['status
 /**
  * Compares the text a page shows with an intended text, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
  * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
- * A mode option (`order`, `whitespace`, `folds`, `actualText`, `variationSelectors`, `duplicates`) outside its type throws InvalidArgumentError.
+ * A mode option (`order`, `whitespace`, `folds`, `actualText`, `variationSelectors`, `duplicates`) outside its type throws InvalidArgumentError, and texts so long and so different that aligning them would take more than 2,000,000 steps of work throw ResourceLimitError.
  * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
  * Known limits, where `match` can be returned for text that does not print:
  * - Text under a soft mask counts as visible, so a mask that hides it entirely, such as a fully transparent mask image, is not detected.

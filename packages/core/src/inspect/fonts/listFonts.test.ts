@@ -62,6 +62,10 @@ const taggedTrueType = (number: number, descriptor: number): TestObject => ({
 
 const helvetica = (number: number): TestObject => ({ number, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' });
 
+// A Font resource dictionary that names the indirect fonts of these object numbers, in order.
+const fontResources = (numbers: ReadonlyArray<number>): string =>
+  `/Font<<${numbers.map((number, index) => `/F${String(index)} ${String(number)} 0 R`).join('')}>>`;
+
 const codes = (entry: FontEntry): Array<string> => entry.problems.map(problem => problem.code);
 
 describe('font inventory', () => {
@@ -438,6 +442,32 @@ describe('font inventory', () => {
     ]);
   });
 
+  it.each(['/F1 107 0 R/F2 106 0 R', '/F1 106 0 R/F2 107 0 R'])('orders fonts that only AcroForm default resources name by object number: %s', fonts => {
+    const result = listFonts(
+      loadDocument(
+        textPdfBytes({ pages: [{ resources: '' }], objects: [helvetica(106), helvetica(107)], catalog: `/AcroForm<</DR<</Font<<${fonts}>>>>/Fields[]>>` }),
+      ),
+    );
+    expect(result.fonts.map(font => font.key)).toStrictEqual(['106.0', '107.0']);
+  });
+
+  it('orders a font a page reaches before AcroForm-only fonts with lower object numbers', () => {
+    const result = listFonts(
+      loadDocument(
+        textPdfBytes({
+          pages: [{ resources: '/Font<</F1 108 0 R>>' }],
+          objects: [helvetica(106), helvetica(107), helvetica(108)],
+          catalog: '/AcroForm<</DR<</Font<</F1 107 0 R/F2 108 0 R/F3 106 0 R>>>>/Fields[]>>',
+        }),
+      ),
+    );
+    expect(result.fonts.map(font => [font.key, font.pages])).toStrictEqual([
+      ['108.0', [0]],
+      ['106.0', []],
+      ['107.0', []],
+    ]);
+  });
+
   it('keys a direct font in a form as content interpretation does', () => {
     const result = inventory(
       [{ resources: '/XObject<</X1 130 0 R>>' }],
@@ -611,6 +641,32 @@ describe('properties', () => {
           ])
           .map(font => (typeof font === 'number' ? `${String(font)}.0` : font));
         expect(result.fonts.map(font => (font.reference === undefined ? 'direct' : font.key))).toStrictEqual(expected);
+      }),
+    );
+  });
+
+  // Pages that each list some of a set of fonts, and AcroForm default resources that list some of them in some order, so that some fonts only the AcroForm names.
+  const withAcroForm = fc
+    .uniqueArray(fc.integer({ min: 100, max: 1500 }), { minLength: 1, maxLength: 6 })
+    .chain(numbers => fc.record({ pages: fc.array(fc.shuffledSubarray(numbers), { minLength: 1, maxLength: 3 }), acroForm: fc.shuffledSubarray(numbers) }));
+
+  it('orders fonts only AcroForm default resources name after the fonts pages reach, by object number', () => {
+    fc.assert(
+      fc.property(withAcroForm, ({ pages: generated, acroForm }) => {
+        const result = listFonts(
+          loadDocument(
+            textPdfBytes({
+              pages: generated.map(fonts => ({ resources: fontResources(fonts) })),
+              objects: [...new Set([...generated.flat(), ...acroForm])].map(number => helvetica(number)),
+              catalog: `/AcroForm<</DR<<${fontResources(acroForm)}>>/Fields[]>>`,
+            }),
+          ),
+          { shownOn: false },
+        );
+        const first = (number: number): number => generated.findIndex(fonts => fonts.includes(number));
+        const reached = [...new Set(generated.flat())].toSorted((left, right) => first(left) - first(right) || left - right);
+        const formOnly = acroForm.filter(number => first(number) === -1).toSorted((left, right) => left - right);
+        expect(result.fonts.map(font => font.key)).toStrictEqual([...reached, ...formOnly].map(number => `${String(number)}.0`));
       }),
     );
   });

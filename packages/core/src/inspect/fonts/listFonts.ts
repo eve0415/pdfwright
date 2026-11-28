@@ -360,9 +360,10 @@ const referenceOrder = (entry: FontEntry): readonly [number, number] => [
 const firstPage = (entry: FontEntry): number => Math.min(entry.pages[0] ?? Number.POSITIVE_INFINITY, entry.shownOn[0] ?? Number.POSITIVE_INFINITY);
 
 const order = (left: FontEntry, right: FontEntry): number => {
-  const pages = firstPage(left) - firstPage(right);
-  if (pages !== 0) {
-    return pages;
+  // Compared rather than subtracted: two fonts no page reaches both have the first page Infinity, and Infinity − Infinity is NaN, which a sort reads as equal.
+  const [leftPage, rightPage] = [firstPage(left), firstPage(right)];
+  if (leftPage !== rightPage) {
+    return leftPage < rightPage ? -1 : 1;
   }
   const [leftNumber, leftGeneration] = referenceOrder(left);
   const [rightNumber, rightGeneration] = referenceOrder(right);

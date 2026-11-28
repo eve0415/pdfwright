@@ -401,7 +401,8 @@ class TextCollector {
 
   /** The glyphs, each marked covered when opaque rectangle fills after it cover its box, and with how much of its core box the clip and those fills hide; covers come in content order. */
   hidden(covers: ReadonlyArray<CoverEvent>): Array<PageGlyph> {
-    const bounds = quadBounds(this.glyphs.map(glyph => glyph.quad));
+    // The grid spans the core boxes as well as the advance boxes, since a glyph's ink box, which hiddenPart samples, can reach past its advance box.
+    const bounds = quadBounds([...this.glyphs.map(glyph => glyph.quad), ...this.cores.map(([core]) => core)]);
     if (bounds === undefined) {
       return this.glyphs;
     }
@@ -417,7 +418,8 @@ class TextCollector {
       }
       const clip = this.clips[at] ?? Clip.NONE;
       const [core, inner] = this.cores[at] ?? [];
-      if (glyph === undefined || core === undefined || inner === undefined) {
+      // A glyph whose quad is not finite has no place to test, so it stays neither covered nor hidden.
+      if (glyph === undefined || core === undefined || inner === undefined || !glyph.quad.every(value => Number.isFinite(value))) {
         continue;
       }
       const covered = coveredBy(index, { quad: glyph.quad, clip });

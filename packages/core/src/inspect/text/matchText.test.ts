@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
@@ -265,6 +266,26 @@ describe('text matching', () => {
     }
   });
 
+  it('refuses an undefined fold in the folds list, while an omitted folds option and an empty list are accepted', () => {
+    const proof = page({ texts: ['山'], content: line(1) });
+    const run = (folds: ReadonlyArray<unknown> | undefined): (() => TextMatch['status']) => {
+      const options: MatchTextOptions = {};
+      Reflect.set(options, 'folds', folds);
+      return () => matchText(proof, '山', options).status;
+    };
+    for (const folds of [[undefined], ['radicals', undefined]]) {
+      expect(run(folds)).toThrow(InvalidArgumentError);
+      expect(run(folds)).toThrow(/folds/u);
+    }
+    expect([run(undefined)(), run([])()]).toStrictEqual(['match', 'match']);
+  });
+
+  it('throws ResourceLimitError when aligning the found text with the intended text passes the alignment work bound', () => {
+    // Two thousand glyphs of 山 against two thousand Ａ share no character, so the alignment takes more than 2,000,000 steps. The glyphs run past the page, so every one is selected, and they are kept, since equal glyphs in a row would collapse as copies.
+    const proof = page({ texts: ['山'], content: `BT /T 1 Tf 0 700 Td ${show(...Array.from({ length: 2000 }, () => 1))} ET` });
+    expect(() => matchText(proof, 'Ａ'.repeat(2000), { select: () => true, duplicates: 'keep' })).toThrow(ResourceLimitError);
+  });
+
   it('leaves out glyphs outside the CropBox', () => {
     expect(statusOf({ texts: ['山', '田'], content: line(2), entries: '/CropBox[0 0 105 800]' }, '山')).toBe('match');
   });
@@ -375,6 +396,17 @@ describe('text matching', () => {
       const hidden = [inkedAt(500), inkedAt(100)].map(program => page({ texts: ['（'], program, content: cut }).glyphs.map(glyph => glyph.coreHidden));
       const fallback = page({ texts: ['（'], content: cut }).glyphs.map(glyph => glyph.coreHidden);
       expect([...hidden, fallback]).toStrictEqual([['none'], ['partly'], ['partly']]);
+    });
+
+    it('leaves a match unverified when a later fill cuts into ink that rises above every advance box', () => {
+      // At 10 points from (100, 700) the advance box spans 698.8–708.8 and the ink inset by 0.1 em 700–711: a fill from 709 cuts into it, one from 711.5 does not.
+      const program = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, { advance: 1000, box: [100, -100, 900, 1200] }],
+        characters: [[0x5c_71, 1]],
+      });
+      const statuses = ['0 709 600 20 re f', '0 711.5 600 20 re f'].map(fill => statusOf({ texts: ['山'], program, content: `${line(1)} 1 g ${fill}` }, '山'));
+      expect(statuses).toStrictEqual(['unverified', 'match']);
     });
 
     it('measures the cut by the d1 box of a Type 3 glyph, and by the em box for a d0 glyph', () => {
@@ -763,9 +795,15 @@ describe('text matching', () => {
       ['Ａ 601 wide is not', '/W[2[601]]', 'match'],
       ['Ａ 400 wide is half-width', '/W[2[400]]', 'mismatch'],
       ['Ａ 399 wide is not', '/W[2[399]]', 'match'],
+      ['Ｂ 980 wide keeps the font from being proportional', '/W[2[500]4[980]]', 'mismatch'],
       ['Ｂ 981 wide keeps the font from being proportional', '/W[2[500]4[981]]', 'mismatch'],
+      ['Ｂ 979.9999995 wide makes it proportional', '/W[2[500]4[979.9999995]]', 'match'],
+      ['Ｂ 979.9 wide makes it proportional', '/W[2[500]4[979.9]]', 'match'],
       ['Ｂ 979 wide makes it proportional', '/W[2[500]4[979]]', 'match'],
+      ['Ｂ 1020 wide keeps the font from being proportional', '/W[2[500]4[1020]]', 'mismatch'],
       ['Ｂ 1019 wide keeps the font from being proportional', '/W[2[500]4[1019]]', 'mismatch'],
+      ['Ｂ 1020.0000005 wide makes it proportional', '/W[2[500]4[1020.0000005]]', 'match'],
+      ['Ｂ 1020.1 wide makes it proportional', '/W[2[500]4[1020.1]]', 'match'],
       ['Ｂ 1021 wide makes it proportional', '/W[2[500]4[1021]]', 'match'],
     ])('reads widths against the em: %s', (_, widths, status) => {
       const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c_71, 1]] });
