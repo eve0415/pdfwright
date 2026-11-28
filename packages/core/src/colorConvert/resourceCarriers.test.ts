@@ -1,12 +1,11 @@
 import type { LoadedDocument, LoadOptions } from '../document/loadDocument.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
-import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ShadingConversionReport } from './convertShadings.ts';
 import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgbBytes from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
@@ -18,6 +17,7 @@ import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
@@ -978,5 +978,60 @@ describe('pages that share an indirect Resources dictionary', () => {
     const seen = carrierSeen(3);
     expect([walkPage(document, 0, seen), walkPage(document, 1, seen)].map(listed => listed.length)).toStrictEqual([3, 0]);
     expect(seen.steps).toBe(3);
+  });
+});
+
+const fontNames = (count: number): ReadonlyArray<string> => Array.from({ length: count }, (_, index) => `T${String(index)}`);
+
+/** One Font category of `count` direct Type 3 fonts, held in each way a holder can hold it, with the path from page 3 to each font's Indexed space and the lookups the pass converts. */
+const manyFonts = [
+  {
+    holder: 'a page',
+    page: (count: number) => `/Resources<</Font<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>>>`,
+    objects: () => [],
+    path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
+    indexed: (count: number) => count,
+  },
+  {
+    holder: 'an indirect Font category',
+    page: () => '/Resources<</Font 200 0 R>>',
+    objects: (count: number) => [{ number: 200, body: `<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>` }],
+    path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
+    indexed: (count: number) => count,
+  },
+  {
+    holder: 'a page, where every font names one indirect Resources',
+    page: (count: number) => `/Resources<</Font<<${fontNames(count).map(name => `/${name} <<${TYPE3}/Resources 200 0 R>>`).join('')}>>>>`,
+    objects: () => [{ number: 200, body: `<</ColorSpace<</X1 ${INDEXED}>>>>` }],
+    path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
+    indexed: () => 1,
+  },
+  {
+    holder: 'another direct Type 3 font',
+    page: (count: number) => `/Resources<</Font<</F <<${TYPE3}/Resources<</Font<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>>>>>>>>>`,
+    objects: () => [],
+    path: (name: string) => ['Resources', 'Font', 'F', 'Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
+    indexed: (count: number) => count,
+  },
+];
+
+describe('many direct Type 3 fonts in one Font category', () => {
+  it.each(manyFonts)('writes each object once and copies entries linearly in the fonts when they sit in $holder', ({ page, objects, path, indexed }) => {
+    const convert = (count: number): { writes: number; copies: number } => {
+      const document = carrierPdf(page(count), [GLYPH, ...objects(count)]);
+      const set = vi.spyOn(document, 'set');
+      const object = vi.spyOn(document, 'object');
+      const copies = vi.spyOn(PdfDictionaryEntries.prototype, 'set');
+      expect(convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed).toBe(indexed(count));
+      const counts = { writes: set.mock.calls.length + object.mock.calls.length, copies: copies.mock.calls.length };
+      copies.mockRestore();
+      for (const name of fontNames(count)) {
+        expectIndexed(at(document, 3, path(name)));
+      }
+      return counts;
+    };
+    const [one, two, three] = [4, 8, 12].map(convert);
+    expect([two?.writes, three?.writes]).toStrictEqual([one?.writes, one?.writes]);
+    expect((three?.copies ?? 0) - (two?.copies ?? 0)).toBe((two?.copies ?? 0) - (one?.copies ?? 0));
   });
 });
