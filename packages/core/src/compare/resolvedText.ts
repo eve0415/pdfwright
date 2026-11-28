@@ -126,7 +126,7 @@ const readable = (read: () => string): string | undefined => {
 /**
  * Canonical texts for values with their references followed, for comparing values that two documents may number, order or spell differently: numbers by value, strings and names by bytes, dictionaries by sorted keys, stream data by digest.
  * The text of each referenced object is worked out once and kept, and the walk keeps its own work list, so shared objects and deep nesting cost neither repeated work nor call stack.
- * Objects that lead back to each other through references are found as one cycle while the walk runs. Each is described by its own text, in which a reference to an object of the same cycle reads as `cycle`, followed by the sorted own texts of every object of the cycle, so that the description is the same whichever object of the cycle a walk meets first.
+ * Objects that lead back to each other through references are found as one cycle while the walk runs. Each is described by its own text, in which a reference to an object of the same cycle reads as `cycle`, followed by the sorted own texts of every object of the cycle, so that the description is the same whichever object of the cycle a walk meets first. Two cycles of the same objects that refer to each other in another order therefore read the same.
  * ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
  */
 export class ResolvedTexts {
