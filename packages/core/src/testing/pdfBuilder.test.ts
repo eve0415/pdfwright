@@ -221,6 +221,17 @@ describe('free lists', () => {
     expect([document.structure.status, document.get(pdfReference(3, 0)).kind]).toStrictEqual(['intact', 'null']);
   });
 
+  it('writes the free list of a hybrid section to its classic table', () => {
+    const pdf = buildPdf([{ ...HYBRID_UPDATE, objects: [CATALOG, PAGES], free: [{ number: 3, generation: 4 }] }]);
+    expect(xrefLines(pdf.text, pdf.sections[0] ?? 0).slice(2, 6)).toStrictEqual([
+      '0000000003 65535 f ',
+      `${String(pdf.offsets.get(1)).padStart(10, '0')} 00000 n `,
+      `${String(pdf.offsets.get(2)).padStart(10, '0')} 00000 n `,
+      '0000000000 00004 f ',
+    ]);
+    expect(loadDocument(pdf.bytes).structure.status).toBe('intact');
+  });
+
   it.each([
     ['an object in use', [{ number: 4, generation: 1 }]],
     ['object 0', [{ number: 0, generation: 1 }]],
