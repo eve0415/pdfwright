@@ -1,4 +1,4 @@
-import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { SaveHook } from './editedObjects.ts';
 import type { LoadedDocument } from './loadDocument.ts';
 
@@ -42,6 +42,13 @@ const entriesOf = (value: PdfObject): PdfDictionaryEntries => {
   return value.entries;
 };
 
+const itemsOf = (value: PdfObject | undefined): Array<PdfDirectObject> => {
+  if (value?.kind !== 'array') {
+    throw new TypeError(`expected an array, not ${value === undefined ? 'nothing' : `a ${value.kind}`}`);
+  }
+  return value.items;
+};
+
 const editsOf = (document: LoadedDocument): EditedObjects => {
   const objects = internalsOf(document)?.objects;
   if (objects === undefined) {
@@ -70,15 +77,19 @@ describe('object changes', () => {
   it('keeps a replaced object apart from the caller value, and shows it to page views and to every read as a separate copy', () => {
     const document = load();
     const reference = pdfReference(3, 0);
+    const box = pdfArray([0, 0, 20, 30].map(value => pdfInteger(value)));
     const page = pdfDictionary(
       new PdfDictionaryEntries([
         [pdfName('Type').bytes, pdfName('Page')],
-        [pdfName('MediaBox').bytes, pdfArray([0, 0, 20, 30].map(value => pdfInteger(value)))],
+        [pdfName('MediaBox').bytes, box],
       ]),
     );
     document.set(reference, page);
+    box.items[2] = pdfInteger(99);
     page.entries.delete(pdfName('MediaBox').bytes);
-    entriesOf(document.get(reference)).delete(pdfName('MediaBox').bytes);
+    const read = entriesOf(document.get(reference));
+    itemsOf(read.get(pdfName('MediaBox').bytes))[3] = pdfInteger(99);
+    read.delete(pdfName('MediaBox').bytes);
     expect([document.page(0).boxes().MediaBox.rect, keys(document.get(reference))]).toStrictEqual([
       [0, 0, 20, 30],
       ['Type', 'MediaBox'],
@@ -399,6 +410,10 @@ describe('properties', () => {
           expect(result).toStrictEqual(expected);
           // A read is a copy: changing it must not show in any later read.
           if (typeof result !== 'string' && result.kind === 'dictionary') {
+            const inner = result.entries.get(name('V'));
+            if (inner?.kind === 'array') {
+              inner.items[0] = pdfInteger(-1);
+            }
             result.entries.set(name('V'), pdfInteger(-1));
           }
         }
