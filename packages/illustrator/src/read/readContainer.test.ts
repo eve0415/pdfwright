@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { attachPrivateData } from '../container/privateData.ts';
 import { SHAPED_DATE, illustratorShapedPdf, zlibWrapped } from '../testing/illustratorShapedPdf.ts';
+import { rawZstandardFrame } from '../testing/rawZstandardFrame.ts';
 import { encodeRawFrame, encodeZstandardFrame } from '../zstd/frame.ts';
 
 import { readIllustratorContainer } from './readContainer.ts';
@@ -47,19 +48,6 @@ const zstandardWrapped = (frame: Uint8Array): Uint8Array => {
   output.set(header);
   output.set(frame, header.length);
   return output;
-};
-
-// RFC 8878, 3.1.1: the magic number, the Frame_Header_Descriptor, a Window_Descriptor unless the Single_Segment_flag (bit 5) is set, then a Frame_Content_Size field whose size the flag in bits 6-7 selects (3.1.1.1.4: one byte only for a single segment, and a two-byte value is stored minus 256).
-// RFC 8878, 3.1.1.2: one raw last block, whose three-byte header is its size shifted left by 3 with the Last_Block bit set.
-const rawFrame = (content: Uint8Array, descriptor: number): Uint8Array => {
-  const singleSegment = Math.floor(descriptor / 32) % 2 === 1;
-  const flag = Math.floor(descriptor / 64);
-  const sizeBytes = flag === 0 ? Number(singleSegment) : 2 ** flag;
-  const size = sizeBytes === 2 ? content.length - 256 : content.length;
-  const sizeField = Array.from({ length: sizeBytes }, (_, index) => Math.floor(size / 256 ** index) % 256);
-  const blockHeader = content.length * 8 + 1;
-  const blockField = [0, 1, 2].map(index => Math.floor(blockHeader / 256 ** index) % 256);
-  return Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, descriptor, ...(singleSegment ? [] : [0x58]), ...sizeField, ...blockField, ...content);
 };
 
 describe('Illustrator container reader', () => {
@@ -128,7 +116,7 @@ describe('Illustrator container reader', () => {
   ])('reports the window descriptor of a frame with header descriptor $descriptor', ({ descriptor, windowDescriptor }) => {
     const content = Uint8Array.from({ length: 300 }, (_, index) => index % 251);
     const facts = readIllustratorContainer(
-      illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zstandardWrapped(rawFrame(content, descriptor)) }] }),
+      illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zstandardWrapped(rawZstandardFrame(content, descriptor)) }] }),
       decompress,
     );
     expect([facts.native, facts.compression]).toStrictEqual([content, { kind: 'zstandard', frameHeaderDescriptor: descriptor, windowDescriptor }]);
