@@ -245,7 +245,26 @@ describe('content operations', () => {
 // Whole objects and operators, so that every boundary between two of them is a boundary between lexical tokens.
 const OPERAND_UNITS = ['0', '-12', '1.5', '/A', '/Name#20x', '(a b)', '<41>', '[1 (x) /N]', '<</K 1/L[2]>>', 'true', 'null'];
 const OPERATOR_UNITS = ['m', 'Tj', 're', 'q', 'foo', "'"];
-const units = fc.array(fc.constantFrom(...OPERAND_UNITS, ...OPERATOR_UNITS), { maxLength: 30 });
+// Operands as their lexical tokens, arrays and dictionaries included, so that a division can fall inside an array or dictionary.
+const { operandTokens } = fc.letrec<{ operandTokens: ReadonlyArray<string> }>(tie => ({
+  operandTokens: fc.oneof(
+    { depthSize: 'small', maxDepth: 3 },
+    fc.constantFrom('0', '-12', '1.5', '/A', '/Name#20x', '(a b)', '<41>', 'true', 'null').map(token => [token]),
+    fc.array(tie('operandTokens'), { maxLength: 3 }).map(items => ['[', ...items.flat(), ']']),
+    fc
+      .array(fc.tuple(fc.constantFrom('/K', '/L'), tie('operandTokens')), { maxLength: 3 })
+      .map(entries => ['<<', ...entries.flatMap(([key, value]) => [key, ...value]), '>>']),
+  ),
+}));
+const tokens = fc
+  .array(
+    fc.oneof(
+      operandTokens,
+      fc.constantFrom(...OPERATOR_UNITS).map(operator => [operator]),
+    ),
+    { maxLength: 20 },
+  )
+  .map(units => units.flat());
 
 const withoutPlaces = (read: ReadonlyArray<ContentOperation>): Array<Pick<ContentOperation, 'operator' | 'operands' | 'inlineImage'>> =>
   read.map(({ operator, operands, inlineImage }) => (inlineImage === undefined ? { operator, operands } : { operator, operands, inlineImage }));
@@ -254,7 +273,7 @@ describe('properties', () => {
   it('reads the same operations from content split into streams at any token boundaries', () => {
     // ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "The division between streams may occur only at the boundaries between lexical tokens".
     fc.assert(
-      fc.property(units, fc.array(fc.boolean(), { maxLength: 30 }), (sequence, cuts) => {
+      fc.property(tokens, fc.array(fc.boolean(), { maxLength: 60 }), (sequence, cuts) => {
         const streams: Array<Array<string>> = [[]];
         for (const [index, unit] of sequence.entries()) {
           if (cuts[index] === true) {
