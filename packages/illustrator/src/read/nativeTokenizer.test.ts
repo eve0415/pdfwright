@@ -55,6 +55,38 @@ describe('native tokenizer', () => {
     expect(tokenizeNative(encoder.encode('%!PS\r%%EndComments\r')).map(record => record.offset)).toStrictEqual([0, 5]);
   });
 
+  // PostScript Language Reference, 3.2.2: inside a literal string a backslash before an end-of-line marker is dropped with it, so the record runs on past that CR.
+  it.each([
+    {
+      case: 'a CR',
+      native: '(a\\\rb) Ln\r%%EOF\r',
+      expected: [
+        { kind: 'line', text: '(ab) Ln', offset: 0 },
+        { kind: 'line', text: '%%EOF', offset: 10 },
+      ],
+    },
+    {
+      case: 'a CR and LF',
+      native: '(a\\\r\nb) Ln\r%%EOF\r',
+      expected: [
+        { kind: 'line', text: '(ab) Ln', offset: 0 },
+        { kind: 'line', text: '%%EOF', offset: 11 },
+      ],
+    },
+    { case: 'a CR inside a nested parenthesis', native: '(a(b\\\rc)) Ln\r', expected: [{ kind: 'line', text: '(a(bc)) Ln', offset: 0 }] },
+    { case: 'a CR after an escaped closing parenthesis', native: '(a\\)\\\rb) Ln\r', expected: [{ kind: 'line', text: String.raw`(a\)b) Ln`, offset: 0 }] },
+  ])('joins a record whose literal string continues after $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
+  it.each([
+    { case: 'outside a literal string', native: 'a\\\rb\r', expected: ['a\\', 'b'] },
+    { case: 'after a literal string closes', native: '(a)\\\rb\r', expected: ['(a)\\', 'b'] },
+    { case: 'after an escaped backslash', native: '(a\\\\\rb)\r', expected: ['(a\\\\', 'b)'] },
+  ])('ends a record at a CR after a backslash $case', ({ native, expected }) => {
+    expect(lines(tokenizeNative(encoder.encode(native)))).toStrictEqual(expected);
+  });
+
   it('reads escaped PostScript literal strings', () => {
     expect(parseNativeLiteral(String.raw`(Die \(outer\) \\ White)`, 0)).toBe(String.raw`Die (outer) \ White`);
     expect(parseNativeLiteral('(非表示)', 0)).toBe('非表示');
@@ -111,6 +143,14 @@ describe('malformed native bytes', () => {
   it('reports a line without its CR at the line start', () => {
     const error = thrown(() => {
       tokenizeNative(encoder.encode('%!PS\r%%Title'));
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 5 });
+  });
+
+  it('reports a literal string continued past the end of the data at the line start', () => {
+    const error = thrown(() => {
+      tokenizeNative(encoder.encode('%!PS\r(a\\\r\n'));
     });
     expect(error).toBeInstanceOf(ParseError);
     expect(error).toMatchObject({ offset: 5 });

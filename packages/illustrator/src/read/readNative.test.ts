@@ -123,6 +123,17 @@ describe('native model reader', () => {
     expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Design']);
   });
 
+  // PostScript Language Reference, 3.2.2: inside a literal string a backslash before an end-of-line marker is dropped with it, so the name continues on the next line.
+  it.each([
+    { case: 'a layer name continued after a CR', needle: '(Design) Ln', replacement: '(Des\\\rign) Ln' },
+    { case: 'a layer name continued after a CR and LF', needle: '(Design) Ln', replacement: '(Des\\\r\nign) Ln' },
+    { case: 'a layer name continued after an LF', needle: '(Design) Ln', replacement: '(Des\\\nign) Ln' },
+    { case: 'a spot name continued after a CR', needle: '(White) 0.75 x', replacement: '(Wh\\\rite) 0.75 x' },
+    { case: 'a spot name continued after an LF', needle: '(White) 0.75 x', replacement: '(Wh\\\nite) 0.75 x' },
+  ])('reads $case', ({ needle, replacement }) => {
+    expect(readNative(edited(nativeBytes, needle, replacement), date).document).toStrictEqual(normalizeModel(document));
+  });
+
   it('reports only the setup blocks it does not know', () => {
     const native = edited(
       edited(nativeBytes, '%%BeginSetup\r', '%%BeginSetup\r%AI9_BeginFoo\r%AI9_EndFoo\r'),
@@ -196,6 +207,8 @@ const unsupportedRows = [
   { name: 'a compound path with no members', needle: '0 Ae\r*u\r', replacement: '0 Ae\r*u\r*U\r0 Ae\r*u\r', at: '*U\r0 Ae\r*u' },
   { name: 'a filled path with no fill paint', needle: '0.2 0 0 0 (White) 0.75 x\r', replacement: '', at: 'f\r0 Ae\r*u' },
   { name: 'a spot raster without a spot paint before it', needle: '0 O\r0.2 0 0 0 (White) 0 x\r', replacement: '', at: 'F\r%_/ArtDictionary' },
+  // An escaped backslash leaves nothing to continue the name, so the CR after it ends the line.
+  { name: 'a layer name split by a CR after an escaped backslash', needle: '(Design) Ln', replacement: '(Des\\\\\rign) Ln', at: '(Des\\\\\rign' },
 ] as const;
 
 const parseRows = [
