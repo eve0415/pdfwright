@@ -119,6 +119,7 @@ describe('icc text tags', () => {
     { name: 'an end past the bytes', tag: mlucTag([{ locale: 'enUS', units: units('Hi') }]), start: START, end: START + 37 },
   ])('rejects $name', ({ tag, start, end }) => {
     const { bytes } = embedded(tag);
+    expect(() => readIccText(bytes, start, end)).toThrow(InvalidProfileError);
     expect(() => readIccText(bytes, start, end)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: start }));
   });
 
