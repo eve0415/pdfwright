@@ -204,9 +204,15 @@ describe('decodeJpeg public surface', () => {
   });
 
   it('ignores an APP2 segment that is not an ICC profile chunk', () => {
-    // Read as an ICC chunk, bytes 12 and 13 would declare chunk 1 of 1.
-    const flashPix = segment(0xe2, [...ascii('FPXR'), 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 1, 9, 9]);
-    expect(decodeJpeg(grayJpeg(flashPix)).iccProfile).toBeUndefined();
+    // The first two differ from "ICC_PROFILE" and its null byte only in the last letter or the null byte, the third is a FlashPix segment, and read as an ICC chunk, payload bytes 12 and 13 of each would declare chunk 1 of 1.
+    const nearMisses = [
+      [...ascii('ICC_PROFILX'), 0],
+      [...ascii('ICC_PROFILE'), 0x20],
+      [...ascii('FPXR'), 0, 0, 1, 2, 3, 4, 5, 6],
+    ];
+    for (const identifier of nearMisses) {
+      expect(decodeJpeg(grayJpeg(segment(0xe2, [...identifier, 1, 1, 9, 9]))).iccProfile).toBeUndefined();
+    }
   });
 
   it('returns a single-chunk profile and accepts an empty chunk', () => {
