@@ -70,6 +70,9 @@ const textRun = (content: string, objects: ReadonlyArray<TestObject> = [], resou
 
 const round = (value: number): number => Math.round(value * 1e6) / 1e6;
 
+// A path of `count` rectangles 5 wide and 10 apart, none touching another.
+const rectangles = (count: number): string => Array.from({ length: count }, (_, index) => `${String(index * 10)} 0 5 5 re`).join(' ');
+
 // The translation of the text matrix at each shown glyph: where the glyph's origin is in unscaled text space.
 const positions = (texts: ReadonlyArray<TextShowEvent>): Array<readonly [number, number]> =>
   texts.flatMap(text => text.glyphs.map(({ textMatrix }) => [round(textMatrix[4]), round(textMatrix[5])] as const));
@@ -129,6 +132,29 @@ describe('graphics state', () => {
       'inline-image:DeviceCMYK',
       'shading:DeviceRGB',
     ]);
+  });
+
+  it('paints s as a stroke, F and f* as fills, and b, b* and B* as fill and stroke', () => {
+    // ISO 32000-1:2008, 8.5.3.1, Table 60.
+    const { paints } = textRun(['s', 'F', 'f*', 'b', 'b*', 'B*'].map(operator => `0 0 1 1 re ${operator}`).join(' '));
+    expect(paints.map(paint => paint.kind)).toStrictEqual(['stroke', 'fill', 'fill', 'fill-stroke', 'fill-stroke', 'fill-stroke']);
+  });
+
+  it('paints an inline image without a colour space in none, and reports one that names no resource', () => {
+    const { paints, result } = textRun('BI /W 1 /H 1 /BPC 8 ID \u0000 EI BI /W 1 /H 1 /BPC 8 /CS /Nope ID \u0000 EI');
+    expect([paintSpaces(paints), result.warnings.map(warning => warning.code)]).toStrictEqual([
+      ['inline-image:', 'inline-image:unknown'],
+      ['resource-missing'],
+    ]);
+  });
+
+  it.each([
+    ['is not a stream', '<</Type/XObject/Subtype/Image>>', ['resource-missing']],
+    ['has the Subtype PS', streamBody('/Type/XObject/Subtype/PS', 'x'), []],
+    ['has no Subtype', streamBody('/Type/XObject', 'x'), []],
+  ])('paints nothing for an XObject that %s', (_, body, codes) => {
+    const { paints, result } = run({ content: '/X Do', resources: '/XObject<</X 120 0 R>>' }, [{ number: 120, body }]);
+    expect([paints, result.warnings.map(warning => warning.code)]).toStrictEqual([[], codes]);
   });
 
   it('ignores a Q with no saved state to restore', () => {
@@ -426,6 +452,31 @@ describe('transparency', () => {
       [0, 0, 5, 5],
       [5, 5, 10, 10],
     ]);
+  });
+
+  it('reports the rectangles of a fill of 64 and none of a fill of 65', () => {
+    expect([textRun(`${rectangles(64)} f`).covers.map(cover => cover.rectangle), textRun(`${rectangles(65)} f`).covers]).toStrictEqual([
+      Array.from({ length: 64 }, (_, index) => [index * 10, 0, index * 10 + 5, 5]),
+      [],
+    ]);
+  });
+
+  it.each([
+    ['wholly outside its clip', 'q 0 0 5 5 re W n 20 20 5 5 re f Q'],
+    ['under a clip whose shape is not known', 'q BT /F1 10 Tf 7 Tr (A) Tj ET 20 20 5 5 re f Q'],
+    ['in the cell of a coloured tiling pattern', 'q /Pattern cs /Cell scn 20 20 5 5 re f Q'],
+    ['in the procedure of a Type 3 glyph', 'BT /T3 10 Tf (a) Tj ET'],
+  ])('does not report a fill %s', (_, content) => {
+    const { covers } = run({ content: `${content} 0 0 10 10 re f`, resources: '/Font<</F1 101 0 R/T3 130 0 R>>/Pattern<</Cell 112 0 R>>' }, [
+      { number: 112, body: streamBody('/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 5 5 re f') },
+      {
+        number: 130,
+        body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 131 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
+      },
+      { number: 131, body: streamBody('', '1000 0 d0 0 0 500 500 re f') },
+    ]);
+    // Only the fill that follows, of 0…10 on the page, covers.
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([[0, 0, 10, 10]]);
   });
 
   it('resets transparency inside a transparency group and records how the group is composited', () => {
