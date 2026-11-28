@@ -962,3 +962,19 @@ describe('rendering intents of direct shadings in a Type 3 font that an appearan
     expect(fontAppearanceSample('document')).toStrictEqual(fontAppearanceSample('perceptual'));
   });
 });
+
+describe('pages that share an indirect Resources dictionary', () => {
+  it('takes no steps for the entries a later page shares with an earlier one', () => {
+    const shared = '/Resources 200 0 R';
+    const document = pagesPdf(
+      [
+        { page: shared, content: '' },
+        { page: shared, content: '' },
+      ],
+      [...EMPTY_PATTERNS, { number: 200, body: '<</Pattern<</P1 5 0 R/P2 6 0 R/P3 7 0 R>>>>' }],
+    );
+    const seen = carrierSeen(3);
+    expect([walkPage(document, 0, seen), walkPage(document, 1, seen)].map(listed => listed.length)).toStrictEqual([3, 0]);
+    expect(seen.steps).toBe(3);
+  });
+});
