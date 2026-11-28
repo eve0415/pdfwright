@@ -20,6 +20,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
+import { replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
@@ -59,9 +60,8 @@ interface PagePlan extends ResourceSpotPlan {
   readonly reference: PdfReference;
 }
 
-interface FormPlan extends ResourceSpotPlan {
+interface CarrierPlan extends ResourceSpotPlan {
   readonly reference: PdfReference;
-  readonly form: PdfStream;
 }
 
 interface ImagePlan {
@@ -256,37 +256,16 @@ const pagePlan = (document: LoadedDocument, pageIndex: number, options: RewriteC
   return planned === undefined ? undefined : { ...planned, reference: page.reference };
 };
 
-const scanForms = (context: SpotContext, state: { seen: Set<number>; plans: Array<FormPlan> }): void => {
+const planCarriers = (context: SpotContext, page: PdfReference, state: { seen: Set<number>; plans: Array<CarrierPlan> }): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const category = internals.objects.deref(context.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') {
-    return;
-  }
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
-      continue;
+  for (const carrier of resourceCarriers(internals, { reference: page, resources: context.resources }, state.seen)) {
+    const planned = resourceSpots({ document: context.document, resources: carrier.resources, options: context.options });
+    if (planned !== undefined) {
+      state.plans.push({ ...planned, reference: carrier.reference });
     }
-    const form = internals.objects.deref(value);
-    if (form?.kind !== 'stream') {
-      continue;
-    }
-    const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
-      continue;
-    }
-    state.seen.add(value.objectNumber);
-    const own = internals.objects.deref(form.dictionary.get(RESOURCES));
-    const resources = own?.kind === 'dictionary' ? own.entries : context.resources;
-    if (own?.kind === 'dictionary') {
-      const planned = resourceSpots({ document: context.document, resources, options: context.options });
-      if (planned !== undefined) {
-        state.plans.push({ ...planned, reference: value, form });
-      }
-    }
-    scanForms({ document: context.document, resources, options: context.options }, state);
   }
 };
 
@@ -386,15 +365,12 @@ const applyPage = (document: LoadedDocument, plan: PagePlan): Array<PdfReference
   return discarded;
 };
 
-const applyForm = (document: LoadedDocument, plan: FormPlan): Array<PdfReference> => {
-  const dictionary = new PdfDictionaryEntries(plan.form.dictionary.entries());
+const applyCarrier = (document: LoadedDocument, plan: CarrierPlan): Array<PdfReference> => {
   const discarded = [...plan.discarded];
-  const oldResources = dictionary.get(RESOURCES);
-  if (oldResources?.kind === 'reference') {
+  const oldResources = replaceCarrierResources(document, plan.reference, convertedResources(document, plan));
+  if (oldResources !== undefined) {
     discarded.push(oldResources);
   }
-  dictionary.set(RESOURCES, pdfDictionary(convertedResources(document, plan)));
-  document.set(plan.reference, { kind: 'stream', dictionary, data: plan.form.data });
   return discarded;
 };
 
@@ -405,7 +381,7 @@ const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReferen
   return [...plan.spot.discarded];
 };
 
-/** Converts RGB or calibrated-gray alternates while preserving every colorant name object. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
+/** Converts RGB or calibrated-gray alternates in page, image and resource-carrier colour spaces while preserving every colorant name object. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
 export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColorOptions): SpotConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
@@ -413,19 +389,19 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
     return invalid('document internals are unavailable');
   }
   const pages: Array<PagePlan> = [];
-  const forms: Array<FormPlan> = [];
+  const carriers: Array<CarrierPlan> = [];
   const images = new Map<number, ImagePlan>();
-  const seenForms = new Set<number>();
+  const seenCarriers = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
     const planned = pagePlan(document, page, options);
     if (planned !== undefined) {
       pages.push(planned);
     }
-    scanForms({ document, resources: document.page(page).resources(), options }, { seen: seenForms, plans: forms });
     const entry = internals.pages[page];
     if (entry === undefined) {
       return invalid('page entry is missing');
     }
+    planCarriers({ document, resources: document.page(page).resources(), options }, entry.reference, { seen: seenCarriers, plans: carriers });
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -437,7 +413,7 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
       throw new ValidationError('spot resources cannot be read', 'unreadable-resource');
     }
   }
-  const spots = [...pages.flatMap(plan => plan.spots), ...forms.flatMap(plan => plan.spots), ...[...images.values()].map(plan => plan.spot)];
+  const spots = [...pages.flatMap(plan => plan.spots), ...carriers.flatMap(plan => plan.spots), ...[...images.values()].map(plan => plan.spot)];
   if (spots.length === 0) {
     return { separations: 0, deviceN: 0, approximations: [] };
   }
@@ -445,8 +421,8 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
   for (const plan of pages) {
     discarded.push(...applyPage(document, plan));
   }
-  for (const plan of forms) {
-    discarded.push(...applyForm(document, plan));
+  for (const plan of carriers) {
+    discarded.push(...applyCarrier(document, plan));
   }
   for (const plan of images.values()) {
     discarded.push(...applyImage(document, plan));
