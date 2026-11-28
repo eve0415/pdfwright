@@ -339,6 +339,15 @@ describe('gts pdfx output intent', () => {
     expect([extended.catalog().has(pdfName('OutputIntents').bytes), extended.save().mode]).toStrictEqual([false, 'incremental']);
   });
 
+  it('writes an intent beside Extensions with pdfx false, leaving the version alone', () => {
+    const extended = loadDocument(base().bytes);
+    setCatalogEntry(extended, 'Extensions', pdfDictionary());
+    setCatalogEntry(extended, 'Version', pdfName('1.7'));
+    const result = writeGtsPdfxOutputIntent(extended, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', pdfx: false });
+    expect([result.action, extended.catalog().get(pdfName('Version').bytes), subtypesOf(extended)]).toStrictEqual(['added', pdfName('1.7'), ['GTS_PDFX']]);
+    expect([new TextDecoder().decode(extended.save().toBytes().subarray(0, 8)), versionLowered(extended)]).toStrictEqual(['%PDF-1.7', false]);
+  });
+
   it.each(registeredPrintingConditions.map(condition => condition.identifier))(
     'writes an intent for %s that the checker passes and a repeat leaves alone',
     identifier => {
