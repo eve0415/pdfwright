@@ -9,6 +9,8 @@ const decoder = new TextDecoder();
 const RASTER_SIZE = /\]\s+0 0\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+8\s+\d+\s+1\s+/u;
 const BEGIN_DATA = /^%%BeginData: (\d+)$/u;
 
+const octalDigit = (code: number | undefined): number | undefined => (code !== undefined && code >= 48 && code <= 55 ? code - 48 : undefined);
+
 interface Line {
   readonly text: string;
   /** The offset of the CR that ends the line. */
@@ -16,6 +18,7 @@ interface Line {
 }
 
 // PostScript Language Reference, 3.2.2: inside a literal string, a backslash before an end-of-line marker (CR, LF or CR LF) is dropped with it, so a string may run on past the CR that would end a native line.
+// An octal escape codes one byte, so a byte above 127 that an escape codes is written as itself here and decodes as UTF-8 together with the raw bytes beside it; a lower byte keeps its escape, since it may be a parenthesis or a backslash.
 const continuedLine = (bytes: Uint8Array, start: number): Line => {
   const kept: Array<number> = [];
   let depth = 0;
@@ -24,8 +27,23 @@ const continuedLine = (bytes: Uint8Array, start: number): Line => {
   while (byte !== undefined && byte !== 13) {
     if (depth > 0 && byte === 92) {
       const next = bytes[position + 1];
+      let code = 0;
+      let digits = 0;
+      let digit = octalDigit(next);
+      while (digit !== undefined && digits < 3) {
+        code = code * 8 + digit;
+        digits++;
+        digit = octalDigit(bytes[position + 1 + digits]);
+      }
       if (next === 13 || next === 10) {
         position += next === 13 && bytes[position + 2] === 10 ? 3 : 2;
+      } else if (code % 256 > 127) {
+        kept.push(code % 256);
+        position += 1 + digits;
+      } else if (next !== undefined && next > 127) {
+        // A backslash before a character without an escape is dropped.
+        kept.push(next);
+        position += 2;
       } else {
         // An escape is kept whole, so an escaped parenthesis or backslash neither opens nor closes the string.
         kept.push(byte);
@@ -105,11 +123,6 @@ const encoder = new TextEncoder();
 // A name's bytes are UTF-8, and a byte order mark at their start is part of the name.
 const nameDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
-const octalDigit = (character: string): number | undefined => {
-  const code = character.charCodeAt(0) - 48;
-  return code >= 0 && code <= 7 ? code : undefined;
-};
-
 const appendUtf8 = (bytes: Array<number>, text: string): void => {
   for (const byte of encoder.encode(text)) {
     bytes.push(byte);
@@ -141,12 +154,12 @@ export const parseNativeLiteral = (literal: string, offset: number): string => {
     // PostScript Language Reference, 3.2.2: \ddd is one to three octal digits with high-order overflow ignored, \n, \r, \t, \b and \f are control characters, a backslash before a line feed is dropped with it, and a backslash before any other character is dropped.
     let code = 0;
     let digits = 0;
-    let digit = octalDigit(literal.charAt(index));
+    let digit = octalDigit(literal.charCodeAt(index));
     while (digit !== undefined && digits < 3) {
       code = code * 8 + digit;
       digits++;
       index++;
-      digit = octalDigit(literal.charAt(index));
+      digit = octalDigit(literal.charCodeAt(index));
     }
     if (digits > 0) {
       bytes.push(code % 256);
