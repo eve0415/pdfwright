@@ -136,6 +136,10 @@ export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Ar
     }
     const name = latin1(filter.bytes);
     const parameter = parameters[index];
+    // ISO 32000-1:2008, 7.3.8.2, Table 5: DecodeParms is a parameter dictionary, or an array of them with null for a filter that takes the defaults.
+    if (parameter !== undefined && parameter.kind !== 'null' && parameter.kind !== 'dictionary') {
+      throw new ParseError('a stream DecodeParms entry is not a dictionary or null', 0);
+    }
     data = applyFilter({ name: NAMES.get(name) ?? name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);
   }
   if (data.length > context.maxDecodedBytes) {
