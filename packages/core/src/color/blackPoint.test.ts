@@ -3,6 +3,7 @@ import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { Curve } from '../icc/iccTags.ts';
 import type { ColorTransformOptions } from './createColorTransform.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { createColorTransform } from './createColorTransform.ts';
@@ -138,5 +139,54 @@ describe('the destination black of a LUT profile', () => {
     const expected = (lightness(compensated(luminance)) - 25) / 75;
     const output = converted(liftedSource(), grayOutput, options('relativeColorimetric', true), [input, input, input]);
     expect(output[0]).toBeCloseTo(expected, 9);
+  });
+
+  // With a zero destination black, compensation from the source black 0.05 · D50 removes the lift exactly, so mid gray 0.5 lands on luminance 0.5.
+  const grayOfHalfLuminance = (lightness(0.5) - 25) / 75;
+
+  // LittleCMS 2.16 cmssamp.c, cmsDetectDestinationBlackPoint, "Check": a round trip whose output is the same at both ends of the ramp gives a zero black.
+  it('gives a zero destination black when the round trip is constant', () => {
+    const constant = { ...fromGray, clut: { ...fromGray.clut, values: Uint16Array.of(16_320, 32_768, 32_768, 16_320, 32_768, 32_768) } };
+    const output = converted(liftedSource(), { ...grayOutput, deviceToPcs: { 1: constant } }, options('relativeColorimetric', true), [0.5, 0.5, 0.5]);
+    expect(output[0]).toBeCloseTo(grayOfHalfLuminance, 9);
+  });
+
+  // LittleCMS 2.16 cmssamp.c, cmsDetectDestinationBlackPoint, "No suitable points": fewer than 3 round-trip values between 10 % and 50 % of the range give a zero black.
+  it('gives a zero destination black when the round trip jumps over its shadow range', () => {
+    // Below L* 60 the BToA1 table gives gray 0, which the AToB1 table returns as L* 25; from L* 60 the round trip is the identity, which starts at 50 % of the range 25–100.
+    const jump: Curve = {
+      kind: 'table',
+      values: Uint16Array.from({ length: 256 }, (_, sample) => (sample < 153 ? 0 : Math.round((((sample / 255) * 100 - 25) / 75) * 65_535))),
+    };
+    const jumping = { ...grayOutput, pcsToDevice: { 1: { ...toGray, output: [jump] } } };
+    const output = converted(liftedSource(), jumping, options('relativeColorimetric', true), [0.5, 0.5, 0.5]);
+    expect(output[0]).toBeCloseTo(grayOfHalfLuminance, 4);
+  });
+});
+
+// Device value v gives lift + (1 - lift) · v on each D50 axis (ICC.1:2022, 10.18, Table 68, function type 2).
+const liftedBy = (lift: number): Curve => ({ kind: 'parametric', functionType: 2, params: [1, 1 - lift, 0, lift] });
+const liftedProfile = (lift: number): IccProfile =>
+  iccProfile({
+    colorants: { red: { x: PCS_D50.x, y: 0, z: 0 }, green: { x: 0, y: 1, z: 0 }, blue: { x: 0, y: 0, z: PCS_D50.z } },
+    trc: { red: liftedBy(lift), green: liftedBy(lift), blue: liftedBy(lift) },
+  });
+
+describe('properties', () => {
+  const unit = fc.double({ min: 0, max: 1, noNaN: true });
+
+  // Both profiles lift device values linearly to a black of lift · D50 (L* below 50, so LittleCMS 2.16 cmssamp.c keeps it), and compensation maps one black to the other with D50 fixed, so every device value converts to itself.
+  it('converts every device value to itself between linearly lifted matrix/TRC profiles', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 0.11, max: 0.18, noNaN: true }),
+        fc.double({ min: 0, max: 0.1, noNaN: true }),
+        fc.tuple(unit, unit, unit),
+        (sourceLift, destinationLift, input) => {
+          const output = converted(liftedProfile(sourceLift), liftedProfile(destinationLift), options('relativeColorimetric', true), input);
+          expect(largestDifference(output, input)).toBeLessThan(1e-9);
+        },
+      ),
+    );
   });
 });
