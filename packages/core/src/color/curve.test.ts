@@ -71,9 +71,13 @@ describe('icc sampled curves', () => {
     expect(invertCurve(table([40_000]), output)).toBe(expected);
   });
 
-  it.each([0, 0.2, 30_000 / 65_535, 1])('inverts a flat table to its lowest input, since the flat stretch ends the domain: %d', output => {
-    expect(invertCurve(table([30_000, 30_000, 30_000]), output)).toBe(0);
-  });
+  // A flat table at level 0 has no sample below it to interpolate from, unlike one at a non-zero level.
+  it.each([0, 30_000].flatMap(level => [0, 0.2, level / 65_535, 1].map(output => ({ level, output }))))(
+    'inverts a flat table at level $level to its lowest input, since the flat stretch ends the domain: $output',
+    ({ level, output }) => {
+      expect(invertCurve(table([level, level, level]), output)).toBe(0);
+    },
+  );
 });
 
 // Expected inverses follow ICC.1:2022, Annex F.1: a flat stretch inverts to its highest x unless it ends at the end of the domain, where it inverts to its lowest x, and a value outside the curve's range inverts as the nearest value in it.
