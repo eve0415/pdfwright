@@ -38,6 +38,25 @@ describe('CMaps', () => {
     ]).toStrictEqual([{ registry: latin1Bytes('Adobe'), ordering: latin1Bytes('Japan1'), supplement: 6 }, 1, 7, 'B']);
   });
 
+  it('compares a valid code only with the codespace ranges of the lengths it tries, each counted as a check', () => {
+    const wide = Array.from({ length: 100 }, (_, index) => `<${index.toString(16).padStart(8, '0')}> <${index.toString(16).padStart(8, '0')}>`);
+    const parsed = parseCMap(latin1Bytes(`101 begincodespacerange ${wide.join(' ')} <00> <7F> endcodespacerange`), 32);
+    // A range is compared with a code by reading its lower bound, so the ranges whose bound is read are the ranges compared.
+    const compared = new Set<number>();
+    const codespaces = parsed.codespaces.map(({ low, high }, index): CodespaceRange => ({
+      get low(): Uint8Array {
+        compared.add(index);
+        return low;
+      },
+      high,
+    }));
+    const cmap = new CMap({ ...parsed, codespaces });
+    compared.clear();
+    const budget = { checks: 0 };
+    const read = cmap.read(Uint8Array.of(0x41, 0x00, 0x00, 0x00), 0, budget);
+    expect([read, [...compared], budget.checks]).toStrictEqual([{ code: { value: 0x41, length: 1 }, valid: true }, [100], 1]);
+  });
+
   it('gives U+FFFD where incrementing a bfrange destination passes U+FFFF', () => {
     // ISO 32000-1:2008, 9.10.3: a destination whose last byte passes 255 over the range gives a result that "is undefined"; a code unit past 0xFFFF is no UTF-16.
     const cmap = cmapOf('1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <00> <02> <FFFF> endbfrange');
