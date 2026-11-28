@@ -791,6 +791,15 @@ describe('DeviceN Colorants', () => {
     expectConvertedA(document, items);
   });
 
+  it.each([
+    { family: 'Separation', space: SEPARATION_B },
+    { family: 'DeviceN', space: '[/DeviceN[/A/B]/DeviceCMYK 6 0 R]' },
+  ])('leaves a resource name that names a $family space needing no conversion', ({ space }) => {
+    const document = deviceNDocument(`/Other/Other${space}`, [CMYK_TINT]);
+    const report = convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect({ deviceN: report.deviceN, separations: report.separations }).toStrictEqual({ deviceN: 0, separations: 0 });
+  });
+
   it('converts a Colorants entry reached through an indirect attributes and Colorants dictionary', () => {
     const document = deviceNDocument('[/DeviceN[/A/B]/DeviceRGB 6 0 R 7 0 R]', [
       RGB_TINT,
