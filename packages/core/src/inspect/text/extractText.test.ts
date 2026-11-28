@@ -1000,6 +1000,38 @@ describe('text extraction', () => {
       expect(hidden).toStrictEqual([[[false, 'partly']], [[false, 'none']]]);
     });
 
+    it('still finds a later fill over an ordinary glyph when two Type 3 glyphs have ink 2e308 points apart', () => {
+      // Each Type 3 FontMatrix moves its glyph's d1 box 1e308 units sideways, so the ink boxes lie near −1e308 and 1e308 while their advance boxes stay at (100, 600); the span between them overflows to Infinity.
+      const far = `${'1'.padEnd(309, '0')}.0`;
+      const type3 = (number: number, shift: string): ReadonlyArray<TestObject> => [
+        {
+          number,
+          body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 ${shift} 0]/CharProcs<</a ${String(number + 1)} 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`,
+        },
+        { number: number + 1, body: streamBody('', '1 0 0 0 1 1 d1 0 0 1 1 re f') },
+      ];
+      // The A at 10 points from (100, 200) spans 100–106 by 198–208; one fill covers it and the other lies beside it.
+      const states = ['90 190 40 30 re f', '120 190 40 30 re f'].map(fill =>
+        glyphs(
+          `BT /E 1 Tf 100 600 Td (a) Tj /G 1 Tf (a) Tj ET BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fill}`,
+          [...type3(120, `-${far}`), ...type3(130, far)],
+          '/Font<</F1 101 0 R/E 120 0 R/G 130 0 R>>',
+        ).map(glyph => [glyph.covered, glyph.coreHidden]),
+      );
+      expect(states).toStrictEqual([
+        [
+          [false, 'none'],
+          [false, 'none'],
+          [true, 'entirely'],
+        ],
+        [
+          [false, 'none'],
+          [false, 'none'],
+          [false, 'none'],
+        ],
+      ]);
+    });
+
     it('measures a vertical TrueType glyph by its ink, placed by the position vector', () => {
       // 9.2.4 and 9.7.4.3: origin 0 lies at −v = (−0.5, −0.88) em from the text position, so ink 500–900 across lies 0–0.4 em right of it: at 20 points from (80, 200), 80–88 in a box 70–90.
       const program = syntheticTrueType({

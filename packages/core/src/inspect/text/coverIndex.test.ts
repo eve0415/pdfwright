@@ -104,6 +104,23 @@ describe('cover index', () => {
     expect(index.hides(110, 15)).toBe(false);
   });
 
+  it.each([
+    ['across', { left: -1e308, bottom: 0, right: 1e308, top: 100 }],
+    ['up', { left: 0, bottom: -1e308, right: 100, top: 1e308 }],
+  ])('keeps fills when the bounds span more %s than a number can hold', (_, bounds) => {
+    // The width or height of these bounds overflows to Infinity, which no cell size divides into a count of cells.
+    const index = new CoverIndex(bounds, 3);
+    index.add(fill([10, 10, 20, 20]));
+    index.add(fill([-1e308, -1e308, 1e308, 1e308], 1, Clip.NONE.intersect(rectanglePath([50, 50, 60, 60], IDENTITY), 'nonzero')));
+    expect([index.hides(15, 15), index.hides(30, 15), index.hides(55, 55), index.hides(70, 70)]).toStrictEqual([true, false, true, false]);
+  });
+
+  it('keeps a fill whose edges lie at the extremes of bounds that overflow, for points at those extremes too', () => {
+    const index = new CoverIndex({ left: -1e308, bottom: 0, right: 1e308, top: 100 }, 3);
+    index.add(fill([-1e308, 0, 1e308, 50]));
+    expect([index.hides(-1e308, 25), index.hides(0, 25), index.hides(1e308, 25), index.hides(1e308, 75)]).toStrictEqual([true, true, true, false]);
+  });
+
   it('keeps the same rectangle again when it is painted under another clip', () => {
     // The first fill's clip excludes the query point; the second, under no clip, covers it.
     const index = new CoverIndex(BOUNDS, 1);
