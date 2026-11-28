@@ -385,9 +385,17 @@ describe('form colour conversion', () => {
   });
 
   it.each([
-    { route: 'only an annotation appearance', page: '/Annots[7 0 R]/Resources<<>>', content: '' },
-    { route: 'only a coloured tiling pattern', page: '/Resources<</Pattern<</P 8 0 R>>>>', content: '/Pattern cs /P scn 0 0 10 10 re f' },
-  ])('converts a form reached through $route', ({ page, content }) => {
+    { route: 'only an annotation appearance', page: '/Annots[7 0 R]/Resources<<>>', content: '', reached: 12, unreached: 11, forms: 1 },
+    {
+      route: 'only a page tiling pattern',
+      page: '/Resources<</Pattern<</P 8 0 R>>>>',
+      content: '/Pattern cs /P scn 0 0 10 10 re f',
+      reached: 11,
+      unreached: 12,
+      forms: 1,
+    },
+    { route: 'only a tiling pattern in a form', page: '/Resources<</XObject<</Outer 13 0 R>>>>', content: '/Outer Do', reached: 11, unreached: 12, forms: 2 },
+  ])('converts a form reached through $route', ({ page, content, reached, unreached, forms }) => {
     const document = onePage(`/Contents 4 0 R${page}`, content, [
       { number: 7, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 10 0 R>>>>' },
       {
@@ -400,10 +408,9 @@ describe('form colour conversion', () => {
       { number: 10, body: formBody('/Fm Do', '/Resources<</XObject<</Fm 12 0 R>>>>') },
       { number: 11, body: formBody('1 0 0 rg 0 0 10 10 re f') },
       { number: 12, body: formBody('0 1 0 rg 0 0 10 10 re f') },
+      { number: 13, body: formBody('/Pattern cs /P scn 0 0 10 10 re f', '/Resources<</Pattern<</P 8 0 R>>>>') },
     ]);
-    expect(convertForms(document, options)).toStrictEqual({ forms: 1, clones: 0 });
-    const reached = page.includes('Annots') ? 12 : 11;
-    const unreached = reached === 12 ? 11 : 12;
+    expect(convertForms(document, options)).toStrictEqual({ forms, clones: 0 });
     expect(textOf(document, pdfReference(reached, 0))).toMatch(CONVERTED);
     expect(textOf(document, pdfReference(unreached, 0))).toMatch(/^[01] [01] [01] rg 0 0 10 10 re f$/u);
   });
@@ -450,7 +457,15 @@ describe('form colour conversion', () => {
     );
     const names = internalsOf(document)?.objects.deref(renamed);
     expect(entriesOf(names).get(pdfName('Fm').bytes)).toStrictEqual(pdfReference(11, 0));
-    expect(entriesOf(names).get(pdfName('PWFORM0').bytes)).not.toStrictEqual(pdfReference(11, 0));
+    const clone = entriesOf(names).get(pdfName('PWFORM0').bytes);
+    if (clone?.kind !== 'reference') {
+      throw new Error('the renamed form is missing from the carrier resources');
+    }
+    expect(clone).not.toStrictEqual(pdfReference(11, 0));
+    expect(
+      [textOf(document, pdfReference(11, 0)), textOf(document, clone)].map(text => /^[\d.]+ [\d.]+ [\d.]+ [\d.]+ sc 0 0 10 10 re f$/u.test(text)),
+    ).toStrictEqual([true, true]);
+    expect(textOf(document, clone)).not.toBe(textOf(document, pdfReference(11, 0)));
   });
 
   it('joins a page Contents array into one stream when it renames a Do and deletes the old streams', () => {
