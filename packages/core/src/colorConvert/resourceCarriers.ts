@@ -398,131 +398,127 @@ const dictionaryEntries = (document: LoadedDocument, value: PdfDirectObject | un
   return resolved.entries;
 };
 
-// The Font category with the named font's Resources entry replaced.
-const withFontResources = (document: LoadedDocument, category: PdfDictionaryEntries, name: Uint8Array, resources: PdfDirectObject): PdfDictionaryEntries => {
-  const fonts = new PdfDictionaryEntries(category.entries());
-  const font = new PdfDictionaryEntries(dictionaryEntries(document, fonts.get(name), 'Type 3 font').entries());
-  font.set(RESOURCES, resources);
-  fonts.set(name, pdfDictionary(font));
-  return fonts;
-};
+/** An indirect object whose working copy `finish` writes. */
+interface Root {
+  readonly reference: PdfReference;
+  readonly entries: PdfDictionaryEntries;
+}
 
 /**
  * Gives carriers their replacement resource dictionaries, in the order `resourceCarriers` listed them, and collects the indirect objects it replaced.
- * A `font` owner is replaced through its holder's Font category as earlier replacements left it.
- * A `resources` or `category` owner is written to one new object, created at its first replacement; `finish` then points every font and holder the walk found naming the old object at the new one, which also carries a cycle through it over to the new object, and leaves the old object to whatever else names it, such as a soft-mask group.
+ * The resources of each page and indirect carrier, each replaced indirect dictionary and each directly stored font are read once into a working copy that later replacements edit, a font's copy sitting inside its holder's, and `finish` writes each page, carrier and new object once, so the work is linear in the carriers and fonts.
+ * A `resources` or `category` owner is copied to one new object; `finish` points every font and holder the walk found naming the old object at the new one, which also carries a cycle through it over to the new object, and leaves the old object to whatever else names it, such as a soft-mask group.
  */
 export class CarrierReplacement {
   private readonly document: LoadedDocument;
   private readonly seen: CarrierSeen;
-  private readonly copies = new Map<number, PdfReference>();
-  // Replaced objects in the order their replacements were created, which `finish` works through while pointing adds more.
+  // The working copy of each replaced indirect dictionary and the new object it is written to, by the old object's number.
+  private readonly copies = new Map<number, Root>();
+  // Replaced objects in the order their copies were created, which `finish` works through while pointing adds more.
   private readonly replaced: Array<PdfReference> = [];
   private readonly discarded: Array<PdfReference> = [];
+  // Pages and indirect carriers whose Resources entry `finish` writes.
+  private readonly written: Array<Root> = [];
+  // Working copies of holders' resources and of the direct Font categories in them, by holder key, and of directly stored fonts, by Font category and name.
+  private readonly holders = new Map<string, PdfDictionaryEntries>();
+  private readonly categories = new Map<string, PdfDictionaryEntries>();
+  private readonly fonts = new Map<string, PdfDictionaryEntries>();
 
   constructor(document: LoadedDocument, seen: CarrierSeen) {
     this.document = document;
     this.seen = seen;
   }
 
-  // The object a `resources` or `category` owner is read from: its replacement once there is one.
-  private current(reference: PdfReference): PdfReference {
-    return this.copies.get(reference.objectNumber) ?? reference;
-  }
-
-  private write(reference: PdfReference, entries: PdfDictionaryEntries): void {
+  // The working copy of a `resources` or `category` owner, created with its new object at its first replacement.
+  private copy(reference: PdfReference, what: string): PdfDictionaryEntries {
     const known = this.copies.get(reference.objectNumber);
     if (known !== undefined) {
-      this.document.set(known, pdfDictionary(entries));
-      return;
+      return known.entries;
     }
-    this.copies.set(reference.objectNumber, this.document.object(pdfDictionary(entries)));
+    const entries = new PdfDictionaryEntries(dictionaryEntries(this.document, reference, what).entries());
+    this.copies.set(reference.objectNumber, { reference: this.document.object(pdfDictionary()), entries });
     this.replaced.push(reference);
+    return entries;
   }
 
-  // The holder's resources as earlier replacements in this pass left them.
-  private holderResources(holder: CarrierHolder): PdfDictionaryEntries {
+  // The working copy of the Font category a directly stored font sits in.
+  private category(slot: FontSlot): PdfDictionaryEntries {
+    if (slot.kind === 'category') {
+      return this.copy(slot.reference, 'Font category');
+    }
+    const key = holderKey(slot.holder);
+    const known = this.categories.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    const resources = this.resourcesOf(slot.holder);
+    const fonts = new PdfDictionaryEntries(dictionaryEntries(this.document, resources.get(FONT), 'Font resources').entries());
+    resources.set(FONT, pdfDictionary(fonts));
+    this.categories.set(key, fonts);
+    return fonts;
+  }
+
+  // The working copy of a directly stored font, inside the working copy of its Font category.
+  private font(slot: FontSlot, name: Uint8Array): PdfDictionaryEntries {
+    const key = `${slot.kind === 'holder' ? holderKey(slot.holder) : referenceKey(slot.reference)} ${slot.kind} ${hex(name)}`;
+    const known = this.fonts.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    const category = this.category(slot);
+    const font = new PdfDictionaryEntries(dictionaryEntries(this.document, category.get(name), 'Type 3 font').entries());
+    category.set(name, pdfDictionary(font));
+    this.fonts.set(key, font);
+    return font;
+  }
+
+  // The working copy of the holder's resources, as earlier replacements in this pass left them.
+  private resourcesOf(holder: CarrierHolder): PdfDictionaryEntries {
+    const key = holderKey(holder);
+    const known = this.holders.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    const entries = this.read(holder);
+    this.holders.set(key, entries);
+    return entries;
+  }
+
+  private read(holder: CarrierHolder): PdfDictionaryEntries {
     if (holder.kind === 'page') {
-      return this.document.page(holder.index).resources();
+      const entries = this.document.page(holder.index).resources();
+      this.written.push({ reference: holder.reference, entries });
+      return entries;
     }
     const { owner } = holder;
     if (owner.kind === 'object') {
-      return dictionaryEntries(this.document, entriesOf(this.document.get(owner.reference))?.get(RESOURCES), 'resource carrier Resources');
+      const value = entriesOf(this.document.get(owner.reference))?.get(RESOURCES);
+      const entries = new PdfDictionaryEntries(dictionaryEntries(this.document, value, 'resource carrier Resources').entries());
+      this.written.push({ reference: owner.reference, entries });
+      return entries;
     }
     if (owner.kind === 'resources') {
-      return dictionaryEntries(this.document, this.current(owner.reference), 'Type 3 font Resources');
+      return this.copy(owner.reference, 'Type 3 font Resources');
     }
-    const fonts =
-      owner.kind === 'category'
-        ? dictionaryEntries(this.document, this.current(owner.reference), 'Font category')
-        : dictionaryEntries(this.document, this.holderResources(owner.holder).get(FONT), 'Font resources');
-    return dictionaryEntries(this.document, dictionaryEntries(this.document, fonts.get(owner.name), 'Type 3 font').get(RESOURCES), 'Type 3 font Resources');
-  }
-
-  private replaceHolder(holder: CarrierHolder, resources: PdfDictionaryEntries): void {
-    if (holder.kind !== 'page') {
-      this.replace(holder, resources);
-      return;
-    }
-    const page = this.document.get(holder.reference);
-    if (page.kind !== 'dictionary') {
-      throw new ValidationError('page is not a dictionary', 'color-space');
-    }
-    const old = page.entries.get(RESOURCES);
-    page.entries.set(RESOURCES, pdfDictionary(resources));
-    this.document.set(holder.reference, page);
-    if (old?.kind === 'reference') {
-      this.discarded.push(old);
-    }
-  }
-
-  private replaceFont(place: FontPlace, resources: PdfDirectObject): void {
-    const { slot, name } = place;
-    if (slot.kind === 'category') {
-      this.write(
-        slot.reference,
-        withFontResources(this.document, dictionaryEntries(this.document, this.current(slot.reference), 'Font category'), name, resources),
-      );
-      return;
-    }
-    const holder = this.holderResources(slot.holder);
-    const replaced = new PdfDictionaryEntries(holder.entries());
-    replaced.set(FONT, pdfDictionary(withFontResources(this.document, dictionaryEntries(this.document, holder.get(FONT), 'Font resources'), name, resources)));
-    this.replaceHolder(slot.holder, replaced);
+    const slot: FontSlot = owner.kind === 'category' ? { kind: 'category', reference: owner.reference } : { kind: 'holder', holder: owner.holder };
+    const font = this.font(slot, owner.name);
+    const entries = new PdfDictionaryEntries(dictionaryEntries(this.document, font.get(RESOURCES), 'Type 3 font Resources').entries());
+    font.set(RESOURCES, pdfDictionary(entries));
+    return entries;
   }
 
   /** Gives one carrier its replacement resource dictionary. */
   replace(carrier: ResourceCarrier, resources: PdfDictionaryEntries): void {
-    const { owner } = carrier;
-    if (owner.kind === 'resources') {
-      this.write(owner.reference, resources);
-      return;
+    const target = this.resourcesOf(carrier);
+    for (const [key] of target.entries()) {
+      target.delete(key);
     }
-    if (owner.kind === 'category') {
-      this.replaceFont({ slot: { kind: 'category', reference: owner.reference }, name: owner.name }, pdfDictionary(resources));
-      return;
-    }
-    if (owner.kind === 'font') {
-      this.replaceFont({ slot: { kind: 'holder', holder: owner.holder }, name: owner.name }, pdfDictionary(resources));
-      return;
-    }
-    const object = this.document.get(owner.reference);
-    const entries = new PdfDictionaryEntries(entriesOf(object)?.entries() ?? []);
-    const old = entries.get(RESOURCES);
-    entries.set(RESOURCES, pdfDictionary(resources));
-    if (object.kind === 'stream') {
-      this.document.set(owner.reference, { kind: 'stream', dictionary: entries, data: object.data });
-    } else if (object.kind === 'dictionary') {
-      this.document.set(owner.reference, pdfDictionary(entries));
-    } else {
-      throw new ValidationError('resource carrier is not a dictionary or stream', 'color-space');
-    }
-    if (old?.kind === 'reference') {
-      this.discarded.push(old);
+    for (const [key, value] of resources.entries()) {
+      target.set(key, value);
     }
   }
 
-  /** Points every font and holder that names a replaced object at its replacement, and returns the indirect objects replaced. Pointing a holder can replace a further object, which is then pointed in turn. */
+  /** Points every font and holder that names a replaced object at its replacement, writes every page, carrier and new object once, and returns the indirect objects replaced. Pointing a holder can replace a further object, which is then pointed in turn. */
   finish(): Array<PdfReference> {
     for (let index = 0; index < this.replaced.length; index++) {
       const original = this.replaced[index];
@@ -531,15 +527,37 @@ export class CarrierReplacement {
         continue;
       }
       for (const place of this.seen.fonts.get(original.objectNumber)?.places ?? []) {
-        this.replaceFont(place, copy);
+        this.font(place.slot, place.name).set(RESOURCES, copy.reference);
       }
       for (const holder of this.seen.categories.get(original.objectNumber) ?? []) {
-        const resources = new PdfDictionaryEntries(this.holderResources(holder).entries());
-        resources.set(FONT, copy);
-        this.replaceHolder(holder, resources);
+        this.resourcesOf(holder).set(FONT, copy.reference);
       }
       this.discarded.push(original);
     }
+    for (const { reference, entries } of this.copies.values()) {
+      this.document.set(reference, pdfDictionary(entries));
+    }
+    for (const root of this.written) {
+      this.writeResources(root);
+    }
     return this.discarded;
+  }
+
+  // Sets the Resources entry of a page or indirect carrier to its working copy.
+  private writeResources({ reference, entries: resources }: Root): void {
+    const object = this.document.get(reference);
+    const entries = new PdfDictionaryEntries(entriesOf(object)?.entries() ?? []);
+    const old = entries.get(RESOURCES);
+    entries.set(RESOURCES, pdfDictionary(resources));
+    if (object.kind === 'stream') {
+      this.document.set(reference, { kind: 'stream', dictionary: entries, data: object.data });
+    } else if (object.kind === 'dictionary') {
+      this.document.set(reference, pdfDictionary(entries));
+    } else {
+      throw new ValidationError('resource carrier is not a dictionary or stream', 'color-space');
+    }
+    if (old?.kind === 'reference') {
+      this.discarded.push(old);
+    }
   }
 }
