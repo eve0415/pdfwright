@@ -658,6 +658,37 @@ describe('luminosity soft masks', () => {
     expect([maskGroupSpace(document), paint.entries.get(space), paint.data]).toStrictEqual([pdfName('DeviceGray'), source.entries.get(space), source.data]);
   });
 
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte holds one value per component of the image's colour space, so it cannot stay on the gray image as three RGB values.
+  const softMasked = (matte: string): ReadonlyArray<TestObject> => [
+    maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+    {
+      number: 9,
+      body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/SMask 10 0 R', String.fromCodePoint(200, 100, 50)),
+    },
+    {
+      number: 10,
+      body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray${matte}`, String.fromCodePoint(128)),
+    },
+  ];
+
+  it('refuses an RGB image with a preblended soft mask in an RGB luminosity mask and leaves the document unchanged', () => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked('/Matte[1 0 0]'))), cmykOptions);
+    expect([error, after]).toStrictEqual([
+      expect.objectContaining({ constructor: UnsupportedFeatureError, message: expect.stringMatching(/^luminosity /u) }),
+      before,
+    ]);
+  });
+
+  it('keeps the soft mask of an RGB image the mask draws as gray when the image is not preblended', () => {
+    const document = loadDocument(documentBytes([maskPage], softMasked('')));
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    expect([image.entries.get(pdfName('ColorSpace').bytes), image.entries.get(pdfName('SMask').bytes)]).toStrictEqual([
+      pdfName('DeviceGray'),
+      pdfReference(10, 0),
+    ]);
+  });
+
   // ISO 32000-1:2008, 8.10.1 and 11.6.5.2: a form drawn with Do paints with the state at Do, while the same stream as a soft-mask group only supplies mask values.
   it.each([
     { name: 'a luminosity mask', subtype: 'Luminosity', before: '', color: '1 0 0', mask: '0.3 g 0 0 10 10 re f', maskSpace: 'DeviceGray' },
