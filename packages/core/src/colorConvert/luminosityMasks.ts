@@ -14,6 +14,7 @@ import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -418,7 +419,13 @@ const planGrayShadings = (
     }
     const name = nameOf(scan.internals.objects.deref(color));
     const gray = name === 'DeviceRGB' || name === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-    const planned = grayFunctionShading(scan.internals, shading, gray);
+    // A shading function returns one value per component of the shading's colour space, and the shading pass rejects any other count with InvalidArgumentError.
+    const planned = grayFunctionShading(scan.internals, shading, values => {
+      if (values.length !== 3) {
+        throw new InvalidArgumentError('luminosity shading function does not return three RGB components');
+      }
+      return gray(values);
+    });
     plans.push({ name: Uint8Array.from(operand.bytes), ...planned });
   }
   return plans;
