@@ -168,6 +168,7 @@ describe('icc structure', () => {
     expect(parseIccStructure(header([8, Uint8Array.of(2, 0x10)])).header.version).toStrictEqual({ major: 2, minor: 1, bugfix: 0 });
     expect(parseIccStructure(header([8, Uint8Array.of(4, 0x31)])).header.version).toStrictEqual({ major: 4, minor: 3, bugfix: 1 });
     expect(() => parseIccStructure(header([8, Uint8Array.of(5)]))).toThrow(UnsupportedFeatureError);
+    expect(() => parseIccStructure(header([8, Uint8Array.of(5)]))).toThrow(expect.objectContaining({ reason: 'icc-version-5' }));
   });
 
   // ICC.1:2022, 7.2.5 Table 18 lists the seven profile class signatures.
