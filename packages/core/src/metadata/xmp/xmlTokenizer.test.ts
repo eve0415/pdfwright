@@ -226,8 +226,8 @@ describe('decoding XML bytes', () => {
 describe('refusing truncated and misplaced markup', () => {
   // XML 1.0, 2.5, 2.6, 2.7 and 3.1: a comment, processing instruction, CDATA section or attribute value must be closed, and only one root element, with nothing but white space, comments and processing instructions around it, makes a document.
   it.each([
-    ['an unterminated comment', '<a><!-- x</a>'],
-    ['an unterminated processing instruction', '<a><?p x</a>'],
+    ['an unterminated comment after the root', '<a/><!-- x'],
+    ['an unterminated processing instruction after the root', '<a/><?p x'],
     ['an unterminated CDATA section', '<a><![CDATA[x</a>'],
     ['an unterminated attribute value', '<a b="1/>'],
     ['an end tag before the root', '</a><a/>'],
