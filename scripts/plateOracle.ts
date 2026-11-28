@@ -197,7 +197,7 @@ export const sampleIndex = (image: { readonly width: number; readonly height: nu
 export const readPlate = async (files: ReadonlyArray<PlateFile>, name: Uint8Array): Promise<Plate> => {
   const file = files.find(plate => plate.name.length === name.length && plate.name.every((byte, index) => byte === name[index]));
   if (file === undefined) {
-    throw new Error('missing separation plate');
+    throw new Error(`missing separation plate ${JSON.stringify(new TextDecoder('latin1').decode(name))}`);
   }
   const tiff = parseTiff(await readFile(file.file));
   if (tiff.samplesPerPixel !== 1) {

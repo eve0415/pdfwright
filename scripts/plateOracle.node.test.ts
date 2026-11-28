@@ -163,7 +163,7 @@ describe('reading a plate', () => {
 
   it('refuses a plate it was not given and a plate with more than one sample per pixel', async () => {
     await withPlate(tiff({ width: 3, height: 1, samplesPerPixel: 2, strips: [PIXELS] }), async file => {
-      await expect(readPlate([{ name, file }], new TextEncoder().encode('Spo'))).rejects.toThrow('missing separation plate');
+      await expect(readPlate([{ name, file }], new TextEncoder().encode('Spo'))).rejects.toThrow(/"Spo"/u);
       await expect(readPlate([{ name, file }], name)).rejects.toThrow(/one sample per pixel/u);
     });
   });
