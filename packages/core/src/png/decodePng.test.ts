@@ -494,7 +494,7 @@ const pngImages = (side: number): fc.Arbitrary<TestPng> =>
     .record({ kind: fc.constantFrom(...KINDS), width: fc.integer({ min: 1, max: side }), height: fc.integer({ min: 1, max: side }), interlaced: fc.boolean() })
     .chain(({ kind: [colorType, bitDepth], width, height, interlaced }) => {
       const count = width * height * (CHANNELS.get(colorType) ?? 1);
-      const levels = Math.min(256, 2 ** bitDepth);
+      const levels = 2 ** bitDepth;
       const rows = 2 * height + 7;
       return fc
         .record({
