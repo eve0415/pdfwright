@@ -728,23 +728,24 @@ const laterAppearancePdf = (firstContent: string): LoadedDocument =>
     ],
   );
 
-describe('rendering intents of direct shadings in carriers that an earlier page listed', () => {
-  const sample = (intent: Intent): ReadonlyArray<number> => {
-    const document = laterAppearancePdf('0 0 1 1 re f');
-    convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
-    return sampled(document, 7, ['Resources', 'Shading', 'Sh1']);
-  };
+const laterAppearanceSample = (intent: Intent): ReadonlyArray<number> => {
+  const document = laterAppearancePdf('0 0 1 1 re f');
+  convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+  return sampled(document, 7, ['Resources', 'Shading', 'Sh1']);
+};
 
+const refusedLaterAppearance = (): ShadingConversionReport =>
+  convertShadings(laterAppearancePdf('/F Do'), { sourceRgbProfile: source, outputProfile: destination, intent: 'document' });
+
+describe('rendering intents of direct shadings in carriers that an earlier page listed', () => {
   it('samples the shading with the intent a later page selects before painting the carrier', () => {
-    expect(sample('perceptual')).not.toStrictEqual(sample('relativeColorimetric'));
-    expect(sample('document')).toStrictEqual(sample('perceptual'));
+    expect(laterAppearanceSample('perceptual')).not.toStrictEqual(laterAppearanceSample('relativeColorimetric'));
+    expect(laterAppearanceSample('document')).toStrictEqual(laterAppearanceSample('perceptual'));
   });
 
   it('refuses the shading when the first page paints the carrier with another intent', () => {
-    const convert = (): ShadingConversionReport =>
-      convertShadings(laterAppearancePdf('/F Do'), { sourceRgbProfile: source, outputProfile: destination, intent: 'document' });
-    expect(convert).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
-    expect(convert).toThrow(/different rendering intents/u);
+    expect(refusedLaterAppearance).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+    expect(refusedLaterAppearance).toThrow(/different rendering intents/u);
   });
 });
 
