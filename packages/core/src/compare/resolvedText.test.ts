@@ -105,9 +105,9 @@ describe('reference cycles', () => {
   });
 
   it('keeps the description of a cycle apart from the items that follow it', () => {
-    const threeCycle = textOf(['[21 0 R]', '[22 0 R]', '[20 0 R]', '[20 0 R]'], 3);
-    const twoCycleAndSelfReference = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[20 0 R 22 0 R]'], 3);
-    const renumbered = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[21 0 R 22 0 R]'], 3);
+    const threeCycle = textOf(['[21 0 R 1]', '[22 0 R 2]', '[20 0 R 3]', '[20 0 R 22 0 R]'], 3);
+    const twoCycleAndSelfReference = textOf(['[21 0 R 1]', '[20 0 R 2]', '[22 0 R 3]', '[20 0 R 22 0 R]'], 3);
+    const renumbered = textOf(['[21 0 R 2]', '[20 0 R 1]', '[22 0 R 3]', '[21 0 R 22 0 R]'], 3);
     expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
   });
 
