@@ -43,6 +43,10 @@ const instanceId = (info: DocumentInfo, width: number): string | undefined => {
   return packetText(document.save().toBytes(), 'InstanceID');
 };
 
+// Rows in a fixed order, for comparing values whose order is not part of the result.
+const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<ReadonlyArray<string>> =>
+  rows.toSorted((a, b) => a.join(' ').localeCompare(b.join(' ')));
+
 describe('metadata in created documents', () => {
   it('requires a modification date for XMP', () => {
     expect(() => createDocument({ info: { title: 'T' } })).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'metadata-date-required' }));
@@ -127,8 +131,6 @@ describe('metadata in created documents', () => {
     ['producer', 'Producer', PDF, 'Producer', 'P'],
   ] as const;
   const EVERY_TEXT = { title: 'T', author: 'A', subject: 'S', keywords: 'K', creator: 'C', producer: 'P', modificationDate: MODIFIED };
-  const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<ReadonlyArray<string>> =>
-    rows.toSorted((a, b) => a.join(' ').localeCompare(b.join(' ')));
 
   it.each(TEXT_KEYS)('omits an empty %s from Info and the packet and keeps every other value', field => {
     const metadata = readMetadata(loadDocument(bytes({ info: { ...EVERY_TEXT, [field]: '' } })));
