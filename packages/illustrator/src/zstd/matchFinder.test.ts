@@ -229,10 +229,11 @@ describe('zstandard match finder', () => {
 });
 
 describe('properties', () => {
+  // Short inputs cut into small blocks, so that most draws span several blocks; the tests above cover the 128 KiB block and the 2 MiB window.
   const input = fc
-    .tuple(fc.oneof(fc.integer({ min: 0, max: 2000 }), fc.integer({ min: 131_000, max: 300_000 })), fc.integer(), fc.constantFrom(2, 4, 16, 256))
+    .tuple(fc.integer({ min: 0, max: 2048 }), fc.integer(), fc.constantFrom(2, 4, 16, 256))
     .map(([length, seed, alphabet]) => pseudoRandom(length, seed, alphabet));
-  const blockSizes = fc.array(fc.oneof(fc.integer({ min: 0, max: 64 }), fc.integer({ min: 1, max: 131_072 })), { maxLength: 8 });
+  const blockSizes = fc.array(fc.oneof(fc.integer({ min: 0, max: 64 }), fc.integer({ min: 1, max: 512 })), { maxLength: 8 });
 
   it('reconstructs every block from bounded sequences', () => {
     fc.assert(
