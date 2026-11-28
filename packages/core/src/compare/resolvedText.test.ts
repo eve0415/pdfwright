@@ -60,6 +60,35 @@ const textsInOrder = (bodies: ReadonlyArray<string>, order: ReadonlyArray<number
 // The text of the object numbered FIRST + index, worked out by a fresh ResolvedTexts.
 const textOf = (bodies: ReadonlyArray<string>, index = 0): string => new ResolvedTexts(internalsOrThrow(bodies)).text(pdfReference(FIRST + index, 0));
 
+// The fewest steps that describing reference cycles may take for `describe` to finish on a fresh ResolvedTexts.
+const fewestSteps = (internals: DocumentInternals, describe: (texts: ResolvedTexts) => ReadonlyArray<string>): number => {
+  const finishes = (steps: number): boolean => {
+    try {
+      describe(new ResolvedTexts(internals, steps));
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof ResourceLimitError) {
+        return false;
+      }
+      throw error;
+    }
+  };
+  let high = 1;
+  while (!finishes(high)) {
+    high *= 2;
+  }
+  let low = 0;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (finishes(middle)) {
+      high = middle;
+    } else {
+      low = middle;
+    }
+  }
+  return high;
+};
+
 const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
   items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
 
@@ -168,6 +197,27 @@ describe('reference cycles', () => {
       textOf(otherItem, 0) === textOf(otherItem, 1),
       textOf(['[21 0 R 22 0 R]', '[21 0 R]', '[23 0 R]', '[23 0 R 1]']) === textOf(['[21 0 R 21 0 R]', '[21 0 R]']),
     ]).toStrictEqual([true, true, false, false]);
+  });
+
+  it('describes a value asked for again without taking more steps', () => {
+    const internals = internalsOrThrow(['<</Type/Encoding/X 21 0 R>>', '[21 0 R]']);
+    const value = internals.objects.deref(pdfReference(FIRST, 0));
+    const texts = new ResolvedTexts(
+      internals,
+      fewestSteps(internals, once => [once.text(value)]),
+    );
+    expect(texts.text(value)).toBe(texts.text(value));
+  });
+
+  // A cycle that many values lead into, such as a page tree that encoding dictionaries reach through their pages, is described once, so each further value costs only what it holds itself.
+  it('describes a second value that leads into a cycle in steps that do not grow with the cycle', () => {
+    const extraSteps = (size: number): number => {
+      const ring = Array.from({ length: size }, (_, index) => `[${String(22 + ((index + 1) % size))} 0 R ${String(index)}]`);
+      const internals = internalsOrThrow(['<</X 22 0 R>>', '<</Y 23 0 R>>', ...ring]);
+      const [first, second] = [FIRST, 21].map(number => internals.objects.deref(pdfReference(number, 0)));
+      return fewestSteps(internals, texts => [texts.text(first), texts.text(second)]) - fewestSteps(internals, texts => [texts.text(first)]);
+    };
+    expect(extraSteps(40)).toBe(extraSteps(2));
   });
 
   // A chain of references that comes back to where it started reaches no object, so it reads as null like a reference to an object that is not defined.
@@ -302,6 +352,30 @@ describe('properties', () => {
         const texts = new ResolvedTexts(internals);
         expect(sameness(bodies.map((_, index) => texts.text(pdfReference(FIRST + index, 0))))).toStrictEqual(
           sameness(bodies.map((_, index) => unfolded(bodies, index, bodies.length + 1))),
+        );
+      }),
+    );
+  });
+
+  // Each object is asked for by its reference or as the value it holds, in any order, so that what one ResolvedTexts kept from earlier values is reused across both forms.
+  it('gives two objects the same text exactly when they unfold to the same value, in any order and whether asked for directly or by reference', () => {
+    const graphs = anyBodies.chain(bodies =>
+      fc.record({
+        bodies: fc.constant(bodies),
+        order: fc.shuffledSubarray([...bodies.keys()], { minLength: bodies.length, maxLength: bodies.length }),
+        direct: fc.array(fc.boolean(), { minLength: bodies.length, maxLength: bodies.length }),
+      }),
+    );
+    fc.assert(
+      fc.property(graphs, ({ bodies, order, direct }) => {
+        const internals = internalsOrThrow(bodies.map(written));
+        const asked = (index: number) => (direct[index] === true ? internals.objects.deref(pdfReference(FIRST + index, 0)) : pdfReference(FIRST + index, 0));
+        const shared = new ResolvedTexts(internals);
+        const texts = order.map(index => shared.text(asked(index)));
+        expect(texts).toStrictEqual(order.map(index => new ResolvedTexts(internals).text(asked(index))));
+        const leadingIntoCycles = order.filter((_, at) => texts[at]?.startsWith('~') === true);
+        expect(sameness(leadingIntoCycles.map(index => texts[order.indexOf(index)]))).toStrictEqual(
+          sameness(leadingIntoCycles.map(index => unfolded(bodies, index, bodies.length + 1))),
         );
       }),
     );
