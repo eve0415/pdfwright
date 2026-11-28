@@ -28,6 +28,25 @@ const entryType = (lexer: Lexer, token: Token): 'free' | 'file' | undefined => {
   return letter === 0x66 ? 'free' : undefined;
 };
 
+const CR = 0x0d;
+const LF = 0x0a;
+
+// The end of the line that holds an entry, after the first CR LF, CR or LF following its type, and at most `limit`, where the next token starts.
+const lineEnd = (bytes: Uint8Array, from: number, limit: number): number => {
+  let position = from;
+  while (position < limit) {
+    const byte = bytes[position];
+    position++;
+    if (byte === LF) {
+      return position;
+    }
+    if (byte === CR) {
+      return bytes[position] === LF ? position + 1 : position;
+    }
+  }
+  return limit;
+};
+
 // ISO 32000-1:2008, 7.5.4: "Each cross-reference section shall begin with a line containing the keyword xref. Following this line shall be one or more cross-reference subsections".
 // Entries are read as tokens rather than fixed 20-byte slices, so entries with other line ends parse too; their lengths are reported.
 const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
@@ -39,19 +58,21 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   const entries: Array<XrefEntry> = [];
   const lengths = new Set<number>();
   let previousStart: number | undefined;
+  let previousEnd = 0;
   for (let token = lexer.next(); !isKeyword(token, 'trailer'); token = lexer.next()) {
     const count = lexer.next();
     if (token.kind !== 'integer' || count.kind !== 'integer' || token.value < 0 || count.value < 0 || token.value + count.value - 1 > MAX_OBJECT_NUMBER) {
       throw new ParseError('malformed cross-reference subsection header', lexer.base + token.start);
     }
     if (previousStart !== undefined) {
-      lengths.add(token.start - previousStart);
+      lengths.add(lineEnd(lexer.bytes, previousEnd, token.start) - previousStart);
     }
     previousStart = undefined;
     for (let index = 0; index < count.value; index++) {
       const location = lexer.next();
       const generation = lexer.next();
-      const type = entryType(lexer, lexer.next());
+      const typeToken = lexer.next();
+      const type = entryType(lexer, typeToken);
       if (
         location.kind !== 'integer' ||
         generation.kind !== 'integer' ||
@@ -66,13 +87,14 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
         lengths.add(location.start - previousStart);
       }
       previousStart = location.start;
+      previousEnd = typeToken.end;
       entries.push({ objectNumber: token.value + index, type, location: location.value, generation: generation.value });
     }
     lexer.skipWhitespace();
   }
   if (previousStart !== undefined) {
-    // The last entry ends where the keyword trailer starts; the lexer is just past that keyword.
-    lengths.add(lexer.position - 'trailer'.length - previousStart);
+    // The last entry of a subsection ends at its end-of-line, so blank lines before the next subsection or the keyword trailer are not part of it; the lexer is just past that keyword.
+    lengths.add(lineEnd(lexer.bytes, previousEnd, lexer.position - 'trailer'.length) - previousStart);
   }
   const trailerToken = lexer.peek();
   const trailer = parseObject(lexer, maxNesting);

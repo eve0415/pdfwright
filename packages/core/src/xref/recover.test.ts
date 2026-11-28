@@ -61,6 +61,12 @@ const summary = (reconstruction: Reconstruction): Summary => ({
   objectStreams: reconstruction.objectStreams,
 });
 
+// Objects 1 to 3, the last an object stream holding member 5 and a second member numbered `number` whose value is `body`.
+const objectStream = (number: number, body: string): string => {
+  const header = `5 0 ${String(number)} 3 `;
+  return `%PDF-1.5\n1 0 obj (a) endobj\n2 0 obj (b) endobj\n3 0 obj\n${streamBody(`/Type/ObjStm/N 2/First ${String(header.length)}`, `${header}(m)${body}`)}\nendobj\n`;
+};
+
 class CountedBytes extends Uint8Array {
   searchedBytes = 0;
 
@@ -252,6 +258,46 @@ describe('cross-reference reconstruction', () => {
     expect([reconstruction.index.get(2_147_483_647).type, reconstruction.index.get(1)]).toStrictEqual([
       IN_FILE,
       { type: IN_FILE, location: 37, generation: 4_294_967_295 },
+    ]);
+  });
+
+  // A member above 2^31 - 1 is skipped whether or not its value parses; 2^32 + 1 would otherwise wrap to object 1.
+  it.each([
+    [2_147_483_647, [2_147_483_647]],
+    [2_147_483_648, []],
+    [4_294_967_297, []],
+  ])('reads an object-stream member numbered %i only up to 2^31 - 1', (number, kept) => {
+    const readable = reconstruct(objectStream(number, '(n)')).reconstruction;
+    const unreadable = reconstruct(objectStream(number, '<zz>')).reconstruction;
+    expect([located(readable).map(([objectNumber, type]) => [objectNumber, type]), readable.objects, unreadable.unreadable]).toStrictEqual([
+      [[1, 'file'], [2, 'file'], [3, 'file'], [5, 'compressed'], ...kept.map(objectNumber => [objectNumber, 'compressed'])],
+      4 + kept.length,
+      kept,
+    ]);
+  });
+
+  // A member nested past the limit raises ResourceLimitError when it is parsed, so one above 2^31 - 1 must be skipped before parsing for the other objects to be recovered.
+  it('skips an object-stream member numbered above 2^31 - 1 without parsing it', () => {
+    const deep = '['.repeat(257);
+    expect(() => reconstruct(objectStream(2_147_483_647, deep))).toThrow(ResourceLimitError);
+    expect(() => reconstruct(objectStream(2_147_483_647, deep))).toThrow(/maxNesting/);
+    expect(
+      [2_147_483_648, 4_294_967_297].map(number =>
+        located(reconstruct(objectStream(number, deep)).reconstruction).map(([objectNumber, type]) => [objectNumber, type]),
+      ),
+    ).toStrictEqual([
+      [
+        [1, 'file'],
+        [2, 'file'],
+        [3, 'file'],
+        [5, 'compressed'],
+      ],
+      [
+        [1, 'file'],
+        [2, 'file'],
+        [3, 'file'],
+        [5, 'compressed'],
+      ],
     ]);
   });
 

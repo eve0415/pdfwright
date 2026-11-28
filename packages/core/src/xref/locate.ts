@@ -106,17 +106,10 @@ const readStartxref = (source: ByteSource, keyword: number): StartxrefLocation |
 // ISO 32000-1:2008, 7.5.5: "Conforming readers should read a PDF file from its end." The last startxref counts, since linearized and updated files contain earlier ones, and bytes after %%EOF are tolerated.
 export const locateStartxref = (source: ByteSource): StartxrefLocation | undefined => {
   const tail = source.copy(source.length - TRAILER_SEARCH, source.length);
-  let position = lastIndexOf(tail.bytes, STARTXREF);
-  let { base } = tail;
-  if (position < 0) {
-    const last = source.window(source.length - 1);
-    position = lastIndexOf(last.bytes, STARTXREF);
-    ({ base } = last);
-  }
-  if (position < 0) {
-    return undefined;
-  }
-  return readStartxref(source, base + position);
+  const position = lastIndexOf(tail.bytes, STARTXREF);
+  // Past the last 4,096 bytes, the rest of the source is searched from its end, across every segment.
+  const keyword = position < 0 ? source.lastIndexOf(STARTXREF) : tail.base + position;
+  return keyword < 0 ? undefined : readStartxref(source, keyword);
 };
 
 /** End of the %%EOF marker belonging to the located startxref, if present. */

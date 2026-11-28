@@ -325,6 +325,10 @@ class Scanner {
       this.add(candidate);
       decoded.push(stream);
       for (const [index, member] of stream.members.entries()) {
+        // A member numbered above what the object model accepts can never be referenced, so it is skipped before it is parsed, as a readable top-level object with such a number is.
+        if (member.objectNumber > MAX_OBJECT_NUMBER) {
+          continue;
+        }
         const entry: XrefEntry = { objectNumber: member.objectNumber, type: 'compressed', location: object.objectNumber, generation: index };
         try {
           const value = parseMember(stream, { objectNumber: member.objectNumber, index }, this.context);
