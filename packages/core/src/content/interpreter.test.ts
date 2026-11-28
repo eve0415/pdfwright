@@ -862,6 +862,13 @@ describe('glyph procedures of Type 3 fonts', () => {
     // The procedure of b shows A with F1, which is painting of the glyph, not text of the page.
     expect(run(page, TYPE3, { maxGlyphs: 1 }).paints.map(paint => paint.kind)).toStrictEqual(['text', 'fill', 'text']);
     expect(() => run(page, TYPE3, { maxGlyphs: 0 })).toThrow(ResourceLimitError);
+    // Page text shown after the procedure has the budget the procedure's own text left untouched.
+    expect(run({ ...page, content: 'BT /T3 10 Tf (b) Tj /F1 10 Tf (A) Tj ET' }, TYPE3, { maxGlyphs: 2 }).paints.map(paint => paint.kind)).toStrictEqual([
+      'text',
+      'fill',
+      'text',
+      'text',
+    ]);
   });
 
   it('does not enter a glyph procedure that shows its own glyph', () => {
