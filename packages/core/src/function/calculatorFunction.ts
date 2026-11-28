@@ -131,8 +131,8 @@ const unary = (operator: string, value: number): number | undefined => {
       return -value;
     }
     case 'round': {
-      // ISO 32000-1:2008, 7.10.5 and Annex B defer to PostScript round, whose half ties go toward positive infinity.
-      return Math.floor(value + 0.5);
+      // ISO 32000-1:2008, 7.10.5 and Annex B defer to PostScript round, the nearest integer with half ties toward positive infinity, which Math.round gives exactly for every double.
+      return Math.round(value);
     }
     case 'sqrt': {
       return Math.sqrt(value);
