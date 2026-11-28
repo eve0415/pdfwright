@@ -19,7 +19,7 @@ import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
 
 import { registeredPrintingConditions } from './printingConditions.ts';
 
-/** Embeds a CMYK output profile and printing-condition identifier; conflicting intents are refused and PDF/X version handling defaults on, with ValidationError reasons `output-intent-conflict`, `color-space`, or `pdf-extensions` under ISO 32000-1:2008, 14.11.5, Table 365. */
+/** Embeds a CMYK output profile and printing-condition identifier; conflicting intents are refused and PDF/X version handling defaults on, with ValidationError reasons `output-intent-conflict`, `color-space`, or, when lowering the version for PDF/X, `pdf-extensions` under ISO 32000-1:2008, 14.11.5, Table 365. */
 export interface OutputIntentOptions {
   /** Output-class CMYK ICC profile embedded in the intent. */
   readonly outputProfile: Uint8Array;
@@ -33,7 +33,7 @@ export interface OutputIntentOptions {
   readonly registryName?: string;
   /** Whether to refuse or replace a conflicting intent, and `replace` also removes an intent whose profile cannot be read; defaults to refuse. */
   readonly existing?: 'refuse' | 'replace';
-  /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4; defaults to true. */
+  /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4, refusing a catalog with Extensions; defaults to true. */
   readonly pdfx?: boolean;
 }
 
@@ -140,7 +140,7 @@ const prepare = (document: LoadedDocument, options: OutputIntentOptions): Prepar
   if (catalog.kind !== 'dictionary') {
     throw new ValidationError('the document catalog is not a dictionary', 'unreadable-resource');
   }
-  if (catalog.entries.has(key('Extensions'))) {
+  if (options.pdfx !== false && catalog.entries.has(key('Extensions'))) {
     throw new ValidationError('PDF extensions prevent PDF/X-4 version lowering', 'pdf-extensions');
   }
   const existing = readExisting({ internals, catalog: catalog.entries, destination, replacement: options.existing === 'replace' });
