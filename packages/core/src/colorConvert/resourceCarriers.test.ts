@@ -3,6 +3,7 @@ import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
+import type { ShadingConversionReport } from './convertShadings.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -11,6 +12,7 @@ import srgbBytes from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -597,5 +599,39 @@ describe('direct Type 3 fonts reached again through an indirect object', () => {
   it('samples a shared direct shading with the intent a glyph of the second font selects', () => {
     expect(sharedShadingSample('perceptual')).not.toStrictEqual(sharedShadingSample('relativeColorimetric'));
     expect(sharedShadingSample('document')).toStrictEqual(sharedShadingSample('perceptual'));
+  });
+});
+
+/** A page that paints indirect shading 7 after selecting Perceptual and then shows a Type 3 glyph whose content follows d0 and whose font names the same shading. */
+const glyphShadingPdf = (glyph: string): LoadedDocument =>
+  carrierPdf(
+    '/Resources<</Shading<</Sh 7 0 R>>/Font<</F 5 0 R>>>>',
+    [
+      { number: 5, body: `<<${TYPE3}/Resources<</Shading<</Sh 7 0 R>>>>>>` },
+      { number: 6, body: streamBody('', `1000 0 d0 ${glyph}`) },
+      { number: 7, body: SHADING },
+    ],
+    '/Perceptual ri /Sh sh BT /F 12 Tf 10 10 Td (A) Tj ET',
+  );
+
+const glyphShadingSample = (glyph: string, intent: Intent): ReadonlyArray<number> => {
+  const document = glyphShadingPdf(glyph);
+  expect(convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent }).shadings).toBe(1);
+  return sampled(document, 7, []);
+};
+
+const refusedGlyphIntent = (): ShadingConversionReport =>
+  convertShadings(glyphShadingPdf('/Saturation ri /Sh sh'), { sourceRgbProfile: source, outputProfile: destination, intent: 'document' });
+
+describe('rendering intents of shadings that Type 3 glyphs paint', () => {
+  // A glyph description runs in the graphics state of the text-showing operator that shows it, so a glyph that selects no intent paints with that operator's intent.
+  it.each(['/Sh sh', 'q /Saturation ri Q /Sh sh'])('samples a shading that the page and a glyph showing %s share with the page intent', glyph => {
+    expect(glyphShadingSample(glyph, 'perceptual')).not.toStrictEqual(glyphShadingSample(glyph, 'relativeColorimetric'));
+    expect(glyphShadingSample(glyph, 'document')).toStrictEqual(glyphShadingSample(glyph, 'perceptual'));
+  });
+
+  it('refuses a shading that a glyph paints with an intent of its own and the page with another', () => {
+    expect(refusedGlyphIntent).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+    expect(refusedGlyphIntent).toThrow(/different rendering intents/u);
   });
 });
