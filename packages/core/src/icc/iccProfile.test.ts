@@ -183,7 +183,9 @@ describe('icc profile options', () => {
 
   it('parses a profile of exactly the default 24 MiB limit', () => {
     // The limit admits 24 MiB itself, so a zero-filled buffer of that length reaches the header check rather than the limit.
-    expect(() => parseIccProfile(new Uint8Array(24 * 1024 * 1024))).toThrow(expect.objectContaining({ reason: 'size-mismatch', offset: 0 }));
+    const bytes = new Uint8Array(24 * 1024 * 1024);
+    expect(() => parseIccProfile(bytes)).toThrow(InvalidProfileError);
+    expect(() => parseIccProfile(bytes)).toThrow(expect.objectContaining({ reason: 'size-mismatch', offset: 0 }));
   });
 });
 
