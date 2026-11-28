@@ -137,6 +137,7 @@ describe('properties', () => {
   });
 
   // Types 0–2 with g ≥ 1, a > 0 and b ≥ 0 increase on [0, 1] and never fall below their value at 0; g ≥ 1 bounds the slope, so a 1e-12 search error stays below 1e-9 in the output.
+  // Types 3 and 4 take the same power segment from d up and a line below d whose slope c (type 3) or offset f (type 4) is solved so the two segments meet at d, since a jump leaves outputs no input reaches; d ≥ 0.05 keeps the line's slope below 40.
   const parametric = fc.oneof(
     fc.tuple(fc.double({ min: 1, max: 3, noNaN: true })).map(([g]): Curve => ({ kind: 'parametric', functionType: 0, params: [g] })),
     fc
@@ -150,6 +151,24 @@ describe('properties', () => {
         fc.double({ min: 0, max: 0.3, noNaN: true }),
       )
       .map(([g, a, b, c]): Curve => ({ kind: 'parametric', functionType: 2, params: [g, a, b, c] })),
+    fc
+      .tuple(
+        fc.double({ min: 1, max: 3, noNaN: true }),
+        fc.double({ min: 0.5, max: 2, noNaN: true }),
+        fc.double({ min: 0, max: 0.5, noNaN: true }),
+        fc.double({ min: 0.05, max: 0.95, noNaN: true }),
+      )
+      .map(([g, a, b, d]): Curve => ({ kind: 'parametric', functionType: 3, params: [g, a, b, (a * d + b) ** g / d, d] })),
+    fc
+      .tuple(
+        fc.double({ min: 1, max: 3, noNaN: true }),
+        fc.double({ min: 0.5, max: 2, noNaN: true }),
+        fc.double({ min: 0, max: 0.5, noNaN: true }),
+        fc.double({ min: 0, max: 4, noNaN: true }),
+        fc.double({ min: 0.05, max: 0.95, noNaN: true }),
+        fc.double({ min: 0, max: 0.3, noNaN: true }),
+      )
+      .map(([g, a, b, c, d, e]): Curve => ({ kind: 'parametric', functionType: 4, params: [g, a, b, c, d, e, (a * d + b) ** g + e - c * d] })),
   );
 
   it('inverts an increasing parametric curve to an input it maps back to the target', () => {
