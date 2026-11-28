@@ -22,7 +22,7 @@ export interface CheckedRun {
   readonly stderr: string;
 }
 
-// A spawn of a missing command rejects with ENOENT, which names neither the command nor what to do about it.
+// A spawn of a missing command rejects with a bare ENOENT error, which does not say what to do about it.
 const started = async <T>(command: string, run: Promise<T>): Promise<T> => {
   try {
     return await run;

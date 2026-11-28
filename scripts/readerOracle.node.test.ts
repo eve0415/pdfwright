@@ -53,7 +53,10 @@ describe('running oracle tools', () => {
     ['checked with standard input', async (): Promise<CheckedRun | ToolRun> => runChecked(MISSING, [], new Uint8Array(1 << 20))],
     ['unchecked', async (): Promise<CheckedRun | ToolRun> => runTool(MISSING, [])],
   ])('names a missing tool when a %s run cannot start it', async (_, run) => {
-    await expect(run()).rejects.toThrow(`${MISSING} is not installed or not on PATH`);
+    // Node's own spawn error names the command too, so the ENOENT cause is what shows the error was replaced by one that says what to do.
+    await expect(run()).rejects.toThrow(
+      expect.objectContaining({ message: expect.stringContaining(MISSING), cause: expect.objectContaining({ code: 'ENOENT' }) }),
+    );
   });
 });
 
