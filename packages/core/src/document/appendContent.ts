@@ -16,6 +16,7 @@ import { formatNumber } from '../number/formatNumber.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { isRegular } from '../parse/characterClass.ts';
 
 import { createContentBuilder } from './contentBuilder.ts';
 import { groupObject } from './group.ts';
@@ -185,6 +186,9 @@ const sameAsWritten = (existing: PdfDirectObject, value: PdfDirectObject, fracti
   return deepEqual(existing, value, 'strict');
 };
 
+// ISO 32000-1:2008, 7.3.5: a name byte outside the printable ASCII range, a delimiter, a white-space character or NUMBER SIGN is written as a # escape; content refers to a resource by its name written verbatim, so only a name needing no escape can be reused.
+const writtenVerbatim = (name: Uint8Array): boolean => name.every(byte => byte >= 0x21 && byte <= 0x7e && byte !== 0x23 && isRegular(byte));
+
 // A name the page's resources already give the same separation, or the same image or group object written by an earlier append.
 const existingName = (context: ContentContext, page: PageEntry, resource: RegisteredResource): string | undefined => {
   let number: number | undefined;
@@ -202,7 +206,7 @@ const existingName = (context: ContentContext, page: PageEntry, resource: Regist
     return undefined;
   }
   for (const [key, existing] of takenNames(context, page, category).entries()) {
-    if (sameAsWritten(existing, value, context.fractionDigits)) {
+    if (writtenVerbatim(key) && sameAsWritten(existing, value, context.fractionDigits)) {
       return latin1(key);
     }
   }
