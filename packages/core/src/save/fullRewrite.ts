@@ -110,9 +110,11 @@ class FullRewriter {
     const offsets = new Set(
       hints?.kind === 'array' ? hints.items.filter((_, index) => index % 2 === 0).map(item => (item.kind === 'integer' ? item.value : -1)) : [],
     );
+    // H gives offsets the way the cross-reference sections do, so they are compared with the index's locations less the shift the sections were read with.
+    const shift = this.input.base?.shift ?? 0;
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
-      if (entry.type === IN_FILE && offsets.has(entry.location)) {
+      if (entry.type === IN_FILE && offsets.has(entry.location - shift)) {
         this.dropped.add(number);
       }
     }
