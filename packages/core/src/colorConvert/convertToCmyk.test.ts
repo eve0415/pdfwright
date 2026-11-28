@@ -595,7 +595,7 @@ const grayPaint = [
 ] as const;
 
 // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte holds one value per component of the image's colour space, so it cannot stay on the gray image as three RGB values.
-const softMasked = (matte: string): ReadonlyArray<TestObject> => [
+const softMasked = (matte: string, maskWidth = 1): ReadonlyArray<TestObject> => [
   maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
   {
     number: 9,
@@ -603,7 +603,10 @@ const softMasked = (matte: string): ReadonlyArray<TestObject> => [
   },
   {
     number: 10,
-    body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray${matte}`, String.fromCodePoint(128)),
+    body: streamBody(
+      `/Type/XObject/Subtype/Image/Width ${String(maskWidth)}/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray${matte}`,
+      String.fromCodePoint(128).repeat(maskWidth),
+    ),
   },
 ];
 
@@ -763,6 +766,18 @@ describe('luminosity soft masks', () => {
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(UnsupportedFeatureError);
     expect(error instanceof Error ? error.message : error).toMatch(/Matte/u);
+  });
+
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: a Matte with other than one value per image component, or a preblended soft mask of another size, is malformed rather than unsupported.
+  it.each([
+    { name: 'one Matte value for an RGB image', matte: '/Matte[1]', maskWidth: 1 },
+    { name: 'a non-numeric Matte value', matte: '/Matte[/A 0 0]', maskWidth: 1 },
+    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', maskWidth: 2 },
+  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, maskWidth }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, maskWidth))), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error).toMatchObject({ reason: 'color-space' });
   });
 
   it('keeps the soft mask of an RGB image the mask draws as gray when the image is not preblended', () => {
