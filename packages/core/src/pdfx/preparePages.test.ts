@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
 import { pdfName } from '../object/pdfObject.ts';
@@ -95,6 +96,44 @@ const type3 = (state: string) =>
 /** A Type 3 font without Resources whose CharProcs entry is the given value. */
 const shownType3 = (procedures: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${procedures}/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`;
+
+type Nesting = 'form' | 'pattern' | 'Type 3 font';
+
+/** A page whose content reaches the given number of nested forms, tiling patterns or Type 3 glyph procedures, numbered from 10, the deepest of which applies the transparent state in object 5. */
+const nested = (kind: Nesting, levels: number) => {
+  const objects: Array<TestObject> = [{ number: 5, body: '<</ca 0.5>>' }];
+  const pattern = '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1';
+  const font = '/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]';
+  const select = {
+    form: { category: 'XObject', operators: (name: string) => `/${name} Do` },
+    pattern: { category: 'Pattern', operators: (name: string) => `/Pattern cs /${name} scn 0 0 1 1 re f` },
+    'Type 3 font': { category: 'Font', operators: (name: string) => `BT /${name} 12 Tf (a) Tj ET` },
+  } as const;
+  const uses = (level: number) => {
+    const name = `N${String(level)}`;
+    const { category, operators } = select[kind];
+    return { resources: `/${category}<</${name} ${String(10 + 2 * (level - 1))} 0 R>>`, operators: operators(name) };
+  };
+  for (let level = 1; level <= levels; level++) {
+    const number = 10 + 2 * (level - 1);
+    const deepest = level === levels;
+    const next = uses(level + 1);
+    const resources = deepest ? '/ExtGState<</GS 5 0 R>>' : next.resources;
+    const operators = deepest ? '/GS gs 0 0 1 1 re f' : next.operators;
+    if (kind === 'form') {
+      objects.push({ number, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<<${resources}>>`, operators) });
+    } else if (kind === 'pattern') {
+      objects.push({ number, body: streamBody(`${pattern}/Resources<<${resources}>>`, operators) });
+    } else {
+      objects.push(
+        { number, body: `<<${font}/CharProcs<</a ${String(number + 1)} 0 R>>/Resources<<${resources}>>>>` },
+        { number: number + 1, body: streamBody('', `0 0 d0 ${operators}`) },
+      );
+    }
+  }
+  const page = uses(1);
+  return single(`<<${page.resources}>>`, streamBody('', page.operators), objects);
+};
 
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
@@ -247,6 +286,13 @@ describe('pdfx page preparation', () => {
       { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</XObject<</X1 5 0 R>>>>', '/X1 Do') },
     ]);
     expect(addedGroups(document)).toStrictEqual([]);
+  });
+
+  it.each<Nesting>(['form', 'pattern', 'Type 3 font'])('reads content nested through %s streams as deep as maxNesting and refuses one more', kind => {
+    expect(addedGroups(nested(kind, 256))).toStrictEqual([0]);
+    const prepare = () => preparePdfX4Pages(nested(kind, 257));
+    expect(prepare).toThrow(ResourceLimitError);
+    expect(prepare).toThrow(/maxNesting \(256\)/u);
   });
 
   it('leaves a page that already has a Group as it is', () => {
