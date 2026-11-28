@@ -1107,4 +1107,22 @@ describe('the annotations of the carrier walk', () => {
     expect([walkPage(document, 0, seen), walkPage(document, 1, seen)].map(listed => listed.length)).toStrictEqual([0, 0]);
     expect(seen.steps).toBe(steps);
   });
+
+  it.each(annotationLists)('refuses annotations that two pages list through $lists one step past the limit', ({ page, objects, steps }) => {
+    const document = pagesPdf(
+      [
+        { page, content: '' },
+        { page, content: '' },
+      ],
+      objects,
+    );
+    const atLimit = carrierSeen(steps);
+    expect([walkPage(document, 0, atLimit), walkPage(document, 1, atLimit)].map(listed => listed.length)).toStrictEqual([0, 0]);
+    const walkBoth = (): ReadonlyArray<ResourceCarrier> => {
+      const pastLimit = carrierSeen(steps - 1);
+      return [...walkPage(document, 0, pastLimit), ...walkPage(document, 1, pastLimit)];
+    };
+    expect(walkBoth).toThrow(ResourceLimitError);
+    expect(walkBoth).toThrow(new RegExp(`more than ${String(steps - 1)} steps`, 'u'));
+  });
 });
