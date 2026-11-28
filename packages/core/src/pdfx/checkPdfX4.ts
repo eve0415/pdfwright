@@ -8,6 +8,7 @@ import type { PdfX4RuleId, RuleAuthority } from './pdfX4Rules.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ParseError } from '../error/parseError.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -219,7 +220,26 @@ const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean,
       `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(context.unreadable)} reachable objects could not be read`,
     );
   }
-  return visitAll(context, forbidden) ? violation(`${what} was found`) : passed(`no ${what} was found in reachable objects`);
+  // A reference the loader refuses, such as one naming another generation, leaves its value unknown; a forbidden value found elsewhere is still reported.
+  const unresolved: Array<string> = [];
+  const found = visitAll(context, value => {
+    try {
+      return forbidden(value);
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
+      unresolved.push(error.message);
+      return false;
+    }
+  });
+  if (found) {
+    return violation(`${what} was found`);
+  }
+  if (unresolved.length > 0) {
+    return unchecked(`PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(unresolved.length)} references could not be resolved`);
+  }
+  return passed(`no ${what} was found in reachable objects`);
 };
 
 const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string): boolean => {
