@@ -1,3 +1,4 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { PdfDifference, ValuePath } from './pdfDifference.ts';
 
@@ -12,9 +13,9 @@ import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { compareDocuments } from './compareDocuments.ts';
 
-const page = (pieceInfo = '<</Illustrator 9 0 R>>', extra = ''): TestObject => ({
+const page = (pieceInfo = '<</Illustrator 9 0 R>>', extra = '', resources = '<<>>', lastModified = "/LastModified(D:20070624192720-05'00')"): TestObject => ({
   number: 3,
-  body: `<</Type/Page/Parent 2 0 R/PieceInfo${pieceInfo}/LastModified(D:20070624192720-05'00')/MediaBox[0 0 612 792]/Resources<<>>${extra}>>`,
+  body: `<</Type/Page/Parent 2 0 R/PieceInfo${pieceInfo}${lastModified}/MediaBox[0 0 612 792]/Resources${resources}${extra}>>`,
 });
 
 const objects = (overrides: ReadonlyArray<TestObject> = [], catalog = ''): Array<TestObject> => {
@@ -30,8 +31,8 @@ const objects = (overrides: ReadonlyArray<TestObject> = [], catalog = ''): Array
   return [...replaced, ...overrides.filter(override => !base.some(object => object.number === override.number))];
 };
 
-const load = (list: ReadonlyArray<TestObject>): ReturnType<typeof loadDocument> =>
-  loadDocument(buildPdf([{ xref: 'classic', objects: list, trailer: '/Root 1 0 R/Info 11 0 R' }]).bytes);
+const load = (list: ReadonlyArray<TestObject>, trailer = '/Root 1 0 R/Info 11 0 R'): LoadedDocument =>
+  loadDocument(buildPdf([{ xref: 'classic', objects: list, trailer }]).bytes);
 
 const kinds = (differences: ReadonlyArray<PdfDifference>): Array<string> =>
   differences.map(difference => (difference.kind === 'piece-info' ? `piece-info:${difference.aspect}` : difference.kind));
@@ -39,13 +40,40 @@ const kinds = (differences: ReadonlyArray<PdfDifference>): Array<string> =>
 const paths = (differences: ReadonlyArray<PdfDifference>): Array<ValuePath> =>
   differences.map(difference => (difference.kind === 'last-modified' ? difference.path : []));
 
+// Each difference as its kind, or piece-info aspect, followed by its path.
+const places = (differences: ReadonlyArray<PdfDifference>): Array<Array<string | number>> =>
+  differences.map(difference => [kinds([difference])[0] ?? '', ...('path' in difference ? difference.path : [])]);
+
 const source = load(objects());
+
+const named = (name: string, data = 'AIPrivateData1 %%EndData'): LoadedDocument =>
+  load(objects([page(`<</${name} 9 0 R>>`), { number: 10, body: streamBody('', data) }]));
+
+const outlinedTo = (target: number): LoadedDocument =>
+  load(
+    objects(
+      [
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2>>' },
+        { number: 4, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<<>>>>' },
+        { number: 12, body: '<</Count 1/First 13 0 R/Last 13 0 R>>' },
+        { number: 13, body: `<</Title(Page)/Parent 12 0 R/Dest[${String(target)} 0 R/Fit]>>` },
+      ],
+      '/Outlines 12 0 R',
+    ),
+  );
 
 describe('page-piece data, LastModified and attribute comparison', () => {
   it('compares non-ASCII application names by their original name bytes', () => {
-    const first = load(objects([page('<</#E9 9 0 R>>')]));
-    const second = load(objects([page('<</#E9 9 0 R>>')]));
-    expect(compareDocuments(first, second).differences).toStrictEqual([]);
+    expect(compareDocuments(named('#E9'), named('#E9')).differences).toStrictEqual([]);
+    expect(places(compareDocuments(named('#E9'), named('#E8')).differences)).toStrictEqual([
+      ['piece-info:value', 'PieceInfo', '\u00E9'],
+      ['piece-info:value', 'PieceInfo', '\u00E8'],
+      ['piece-info:source-bytes', 'PieceInfo'],
+    ]);
+    expect(places(compareDocuments(named('#E9'), named('#E9', 'AIPrivateData1 %%EndDatX')).differences)).toStrictEqual([
+      ['piece-info:value', 'PieceInfo', '\u00E9', 'Private'],
+      ['piece-info:stream-bytes', 'PieceInfo', '\u00E9', 'Private'],
+    ]);
   });
 
   it('keeps page-piece data identical in all three aspects across a box edit', () => {
@@ -104,6 +132,25 @@ describe('page-piece data, LastModified and attribute comparison', () => {
     edited.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
     const saved = loadDocument(edited.save().chunks);
     expect(kinds(compareDocuments(original, saved).differences)).toStrictEqual(['page-box']);
+    const renumbered = load(
+      objects(
+        [
+          { number: 2, body: '<</Type/Pages/Kids[5 0 R]/Count 1>>' },
+          { number: 3, body: '<<>>' },
+          { ...page(), number: 5 },
+          { number: 12, body: '<</Count 1/First 13 0 R/Last 13 0 R>>' },
+          { number: 13, body: '<</Title(Page)/Parent 12 0 R/Dest[5 0 R/Fit]>>' },
+        ],
+        '/Outlines 12 0 R',
+      ),
+    );
+    expect(compareDocuments(original, renumbered).differences).toStrictEqual([]);
+  });
+
+  it('reports a reference to a page that names another page position', () => {
+    expect(compareDocuments(outlinedTo(3), outlinedTo(4)).differences).toStrictEqual([
+      { kind: 'document-attribute', path: ['Root', 'Outlines', 'First', 'Dest', 0], a: { kind: 'page', text: 'page 0' }, b: { kind: 'page', text: 'page 1' } },
+    ]);
   });
 
   it('reports other page entries, catalog and Info changes, and settled duplicate keys', () => {
