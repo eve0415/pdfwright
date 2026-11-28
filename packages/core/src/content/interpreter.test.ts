@@ -74,7 +74,11 @@ const round = (value: number): number => Math.round(value * 1e6) / 1e6;
 const positions = (texts: ReadonlyArray<TextShowEvent>): Array<readonly [number, number]> =>
   texts.flatMap(text => text.glyphs.map(({ textMatrix }) => [round(textMatrix[4]), round(textMatrix[5])] as const));
 
-const spaceName = (use: ColorSpaceUse): string => (use.space?.kind === 'name' ? latin1Text(use.space.bytes) : (use.space?.kind ?? 'unknown'));
+// A name space by its name, an array space by its family name.
+const spaceName = (use: ColorSpaceUse): string => {
+  const family = use.space?.kind === 'array' ? use.space.items[0] : use.space;
+  return family?.kind === 'name' ? latin1Text(family.bytes) : (family?.kind ?? 'unknown');
+};
 
 const paintSpaces = (paints: ReadonlyArray<PaintEvent>): Array<string> =>
   paints.map(paint => `${paint.kind}:${paint.colorSpaces.map(use => spaceName(use)).join(',')}`);
@@ -97,8 +101,8 @@ describe('graphics state', () => {
         { number: 111, body: '<</FunctionType 2/Domain[0 1]/C1[0 1 0 0]/N 1>>' },
       ],
     );
-    expect(paintSpaces(paints)).toStrictEqual(['fill:array', 'stroke:DeviceRGB', 'fill-stroke:array,DeviceRGB']);
-    expect(selects.map(select => `${select.target}:${spaceName(select.use)}`)).toStrictEqual(['fill:array', 'stroke:DeviceRGB']);
+    expect(paintSpaces(paints)).toStrictEqual(['fill:Separation', 'stroke:DeviceRGB', 'fill-stroke:Separation,DeviceRGB']);
+    expect(selects.map(select => `${select.target}:${spaceName(select.use)}`)).toStrictEqual(['fill:Separation', 'stroke:DeviceRGB']);
     expect(paints[0]?.colorSpaces[0]?.components).toStrictEqual([0.5]);
     expect(paints.map(paint => paint.context.sources)).toStrictEqual([[{ kind: 'page' }], [{ kind: 'page' }], [{ kind: 'page' }]]);
   });
@@ -545,7 +549,7 @@ describe('patterns', () => {
   it('paints an uncoloured tiling pattern in the base space, ignoring the colour operators of its cell', () => {
     const { paints, selects } = run({ content: '/RGBPattern cs 0 1 0 /Uncoloured scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
     expect([paintSpaces(paints), paints.map(paint => paint.colorSpaces.at(-1)?.components), paints.map(paint => paint.context.colour)]).toStrictEqual([
-      ['fill:array,DeviceRGB', 'fill:DeviceRGB'],
+      ['fill:Pattern,DeviceRGB', 'fill:DeviceRGB'],
       [
         [0, 1, 0],
         [0, 1, 0],
@@ -581,7 +585,7 @@ describe('patterns', () => {
       OBJECTS,
     );
     expect(paints.map(paint => [paintSpaces([paint]).join(','), paint.spaceOf])).toStrictEqual([
-      ['fill-stroke:Pattern,array,DeviceCMYK,DeviceRGB', [0, 1, 0, 1]],
+      ['fill-stroke:Pattern,Pattern,DeviceCMYK,DeviceRGB', [0, 1, 0, 1]],
       ['fill:DeviceRGB', [0]],
       ['fill:Pattern,DeviceCMYK', [0, 0]],
     ]);
