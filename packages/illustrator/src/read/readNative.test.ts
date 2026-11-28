@@ -144,6 +144,24 @@ describe('native model reader', () => {
     expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Désign']);
   });
 
+  // A spot or artboard name is matched within its line, so a name whose escapes code a line or paragraph separator must still be matched as escapes; a separator split between raw and escaped bytes is written as escapes too.
+  it.each([
+    { case: 'octal escapes of a line separator', name: encoder.encode(String.raw`(Wh\342\200\250ite) 0.75 x`), expected: 'Wh\u2028ite' },
+    {
+      case: 'a raw lead byte before octal escapes of a line separator',
+      name: Uint8Array.from([...encoder.encode('(Wh'), 0xe2, ...encoder.encode(String.raw`\200\250ite) 0.75 x`)]),
+      expected: 'Wh\u2028ite',
+    },
+  ])('reads a spot name with $case', ({ name, expected }) => {
+    const native = edited(nativeBytes, '(White) 0.75 x', name);
+    expect(readNative(native, date).document.layers[1]?.items[0]).toMatchObject({ fill: { paint: { kind: 'spot', spot: { name: expected } } } });
+  });
+
+  it('reads an artboard name with octal escapes of a paragraph separator', () => {
+    const native = edited(nativeBytes, '%_(Board) /UnicodeString', String.raw`%_(Bo\342\200\251ard) /UnicodeString`);
+    expect(readNative(native, date).document.artboard).toMatchObject({ name: 'Bo\u2029ard' });
+  });
+
   it('reports only the setup blocks it does not know', () => {
     const native = edited(
       edited(nativeBytes, '%%BeginSetup\r', '%%BeginSetup\r%AI9_BeginFoo\r%AI9_EndFoo\r'),
