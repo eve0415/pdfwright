@@ -685,7 +685,7 @@ describe('luminosity soft masks', () => {
     const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(UnsupportedFeatureError);
-    expect(error instanceof Error ? error.message : error).toMatch(/^luminosity /u);
+    expect(error instanceof Error ? error.message : error).toMatch(/calibrated gray/u);
   });
 
   it.each(grayPaint)('keeps $name in an RGB luminosity mask when calibrated gray is kept', ({ resources, content, objects, category, key }) => {
@@ -702,7 +702,7 @@ describe('luminosity soft masks', () => {
     const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked('/Matte[1 0 0]'))), cmykOptions);
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(UnsupportedFeatureError);
-    expect(error instanceof Error ? error.message : error).toMatch(/^luminosity /u);
+    expect(error instanceof Error ? error.message : error).toMatch(/Matte/u);
   });
 
   it('keeps the soft mask of an RGB image the mask draws as gray when the image is not preblended', () => {
