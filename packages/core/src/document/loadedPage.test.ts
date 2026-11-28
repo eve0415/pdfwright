@@ -4,6 +4,7 @@ import type { LoadedDocument } from './loadDocument.ts';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { mm } from '../length/length.ts';
 import { pdfInteger, pdfName } from '../object/pdfObject.ts';
 import { buildPdf } from '../testing/pdfBuilder.ts';
@@ -57,6 +58,35 @@ describe('page rectangles', () => {
     const page = load('/MediaBox[0 0 100 100]').page(0);
     page.setBox('TrimBox', rect(mm(10), mm(10), mm(20), mm(20)));
     expect(page.boxes().TrimBox.rect).toStrictEqual([28.34646, 28.34646, 56.69291, 56.69291]);
+  });
+
+  // ISO 32000-1:2008, 7.7.3.3, Table 30: MediaBox is required and inheritable. 7.3.7: a dictionary entry whose value is null is treated as absent, so a null on the ancestor supplies nothing.
+  it.each([
+    ['[0 0 50 50]', [0, 0, 50, 50], [0, 0, 50, 50]],
+    ['null', 'ValidationError', [0, 0, 10, 10]],
+  ])('removes the page MediaBox under an ancestor MediaBox of %s only when the ancestor supplies one', (ancestor, outcome, after) => {
+    const page = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox ${ancestor}>>` },
+            { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<<>>/MediaBox[0 0 10 10]>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    ).page(0);
+    const removed = (): unknown => {
+      try {
+        page.setBox('MediaBox', undefined);
+      } catch (error: unknown) {
+        return error instanceof ValidationError ? 'ValidationError' : error;
+      }
+      return page.boxes().MediaBox.rect;
+    };
+    expect([removed(), page.boxes().MediaBox.rect]).toStrictEqual([outcome, after]);
   });
 
   it('refuses a Rotate that is not a number, naming the page', () => {
