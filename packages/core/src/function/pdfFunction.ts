@@ -162,6 +162,14 @@ const evaluateExponential = (entries: FunctionEntries, domain: Array<number>): E
   if (c0.length !== c1.length) {
     throw new ParseError('exponential function output dimensions differ', 0);
   }
+  const [low = 0, high = 0] = domain;
+  // ISO 32000-1:2008, 7.10.3: if N is not an integer, every x in the Domain is non-negative, and if N is negative, no x in the Domain is 0.
+  if (low < 0 && !Number.isInteger(exponent)) {
+    throw new ParseError('exponential function with a negative Domain needs an integer N', 0);
+  }
+  if (exponent < 0 && low <= 0 && high >= 0) {
+    throw new ParseError('exponential function with a negative N must not have 0 in its Domain', 0);
+  }
   return input =>
     c0.map((start, index) => start + deterministicExp(clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0), exponent) * ((c1[index] ?? 0) - start));
 };
