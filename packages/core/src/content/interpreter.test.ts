@@ -355,7 +355,7 @@ describe('text state', () => {
   });
 });
 
-// Fonts W1 and W2 share an embedded CMap of 2000 one-code ranges <0000> to <07CF>: the code FFFF matches none, so it costs 4000 checks, 2000 to read and 2000 to consume as invalid.
+// Fonts W1 and W2 read an embedded CMap of 2000 one-code ranges <0000> to <07CF>: the code FFFF matches none, so it costs 4000 checks, 2000 to read and 2000 to consume as invalid.
 const WIDE_RANGES = Array.from({ length: 2000 }, (_, index) => `<${index.toString(16).padStart(4, '0')}>`.repeat(2));
 const WIDE_CMAP = Array.from(
   { length: 20 },
@@ -363,21 +363,28 @@ const WIDE_CMAP = Array.from(
 ).join('\n');
 // The 4 codespace ranges of 90ms-RKSJ-H (ISO 32000-1:2008, 9.7.5.4, EXAMPLE): the code 8140 is compared with the two 1-byte ranges and then with <8140> <9FFC>, so it costs 3 checks.
 const SHIFT_JIS_CMAP = '4 begincodespacerange <00> <80> <8140> <9FFC> <A0> <DF> <E040> <FCFC> endcodespacerange';
+const cmapStream = (cmap: string): string => streamBody('/Type/CMap/CMapName/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>', cmap);
 const sharing = (cmap: string): Array<TestObject> => [
   CID_FONT,
   { number: 120, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding 122 0 R/DescendantFonts[104 0 R]>>' },
   { number: 121, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding 122 0 R/DescendantFonts[104 0 R]>>' },
-  { number: 122, body: streamBody('/Type/CMap/CMapName/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>', cmap) },
+  { number: 122, body: cmapStream(cmap) },
+];
+// W2 reads its codes with a second Encoding stream of the same ranges, so the two fonts split their strings with two CMaps.
+const separate = (cmap: string): Array<TestObject> => [
+  ...sharing(cmap).filter(object => object.number !== 121),
+  { number: 121, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding 123 0 R/DescendantFonts[104 0 R]>>' },
+  { number: 123, body: cmapStream(cmap) },
 ];
 const SHARING_RESOURCES = '/Font<</W1 120 0 R/W2 121 0 R>>';
-// A string of codes FFFF, each a miss in the shared CMap of 2000 ranges.
+// A string of codes FFFF, each a miss in the CMap of 2000 ranges.
 const misses = (count: number): string => `<${'FFFF'.repeat(count)}>`;
 
 describe('codespace checks', () => {
-  it('counts the checks of every string a page shows against one limit, so many short strings end in ResourceLimitError', () => {
-    // One TJ operation shows 1300 strings of two misses, 8000 checks each: the first 1250 take the count to its limit of 10,000,000, and the next check passes it.
+  it('counts the checks of every string a page shows against one limit, whichever CMap splits them, so many short strings end in ResourceLimitError', () => {
+    // Each font's TJ operation shows 650 strings of two misses, 8000 checks each, 5,200,000 for one CMap and within the limit alone: the first 1250 strings of the two take the count to its limit of 10,000,000, and the next check passes it.
     const content = `BT /W1 1 Tf [${'<FFFFFFFF> '.repeat(650)}] TJ /W2 1 Tf [${'<FFFFFFFF> '.repeat(650)}] TJ ET`;
-    const document = textPdf({ pages: [{ content, resources: SHARING_RESOURCES }], objects: sharing(WIDE_CMAP) });
+    const document = textPdf({ pages: [{ content, resources: SHARING_RESOURCES }], objects: separate(WIDE_CMAP) });
     const shown: Array<number> = [];
     let thrown: unknown;
     try {
