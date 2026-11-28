@@ -94,6 +94,19 @@ describe('classic cross-reference sections', () => {
     expect(section.entryLengths).toStrictEqual([19, 20]);
   });
 
+  // The last entry of a subsection ends at its end-of-line, not at the next token, so white space after it is not counted.
+  it.each([
+    ['a 20-byte entry and a blank line before the trailer', '0000000000 65535 f \n\ntrailer<<>>', [20]],
+    ['a 20-byte entry and a blank line before the next subsection', '0000000000 65535 f \n\n5 1\n0000000017 00000 n \ntrailer<<>>', [20]],
+    ['a CR LF entry and spaces before the trailer', '0000000000 65535 f\r\n   trailer<<>>', [20]],
+    ['a 19-byte entry and a blank line', '0000000000 65535 f\n\ntrailer<<>>', [19]],
+    ['a CR-only entry and a second CR', '0000000000 65535 f\r\rtrailer<<>>', [19]],
+    ['a 21-byte entry and a blank line', '0000000000 65535 f \r\n\r\ntrailer<<>>', [21]],
+  ])('measures the last entry of a subsection to its end-of-line, for %s', (_, rest, lengths) => {
+    const text = `xref\n0 1\n${rest}`;
+    expect([0, 1, 7].map(chunk => read(text, { chunk }).entryLengths)).toStrictEqual([lengths, lengths, lengths]);
+  });
+
   it('accepts an empty section', () => {
     expect(entries(read('xref\n0 0\ntrailer\n<</Size 1>>'))).toStrictEqual([]);
   });
