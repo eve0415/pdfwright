@@ -265,6 +265,20 @@ describe('text matching', () => {
     }
   });
 
+  it('refuses an undefined fold in the folds list, while an omitted folds option and an empty list are accepted', () => {
+    const proof = page({ texts: ['山'], content: line(1) });
+    const run = (folds: ReadonlyArray<unknown> | undefined): (() => TextMatch['status']) => {
+      const options: MatchTextOptions = {};
+      Reflect.set(options, 'folds', folds);
+      return () => matchText(proof, '山', options).status;
+    };
+    for (const folds of [[undefined], ['radicals', undefined]]) {
+      expect(run(folds)).toThrow(InvalidArgumentError);
+      expect(run(folds)).toThrow(/folds/u);
+    }
+    expect([run(undefined)(), run([])()]).toStrictEqual(['match', 'match']);
+  });
+
   it('leaves out glyphs outside the CropBox', () => {
     expect(statusOf({ texts: ['山', '田'], content: line(2), entries: '/CropBox[0 0 105 800]' }, '山')).toBe('match');
   });
