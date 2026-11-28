@@ -295,8 +295,8 @@ class CarrierWalk {
     }
   }
 
-  resources(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
-    this.enqueue(resources, holder, undefined, 1);
+  resources(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined): void {
+    this.enqueue(resources, holder, reference, 1);
     this.drain();
   }
 
@@ -338,7 +338,9 @@ export const resourceCarriers = (
   seen: CarrierSeen,
 ): ReadonlyArray<ResourceCarrier> => {
   const walk = new CarrierWalk(internals, seen);
-  walk.resources(page.resources, { kind: 'page', index: page.index, reference: page.reference });
+  // Pages that name one indirect Resources dictionary share its entries, which the first such page queues.
+  const named = entriesOf(internals.objects.deref(page.reference))?.get(RESOURCES);
+  walk.resources(page.resources, { kind: 'page', index: page.index, reference: page.reference }, named?.kind === 'reference' ? named : undefined);
   walk.appearances(page.reference);
   return walk.carriers;
 };
