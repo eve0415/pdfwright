@@ -48,10 +48,15 @@ export const pdfDate = (components: PdfDateComponents): PdfDate => {
   if (day > daysInMonth(year, month)) {
     throw new ValidationError('Writer policy: PDF date must name an actual calendar day');
   }
-  if (offset !== 'Z' && (!['+', '-'].includes(offset.sign) || !inRange(offset.hours, 0, 23) || !inRange(offset.minutes, 0, 59))) {
+  if (offset === 'Z') {
+    return Object.freeze({ ...components, kind: 'pdfDate' });
+  }
+  // The offset fields are read once and copied, so that a caller changing its object afterwards cannot change the validated date.
+  const { sign, hours, minutes } = offset;
+  if (!['+', '-'].includes(sign) || !inRange(hours, 0, 23) || !inRange(minutes, 0, 59)) {
     throw new ValidationError('PDF date has an out-of-range UTC offset');
   }
-  return Object.freeze({ ...components, kind: 'pdfDate' });
+  return Object.freeze({ ...components, offset: Object.freeze({ sign, hours, minutes }), kind: 'pdfDate' });
 };
 
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
