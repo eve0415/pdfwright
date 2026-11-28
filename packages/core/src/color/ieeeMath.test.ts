@@ -99,6 +99,17 @@ describe('deterministic ICC math', () => {
     expect(deterministicPow(2, 1024)).toBe(Infinity);
   });
 
+  // Results whose exponent rounds to 1024 or -1075 although the value is a finite double, written as the correctly rounded IEEE 754 results.
+  it.each([
+    { base: 2, exponent: 1023.6, expected: 1.3623966330064332e308 },
+    { base: 10, exponent: 308.2, expected: 1.584893192461072e308 },
+    { base: 2, exponent: 1023.9999999999999, expected: 1.7976931348621742e308 },
+    { base: 2, exponent: -1074.6, expected: 5e-324 },
+    { base: 2, exponent: -1074.99, expected: 5e-324 },
+  ])('gives pow($base, $exponent) = $expected at the edges of the double range', ({ base, exponent, expected }) => {
+    expect(deterministicPow(base, exponent)).toBe(expected);
+  });
+
   // 2^-1075 lies halfway between 0 and the smallest subnormal and rounds to the even neighbour, 0.
   it.each([-1022, -1030, -1042, -1043, -1050, -1074])('gives 2^%d exactly, across the subnormal ranges of the scale factor', exponent => {
     expect(deterministicPow(2, exponent)).toBe(powerOfTwo(exponent));
