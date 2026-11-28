@@ -154,6 +154,14 @@ describe('indirect object parser', () => {
     expect(() => parse(text, 0, 0, hooks)).toThrow(expect.objectContaining({ offset: 20 }));
   });
 
+  // Only a stream starting after the last endstream fails at once, so data starting at that endstream is still searched.
+  it('rejects recovery one byte past the last endstream and recovers data that starts at it', () => {
+    const text = '1 0 obj <<>> stream\nendstream endobj';
+    expect(() => parse(text, 0, 0, { lastEndstream: 19 })).toThrow(ParseError);
+    expect(() => parse(text, 0, 0, { lastEndstream: 19 })).toThrow(expect.objectContaining({ offset: 20 }));
+    expect(data(parse(text, 0, 0, { lastEndstream: 20 }))).toBe('');
+  });
+
   it('parses an object whose stream crosses segment boundaries', () => {
     const bytes = encode('1 0 obj <</Length 10>> stream\n0123456789\nendstream\nendobj\n');
     const chunks = [bytes.subarray(0, 12), bytes.subarray(12, 35), bytes.subarray(35)];
