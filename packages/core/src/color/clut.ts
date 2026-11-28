@@ -1,5 +1,7 @@
 import type { Clut } from '../icc/iccLut.ts';
 
+import { isUint8Array } from '../bytes/isUint8Array.ts';
+
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
 // ECMA-262, Number::exponentiate: the exponentiation operator is implementation-approximated, so corner counts and corner bits come from exact integer doubling and halving, computed once for the at most three axes an interpolation step spans.
@@ -29,7 +31,7 @@ const node = (clut: Clut, coordinates: ReadonlyArray<number>, channel: number): 
   for (let axis = 0; axis < clut.inputChannels; axis++) {
     index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
   }
-  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (clut.values.BYTES_PER_ELEMENT === Uint8Array.BYTES_PER_ELEMENT ? 255 : 65_535);
+  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (isUint8Array(clut.values) ? 255 : 65_535);
 };
 
 const interpolateThree = (
