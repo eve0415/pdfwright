@@ -50,8 +50,18 @@ describe('coordinate numbers', () => {
     { case: 'exactly at the midpoint after 1 to the even 1', numerator: (2n ** 53n + 1n) * large, denominator: 2n ** 53n * large, expected: 1 },
     { case: 'just above the midpoint after 2^-1073 up', numerator: 5n * large + 1n, denominator: 2n ** 1075n * large, expected: 3 * 2 ** -1074 },
     { case: 'exactly at the midpoint after 2^-1073 to the even 2^-1073', numerator: 5n, denominator: 2n ** 1075n, expected: 2 ** -1073 },
-    { case: 'just below the midpoint after the largest number down', numerator: (2n ** 1024n - 2n ** 970n) * large - 1n, denominator: large, expected: Number.MAX_VALUE },
-    { case: 'exactly at the midpoint after the largest number to Infinity', numerator: 2n ** 1024n - 2n ** 970n, denominator: 1n, expected: Number.POSITIVE_INFINITY },
+    {
+      case: 'just below the midpoint after the largest number down',
+      numerator: (2n ** 1024n - 2n ** 970n) * large - 1n,
+      denominator: large,
+      expected: Number.MAX_VALUE,
+    },
+    {
+      case: 'exactly at the midpoint after the largest number to Infinity',
+      numerator: 2n ** 1024n - 2n ** 970n,
+      denominator: 1n,
+      expected: Number.POSITIVE_INFINITY,
+    },
     { case: 'exactly at 2^-1075 to the even 0', numerator: 1n, denominator: 2n ** 1075n, expected: 0 },
     { case: 'just above 2^-1075 up to 2^-1074', numerator: 2n, denominator: 2n ** 1076n - 1n, expected: 2 ** -1074 },
   ])('rounds a quotient $case', ({ numerator, denominator, expected }) => {
@@ -64,7 +74,8 @@ describe('coordinate numbers', () => {
         fc.property(pair, ([numerator, denominator]) => {
           const actual = coordinateNumber({ numerator, denominator });
           // An infinite quotient must be met exactly, since Infinity − Infinity is NaN and any finite error is within Infinity × 1e-15.
-          const near = (expected: number): boolean => Object.is(actual, expected) || (Number.isFinite(expected) && Math.abs(actual - expected) <= Math.abs(expected) * 1e-15);
+          const near = (expected: number): boolean =>
+            Object.is(actual, expected) || (Number.isFinite(expected) && Math.abs(actual - expected) <= Math.abs(expected) * 1e-15);
           // Away from a rounding boundary both bounds read back as one number; beside one, such as the midpoint between the largest number and Infinity, the exact quotient may round to either.
           expect(decimalBounds(numerator, denominator).some(near)).toBe(true);
         }),
