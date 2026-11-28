@@ -202,6 +202,45 @@ describe('stream decoding', () => {
     expect(decodeStream(direct, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upDecoded);
   });
 
+  // ISO 32000-1:2008, 7.3.8.2, Table 5: DecodeParms is a dictionary, or an array of dictionaries and nulls; a value of any other kind, or a reference left unresolved, is refused rather than read as defaults that would return the predictor rows undecoded.
+  it.each([
+    ['an indirect reference with no resolver', pdfReference(10, 0)],
+    ['an integer', pdfInteger(5)],
+    ['a name', pdfName('Predictor')],
+    ['an array holding an indirect reference with no resolver', pdfArray([pdfReference(10, 0)])],
+    ['an array holding an integer', pdfArray([pdfInteger(5)])],
+  ])('refuses DecodeParms given as %s', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(() => decode(input)).toThrow(ParseError);
+    expect(() => decode(input)).toThrow(/DecodeParms/u);
+  });
+
+  it.each([
+    ['DecodeParms', pdfReference(9, 0)],
+    ['a DecodeParms array entry', pdfArray([pdfReference(9, 0)])],
+  ])('refuses %s whose reference resolves to an object that is not a dictionary', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(() => decodeStream(input, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(ParseError);
+  });
+
+  // ISO 32000-1:2008, 7.3.10 (quoted below): a DecodeParms reference to no object reads as null, which leaves the filter on its defaults.
+  it.each([
+    ['DecodeParms', pdfReference(8, 0)],
+    ['a DecodeParms array entry', pdfArray([pdfReference(8, 0)])],
+  ])('reads %s that refers to no object as the defaults', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(decodeStream(input, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upRows);
+  });
+
   // ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
   it('reads a null Filter, given directly, as a reference to the null object or as a reference to no object, as no filter', () => {
     expect(decode(stream(text, [['Filter', NULL]])).data).toStrictEqual(text);
