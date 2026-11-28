@@ -53,6 +53,21 @@ describe('CIEDE2000', () => {
     },
   );
 
+  // Opposite chroma vectors differ in hue by exactly 180°, where CIEDE2000 takes the unwrapped branch for both the hue difference and the mean hue, as Sharma pairs 10 and 14 show. Expected values are computed in double arithmetic with that branch taken; the neighbouring rows sit just past and just short of the tie.
+  it.each([
+    { first: [50, 128, 128], second: [50, -128, -128], expected: 78.2259 },
+    { first: [50, 127, 64], second: [50, -127, -64], expected: 89.3818 },
+    { first: [50, 0.092, 0.21], second: [50, -0.092, -0.21], expected: 0.49996 },
+    { first: [50, 10, 20], second: [50, -30, -60], expected: 43.3569 },
+    { first: [50, -30, -60], second: [50, 10, 20], expected: 43.3569 },
+    { first: [50, -60, 10], second: [50, 120, -20], expected: 63.462 },
+    { first: [50, 120, -20], second: [50, -60, 10], expected: 63.462 },
+    { first: [50, 128, 128], second: [50, -128, -128.01], expected: 109.8544 },
+    { first: [50, 128, 128], second: [50, -128, -127.99], expected: 78.2262 },
+  ])('gives ΔE00 $expected for $first against $second, around a hue difference of 180°', ({ first, second, expected }) => {
+    expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
+  });
+
   it('gives zero for a colour against itself, including a neutral one', () => {
     expect(deltaE2000([50, 2.5, 0], [50, 2.5, 0])).toBe(0);
     expect(deltaE2000([50, 0, 0], [50, 0, 0])).toBe(0);
