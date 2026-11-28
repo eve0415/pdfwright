@@ -100,8 +100,8 @@ const rememberIntent = <Key>(values: Map<Key, RenderingIntent>, key: Key, intent
   values.set(key, intent);
 };
 
-const recordShadingUses = (input: { context: ShadingContext; scope: string; uses: ReadonlyArray<ShadingUse> }, usage: ShadingUsage): void => {
-  const { context, scope, uses } = input;
+const recordShadingUses = (input: { context: ShadingContext; scope: string; uses: ReadonlyArray<ShadingUse>; glyph: boolean }, usage: ShadingUsage): void => {
+  const { context, scope, uses, glyph } = input;
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -111,6 +111,9 @@ const recordShadingUses = (input: { context: ShadingContext; scope: string; uses
     return;
   }
   for (const use of uses) {
+    if (glyph && use.inherited) {
+      continue;
+    }
     const value = category.entries.get(use.name);
     if (value?.kind === 'reference') {
       rememberIntent(usage.indirect, value.objectNumber, use.intent);
@@ -126,10 +129,12 @@ interface UsageStream {
   readonly bytes: Uint8Array;
   readonly usage: ShadingUsage;
   readonly initialState?: ColorEntryState | undefined;
+  /** The content starts with the intent of the text-showing operator that shows a Type 3 glyph, which this scan does not know, so a use that keeps it is not recorded. */
+  readonly glyph: boolean;
 }
 
 const scanUsageStream = (stream: UsageStream): void => {
-  const { context, scope, bytes, usage, initialState } = stream;
+  const { context, scope, bytes, usage, initialState, glyph } = stream;
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -140,7 +145,7 @@ const scanUsageStream = (stream: UsageStream): void => {
     initialState,
     overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
   });
-  recordShadingUses({ context, scope, uses: rewritten.shadingUses }, usage);
+  recordShadingUses({ context, scope, uses: rewritten.shadingUses, glyph }, usage);
   const category = internals.objects.deref(context.resources.get(XOBJECT));
   if (category?.kind !== 'dictionary') {
     return;
@@ -175,6 +180,7 @@ const scanUsageStream = (stream: UsageStream): void => {
         bytes: data,
         initialState: use.entry,
         usage,
+        glyph: glyph && use.inherited,
       });
     } finally {
       usage.activeForms.delete(reference.objectNumber);
@@ -206,6 +212,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
       scope: referenceKey(entry.reference),
       bytes: combineContentStreams(content.streams),
       usage,
+      glyph: false,
     });
     const carriers = resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers);
     // Carrier content is scanned only when some carrier names a shading, so pages without one do not pay for parsing every glyph.
@@ -214,7 +221,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
     }
     for (const carrier of carriers) {
       for (const bytes of carrierContent(internals, carrier)) {
-        scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage });
+        scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
       }
     }
   }

@@ -205,7 +205,8 @@ const PAINT_TYPE = pdfName('PaintType').bytes;
 const CHAR_PROCS = pdfName('CharProcs').bytes;
 
 /**
- * The decoded content streams of a carrier that set colours of their own and are scanned from their own start: an appearance stream, a coloured tiling pattern and the d0 glyphs of a Type 3 font.
+ * The decoded content streams of a carrier that set colours of their own: an appearance stream, a coloured tiling pattern and the d0 glyphs of a Type 3 font.
+ * A glyph starts in the graphics state of the text that shows it, so a scan from its own start knows only what the glyph itself selects.
  * A form is not listed, because it starts in the graphics state at the place that paints it.
  */
 export const carrierContent = (internals: DocumentInternals, carrier: ResourceCarrier): ReadonlyArray<Uint8Array> => {

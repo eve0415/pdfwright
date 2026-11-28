@@ -66,6 +66,8 @@ export interface ColorEntryState {
 export interface FormUse {
   readonly name: Uint8Array;
   readonly entry: ColorEntryState;
+  /** No ri operator or gs RI entry in the scanned content selected the rendering intent in force, so it is the one the content started with. */
+  readonly inherited: boolean;
   readonly start: number;
   readonly end: number;
 }
@@ -73,6 +75,8 @@ export interface FormUse {
 export interface ShadingUse {
   readonly name: Uint8Array;
   readonly intent: RenderingIntent;
+  /** No ri operator or gs RI entry in the scanned content selected the rendering intent in force, so it is the one the content started with. */
+  readonly inherited: boolean;
 }
 
 interface ContentEdit {
@@ -96,7 +100,8 @@ interface RewriteContext {
   overprintAdjustments: number;
   pathStart: number | undefined;
   state: ColorEntryState;
-  readonly stack: Array<ColorEntryState>;
+  intentInherited: boolean;
+  readonly stack: Array<{ readonly state: ColorEntryState; readonly intentInherited: boolean }>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -322,7 +327,7 @@ const inlineResourceName = (context: RewriteContext): string => {
 const updateGraphicsState = (context: RewriteContext, operation: SpannedContentOperation): void => {
   const { operator } = operation;
   if (operator === 'q') {
-    context.stack.push(context.state);
+    context.stack.push({ state: context.state, intentInherited: context.intentInherited });
     return;
   }
   if (operator === 'Q') {
@@ -330,11 +335,13 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
     if (saved === undefined) {
       return invalid('unbalanced graphics state in page content');
     }
-    context.state = saved;
+    context.state = saved.state;
+    context.intentInherited = saved.intentInherited;
     return;
   }
   if (operator === 'ri') {
     context.state = { ...context.state, intent: intentOf(nameBytes(operation.operands[0])) };
+    context.intentInherited = false;
     return;
   }
   if (operator === 'gs') {
@@ -343,6 +350,7 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
       const intent = deref(context, entries.get(RENDERING_INTENT));
       if (intent?.kind === 'name') {
         context.state = { ...context.state, intent: intentOf(intent.bytes) };
+        context.intentInherited = false;
       }
       updateOverprint(context, entries);
     }
@@ -357,11 +365,17 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
 const objectOperation = (context: RewriteContext, operation: SpannedContentOperation): string | undefined => {
   const { operator } = operation;
   if (operator === 'Do') {
-    context.formUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), entry: context.state, start: operation.start, end: operation.end });
+    context.formUses.push({
+      name: Uint8Array.from(nameBytes(operation.operands[0])),
+      entry: context.state,
+      inherited: context.intentInherited,
+      start: operation.start,
+      end: operation.end,
+    });
     return undefined;
   }
   if (operator === 'sh') {
-    context.shadingUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), intent: context.state.intent });
+    context.shadingUses.push({ name: Uint8Array.from(nameBytes(operation.operands[0])), intent: context.state.intent, inherited: context.intentInherited });
     return undefined;
   }
   if (operator === 'BI' && operation.inlineImage !== undefined) {
@@ -503,6 +517,7 @@ export const rewriteContentColors = (
       strokeConvertedZero: false,
       textRenderMode: 0,
     },
+    intentInherited: true,
     stack: [],
   };
   let operators = 0;
