@@ -24,10 +24,14 @@ interface Bounds {
 const insideRectangle = ([left, bottom, right, top]: CoverEvent['rectangle'], x: number, y: number): boolean =>
   x >= left - COVER_TOLERANCE && x <= right + COVER_TOLERANCE && y >= bottom - COVER_TOLERANCE && y <= top + COVER_TOLERANCE;
 
-const band = (value: number, low: number, high: number): number => {
-  const at = high > low ? Math.floor(((value - low) / (high - low)) * LARGE_BANDS) : 0;
-  return Math.min(LARGE_BANDS - 1, Math.max(0, at));
+// The one of `count` equal parts of low to high that the value falls in; a span that overflows to Infinity, as bounds from −1e308 to 1e308 give, has no finite part size, so the whole axis is part 0.
+const partOf = (value: number, low: number, high: number, count: number): number => {
+  const span = high - low;
+  const at = span > 0 && span < Infinity ? Math.floor(((value - low) / span) * count) : 0;
+  return Math.min(count - 1, Math.max(0, at));
 };
+
+const band = (value: number, low: number, high: number): number => partOf(value, low, high, LARGE_BANDS);
 
 const addBand = (index: Map<number, Array<CoverEvent>>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
   for (let at = span.first; at <= span.last; at++) {
@@ -78,21 +82,19 @@ export class CoverIndex {
     this.bounds = bounds;
     const [width, height] = [bounds.right - bounds.left, bounds.top - bounds.bottom];
     const side = Math.sqrt((width * height) / Math.max(1, count));
-    const cells = (length: number): number => (side > 0 && length > 0 ? Math.min(MAX_CELLS_PER_SIDE, Math.max(1, Math.ceil(length / side))) : 1);
+    // A width or height that overflows to Infinity makes the cell side Infinity too, and then each axis is one cell.
+    const cells = (length: number): number =>
+      side > 0 && side < Infinity && length > 0 ? Math.min(MAX_CELLS_PER_SIDE, Math.max(1, Math.ceil(length / side))) : 1;
     this.columns = cells(width);
     this.rows = cells(height);
   }
 
   private column(x: number): number {
-    const { left, right } = this.bounds;
-    const at = right > left ? Math.floor(((x - left) / (right - left)) * this.columns) : 0;
-    return Math.min(this.columns - 1, Math.max(0, at));
+    return partOf(x, this.bounds.left, this.bounds.right, this.columns);
   }
 
   private row(y: number): number {
-    const { bottom, top } = this.bounds;
-    const at = top > bottom ? Math.floor(((y - bottom) / (top - bottom)) * this.rows) : 0;
-    return Math.min(this.rows - 1, Math.max(0, at));
+    return partOf(y, this.bounds.bottom, this.bounds.top, this.rows);
   }
 
   add(cover: CoverEvent): void {
