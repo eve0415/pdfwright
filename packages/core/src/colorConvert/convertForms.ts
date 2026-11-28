@@ -7,6 +7,7 @@ import type { ColorEntryState, FormUse, OverprintNames, RewriteColorOptions } fr
 import type { SourceSpace } from './sourceSpace.ts';
 
 import { ByteWriter } from '../bytes/byteWriter.ts';
+import { readContentSpans } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
@@ -172,6 +173,25 @@ const assign = (internals: DocumentInternals, scope: Scope, use: FormUse, plan: 
   scope.assignments.set(key, { name: Uint8Array.from(use.name), plan });
 };
 
+// Page discovery needs only the graphics state at each Do. An inline image paints without changing that state, so its bytes become spaces of the same length, which keeps every Do offset, and only the page pass converts it.
+const withoutInlineImages = (bytes: Uint8Array, maxNesting: number): Uint8Array => {
+  let mayHoldImage = false;
+  for (let index = bytes.indexOf(0x42); index !== -1 && !mayHoldImage; index = bytes.indexOf(0x42, index + 1)) {
+    mayHoldImage = bytes[index + 1] === 0x49;
+  }
+  if (!mayHoldImage) {
+    return bytes;
+  }
+  let blanked: Uint8Array | undefined;
+  for (const operation of readContentSpans(bytes, maxNesting)) {
+    if (operation.operator === 'BI' && operation.inlineImage !== undefined) {
+      blanked ??= Uint8Array.from(bytes);
+      blanked.fill(0x20, operation.start, operation.end);
+    }
+  }
+  return blanked ?? bytes;
+};
+
 const applyNameEdits = (bytes: Uint8Array, edits: ReadonlyArray<NameEdit>): Uint8Array => {
   if (edits.length === 0) {
     return bytes;
@@ -313,7 +333,7 @@ class FormPlanner {
       }
       const resources = this.document.page(page).resources();
       const sourceBytes = combineContentStreams(content.streams);
-      const rewritten = rewriteContentColors(this.document, sourceBytes, {
+      const rewritten = rewriteContentColors(this.document, withoutInlineImages(sourceBytes, this.internals.maxNesting), {
         resources,
         options: this.options,
         overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
