@@ -82,7 +82,7 @@ describe('native tokenizer', () => {
   it.each([
     { case: 'outside a literal string', native: 'a\\\rb\r', expected: ['a\\', 'b'] },
     { case: 'after a literal string closes', native: '(a)\\\rb\r', expected: ['(a)\\', 'b'] },
-    { case: 'after an escaped backslash', native: '(a\\\\\rb)\r', expected: ['(a\\\\', 'b)'] },
+    { case: 'after an escaped backslash', native: '(a\\\\\rb)\r', expected: [String.raw`(a\\`, 'b)'] },
   ])('ends a record at a CR after a backslash $case', ({ native, expected }) => {
     expect(lines(tokenizeNative(encoder.encode(native)))).toStrictEqual(expected);
   });
