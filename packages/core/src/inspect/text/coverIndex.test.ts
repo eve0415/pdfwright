@@ -97,6 +97,13 @@ describe('cover index', () => {
     expect(index.hides(100, 15)).toBe(true);
   });
 
+  it('skips a fill that starts further outside the bounds, even for a point inside its rectangle', () => {
+    // Callers bound the index by every box they will query, so a fill wholly outside the bounds can hide nothing they ask about.
+    const index = new CoverIndex(BOUNDS, 1);
+    index.add(fill([100.01, 10, 120, 20]));
+    expect(index.hides(110, 15)).toBe(false);
+  });
+
   it('keeps the same rectangle again when it is painted under another clip', () => {
     // The first fill's clip excludes the query point; the second, under no clip, covers it.
     const index = new CoverIndex(BOUNDS, 1);
