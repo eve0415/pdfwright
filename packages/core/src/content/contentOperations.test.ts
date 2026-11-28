@@ -1,5 +1,6 @@
-import type { ContentOperand, ContentOperation } from './contentOperations.ts';
+import type { ContentOperand, ContentOperation, SpannedContentOperation } from './contentOperations.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
@@ -12,14 +13,29 @@ const operations = (content: string | ReadonlyArray<string>): Array<ContentOpera
   ...readContent(typeof content === 'string' ? latin1Bytes(content) : content.map(text => latin1Bytes(text)), 32),
 ];
 
-const leftOver = (content: string): ReadonlyArray<ContentOperand> => {
-  const reader = readContent(latin1Bytes(content), 32);
+const leftOver = (content: string | ReadonlyArray<string>): ReadonlyArray<ContentOperand> => {
+  const reader = readContent(typeof content === 'string' ? latin1Bytes(content) : content.map(text => latin1Bytes(text)), 32);
   for (let step = reader.next(); ; step = reader.next()) {
     if (step.done === true) {
       return step.value;
     }
   }
 };
+
+// The spanned operations read and the operands left after the last operator.
+const spansAndLeftOver = (content: string): readonly [Array<SpannedContentOperation>, ReadonlyArray<ContentOperand>] => {
+  const reader = readContentSpans(latin1Bytes(content), 32);
+  const read: Array<SpannedContentOperation> = [];
+  for (let step = reader.next(); ; step = reader.next()) {
+    if (step.done === true) {
+      return [read, step.value];
+    }
+    read.push(step.value);
+  }
+};
+
+// Arrays nested `depth` deep as the operand of TJ.
+const nested = (depth: number): string => `${'['.repeat(depth)}${']'.repeat(depth)} TJ`;
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });
 const integer = (value: number): ContentOperand => ({ kind: 'integer', value });
@@ -101,11 +117,31 @@ describe('content operations', () => {
     ]);
   });
 
-  it('keeps stray closing delimiters as operands', () => {
-    expect(operations('0 ] w')[0]?.operands).toStrictEqual([
-      { kind: 'integer', value: 0 },
-      { kind: 'stray-delimiter', bytes: latin1Bytes(']') },
+  it.each([']', '>>', ')'])('keeps the stray closing delimiter %s as an operand', delimiter => {
+    expect(operations(`0 ${delimiter} w`)[0]?.operands).toStrictEqual([integer(0), { kind: 'stray-delimiter', bytes: latin1Bytes(delimiter) }]);
+  });
+
+  it('reports a BI that the content ends before ID without an image, leaving its parameters over', () => {
+    expect(spansAndLeftOver('BI /W 1')).toStrictEqual([[{ operator: 'BI', operands: [], stream: 0, offset: 0, start: 0, end: 2 }], [name('W'), integer(1)]]);
+  });
+
+  it('reports a BI followed by another BI without an image, and gives the second the parameters after it', () => {
+    expect(operations('BI /W 1 BI /W 1 /H 1 /BPC 8 /CS /G ID\nA EI Q')).toStrictEqual([
+      { operator: 'BI', operands: [], stream: 0, offset: 0 },
+      {
+        operator: 'BI',
+        operands: [name('W'), integer(1)],
+        inlineImage: { parameters: [name('W'), integer(1), name('H'), integer(1), name('BPC'), integer(8), name('CS'), name('G')], data: latin1Bytes('A') },
+        stream: 0,
+        offset: 8,
+      },
+      { operator: 'Q', operands: [], stream: 0, offset: 43 },
     ]);
+  });
+
+  it('refuses operands nested deeper than maxNesting and reads them at it', () => {
+    expect(operations(nested(32)).map(operation => operation.operator)).toStrictEqual(['TJ']);
+    expect(() => operations(nested(33))).toThrow(ResourceLimitError);
   });
 
   it('returns the operands left after the last operator', () => {
@@ -136,5 +172,53 @@ describe('content operations', () => {
 
   it('throws ParseError for an operand it cannot read', () => {
     expect(() => operations('(unterminated Tj')).toThrow(ParseError);
+  });
+});
+
+// Whole objects and operators, so that every boundary between two of them is a boundary between lexical tokens.
+const OPERAND_UNITS = ['0', '-12', '1.5', '/A', '/Name#20x', '(a b)', '<41>', '[1 (x) /N]', '<</K 1/L[2]>>', 'true', 'null'];
+const OPERATOR_UNITS = ['m', 'Tj', 're', 'q', 'foo', "'"];
+const units = fc.array(fc.constantFrom(...OPERAND_UNITS, ...OPERATOR_UNITS), { maxLength: 30 });
+
+const withoutPlaces = (read: ReadonlyArray<ContentOperation>): Array<Pick<ContentOperation, 'operator' | 'operands' | 'inlineImage'>> =>
+  read.map(({ operator, operands, inlineImage }) => (inlineImage === undefined ? { operator, operands } : { operator, operands, inlineImage }));
+
+describe('properties', () => {
+  it('reads the same operations from content split into streams at any token boundaries', () => {
+    // ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "The division between streams may occur only at the boundaries between lexical tokens".
+    fc.assert(
+      fc.property(units, fc.array(fc.boolean(), { maxLength: 30 }), (sequence, cuts) => {
+        const streams: Array<Array<string>> = [[]];
+        for (const [index, unit] of sequence.entries()) {
+          if (cuts[index] === true) {
+            streams.push([]);
+          }
+          streams.at(-1)?.push(unit);
+        }
+        const whole = [...readContent(latin1Bytes(sequence.join(' ')), 32)];
+        const split = [
+          ...readContent(
+            streams.map(stream => latin1Bytes(stream.join(' '))),
+            32,
+          ),
+        ];
+        expect(withoutPlaces(split)).toStrictEqual(withoutPlaces(whole));
+        expect(leftOver(streams.map(stream => stream.join(' ')))).toStrictEqual(leftOver(sequence.join(' ')));
+      }),
+    );
+  });
+
+  it('reads each operation again from its span alone', () => {
+    // Each inline image follows an operator, so that BI has no operands.
+    const image = fc.integer({ min: 0, max: 255 }).map(sample => `q BI /W 1 /H 1 /BPC 8 /CS /G ID ${String.fromCodePoint(sample)} EI`);
+    fc.assert(
+      fc.property(fc.array(fc.oneof(fc.constantFrom(...OPERAND_UNITS, ...OPERATOR_UNITS), image), { maxLength: 30 }), sequence => {
+        const bytes = latin1Bytes(sequence.join(' '));
+        for (const operation of readContentSpans(bytes, 32)) {
+          const again = [...readContent(bytes.subarray(operation.start, operation.end), 32)];
+          expect(withoutPlaces(again)).toStrictEqual(withoutPlaces([operation]));
+        }
+      }),
+    );
   });
 });
