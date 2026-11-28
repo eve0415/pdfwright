@@ -435,7 +435,7 @@ interface Root {
 
 /**
  * Gives carriers their replacement resource dictionaries, in the order `resourceCarriers` listed them, and collects the indirect objects it replaced.
- * The resources of each page and indirect carrier, each replaced indirect dictionary and each directly stored font are read once into a working copy that later replacements edit, a font's copy sitting inside its holder's, and `finish` writes each page, carrier and new object once, so the work is linear in the carriers and fonts.
+ * The resources of each page and indirect carrier, each replaced indirect dictionary and each directly stored font are read once into a working copy that later replacements edit, a font's copy sitting inside its holder's, and `finish` writes each page, carrier and new object once, so a holder costs the size of its resources once however many of its fonts are replaced. Every page and carrier that names one indirect Resources still gets a copy of its own.
  * A `resources` or `category` owner is copied to one new object; `finish` points every font and holder the walk found naming the old object at the new one, which also carries a cycle through it over to the new object, and leaves the old object to whatever else names it, such as a soft-mask group.
  */
 export class CarrierReplacement {
