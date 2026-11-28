@@ -18,6 +18,8 @@ export interface TestPng {
   readonly betweenIdat?: ReadonlyArray<Uint8Array>;
   /** Replaces the zlib datastream that the samples would produce. */
   readonly stream?: Uint8Array;
+  /** The filter type of each written row, across every pass in order; by default each pass starts at its pass index and cycles through the five types. */
+  readonly filters?: ReadonlyArray<number>;
 }
 
 const CHANNELS = new Map([
@@ -79,12 +81,11 @@ const paeth = (left: number, above: number, upperLeft: number): number => {
   return toAbove <= toUpperLeft ? above : upperLeft;
 };
 
-// Each row uses the next of the five filter types in turn, so every filter is exercised.
-const filterRows = (rows: ReadonlyArray<Uint8Array>, bytesPerPixel: number, firstType: number): Array<number> => {
+const filterRows = (rows: ReadonlyArray<Uint8Array>, bytesPerPixel: number, typeOf: (rowIndex: number) => number): Array<number> => {
   const output: Array<number> = [];
   let previous: Uint8Array = new Uint8Array(rows[0]?.length ?? 0);
   for (const [rowIndex, row] of rows.entries()) {
-    const type = (firstType + rowIndex) % 5;
+    const type = typeOf(rowIndex);
     output.push(type);
     for (let index = 0; index < row.length; index++) {
       const left = index >= bytesPerPixel ? (row[index - bytesPerPixel] ?? 0) : 0;
@@ -104,6 +105,7 @@ export const filteredImageData = (image: TestPng): Uint8Array => {
   const bytesPerPixel = Math.max(1, Math.ceil((channels * image.bitDepth) / 8));
   const layout = image.interlaced === true ? ADAM7 : ([[0, 0, 1, 1]] as const);
   const output: Array<number> = [];
+  let written = 0;
   for (const [passIndex, [x0, y0, stepX, stepY]] of layout.entries()) {
     const rows: Array<Uint8Array> = [];
     for (let y = y0; y < image.height; y += stepY) {
@@ -117,7 +119,10 @@ export const filteredImageData = (image: TestPng): Uint8Array => {
         rows.push(packRow(values, image.bitDepth));
       }
     }
-    output.push(...filterRows(rows, bytesPerPixel, passIndex));
+    const first = written;
+    // Unless the image lists its filter types, each row uses the next of the five in turn, so every filter is exercised.
+    output.push(...filterRows(rows, bytesPerPixel, rowIndex => image.filters?.[first + rowIndex] ?? (passIndex + rowIndex) % 5));
+    written += rows.length;
   }
   return Uint8Array.from(output);
 };

@@ -1,6 +1,7 @@
 import type { ParseReason, UnsupportedFeatureReason } from '../index.ts';
 import type { TestPng } from './pngTestEncoder.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import srgbV4Bytes from '../../../../tests/fixtures/icc/sRGB-v4.icc?icc-bytes';
@@ -465,5 +466,127 @@ describe('converting decoded PNG to 8-bit RGBA', () => {
     expect(rgba({ width: 3, height: 1, colorType: 0, bitDepth: 2, samples: [1, 2, 3], before: [pngChunk('tRNS', [0, 2])] })).toStrictEqual([
       85, 85, 85, 255, 170, 170, 170, 0, 255, 255, 255, 255,
     ]);
+  });
+});
+
+const KINDS = [
+  [0, 1],
+  [0, 2],
+  [0, 4],
+  [0, 8],
+  [0, 16],
+  [2, 8],
+  [2, 16],
+  [3, 1],
+  [3, 2],
+  [3, 4],
+  [3, 8],
+  [4, 8],
+  [4, 16],
+  [6, 8],
+  [6, 16],
+] as const;
+
+// Random images of every colour type and bit depth, with a random filter type for each written row; Adam7 writes at most 2 × height + 7 rows.
+const pngImages = (side: number): fc.Arbitrary<TestPng> =>
+  fc
+    .record({ kind: fc.constantFrom(...KINDS), width: fc.integer({ min: 1, max: side }), height: fc.integer({ min: 1, max: side }), interlaced: fc.boolean() })
+    .chain(({ kind: [colorType, bitDepth], width, height, interlaced }) => {
+      const count = width * height * (CHANNELS.get(colorType) ?? 1);
+      const levels = Math.min(256, 2 ** bitDepth);
+      const rows = 2 * height + 7;
+      return fc
+        .record({
+          samples: fc.array(fc.integer({ min: 0, max: levels - 1 }), { minLength: count, maxLength: count }),
+          filters: fc.array(fc.integer({ min: 0, max: 4 }), { minLength: rows, maxLength: rows }),
+        })
+        .map(({ samples, filters }): TestPng => ({
+          width,
+          height,
+          colorType,
+          bitDepth,
+          interlaced,
+          samples,
+          filters,
+          before: colorType === 3 ? [pngChunk('PLTE', palette(levels))] : [],
+        }));
+    });
+
+const smallImages = pngImages(8);
+
+interface Field {
+  readonly start: number;
+  readonly end: number;
+}
+
+// The byte range of each chunk's type, data and CRC, which PNG Third Edition, 5.3 places after a four-byte length.
+const chunkFields = (png: Uint8Array): Array<Field> => {
+  const fields: Array<Field> = [];
+  for (let offset = 8; offset < png.length;) {
+    const length = (png[offset] ?? 0) * 16_777_216 + (png[offset + 1] ?? 0) * 65_536 + (png[offset + 2] ?? 0) * 256 + (png[offset + 3] ?? 0);
+    fields.push({ start: offset + 4, end: offset + 12 + length });
+    offset += 12 + length;
+  }
+  return fields;
+};
+
+const isLetter = (value: number): boolean => (value >= 65 && value <= 90) || (value >= 97 && value <= 122);
+
+describe('properties', () => {
+  it('decodes every colour type, bit depth, size, interlace and filter choice to the encoded samples', () => {
+    fc.assert(
+      fc.property(pngImages(40), source => {
+        expect([...decodePng(encodeTestPng(source)).samples]).toStrictEqual(source.samples);
+      }),
+    );
+  });
+
+  it('refuses a change to any byte of a chunk’s type, data or CRC by CRC, or by type when it stops being a letter', () => {
+    fc.assert(
+      fc.property(smallImages, fc.nat(), fc.nat(), fc.integer({ min: 1, max: 255 }), (source, chunk, position, delta) => {
+        const png = encodeTestPng(source);
+        const fields = chunkFields(png);
+        const field = fields[chunk % fields.length] ?? { start: 8, end: 9 };
+        const offset = field.start + (position % (field.end - field.start));
+        const changed = Uint8Array.from(png);
+        changed[offset] = ((png[offset] ?? 0) + delta) % 256;
+        // PNG Third Edition, 5.3 and 5.5: the type is four ASCII letters, and the CRC covers the type and the data.
+        const expected = offset < field.start + 4 && !isLetter(changed[offset] ?? 0) ? 'image-invalid' : 'image-crc-mismatch';
+        expect(decodeReason(changed)).toBe(expected);
+      }),
+    );
+  });
+
+  it('reports every prefix of a valid PNG as truncated', () => {
+    fc.assert(
+      fc.property(smallImages, fc.nat(), (source, cut) => {
+        const png = encodeTestPng(source);
+        expect(decodeReason(png.subarray(0, cut % png.length))).toBe('image-truncated');
+      }),
+    );
+  });
+
+  it('scales grey samples below 16 bits to v × 255 / (2^d − 1) with opaque alpha', () => {
+    const greyRows = fc
+      .constantFrom(1, 2, 4, 8)
+      .chain(bitDepth => fc.array(fc.integer({ min: 0, max: 2 ** bitDepth - 1 }), { minLength: 1, maxLength: 40 }).map(samples => ({ bitDepth, samples })));
+    fc.assert(
+      fc.property(greyRows, ({ bitDepth, samples }) => {
+        // PNG Third Edition, 13.12: at these depths the scaled value is an exact integer.
+        const expected = samples.flatMap(value => {
+          const scaled = (value * 255) / (2 ** bitDepth - 1);
+          return [scaled, scaled, scaled, 255];
+        });
+        expect(rgba({ width: samples.length, height: 1, colorType: 0, bitDepth, samples })).toStrictEqual(expected);
+      }),
+    );
+  });
+
+  it('continues a CRC-32 across a split', () => {
+    fc.assert(
+      fc.property(fc.uint8Array({ maxLength: 64 }), fc.uint8Array({ maxLength: 64 }), (first, second) => {
+        expect(crc32(Uint8Array.from([...first, ...second]))).toBe(crc32(second, crc32(first)));
+      }),
+    );
   });
 });
