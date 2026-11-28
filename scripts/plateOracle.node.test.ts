@@ -89,6 +89,7 @@ describe('TIFF plates', () => {
     ['16-bit samples', { bits: 16 }, /bits per sample/u],
     ['a compressed plate', { compression: 5 }, /uncompressed/u],
     ['strips that hold fewer bytes than the pixels', { strips: [PIXELS.subarray(0, 5)] }, /not the 6/u],
+    ['strips that hold more bytes than the pixels', { strips: [PIXELS, PIXELS.subarray(0, 1)] }, /not the 6/u],
     ['a byte count past the end of the file', { countSkew: 4096, strips: [PIXELS.subarray(0, 2)], width: 1, height: 4098 }, /past the end/u],
   ])('refuses %s', (_, input, message) => {
     expect(() => parseTiff(tiff({ width: 3, height: 2, strips: [PIXELS], ...input }))).toThrow(message);
