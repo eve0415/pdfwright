@@ -3,6 +3,7 @@ import type { TestSection } from './pdfBuilder.ts';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../document/loadDocument.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { pdfReference, pdfString } from '../object/pdfObject.ts';
 
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from './pdfBuilder.ts';
@@ -265,5 +266,83 @@ describe('free lists', () => {
     ]);
     const document = loadDocument(pdf.bytes);
     expect([document.structure.status, document.get(pdfReference(9, 0))]).toStrictEqual(['intact', pdfString(latin1Bytes('nine'))]);
+  });
+});
+
+// The data of the stream object that starts at `from`, as bytes.
+const streamData = (text: string, from: number): Uint8Array => {
+  const start = text.indexOf('stream\n', from) + 'stream\n'.length;
+  return latin1Bytes(text.slice(start, text.indexOf('\nendstream', start)));
+};
+
+// W[1 4 2] rows as [type, field 2, field 3].
+const rows = (data: Uint8Array): Array<readonly [number, number, number]> =>
+  Array.from({ length: data.length / 7 }, (_, row) => {
+    const at = (index: number): number => data[row * 7 + index] ?? Number.NaN;
+    return [at(0), ((at(1) * 256 + at(2)) * 256 + at(3)) * 256 + at(4), at(5) * 256 + at(6)] as const;
+  });
+
+// Reverses PNG Up over rows of 1 + 7 bytes (ISO 32000-1:2008, 7.4.4.4), written apart from the builder's encoder.
+const undoUp = (data: Uint8Array): Uint8Array => {
+  const decoded: Array<number> = [];
+  for (let start = 0; start < data.length; start += 8) {
+    expect(data[start]).toBe(2);
+    for (let column = 0; column < 7; column++) {
+      decoded.push(((data[start + 1 + column] ?? 0) + (decoded.at(-7) ?? 0)) % 256);
+    }
+  }
+  return Uint8Array.from(decoded);
+};
+
+const streamSections = (encoding: NonNullable<TestSection['xrefStreamEncoding']>): ReadonlyArray<TestSection> => [
+  { ...ORIGINAL, xref: 'stream', xrefStreamEncoding: encoding },
+  { ...STREAM_UPDATE, xrefStreamEncoding: encoding },
+];
+
+describe('cross-reference stream encodings', () => {
+  it.each([
+    ['none', '', (data: Uint8Array): Uint8Array => data],
+    ['flate', '/Filter/FlateDecode', (data: Uint8Array): Uint8Array => inflateZlib(data).data],
+    ['flate-up', '/Filter/FlateDecode/DecodeParms<</Columns 7/Predictor 12>>', (data: Uint8Array): Uint8Array => undoUp(inflateZlib(data).data)],
+  ] as const)('writes %s data whose rows give each object its offset, and loads intact', (encoding, filter, decode) => {
+    const pdf = buildPdf(streamSections(encoding));
+    const at = (header: string): number => pdf.text.indexOf(`${header} obj\n`);
+    const [original = 0, update = 0] = pdf.sections;
+    expect([original, update].map(offset => pdf.text.slice(offset, pdf.text.indexOf('/Length', offset)))).toStrictEqual([
+      `7 0 obj\n<</Type/XRef/Size 8/W[1 4 2]/Index[0 4 7 1]${filter}/Root 1 0 R`,
+      `8 0 obj\n<</Type/XRef/Size 9/W[1 4 2]/Index[3 4 8 1]${filter}/Prev ${String(original)}/Root 1 0 R`,
+    ]);
+    expect(rows(decode(streamData(pdf.text, original)))).toStrictEqual([
+      [0, 0, 65_535],
+      [1, at('1 0'), 0],
+      [1, at('2 0'), 0],
+      [1, at('3 0'), 0],
+      [1, original, 0],
+    ]);
+    expect(rows(decode(streamData(pdf.text, update)))).toStrictEqual([
+      [1, at('3 1'), 1],
+      [2, 5, 0],
+      [1, at('5 0'), 0],
+      [2, 5, 1],
+      [1, update, 0],
+    ]);
+    const document = loadDocument(pdf.bytes);
+    expect([document.structure.status, document.warnings, document.get(pdfReference(6, 0)).kind]).toStrictEqual(['intact', [], 'array']);
+  });
+
+  it('encodes the cross-reference stream of a hybrid section too', () => {
+    const pdf = buildPdf([ORIGINAL, { ...HYBRID_UPDATE, xrefStreamEncoding: 'flate-up' }]);
+    const stream = pdf.text.indexOf('10 0 obj\n<</Type/XRef');
+    expect(
+      pdf.text.startsWith('10 0 obj\n<</Type/XRef/Size 11/W[1 4 2]/Index[9 1]/Filter/FlateDecode/DecodeParms<</Columns 7/Predictor 12>>/Length', stream),
+    ).toBe(true);
+    expect(rows(undoUp(inflateZlib(streamData(pdf.text, stream)).data))).toStrictEqual([[2, 8, 0]]);
+    const document = loadDocument(pdf.bytes);
+    expect([document.structure.status, document.get(pdfReference(9, 0)).kind]).toStrictEqual(['intact', 'string']);
+  });
+
+  it('leaves the stream unfiltered when no encoding is given', () => {
+    const { xrefStreamEncoding: _, ...original } = { ...ORIGINAL, xref: 'stream', xrefStreamEncoding: 'none' } as const;
+    expect(buildPdf([original]).text).toBe(buildPdf([{ ...original, xrefStreamEncoding: 'none' }]).text);
   });
 });

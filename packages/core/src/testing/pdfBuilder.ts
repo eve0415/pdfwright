@@ -1,5 +1,7 @@
 // Builds small PDF files with computed offsets for parser, editor and comparison tests.
 
+import { deflateZlib } from '../flate/deflate.ts';
+
 export interface TestObject {
   readonly number: number;
   readonly generation?: number;
@@ -33,6 +35,8 @@ export interface TestSection {
   readonly objectStreams?: ReadonlyArray<TestObjectStream>;
   /** Object number of the cross-reference stream; defaults to one above every other number. */
   readonly xrefStreamNumber?: number;
+  /** How the cross-reference stream's data is encoded: unfiltered by default, Flate, or Flate after the PNG Up predictor over rows of 7 bytes, as most writers do. */
+  readonly xrefStreamEncoding?: 'none' | 'flate' | 'flate-up';
 }
 
 export interface TestPdf {
@@ -135,6 +139,33 @@ const streamTable = (entries: ReadonlyMap<number, Entry>): StreamTable => {
   return { index: pairs.join(' '), data };
 };
 
+const ROW = 7;
+
+// ISO 32000-1:2008, 7.4.4.4 and Table 8: Predictor 12 prefixes each row with PNG filter type 2 (Up) and stores each byte less the byte above it, modulo 256.
+const pngUp = (data: Uint8Array): Uint8Array => {
+  const rows = data.length / ROW;
+  const encoded = new Uint8Array(rows * (ROW + 1));
+  for (let row = 0; row < rows; row++) {
+    encoded[row * (ROW + 1)] = 2;
+    for (let column = 0; column < ROW; column++) {
+      const above = row === 0 ? 0 : (data[(row - 1) * ROW + column] ?? 0);
+      encoded[row * (ROW + 1) + 1 + column] = ((data[row * ROW + column] ?? 0) - above + 256) % 256;
+    }
+  }
+  return encoded;
+};
+
+// The filter entries and data of a cross-reference stream (ISO 32000-1:2008, 7.5.8.2) whose raw rows are W[1 4 2].
+const encodedXrefData = (data: string, encoding: NonNullable<TestSection['xrefStreamEncoding']>): readonly [string, string] => {
+  if (encoding === 'none') {
+    return ['', data];
+  }
+  if (encoding === 'flate') {
+    return ['/Filter/FlateDecode', latin1Text(deflateZlib(latin1Bytes(data)))];
+  }
+  return [`/Filter/FlateDecode/DecodeParms<</Columns ${String(ROW)}/Predictor 12>>`, latin1Text(deflateZlib(pngUp(latin1Bytes(data))))];
+};
+
 const highestNumber = (sections: ReadonlyArray<TestSection>): number => {
   let highest = 0;
   for (const section of sections) {
@@ -199,9 +230,10 @@ class TestPdfWriter {
     return entries;
   }
 
-  private xrefStream(number: number, entries: ReadonlyMap<number, Entry>, trailer: string): void {
+  private xrefStream(number: number, entries: ReadonlyMap<number, Entry>, trailer: string, encoding: TestSection['xrefStreamEncoding']): void {
     const table = streamTable(entries);
-    this.text += `${String(number)} 0 obj\n${streamBody(`/Type/XRef/Size ${String(this.size)}/W[1 4 2]/Index[${table.index}]${trailer}`, table.data)}\nendobj\n`;
+    const [filter, data] = encodedXrefData(table.data, encoding ?? 'none');
+    this.text += `${String(number)} 0 obj\n${streamBody(`/Type/XRef/Size ${String(this.size)}/W[1 4 2]/Index[${table.index}]${filter}${trailer}`, data)}\nendobj\n`;
   }
 
   section(section: TestSection, first: boolean): void {
@@ -213,7 +245,7 @@ class TestPdfWriter {
     if (section.xref === 'hybrid') {
       const number = this.streamNumber(section);
       const streamOffset = this.text.length;
-      this.xrefStream(number, new Map([...entries].filter(([, entry]) => entry.type === 2)), '');
+      this.xrefStream(number, new Map([...entries].filter(([, entry]) => entry.type === 2)), '', section.xrefStreamEncoding);
       const visible = new Map([...[...entries].filter(([, entry]) => entry.type !== 2), [number, { type: 1, second: streamOffset, third: 0 }] as const]);
       offset = this.text.length;
       if (first) {
@@ -233,7 +265,7 @@ class TestPdfWriter {
       if (first && !entries.has(0)) {
         entries.set(0, { type: 0, second: 0, third: 65_535 });
       }
-      this.xrefStream(number, entries, `${prev}${trailer}`);
+      this.xrefStream(number, entries, `${prev}${trailer}`, section.xrefStreamEncoding);
     }
     this.text += `startxref\n${String(offset)}\n%%EOF\n`;
     this.sections.push(offset);
