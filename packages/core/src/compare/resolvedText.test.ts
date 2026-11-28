@@ -56,7 +56,10 @@ const textsInOrder = (bodies: ReadonlyArray<string>, order: ReadonlyArray<number
   };
 };
 
-const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
+// The text of the object numbered FIRST + index, worked out by a fresh ResolvedTexts.
+const textOf = (bodies: ReadonlyArray<string>, index = 0): string => new ResolvedTexts(internalsOrThrow(bodies)).text(pdfReference(FIRST + index, 0));
+
+const permutations =(items: ReadonlyArray<number>): Array<Array<number>> =>
   items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
 
 describe('reference cycles', () => {
@@ -91,6 +94,13 @@ describe('reference cycles', () => {
   it('distinguishes cycles whose objects hold different values', () => {
     const [one, two] = [textsInOrder(['[21 0 R 1]', '[20 0 R 2]'], [0, 1]).alone, textsInOrder(['[21 0 R 1]', '[20 0 R 3]'], [0, 1]).alone];
     expect([one[0] === two[0], one[1] === two[1], one[0] === one[1]]).toStrictEqual([false, false, false]);
+  });
+
+  it('tells apart cycles that differ only in which object refers to which', () => {
+    const forward = textOf(['[21 0 R 22 0 R]', '<</P 1/X 20 0 R>>', '<</P 2/X 20 0 R>>']);
+    const renumbered = textOf(['[22 0 R 21 0 R]', '<</P 2/X 20 0 R>>', '<</P 1/X 20 0 R>>']);
+    const swapped = textOf(['[22 0 R 21 0 R]', '<</P 1/X 20 0 R>>', '<</P 2/X 20 0 R>>']);
+    expect([forward === renumbered, forward === swapped]).toStrictEqual([true, false]);
   });
 });
 
