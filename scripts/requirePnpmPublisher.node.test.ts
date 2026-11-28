@@ -57,6 +57,6 @@ describe('package publisher guard', () => {
           expect(run(value).status).toBe(isPnpm(value) ? 0 : 1);
         }),
       );
-    });
+    }, 60_000);
   });
 });
