@@ -411,7 +411,8 @@ const withMatte = function* (scan: ImageScan, rows: Iterable<Uint8Array>, matte:
 
 const checkSoftMaskRows = (scan: ImageScan, matte: SoftMaskMatte | undefined): void => {
   if (matte === undefined) return;
-  for (const row of imageRows(scan, matte.mask, matte.geometry)) void row;
+  const rows = imageRows(scan, matte.mask, matte.geometry);
+  while (rows.next().done !== true);
 };
 
 const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
@@ -420,7 +421,8 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
   if (source === undefined) return invalid('image colour space cannot be converted');
   const geometry = imageGeometry(scan, image, space);
   const { width, bits, channels, outputBits, ranges, matte } = geometry;
-  for (const row of imageRows(scan, image, geometry)) void row;
+  const rows = imageRows(scan, image, geometry);
+  while (rows.next().done !== true);
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source, reference });
   const decode = decodeArray(scan, image, channels);
@@ -469,7 +471,8 @@ const transcodeJpegImage = (
   if (jpeg.components !== 3 || jpeg.width !== geometry.width || jpeg.height !== geometry.height) {
     return invalid('JPEG frame geometry differs from the image dictionary');
   }
-  for (const row of jpeg.rows()) void row;
+  const rows = jpeg.rows();
+  while (rows.next().done !== true);
   const { matte } = geometry;
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source: space.source, reference });
