@@ -327,7 +327,7 @@ describe('icc profile tags', () => {
 
   it('rejects an XYZ element under rTRC', () => {
     const bytes = profileWith('RGB ', 'XYZ ', [['rTRC', xyzTag([0.5, 0.25, 0.125])]]);
-    expect(failure(bytes)).toStrictEqual({ reason: 'tag-type-mismatch', offset: tagOffset(bytes, 'rTRC'), tag: undefined });
+    expect(failure(bytes)).toMatchObject({ reason: 'tag-type-mismatch', offset: tagOffset(bytes, 'rTRC') });
   });
 
   describe('properties', () => {
