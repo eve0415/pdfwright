@@ -301,7 +301,7 @@ describe('sampled functions', () => {
   it.each([
     ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /invalid sampled/],
     ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /invalid sampled/],
-    // A Size counts the samples along one input, so it is a positive integer.
+    // ISO 32000-1:2008, 7.10.2, Table 39: Size is an array of positive integers.
     ['a Size of 0', { Size: numbers([0]) }, /Size/],
     ['a fractional Size', { Size: numbers([1.5]) }, /Size/],
     ['an Encode for two inputs', { Encode: numbers([0, 1, 0, 1]) }, /mapping/],

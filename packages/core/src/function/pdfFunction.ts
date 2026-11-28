@@ -92,7 +92,7 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   const outputs = limits.range.length / 2;
   let count = outputs;
   for (const size of sizes) {
-    // A Size counts the samples along one input, so a zero or fractional Size is a malformed function rather than one over the table limit.
+    // ISO 32000-1:2008, 7.10.2, Table 39: Size is an array of positive integers, so a zero or fractional Size is a malformed function rather than one over the table limit below.
     if (!Number.isInteger(size) || size < 1) {
       throw new ParseError('sampled function Size must be a positive integer', 0);
     }
