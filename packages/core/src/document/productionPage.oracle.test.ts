@@ -1,12 +1,10 @@
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
+import { readPlate, renderPlates, renderRgbPixel } from '../../../../scripts/plateOracle.ts';
 import { runQpdf } from '../../../../scripts/readerOracle.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
@@ -113,18 +111,33 @@ const hasInkOutsideDie = (plate: Awaited<ReturnType<typeof readPlate>>): boolean
 };
 
 describe('production page oracle', () => {
-  it('renders the Separation images with mupdf', async () => {
+  it('renders the White image over the artwork, through its soft mask, and nothing outside the die line with mupdf', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-production-mupdf-'));
     try {
       const file = path.join(directory, 'page.pdf');
-      const rendered = path.join(directory, 'page.ppm');
+      const unclipped = path.join(directory, 'unclipped.pdf');
+      const output = path.join(directory, 'page.pam');
       await writeFile(file, createProductionPage().saved.toBytes());
-      const child = spawn('mutool', ['draw', '-q', '-F', 'pnm', '-c', 'rgb', '-o', rendered, file]);
-      await once(child, 'close');
-      expect(child.exitCode).toBe(0);
-      const pixels = await readFile(rendered);
-      expect(pixels.subarray(0, 2).toString()).toBe('P6');
-      expect(new Set(pixels).size).toBeGreaterThan(1);
+      await writeFile(unclipped, createProductionPage({ clipArtwork: false }).saved.toBytes());
+      // At 72 dpi the White image spans x 28–113 px and y 57–85 px in thirds whose soft mask samples are 255, 128 and 0; the die line is the rectangle 5 mm (14 px) inside the page edge.
+      const pixel = async (pdf: string, x: number, y: number): Promise<ReadonlyArray<number>> => renderRgbPixel(pdf, output, x, y);
+      // ISO 32000-1:2008, 8.6.6.4: without the White plate a viewer paints the alternate, CMYK 0 0 0 0.1, which is 255 × 0.9 in each RGB channel; 11.6.5.3: where the mask is 0 only the artwork shows, its red at alpha 128/255.
+      const alternate = 255 * 0.9;
+      const artwork = [255, 255 * (1 - 128 / 255), 255 * (1 - 128 / 255)];
+      const expected: Array<[string, number, number, ReadonlyArray<number>]> = [
+        [file, 43, 70, [alternate, alternate, alternate]],
+        [file, 99, 70, artwork],
+        [file, 22, 70, artwork],
+        [file, 5, 5, [255, 255, 255]],
+        [unclipped, 5, 5, artwork],
+      ];
+      for (const [pdf, x, y, rgb] of expected) {
+        const rendered = await pixel(pdf, x, y);
+        expect(rendered.map((channel, index) => Math.abs(channel - (rgb[index] ?? 0)) <= 2)).toStrictEqual([true, true, true]);
+      }
+      // Where the mask is 128 the White image and the artwork mix, so the pixel lies between the two.
+      const [red = 0, green = 0] = await pixel(file, 71, 70);
+      expect([red > alternate + 2 && red < 255 - 2, green > (artwork[1] ?? 0) + 2 && green < alternate - 2]).toStrictEqual([true, true]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
