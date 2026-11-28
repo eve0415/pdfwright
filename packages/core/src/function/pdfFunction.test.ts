@@ -316,9 +316,9 @@ describe('sampled functions', () => {
     expect(() => createPdfFunction(sampledFunction({ Order: pdfInteger(3) }, Uint8Array.of(0, 255)))).toThrow(UnsupportedFeatureError);
   });
 
-  it('rejects an Order other than 1 or 3 as malformed', () => {
-    // ISO 32000-1:2008, 7.10.2, Table 39: the valid Order values are 1 and 3.
-    const build = () => createPdfFunction(sampledFunction({ Order: pdfInteger(2) }, Uint8Array.of(0, 255)));
+  // ISO 32000-1:2008, 7.10.2, Table 39: the valid Order values are 1 and 3.
+  it.each([0, 2])('rejects Order %i as malformed', order => {
+    const build = () => createPdfFunction(sampledFunction({ Order: pdfInteger(order) }, Uint8Array.of(0, 255)));
     expect(build).toThrow(ParseError);
     expect(build).toThrow(/Order/);
   });

@@ -20,6 +20,9 @@ const runNested = (levels: number): string => {
   return `{ { 2 } ${body} }`;
 };
 
+// The program { 1 2 add } with the space before add replaced by byte.
+const separatedBy = (byte: number): Uint8Array => Uint8Array.from([...new TextEncoder().encode('{ 1 2'), byte, ...new TextEncoder().encode('add }')]);
+
 describe('calculator operators', () => {
   it('rounds negative halves toward positive infinity', () => {
     expect(calculator('{ -2.5 round }')([])).toStrictEqual([-2]);
@@ -109,8 +112,6 @@ describe('calculator programs', () => {
   });
 
   // ISO 32000-1:2008, 7.2.2, Table 1: the white-space characters are NUL, HT, LF, FF, CR and SP, and every other byte outside the delimiters is regular.
-  const separatedBy = (byte: number): Uint8Array => Uint8Array.from([...new TextEncoder().encode('{ 1 2'), byte, ...new TextEncoder().encode('add }')]);
-
   it('separates tokens at every PDF white-space character', () => {
     const outputs = [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20].map(byte => createCalculatorFunction(separatedBy(byte), 0, 1)([]));
     expect(outputs).toStrictEqual([[3], [3], [3], [3], [3], [3]]);
