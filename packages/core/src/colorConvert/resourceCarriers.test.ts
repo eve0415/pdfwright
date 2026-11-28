@@ -4,6 +4,7 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ShadingConversionReport } from './convertShadings.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -12,6 +13,7 @@ import srgbBytes from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
@@ -776,5 +778,44 @@ describe('rendering intents of direct shadings in a form that is also an appeara
     };
     expect(sample('perceptual')).not.toStrictEqual(sample('relativeColorimetric'));
     expect(sample('document')).toStrictEqual(sample('perceptual'));
+  });
+});
+
+/** Lists the carriers that page `index` of `document` reaches, with the pass state `seen`. */
+const walkPage = (document: LoadedDocument, index: number, seen: CarrierSeen): ReadonlyArray<ResourceCarrier> => {
+  const internals = internalsOf(document);
+  const entry = internals?.pages[index];
+  if (internals === undefined || entry === undefined) {
+    throw new Error('document internals are missing');
+  }
+  return resourceCarriers(internals, { index, reference: entry.reference, resources: document.page(index).resources() }, seen);
+};
+
+const PATTERNS = '/Resources<</Pattern<</P1 5 0 R/P2 6 0 R/P3 7 0 R>>>>';
+const EMPTY_PATTERNS = [5, 6, 7].map(number => ({ number, body: streamBody(`${PATTERN}/Resources<<>>`, '') }));
+
+describe('the step limit of the carrier walk', () => {
+  // A page naming three tiling patterns, each with an empty Resources of its own, takes one step per pattern.
+  it('lists every carrier when the walk takes as many steps as the limit', () => {
+    expect(walkPage(carrierPdf(PATTERNS, EMPTY_PATTERNS), 0, carrierSeen(3)).map(carrier => carrier.key)).toStrictEqual(['5 0 R', '6 0 R', '7 0 R']);
+  });
+
+  it('refuses a walk that takes one step more than the limit', () => {
+    const walk = (): ReadonlyArray<ResourceCarrier> => walkPage(carrierPdf(PATTERNS, EMPTY_PATTERNS), 0, carrierSeen(2));
+    expect(walk).toThrow(ResourceLimitError);
+    expect(walk).toThrow(/more than 2 steps/u);
+  });
+
+  it('counts the steps of every page walk that shares the pass state', () => {
+    const document = pagesPdf(
+      [
+        { page: PATTERNS, content: '' },
+        { page: PATTERNS, content: '' },
+      ],
+      EMPTY_PATTERNS,
+    );
+    const seen = carrierSeen(5);
+    expect(walkPage(document, 0, seen)).toHaveLength(3);
+    expect(() => walkPage(document, 1, seen)).toThrow(/more than 5 steps/u);
   });
 });
