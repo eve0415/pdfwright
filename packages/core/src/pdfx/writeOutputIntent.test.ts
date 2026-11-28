@@ -388,7 +388,9 @@ describe('gts pdfx output intent', () => {
 
   it('replaces an intent whose profile reference names an object stream, keeping the stream its objects need', () => {
     const refused = objectStreamProfile();
-    expect(() => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(InvalidProfileError);
+    const refuse = () => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect(refuse).toThrow(InvalidProfileError);
+    expect(refuse).toThrow(expect.objectContaining({ reason: 'truncated' }));
     expect([subtypesOf(refused), refused.get(pdfReference(4, 0)).kind]).toStrictEqual([['GTS_PDFA1'], 'dictionary']);
     const document = objectStreamProfile();
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
