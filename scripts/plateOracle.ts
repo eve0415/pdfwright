@@ -29,18 +29,33 @@ const decodePlateName = (fileName: string): Uint8Array => {
   return Uint8Array.from(bytes);
 };
 
+const runGhostscript = async (args: ReadonlyArray<string>): Promise<void> => {
+  const child = spawn('gs', args);
+  const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
+  if (closed[0] !== 0) {
+    throw new Error(`Ghostscript exited ${String(closed[0])}: ${stdout}${stderr}`);
+  }
+};
+
+const isPlateFile = (file: string): boolean => file.startsWith('o(') && file.endsWith(').tif');
+
+/** Renders every plate of page 1 with tiffsep at 72 dpi into `directory`. */
 export const renderPlates = async (pdfFile: string, directory: string, includeProcess = false): Promise<Array<PlateFile>> => {
   await mkdir(directory, { recursive: true });
-  const output = path.join(directory, 'o.tif');
-  const child = spawn('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiffsep', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
-  const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
-  if (closed[0] !== 0) {
-    throw new Error(`Ghostscript exited ${String(closed[0])}: ${stderr}`);
-  }
+  await runGhostscript([
+    '-q',
+    '-dNOPAUSE',
+    '-dBATCH',
+    '-sDEVICE=tiffsep',
+    '-sCompression=none',
+    '-r72',
+    `-sOutputFile=${path.join(directory, 'o.tif')}`,
+    pdfFile,
+  ]);
   const files = await readdir(directory);
   const process = new Set(['o(Cyan).tif', 'o(Magenta).tif', 'o(Yellow).tif', 'o(Black).tif']);
   return files
-    .filter(file => file.startsWith('o(') && file.endsWith(').tif') && (includeProcess || !process.has(file)))
+    .filter(file => isPlateFile(file) && (includeProcess || !process.has(file)))
     .map(file => ({ name: decodePlateName(file), file: path.join(directory, file) }));
 };
 
@@ -94,73 +109,83 @@ export const renderPagePlates = async (pdfFile: string, directory: string, resol
   return { plates, failed };
 };
 
-interface TiffData {
-  width: number;
-  height: number;
-  data: Uint8Array;
-  samplesPerPixel: number;
+export interface TiffData {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+  readonly samplesPerPixel: number;
 }
 
-const tiffValues = (...[bytes, view, littleEndian, entryOffset]: [Uint8Array, DataView, boolean, number]): Array<number> => {
+// TIFF 6.0, section 2: BYTE (1), SHORT (3) and LONG (4) values, stored in the entry itself when they fit in four bytes. Other types are not read.
+const TYPE_SIZES = new Map([
+  [1, 1],
+  [3, 2],
+  [4, 4],
+]);
+
+const tiffValues = (...[view, littleEndian, entryOffset]: [DataView, boolean, number]): Array<number> => {
   const type = view.getUint16(entryOffset + 2, littleEndian);
   const count = view.getUint32(entryOffset + 4, littleEndian);
-  let elementSize = 1;
-  if (type === 3) {
-    elementSize = 2;
+  const size = TYPE_SIZES.get(type);
+  if (size === undefined) {
+    return [];
   }
-  if (type === 4) {
-    elementSize = 4;
-  }
-  const dataOffset = count * elementSize <= 4 ? entryOffset + 8 : view.getUint32(entryOffset + 8, littleEndian);
-  const values: Array<number> = [];
-  for (let item = 0; item < count; item++) {
-    if (type === 3) {
-      values.push(view.getUint16(dataOffset + item * 2, littleEndian));
-    } else if (type === 4) {
-      values.push(view.getUint32(dataOffset + item * 4, littleEndian));
-    } else {
-      values.push(bytes[dataOffset + item] ?? 0);
-    }
-  }
-  return values;
+  const dataOffset = count * size <= 4 ? entryOffset + 8 : view.getUint32(entryOffset + 8, littleEndian);
+  return Array.from({ length: count }, (_, item) => {
+    const at = dataOffset + item * size;
+    return size === 1 ? view.getUint8(at) : size === 2 ? view.getUint16(at, littleEndian) : view.getUint32(at, littleEndian);
+  });
 };
 
-const readTags = (bytes: Uint8Array, view: DataView, littleEndian: boolean): Map<number, Array<number>> => {
-  const ifd = view.getUint32(4, littleEndian);
-  const entries = view.getUint16(ifd, littleEndian);
-  const tags = new Map<number, Array<number>>();
-  for (let index = 0; index < entries; index++) {
-    const offset = ifd + 2 + 12 * index;
-    tags.set(view.getUint16(offset, littleEndian), tiffValues(bytes, view, littleEndian, offset));
-  }
-  return tags;
-};
-
-const readTiff = async (file: string): Promise<TiffData> => {
-  const bytes = await readFile(file);
+/** The pixels of an uncompressed 8-bit TIFF as tiffsep and tiff32nc write it; anything else, or strips that do not hold exactly width × height pixels, is refused. */
+export const parseTiff = (bytes: Uint8Array): TiffData => {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const littleEndian = bytes[0] === 0x49 && bytes[1] === 0x49;
-  if (!littleEndian && !(bytes[0] === 0x4d && bytes[1] === 0x4d)) {
-    throw new Error('invalid TIFF byte order');
+  if ((!littleEndian && !(bytes[0] === 0x4d && bytes[1] === 0x4d)) || view.getUint16(2, littleEndian) !== 42) {
+    throw new Error('invalid TIFF header');
   }
-  const tags = readTags(bytes, view, littleEndian);
+  const ifd = view.getUint32(4, littleEndian);
+  const tags = new Map<number, Array<number>>();
+  for (let index = 0; index < view.getUint16(ifd, littleEndian); index++) {
+    const entry = ifd + 2 + 12 * index;
+    tags.set(view.getUint16(entry, littleEndian), tiffValues(view, littleEndian, entry));
+  }
   const width = tags.get(256)?.[0];
   const height = tags.get(257)?.[0];
-  const compression = tags.get(259)?.[0] ?? 1;
   const samplesPerPixel = tags.get(277)?.[0] ?? 1;
-  const offsets = tags.get(273);
-  const counts = tags.get(279);
-  if (width === undefined || height === undefined || offsets === undefined || counts === undefined || compression !== 1) {
-    throw new Error('unsupported TIFF plate');
+  const offsets = tags.get(273) ?? [];
+  const counts = tags.get(279) ?? [];
+  const bits = tags.get(258) ?? [1];
+  if (width === undefined || height === undefined || (tags.get(259)?.[0] ?? 1) !== 1 || (tags.get(284)?.[0] ?? 1) !== 1 || offsets.length !== counts.length) {
+    throw new Error('unsupported TIFF plate: it must be uncompressed, chunky and have one byte count per strip');
+  }
+  if (bits.length !== samplesPerPixel || bits.some(depth => depth !== 8)) {
+    throw new Error(`unsupported TIFF plate: ${JSON.stringify(bits)} bits per sample`);
   }
   const data = new Uint8Array(counts.reduce((sum, count) => sum + count, 0));
+  if (data.length !== width * height * samplesPerPixel) {
+    throw new Error(
+      `TIFF strips hold ${String(data.length)} bytes, not the ${String(width * height * samplesPerPixel)} of ${String(width)} × ${String(height)} pixels`,
+    );
+  }
   let cursor = 0;
-  for (let index = 0; index < offsets.length; index++) {
-    const strip = bytes.subarray(offsets[index] ?? 0, (offsets[index] ?? 0) + (counts[index] ?? 0));
+  for (const [index, offset] of offsets.entries()) {
+    const strip = bytes.subarray(offset, offset + (counts[index] ?? 0));
+    if (strip.length !== counts[index]) {
+      throw new Error(`TIFF strip ${String(index)} runs past the end of the file`);
+    }
     data.set(strip, cursor);
     cursor += strip.length;
   }
   return { width, height, data, samplesPerPixel };
+};
+
+/** The index of the first sample of pixel (x, y); a coordinate that is not a pixel of the image is refused rather than read from a neighbouring row or past the end. */
+export const sampleIndex = (image: { readonly width: number; readonly height: number; readonly samplesPerPixel: number }, x: number, y: number): number => {
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= image.width || y >= image.height) {
+    throw new RangeError(`(${String(x)}, ${String(y)}) is not a pixel of a ${String(image.width)} × ${String(image.height)} image`);
+  }
+  return (y * image.width + x) * image.samplesPerPixel;
 };
 
 export const readPlate = async (files: ReadonlyArray<PlateFile>, name: Uint8Array): Promise<Plate> => {
@@ -168,55 +193,52 @@ export const readPlate = async (files: ReadonlyArray<PlateFile>, name: Uint8Arra
   if (file === undefined) {
     throw new Error('missing separation plate');
   }
-  const tiff = await readTiff(file.file);
-  return {
-    ...file,
-    width: tiff.width,
-    height: tiff.height,
-    inkAt: (x, y): number => 255 - (tiff.data[(y * tiff.width + x) * tiff.samplesPerPixel] ?? 255),
-  };
+  const tiff = parseTiff(await readFile(file.file));
+  if (tiff.samplesPerPixel !== 1) {
+    throw new Error(`a separation plate has one sample per pixel, not ${String(tiff.samplesPerPixel)}`);
+  }
+  // tiffsep writes each separation with 0 for full ink and 255 for none.
+  return { ...file, width: tiff.width, height: tiff.height, inkAt: (x, y): number => 255 - (tiff.data[sampleIndex(tiff, x, y)] ?? 255) };
 };
 
+/** The pixels of a binary PAM image with 8-bit samples (MAXVAL 255), as MuPDF writes it; a header it cannot read or data of the wrong length is refused. */
+export const parsePam = (bytes: Uint8Array): TiffData => {
+  const header = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 512)));
+  const end = header.indexOf('ENDHDR\n');
+  const field = (name: string): number => Number(new RegExp(`^${name} (\\d+)$`, 'mu').exec(header.slice(0, Math.max(0, end)))?.[1]);
+  const [width = Number.NaN, height = Number.NaN, samplesPerPixel = Number.NaN, maximum = Number.NaN] = ['WIDTH', 'HEIGHT', 'DEPTH', 'MAXVAL'].map(field);
+  if (!header.startsWith('P7\n') || end === -1 || maximum !== 255) {
+    throw new Error('invalid MuPDF PAM output');
+  }
+  const data = bytes.subarray(end + 'ENDHDR\n'.length);
+  if (![width, height, samplesPerPixel].every(Number.isInteger) || data.length !== width * height * samplesPerPixel) {
+    throw new Error('MuPDF PAM data does not match its header');
+  }
+  return { width, height, data, samplesPerPixel };
+};
+
+/** The RGB value of one pixel of page 1 as MuPDF draws it at 72 dpi. */
 export const renderRgbPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number]> => {
   const child = spawn('mutool', ['draw', '-q', '-O', '2', '-c', 'rgb', '-F', 'pam', '-o', output, pdfFile]);
   const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
   if (closed[0] !== 0) {
     throw new Error(`MuPDF exited ${String(closed[0])}: ${stderr}`);
   }
-  const bytes = await readFile(output);
-  const header = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 200)));
-  const end = header.indexOf('ENDHDR\n');
-  const widthText = /^WIDTH (\d+)$/mu.exec(header)?.[1];
-  const depthText = /^DEPTH (\d+)$/mu.exec(header)?.[1];
-  if (end === -1 || widthText === undefined || depthText === undefined) {
-    throw new Error('invalid MuPDF PAM output');
-  }
-  const width = Number(widthText);
-  const depth = Number(depthText);
-  const offset = end + 7 + (y * width + x) * depth;
-  const red = bytes[offset];
-  const green = bytes[offset + 1];
-  const blue = bytes[offset + 2];
-  if (depth !== 3 || red === undefined || green === undefined || blue === undefined) {
+  const image = parsePam(await readFile(output));
+  if (image.samplesPerPixel !== 3) {
     throw new Error('invalid MuPDF RGB pixel');
   }
-  return [red, green, blue];
+  const offset = sampleIndex(image, x, y);
+  return [image.data[offset] ?? 0, image.data[offset + 1] ?? 0, image.data[offset + 2] ?? 0];
 };
 
+/** The CMYK value of one pixel of page 1 as Ghostscript draws it at 72 dpi with tiff32nc. */
 export const renderGsCmykPixel = async (...[pdfFile, output, x, y]: [string, string, number, number]): Promise<readonly [number, number, number, number]> => {
-  const child = spawn('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiff32nc', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
-  const [closed, stderr] = await Promise.all([once(child, 'close'), text(child.stderr)]);
-  if (closed[0] !== 0) {
-    throw new Error(`Ghostscript exited ${String(closed[0])}: ${stderr}`);
-  }
-  const tiff = await readTiff(output);
-  const offset = (y * tiff.width + x) * tiff.samplesPerPixel;
-  const cyan = tiff.data[offset];
-  const magenta = tiff.data[offset + 1];
-  const yellow = tiff.data[offset + 2];
-  const black = tiff.data[offset + 3];
-  if (tiff.samplesPerPixel !== 4 || cyan === undefined || magenta === undefined || yellow === undefined || black === undefined) {
+  await runGhostscript(['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiff32nc', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
+  const tiff = parseTiff(await readFile(output));
+  if (tiff.samplesPerPixel !== 4) {
     throw new Error('invalid Ghostscript CMYK TIFF pixel');
   }
-  return [cyan, magenta, yellow, black];
+  const offset = sampleIndex(tiff, x, y);
+  return [tiff.data[offset] ?? 0, tiff.data[offset + 1] ?? 0, tiff.data[offset + 2] ?? 0, tiff.data[offset + 3] ?? 0];
 };
