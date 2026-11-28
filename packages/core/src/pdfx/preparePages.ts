@@ -273,16 +273,17 @@ class TransparencyScan {
   }
 
   private font(value: PdfDirectObject | undefined): boolean {
-    if (value?.kind === 'reference') {
-      if (this.fontObjects.has(value.objectNumber)) {
-        return false;
-      }
-      this.fontObjects.add(value.objectNumber);
+    if (value?.kind === 'reference' && this.fontObjects.has(value.objectNumber)) {
+      return false;
     }
     const font = entriesOf(this.internals, value);
     // A direct font has no object number, so each font read is remembered by its dictionary and a later selection of it returns at once. A dictionary parsed again after the object cache drops it is a new one, so the procedure keys below, not this set, are what end a glyph that selects its own font.
     if (font === undefined || this.fonts.has(font)) {
       return false;
+    }
+    // An object number is remembered only once its reference names a font, so that a reference to another generation, read as null, does not hide the font itself.
+    if (value?.kind === 'reference') {
+      this.fontObjects.add(value.objectNumber);
     }
     this.fonts.add(font);
     if (nameOf(this.internals.objects.deref(font.get(key('Subtype')))) !== 'Type3') {
