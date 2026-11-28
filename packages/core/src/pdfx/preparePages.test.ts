@@ -93,6 +93,10 @@ const addedGroups = (document: LoadedDocument) => preparePdfX4Pages(document).ad
 const type3 = (state: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS ${state}>>>>>>`;
 
+/** A Type 3 font whose glyph a, object 6, runs with the given ExtGState entries. */
+const type3States = (states: string) =>
+  `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<<${states}>>>>>>`;
+
 /** A Type 3 font without Resources whose CharProcs entry is the given value. */
 const shownType3 = (procedures: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${procedures}/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`;
@@ -562,6 +566,19 @@ describe('pdfx page preparation', () => {
       expect(addedGroups(single(resources, streamBody('', content), objects, '', options))).toStrictEqual([0]);
     },
   );
+
+  it('reads a shared glyph procedure with each of two direct Resources whose entries differ only in where one value ends and the next key begins', () => {
+    // A names no GS, while B names GS for a transparent state; each Resources dictionary would spell the same text if its numbers and key lengths ran together.
+    const document = single(
+      `<</Font<</A ${type3States('/A 5/GSR7#2001:xn5: true/q false')}/B ${type3States('/A 51/GS 7 0 R/x/t1:qf')}>>>>`,
+      streamBody('', 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET'),
+      [
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 0.5>>' },
+      ],
+    );
+    expect(addedGroups(document)).toStrictEqual([0]);
+  });
 
   it('decodes a glyph procedure that fonts with different Resources share once per page', () => {
     const fonts = [9, 7, 9, 9].map((state, index) => ({ number: 10 + index, body: type3(`${String(state)} 0 R/X${String(index)} 9 0 R`) }));
