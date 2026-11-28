@@ -77,14 +77,13 @@ describe('appending page content', () => {
     const document = load(page('/Contents 4 0 R/Resources<<>>'));
     const benign = latin1Bytes('n                     ');
     const harmful = latin1Bytes('0 0 0 0 k 0 0 9 9 re f');
-    // The check's lexer reads one index past the end when it finishes, and every indexed read after that sees the harmful bytes.
-    let checked = false;
+    // Reading every byte once takes as many indexed reads as there are bytes; every indexed read after those sees the harmful bytes.
+    let reads = 0;
     const proxied = new Proxy(benign, {
       get: (target, key) => {
         if (typeof key === 'string' && /^\d+$/u.test(key)) {
-          const index = Number(key);
-          const value = (checked ? harmful : target)[index];
-          checked ||= index >= target.length;
+          const value = (reads >= target.length ? harmful : target)[Number(key)];
+          reads++;
           return value;
         }
         if (key === 'length') {
