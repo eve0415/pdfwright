@@ -153,6 +153,38 @@ const siblingForm = (index: number, count: number): TestObject => ({
   body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]${index === count - 1 ? '/Group<</S/Transparency>>' : ''}`, '0 0 1 1 re f'),
 });
 
+/**
+ * `fonts` Type 3 fonts, objects 10 on, share CharProcs object 5 of `glyphs` glyph procedures, objects 100 on, the last of which applies `names` graphics states; each font names its states opaque, except that the last font names the last state transparent.
+ * The scan takes one step for each CharProcs entry of each font and one for each name it looks up again with a later font's Resources, so it finds the transparent state at step glyphs + (fonts - 1) * (glyphs + names).
+ */
+const sharedGlyphs = (fonts: number, glyphs: number, names: number, maxDecodedBytes: number) => {
+  const states = Array.from({ length: names }, (_, index) => `/G${String(index)}`);
+  const fontObjects = Array.from({ length: fonts }, (_, font) => {
+    const ext = states.map((name, index) => `${name} ${font === fonts - 1 && index === names - 1 ? '7' : '9'} 0 R`).join('');
+    return {
+      number: 10 + font,
+      body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs 5 0 R/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<<${ext}/X${String(font)} 9 0 R>>>>>>`,
+    };
+  });
+  const glyphObjects = Array.from({ length: glyphs }, (_, glyph) => ({
+    number: 100 + glyph,
+    body: streamBody('', `0 0 d0 ${glyph === glyphs - 1 ? states.map(name => `${name} gs `).join('') : ''}0 0 1 1 re f`),
+  }));
+  return single(
+    `<</Font<<${fontObjects.map((_, font) => `/F${String(font)} ${String(10 + font)} 0 R`).join('')}>>>>`,
+    streamBody('', `BT ${fontObjects.map((_, font) => `/F${String(font)} 1 Tf`).join(' ')} ET`),
+    [
+      { number: 5, body: `<<${glyphObjects.map((_, glyph) => `/g${String(glyph)} ${String(100 + glyph)} 0 R`).join('')}>>` },
+      ...fontObjects,
+      ...glyphObjects,
+      { number: 7, body: '<</ca 0.5>>' },
+      { number: 9, body: '<</ca 1>>' },
+    ],
+    '',
+    { maxDecodedBytes },
+  );
+};
+
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
 
@@ -528,6 +560,37 @@ describe('pdfx page preparation', () => {
         { number: 9, body: '<</ca 1>>' },
       ];
       expect(addedGroups(single(resources, streamBody('', content), objects, '', options))).toStrictEqual([0]);
+    },
+  );
+
+  it('decodes a glyph procedure that fonts with different Resources share once per page', () => {
+    const fonts = [9, 7, 9, 9].map((state, index) => ({ number: 10 + index, body: type3(`${String(state)} 0 R/X${String(index)} 9 0 R`) }));
+    const document = single(
+      `<</Font<<${fonts.map((_, index) => `/F${String(index)} ${String(10 + index)} 0 R`).join('')}>>>>`,
+      streamBody('', `BT ${fonts.map((_, index) => `/F${String(index)} 12 Tf (a) Tj`).join(' ')} ET`),
+      [...fonts, { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') }, { number: 7, body: '<</ca 1>>' }, { number: 9, body: '<</ca 1>>' }],
+    );
+    const parts = internalsOf(document);
+    if (parts === undefined) {
+      throw new Error('document internals are unavailable');
+    }
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    expect(addedGroups(document)).toStrictEqual([]);
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 6)).toHaveLength(1);
+    // Each font's state is still looked up: object 7, which one font names GS, is read too.
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 7)).toHaveLength(1);
+  });
+
+  it.each<[string, number, number, number, number]>([
+    ['names looked up again', 10, 1, 30, 280],
+    ['CharProcs entries', 10, 30, 1, 309],
+  ])(
+    'reads glyph procedures that fonts with different Resources share for as many steps as maxDecodedBytes and refuses one more, counting %s',
+    (_, fonts, glyphs, names, steps) => {
+      expect(addedGroups(sharedGlyphs(fonts, glyphs, names, steps))).toStrictEqual([0]);
+      const prepare = () => preparePdfX4Pages(sharedGlyphs(fonts, glyphs, names, steps - 1));
+      expect(prepare).toThrow(ResourceLimitError);
+      expect(prepare).toThrow(new RegExp(`glyph procedures .*maxDecodedBytes \\(${String(steps - 1)}\\)`, 'u'));
     },
   );
 
