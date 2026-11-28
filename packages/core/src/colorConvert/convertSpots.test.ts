@@ -147,6 +147,20 @@ describe('DeviceN Colorants', () => {
     expectConvertedA(document, pageSpace(document, 'CS2'));
   });
 
+  it.each([
+    { entry: 'an indirect null', objects: [{ number: 9, body: 'null' }] },
+    { entry: 'a reference to a missing object', objects: [] },
+  ])('skips a Colorants entry that is $entry and converts its sibling', ({ objects }) => {
+    // ISO 32000-1:2008, 7.3.7: a dictionary entry whose value is null is treated as if it were absent, and 7.3.10 reads a reference to a missing object as null.
+    const space = `[/DeviceN[/A/B]/DeviceCMYK 6 0 R<</Colorants<</B 9 0 R/A ${SEPARATION_A}>>>>]`;
+    const document = deviceNDocument(`/ColorSpace<</CS2${space}>>`, [CMYK_TINT, ...objects]);
+    expect(convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).separations).toBe(1);
+    const items = pageSpace(document, 'CS2');
+    expectConvertedA(document, items);
+    const colorants = colorantsOf(document, items);
+    expect(colorants?.kind === 'dictionary' ? colorants.entries.get(pdfName('B').bytes) : undefined).toStrictEqual(pdfReference(9, 0));
+  });
+
   it('converts a Colorants entry of a DeviceN image colour space', () => {
     const document = deviceNDocument(
       '/XObject<</Im 5 0 R>>',
