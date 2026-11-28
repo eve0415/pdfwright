@@ -2,6 +2,7 @@ import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { TestPage } from '../../testing/textPdf.ts';
 import type { ColorantUse, ListColorantsOptions, PageColorants } from './listColorants.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
@@ -460,5 +461,77 @@ describe('pages', () => {
       Reflect.set(options, 'pages', value);
       expect(() => listColorants(document, options)).toThrow(InvalidArgumentError);
     }
+  });
+});
+
+// The values of an order that a list holds, in that order and once each.
+const inOrder = (values: ReadonlyArray<string>, order: ReadonlyArray<string>): Array<string> => order.filter(value => values.includes(value));
+
+describe('properties', () => {
+  // Operations over spot spaces, device spaces, an NChannel space with a listed colorant, alpha, text render modes, clipping, an image and a SeparationInfo.
+  const OPERATIONS = [
+    '/CS1 cs 1 scn',
+    '/CS2 CS 1 SCN',
+    '/D cs 1 1 scn',
+    '/N cs 1 scn',
+    '0 g',
+    '0 0 10 10 re f',
+    '0 0 m 10 10 l S',
+    '0 0 10 10 re B',
+    '0 0 10 10 re W n',
+    'BT /F1 12 Tf (a) Tj ET',
+    'BT /F1 12 Tf 2 Tr (a) Tj ET',
+    'BT /F1 12 Tf 3 Tr (a) Tj ET',
+    'BT /F1 12 Tf 7 Tr (a) Tj ET',
+    '/Clear gs',
+    '/Opaque gs',
+    '/Im1 Do',
+    'q /CS2 cs 1 scn 0 0 1 1 re f Q',
+  ];
+  const RESOURCES = [
+    `/ColorSpace<</CS1 ${separation('Gold')}/CS2 ${separation('Silver')}/D[/DeviceN[/Bronze/Cyan]/DeviceCMYK ${TINT}]`,
+    `/N[/DeviceN[/Gold]/DeviceCMYK ${TINT}<</Subtype/NChannel/Colorants<</Gold ${separation('Gold')}/Extra ${separation('Extra')}>>>>]`,
+    `/DefaultGray ${separation('Ink')}/Unused ${separation('Unused')}>>`,
+    `/ExtGState<</Clear<</ca 0/CA 0>>/Opaque<</ca 1/CA 1>>>>/XObject<</Im1 120 0 R>>${FONT}`,
+  ].join('');
+  const OBJECTS: ReadonlyArray<TestObject> = [{ number: 120, body: imageObject(separation('Image')) }];
+  const page = fc.record({
+    content: fc.array(fc.constantFrom(...OPERATIONS), { maxLength: 12 }).map(operations => operations.join(' ')),
+    info: fc.constantFrom('', `/SeparationInfo<</Pages[3 0 R]/DeviceColorant/Gold/ColorSpace ${separation('Plate')}>>`),
+  });
+  const PAINTED = ['fill', 'stroke', 'text', 'image', 'image-mask', 'inline-image', 'shading', 'pattern', 'type3-glyph', 'annotation'];
+  const SELECTED = ['colour-space-only', 'invisible-text', 'clip-only'];
+  const DECLARED = ['resources', 'soft-mask', 'd1-glyph', 'uncoloured-pattern', 'annotation-not-printed', 'nchannel-colorants', 'separation-info'];
+
+  it('lists each colorant once in byte order, with consistent painted, selected and declared lists', () => {
+    fc.assert(
+      fc.property(page, ({ content, info }) => {
+        const [result] = pagesOf([{ content, resources: RESOURCES, entries: info }], OBJECTS);
+        const uses = result?.colorants ?? [];
+        const names = uses.map(use => latin1Text(use.name));
+        // Latin-1 text compares by code unit, which is byte order.
+        expect([...new Set(names)].toSorted((left, right) => (left < right ? -1 : 1))).toStrictEqual(names);
+        for (const { painted, selected, declared } of uses) {
+          expect([painted, selected, declared]).toStrictEqual([inOrder(painted, PAINTED), inOrder(selected, SELECTED), inOrder(declared, DECLARED)]);
+          expect(painted.length > 0 && declared.includes('resources')).toBe(false);
+          expect(selected.includes('colour-space-only') && (painted.length > 0 || selected.length > 1)).toBe(false);
+        }
+      }),
+    );
+  });
+
+  it('reports the pages asked for in the order asked, each as the whole document reports it', () => {
+    const pages: ReadonlyArray<TestPage> = [
+      { content: '/CS1 cs 1 scn 0 0 10 10 re f', resources: RESOURCES },
+      { content: 'BT /F1 12 Tf 3 Tr /CS2 cs 1 scn (a) Tj ET', resources: RESOURCES },
+      { content: '/Missing cs /Im1 Do', resources: RESOURCES },
+    ];
+    const document = loadDocument(textPdfBytes({ pages, objects: OBJECTS }));
+    const whole = listColorants(document);
+    fc.assert(
+      fc.property(fc.uniqueArray(fc.integer({ min: 0, max: 2 }), { maxLength: 3 }), indexes => {
+        expect(listColorants(document, { pages: indexes })).toStrictEqual(indexes.map(index => whole[index]));
+      }),
+    );
   });
 });
