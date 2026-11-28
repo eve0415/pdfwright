@@ -29,15 +29,8 @@ export interface PieceInfoRecord {
   value: PdfDirectObject;
 }
 
-// ECMA-262 16th edition (ES2025), 24.1.3.7: Map.prototype.has performs "? RequireInternalSlot(M, [[MapData]])", so it throws for a receiver that is not a Map whatever its Symbol.toStringTag says.
-const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => {
-  try {
-    Map.prototype.has.call(data, '');
-    return true;
-  } catch {
-    return false;
-  }
-};
+// A record's values are PieceData objects, never functions, so a callable `entries` marks the map whatever its realm, subclass, tag or proxy.
+const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => typeof data.entries === 'function';
 
 const dataEntries = (data: PieceDataEntries): Array<[string | Uint8Array, PieceData]> => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
 
