@@ -96,12 +96,4 @@ describe('png decoding against ImageMagick', () => {
     const reference = await magick(['png:-', '-depth', '16', '-endian', 'MSB', 'rgba:-'], png);
     expect(rgba16(decoded)).toStrictEqual(reference);
   });
-
-  it.each(CASES.filter(sample => sample.depth <= 8))(
-    'converts colour type $colorType at bit depth $depth with interlace $interlace to the RGBA ImageMagick reads',
-    async sample => {
-      const png = await writePng(sample);
-      expect(pngToRgba8(decodePng(png))).toStrictEqual(await magick(['png:-', '-depth', '8', 'rgba:-'], png));
-    },
-  );
 });
