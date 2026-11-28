@@ -11,6 +11,8 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
+import { formatLength } from '../length/length.ts';
+import { formatNumber } from '../number/formatNumber.ts';
 import { deepEqual } from '../object/deepEqual.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfArray, pdfDictionary, pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -143,6 +145,46 @@ const additions = (resources: PdfDirectObject | undefined): Array<ResourceAdditi
   return list;
 };
 
+// A number as a save writes it: a real rounded to the document's fraction digits, and a whole one as an integer, which ISO 32000-1:2008, 7.3.3, NOTE 2 allows wherever a real is expected.
+const writtenNumber = (value: PdfDirectObject, fractionDigits: number): number | undefined => {
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind !== 'real') {
+    return undefined;
+  }
+  return Number(typeof value.value === 'number' ? formatNumber(value.value, fractionDigits) : formatLength(value.value, fractionDigits));
+};
+
+// Whether an existing resource value is written as the same object as a new one; numbers compare as written, and the new values hold no strings.
+const sameAsWritten = (existing: PdfDirectObject, value: PdfDirectObject, fractionDigits: number): boolean => {
+  const number = writtenNumber(value, fractionDigits);
+  if (number !== undefined) {
+    return writtenNumber(existing, fractionDigits) === number;
+  }
+  if (value.kind === 'array') {
+    return (
+      existing.kind === 'array' &&
+      existing.items.length === value.items.length &&
+      value.items.every((item, index) => {
+        const other = existing.items[index];
+        return other !== undefined && sameAsWritten(other, item, fractionDigits);
+      })
+    );
+  }
+  if (value.kind === 'dictionary') {
+    return (
+      existing.kind === 'dictionary' &&
+      existing.entries.size === value.entries.size &&
+      [...value.entries.entries()].every(([key, item]) => {
+        const other = existing.entries.get(key);
+        return other !== undefined && sameAsWritten(other, item, fractionDigits);
+      })
+    );
+  }
+  return deepEqual(existing, value, 'strict');
+};
+
 // A name the page's resources already give the same separation, or the same image or group object written by an earlier append.
 const existingName = (context: ContentContext, page: PageEntry, resource: RegisteredResource): string | undefined => {
   let number: number | undefined;
@@ -159,9 +201,8 @@ const existingName = (context: ContentContext, page: PageEntry, resource: Regist
   if (value === undefined) {
     return undefined;
   }
-  // ISO 32000-1:2008, 7.3.3, NOTE 2 lets an integer stand for a real, and a save writes a whole real such as 0.0 as 0, so numbers compare by value; the values compared here hold no strings.
   for (const [key, existing] of takenNames(context, page, category).entries()) {
-    if (deepEqual(existing, value, 'lenient')) {
+    if (sameAsWritten(existing, value, context.fractionDigits)) {
       return latin1(key);
     }
   }
