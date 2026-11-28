@@ -662,7 +662,6 @@ describe('setting document metadata', () => {
     expect([packetProperties(reloaded).includes('Rating'), codes(reloaded)]).toStrictEqual([false, []]);
   });
 
-  // ISO 32000-1:2008, Table 5: DecodeParms and DL describe the old encoding, which the unfiltered packet no longer has; other entries stay.
   // ISO 32000-1:2008, Table 5: F, FFilter and FDecodeParms name an external file that holds the data; the replacement packet is held in the file.
   it('drops the external file entries of a metadata stream it replaces', () => {
     const document = load('/Metadata 4 0 R', [
@@ -679,6 +678,7 @@ describe('setting document metadata', () => {
     expect(() => setMetadata({ ...load('') }, INPUT)).toThrow(InvalidArgumentError);
   });
 
+  // ISO 32000-1:2008, Table 5: DecodeParms and DL describe the old encoding, which the unfiltered packet no longer has; other entries stay.
   it('drops the encoding entries of the metadata stream and keeps its other entries', () => {
     const document = load('/Metadata 4 0 R', [
       { number: 4, body: streamBody('/Type/Metadata/Subtype/XML/Filter/ASCIIHexDecode/DecodeParms<<>>/DL 10/Custom 1', `${hexOf(packet(''))}>`) },
