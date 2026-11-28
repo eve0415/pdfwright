@@ -223,10 +223,14 @@ describe('decodeJpeg public surface', () => {
   });
 
   it('stops at an IFD0 entry that does not fit in the segment', () => {
-    // IFD0 declares two entries, but only the first and four bytes of an Orientation entry follow it.
-    const whole = tiffHeader('MM', [{ tag: 0x01_10, type: 2, count: 4, value: 0x41_42 }]);
-    const tiff = [...whole.subarray(0, 8), 0, 2, ...whole.subarray(10, 22), 0x01, 0x12, 0, 3];
-    expect(orientationOf(exifPayload(tiff))).toBeUndefined();
+    // TIFF 6.0, Section 2: an IFD entry is 12 bytes, and the Orientation entry starts at TIFF byte 22, after the header, the entry count and one entry.
+    const whole = tiffHeader('MM', [
+      { tag: 0x01_10, type: 2, count: 4, value: 0x41_42 },
+      { tag: 0x01_12, type: 3, count: 1, value: 6 },
+    ]);
+    // Eleven bytes hold the tag, type, count and both value bytes, so only the length check refuses the entry.
+    expect(orientationOf(exifPayload(whole.subarray(0, 33)))).toBeUndefined();
+    expect(orientationOf(exifPayload(whole.subarray(0, 34)))).toBe(6);
   });
 
   it('reads Exif only under the identifier Exif followed by two null bytes', () => {
