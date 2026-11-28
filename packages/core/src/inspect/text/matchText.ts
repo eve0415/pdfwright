@@ -226,6 +226,8 @@ const SELECTORS = /[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu;
 // A CJK font draws full-width and wide characters one em wide and their half-width forms half an em wide, to within these many ems; Chromium's W arrays give 1 and 0.5 exactly for Noto Sans JP, with or without palt, halt, vpal, vhal and text-spacing-trim.
 const FULL_EM_TOLERANCE = 0.02;
 const HALF_EM_TOLERANCE = 0.1;
+// A width 0.02 em from one em lands just past the tolerance in binary floating point (1 − 0.98 is 0.020000000000000018), so the limit is compared with a margin far below one thousandth of an em.
+const FULL_EM_LIMIT = FULL_EM_TOLERANCE + 1e-9;
 
 // The ToUnicode character of a composite font's glyph when it is one full-width or wide character.
 const wideCharacter = (glyph: PageGlyph): number | undefined => {
@@ -248,7 +250,7 @@ const proportionalFonts = (glyphs: ReadonlyArray<PageGlyph>): Set<string> => {
     if (wideCharacter(glyph) === undefined || width === undefined) {
       continue;
     }
-    if (Math.abs(width - 1) > FULL_EM_TOLERANCE && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) {
+    if (Math.abs(width - 1) > FULL_EM_LIMIT && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) {
       fonts.add(glyph.font);
     }
   }
