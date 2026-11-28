@@ -202,7 +202,7 @@ describe('full rewrite', () => {
     const source = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R', xrefStreamNumber: 10 }]).bytes;
     const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
     // Objects 1 to 4, and the rewrite's own cross-reference stream as object 5.
-    expect(output).toContain('/Size 6');
+    expect(output).toMatch(/\/Size 6[^0-9]/u);
   });
 
   it('copies unchanged objects as one run, keeping their numbers', () => {
@@ -261,8 +261,8 @@ describe('full rewrite', () => {
     const output = text(saved.toBytes());
     const reloaded = loadDocument(saved.chunks);
     expect([
-      output.includes('5 0 obj'),
-      output.includes('6 0 obj'),
+      /\n5 0 obj\n/u.test(output),
+      /\n6 0 obj\n/u.test(output),
       output.includes('8 0 obj\n(eight)\nendobj'),
       reloaded.structure.lastSectionKind,
     ]).toStrictEqual([true, false, true, 'stream']);
@@ -289,7 +289,7 @@ describe('full rewrite', () => {
       { xref: 'stream', objects: [page, content], trailer: '/Root 1 0 R' },
     ]).bytes;
     const output = text(loadDocument(source).save({ mode: 'full' }).toBytes());
-    expect([output.includes('/Type/ObjStm'), output.includes('MediaBox[0 0 200'), output.includes('2 0 obj')]).toStrictEqual([false, false, true]);
+    expect([output.includes('/Type/ObjStm'), output.includes('MediaBox[0 0 200'), /\n2 0 obj\n/u.test(output)]).toStrictEqual([false, false, true]);
   });
 
   it('drops the linearization dictionary and the hint stream its H entry names, with a warning', () => {
