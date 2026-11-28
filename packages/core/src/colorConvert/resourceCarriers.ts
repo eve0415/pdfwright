@@ -34,6 +34,7 @@ const RESOURCES = pdfName('Resources').bytes;
 const XOBJECT = pdfName('XObject').bytes;
 const PATTERN = pdfName('Pattern').bytes;
 const FONT = pdfName('Font').bytes;
+const EXT_G_STATE = pdfName('ExtGState').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const PATTERN_TYPE = pdfName('PatternType').bytes;
 const ANNOTS = pdfName('Annots').bytes;
@@ -117,6 +118,12 @@ class CarrierWalk {
         }
       }
     }
+    // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
+    const states = this.internals.objects.deref(resources.get(EXT_G_STATE));
+    for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
+      const font = this.internals.objects.deref(entriesOf(this.internals.objects.deref(value))?.get(FONT));
+      this.owner(font?.kind === 'array' ? font.items[0] : undefined, false);
+    }
   }
 
   appearances(page: PdfReference): void {
@@ -143,7 +150,7 @@ class CarrierWalk {
 }
 
 /**
- * Lists, from a page's effective resources and its annotations' appearances, every form XObject, tiling pattern, Type 3 font and appearance stream that has its own Resources dictionary, nested to any depth, including a Type 3 font stored directly in a Font category.
+ * Lists, from a page's effective resources and its annotations' appearances, every form XObject, tiling pattern, Type 3 font and appearance stream that has its own Resources dictionary, nested to any depth, including a Type 3 font stored directly in a Font category or selected by a graphics state's Font entry.
  * A holder is listed before the carriers reached from it.
  * Soft-mask groups and what only they reach are not listed. Objects in `seen` are skipped and every listed indirect one is added to it, which ends cycles and lists an object shared by pages once.
  */
