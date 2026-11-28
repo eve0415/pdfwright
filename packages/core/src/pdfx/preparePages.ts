@@ -2,7 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { EffectiveBoxes } from '../document/loadedPage.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
@@ -151,8 +151,9 @@ class TransparencyScan {
   private readonly fontObjects = new Set<number>();
   private readonly fonts = new Set<PdfDictionaryEntries>();
   private readonly directResources = new Map<string, number>();
-  // A glyph procedure is tokenised once per scan; the names it selects are kept, and a font with other Resources looks only those names up.
-  private readonly glyphUses = new Map<number, ReadonlyArray<Use>>();
+  // A glyph procedure is tokenised once per scan, and a CharProcs dictionary is walked once; the names they select are kept, and a font with other Resources looks only those names up.
+  private readonly glyphUses = new Map<number, ReadonlyMap<string, Use>>();
+  private readonly charProcsUses = new Map<string, ReadonlyArray<Use>>();
   private readonly reading = new Set<number>();
   private steps = 0;
   private depth = 0;
@@ -187,10 +188,16 @@ class TransparencyScan {
     return found;
   }
 
-  private replay(uses: ReadonlyArray<Use>, resources: PdfDictionaryEntries): boolean {
+  private replay(uses: Iterable<Use>, resources: PdfDictionaryEntries): boolean {
     this.enter();
     const lookup = this.lookup(resources);
-    const found = uses.some(use => this.use(use, lookup));
+    let found = false;
+    for (const use of uses) {
+      if (this.use(use, lookup)) {
+        found = true;
+        break;
+      }
+    }
     this.depth--;
     return found;
   }
@@ -285,59 +292,91 @@ class TransparencyScan {
     const ownValue = font.get(key('Resources'));
     const own = entriesOf(this.internals, ownValue);
     const resources = own ?? this.page;
-    // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources dictionary is known by its entries, so that one parsed again, as when a glyph selects its own font, is not read again.
+    // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources or CharProcs dictionary is known by its entries, so that one parsed again, as when a glyph selects its own font, is not read again.
     let scope = 'page';
     if (ownValue?.kind === 'reference') {
       scope = `resources ${String(ownValue.objectNumber)}`;
     } else if (ownValue?.kind === 'dictionary') {
       scope = `direct ${String(this.directScope(ownValue))}`;
     }
-    const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
-    for (const [, procedure] of procedures?.entries() ?? []) {
+    const charProcsValue = font.get(key('CharProcs'));
+    const procedures = entriesOf(this.internals, charProcsValue);
+    let charProcs: string | undefined;
+    if (charProcsValue?.kind === 'reference') {
+      charProcs = `object ${String(charProcsValue.objectNumber)}`;
+    } else if (charProcsValue?.kind === 'dictionary') {
+      charProcs = `direct ${String(this.directScope(charProcsValue))}`;
+    }
+    if (procedures === undefined || charProcs === undefined) {
+      return false;
+    }
+    const read = `${charProcs} ${scope}`;
+    if (this.procedures.has(read)) {
+      return false;
+    }
+    this.procedures.add(read);
+    const known = this.charProcsUses.get(charProcs);
+    if (known !== undefined) {
+      this.step(1 + known.length);
+      return this.replay(known, resources);
+    }
+    const uses = new Map<string, Use>();
+    let complete = true;
+    for (const [, procedure] of procedures.entries()) {
       this.step(1);
       if (procedure.kind !== 'reference') {
         continue;
       }
-      const { objectNumber } = procedure;
-      const read = `${String(objectNumber)} ${scope}`;
-      if (this.procedures.has(read)) {
-        continue;
-      }
-      this.procedures.add(read);
-      const known = this.glyphUses.get(objectNumber);
-      if (known !== undefined) {
-        this.step(known.length);
-        if (this.replay(known, resources)) {
-          return true;
-        }
-        continue;
-      }
-      const stream = this.internals.objects.deref(procedure);
-      if (stream?.kind !== 'stream') {
-        continue;
-      }
-      const bytes = decodedData(this.internals, stream);
-      if (typeof bytes === 'string') {
-        throw new ValidationError(`glyph procedure cannot be read: ${bytes}`, 'unreadable-resource');
-      }
-      // A glyph that selects another font sharing it is reached again before its first read ends, while the names it selects are not all known.
-      if (this.reading.has(objectNumber)) {
-        this.step(bytes.length);
-        if (this.nested(bytes, resources)) {
-          return true;
-        }
-        continue;
-      }
-      this.reading.add(objectNumber);
-      const uses = new Map<string, Use>();
-      const found = this.nested(bytes, resources, uses);
-      this.reading.delete(objectNumber);
-      if (found) {
+      const glyph = this.glyph(procedure, resources);
+      if (glyph === true) {
         return true;
       }
-      this.glyphUses.set(objectNumber, [...uses.values()]);
+      if (glyph === undefined) {
+        complete = false;
+        continue;
+      }
+      for (const [text, use] of glyph) {
+        if (!uses.has(text)) {
+          uses.set(text, use);
+        }
+      }
+    }
+    if (complete) {
+      this.charProcsUses.set(charProcs, [...uses.values()]);
     }
     return false;
+  }
+
+  /** Reads one glyph procedure with the given Resources: true when it uses transparency, else the names it selects, or undefined while they are not all known. */
+  private glyph(procedure: PdfReference, resources: PdfDictionaryEntries): true | ReadonlyMap<string, Use> | undefined {
+    const { objectNumber } = procedure;
+    const known = this.glyphUses.get(objectNumber);
+    if (known !== undefined) {
+      this.step(known.size);
+      return this.replay(known.values(), resources) || known;
+    }
+    const stream = this.internals.objects.deref(procedure);
+    if (stream?.kind !== 'stream') {
+      return new Map();
+    }
+    const bytes = decodedData(this.internals, stream);
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`glyph procedure cannot be read: ${bytes}`, 'unreadable-resource');
+    }
+    // A glyph that selects another font sharing it is reached again before its first read ends, while the names it selects are not all known.
+    if (this.reading.has(objectNumber)) {
+      this.step(bytes.length);
+      return this.nested(bytes, resources) || undefined;
+    }
+    this.reading.add(objectNumber);
+    const uses = new Map<string, Use>();
+    const found = this.nested(bytes, resources, uses);
+    this.reading.delete(objectNumber);
+    if (found) {
+      return true;
+    }
+    this.glyphUses.set(objectNumber, uses);
+    return uses;
   }
 
   private appearance(value: PdfDirectObject | undefined, resources: PdfDictionaryEntries): boolean {
