@@ -264,11 +264,11 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
   const dictionary = pageDictionary(objects, entry.reference);
   const key = pdfName(name).bytes;
   if (corners === undefined) {
-    // Table 30, MediaBox: "(Required; inheritable)"; removing the page's own value is refused when no ancestor supplies one.
+    // Table 30, MediaBox: "(Required; inheritable)"; removing the page's own value is refused when no ancestor supplies one, read as inheritance reads it.
     if (name === 'MediaBox') {
       let supplied = false;
       for (let node = entry.parent; node !== undefined; node = node.parent) {
-        if (dictionaryOf(objects, node.reference).has(key)) {
+        if (present(objects, dictionaryOf(objects, node.reference).get(key))) {
           supplied = true;
           break;
         }
