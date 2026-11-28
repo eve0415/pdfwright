@@ -8,7 +8,9 @@ import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgb from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
@@ -274,6 +276,39 @@ describe('gts pdfx output intent', () => {
     expect([result.action, result.removedSubtypes, result.profile]).toStrictEqual(['replaced', ['ISO_PDFE1'], kept.profileReference]);
     expect([document.get(corrupt.intentReference), document.get(corrupt.profileReference)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
     expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
+  });
+
+  const compressedIntent = (maxDecodedBytes: number) => {
+    const document = loadDocument(base().bytes, { maxDecodedBytes });
+    const profileReference = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries([[pdfName('Filter').bytes, pdfName('FlateDecode')]]),
+      data: deflateZlib(profile),
+    });
+    const intentReference = document.object(
+      pdfDictionary(
+        new PdfDictionaryEntries([
+          [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+          [pdfName('DestOutputProfile').bytes, profileReference],
+        ]),
+      ),
+    );
+    setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
+    return { document, intentReference, profileReference };
+  };
+
+  it.each<[string, number, string, Array<string>, Array<string>]>([
+    ['at the decode limit', 0, 'added', [], ['GTS_PDFX', 'GTS_PDFA1']],
+    ['one byte past the decode limit', 1, 'replaced', ['GTS_PDFA1'], ['GTS_PDFX']],
+  ])('replaces an existing intent whose profile decodes %s only when it cannot be read', (_, over, action, removed, subtypes) => {
+    const { document } = compressedIntent(profile.length - over);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual([action, removed, subtypes]);
+  });
+
+  it('refuses an existing intent whose profile decodes past the limit by default', () => {
+    const { document } = compressedIntent(profile.length - 1);
+    expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(ResourceLimitError);
   });
 
   it('reuses an identical indirect profile and refuses a conflicting one by default', () => {
