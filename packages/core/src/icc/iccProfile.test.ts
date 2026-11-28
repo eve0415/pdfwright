@@ -99,7 +99,8 @@ describe('icc profile basic tags', () => {
     view.setUint16(194, 2);
     expect(parseIccProfile(bytes).deviceToPcs[0]?.clut?.outputChannels).toBe(3);
     bytes.set(new TextEncoder().encode('RGB '), 16);
-    expect(() => parseIccProfile(bytes)).toThrow('channel count disagrees');
+    expect(() => parseIccProfile(bytes)).toThrow(InvalidProfileError);
+    expect(() => parseIccProfile(bytes)).toThrow(expect.objectContaining({ reason: 'channel-mismatch', offset: 144, tag: 'A2B0' }));
   });
 
   it('attaches an mAB pipeline to a v4 profile', () => {
