@@ -1,6 +1,7 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PacketRoles } from './packetScan.ts';
+import type { BuildOptions, TestObject } from '../testing/pdfBuilder.ts';
+import type { PacketRoles, ScannedPackets } from './packetScan.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -48,6 +49,25 @@ const source = (): Uint8Array =>
     { xref: 'classic', objects: [{ number: 3, body: streamBody('/Type/Metadata/Subtype/XML', PACKET) }], trailer: '/Root 1 0 R' },
   ]).bytes;
 
+const scanOne = (objects: ReadonlyArray<TestObject>, packetRoles: PacketRoles, options: BuildOptions = {}): ScannedPackets =>
+  scanPackets(
+    internals(
+      loadDocument(
+        buildPdf(
+          [
+            {
+              xref: 'classic',
+              objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }, ...objects],
+              trailer: '/Root 1 0 R',
+            },
+          ],
+          options,
+        ).bytes,
+      ),
+    ),
+    packetRoles,
+  );
+
 describe('locating packets in file bytes', () => {
   it('attributes each packet to the object whose bytes hold it, decoding filtered metadata streams', () => {
     const document = loadDocument(source());
@@ -71,6 +91,39 @@ describe('locating packets in file bytes', () => {
       orphans: 1,
       superseded: 1,
       insideOtherStreams: 2,
+    });
+  });
+
+  it.each([
+    [
+      'a filtered stream that cannot be decoded, without counting its raw bytes',
+      [{ number: 3, body: streamBody('/Type/Metadata/Subtype/XML/Filter/FlateDecode', PACKET) }],
+      { document: 0, components: 0, orphans: 0, superseded: 0, insideOtherStreams: 0 },
+    ],
+    [
+      'two headers in one stream',
+      [{ number: 3, body: streamBody('/Type/Metadata/Subtype/XML', `${PACKET}${PACKET}`) }],
+      { document: 0, components: 0, orphans: 2, superseded: 0, insideOtherStreams: 0 },
+    ],
+    [
+      'a header in an object that does not parse, up to where the next object starts',
+      [
+        { number: 5, body: `<</Type/Metadata ${PACKET}` },
+        { number: 6, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+      ],
+      { document: 0, components: 0, orphans: 0, superseded: 0, insideOtherStreams: 1 },
+    ],
+  ] satisfies Array<[string, Array<TestObject>, ScannedPackets]>)('counts %s', (_name, objects, expected) => {
+    expect(scanOne(objects, roles(9, [], [3]))).toStrictEqual(expected);
+  });
+
+  it('counts a header before the first object as superseded', () => {
+    expect(scanOne([], roles(9, [], []), { header: `%PDF-1.7\n%${PACKET}` })).toStrictEqual({
+      document: 0,
+      components: 0,
+      orphans: 0,
+      superseded: 1,
+      insideOtherStreams: 0,
     });
   });
 });
