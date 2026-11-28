@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { text } from 'node:stream/consumers';
+import { buffer, text } from 'node:stream/consumers';
 
 export interface ToolRun {
   readonly code: number;
@@ -17,12 +17,52 @@ export interface ReaderReport {
   readonly output: string;
 }
 
+export interface CheckedRun {
+  readonly stdout: Uint8Array;
+  readonly stderr: string;
+}
+
+// A spawn of a missing command rejects with ENOENT, which names neither the command nor what to do about it.
+const started = async <T>(command: string, run: Promise<T>): Promise<T> => {
+  try {
+    return await run;
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+      throw new Error(`${command} is not installed or not on PATH; the devcontainer and the CI oracle job install every tool the oracle tests run`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+};
+
+/** Runs a tool and reports its exit code and its stdout and stderr together; a tool that cannot be started rejects. */
 export const runTool = async (command: string, args: ReadonlyArray<string>): Promise<ToolRun> => {
   const child = spawn(command, args);
-  const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
+  const [closed, stdout, stderr] = await started(command, Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]));
   const code: unknown = closed[0];
   return { code: typeof code === 'number' ? code : -1, output: `${stdout}${stderr}` };
 };
+
+/** Runs a tool with optional standard input and rejects unless it exits 0, with its stderr in the message. */
+export const runChecked = async (command: string, args: ReadonlyArray<string>, input?: Uint8Array): Promise<CheckedRun> => {
+  const child = spawn(command, args);
+  child.stdin.end(input);
+  const [closed, stdout, stderr] = await started(command, Promise.all([once(child, 'close'), buffer(child.stdout), text(child.stderr)]));
+  if (closed[0] !== 0) {
+    throw new Error(`${command} exited ${String(closed[0])}: ${stderr}`);
+  }
+  return { stdout: new Uint8Array(stdout), stderr };
+};
+
+/** Runs qpdf and returns its stdout and stderr as text, rejecting unless it exits 0 (qpdf exits 3 when it only warns). */
+export const runQpdf = async (args: ReadonlyArray<string>): Promise<{ readonly stdout: string; readonly stderr: string }> => {
+  const run = await runChecked('qpdf', args);
+  return { stdout: new TextDecoder().decode(run.stdout), stderr: run.stderr };
+};
+
+/** Runs ImageMagick with `input` on standard input and returns what it writes to standard output. */
+export const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => (await runChecked('magick', args, input)).stdout;
 
 const numbers = (values: ReadonlyArray<string | undefined>): ReadonlyArray<number> | undefined => {
   const parsed: Array<number> = [];
