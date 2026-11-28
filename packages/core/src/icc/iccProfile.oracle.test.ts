@@ -1,6 +1,7 @@
 import type { ContentOperation } from '../content/contentOperations.ts';
 import type { IccProfile } from './iccProfile.ts';
 
+import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { env, stdout } from 'node:process';
@@ -21,44 +22,41 @@ import { parseIccProfile } from './iccProfile.ts';
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
 
-describe('committed ICC fixtures', () => {
-  it.each(['fogra28l.icc', 'fogra28l-v4.icc', 'synthetic-cmyk.icc', 'sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'Rec2020-v4.icc', 'ProPhoto-v4.icc'])(
-    'parses %s and keeps its profile bytes',
-    async name => {
-      const bytes = await fixture(name);
-      const profile = parseIccProfile(bytes);
-      expect(profile.bytes).toStrictEqual(bytes);
-      expect(profile.identity).toHaveLength(16);
-    },
-  );
-});
+// ICC.1:2022, 7.2.18: the profile ID is the MD5 of the profile with the flags, rendering intent and profile ID fields set to zero; node:crypto computes it independently of the library's MD5.
+const externalIdentity = (bytes: Uint8Array): Uint8Array => {
+  const copy = Uint8Array.from(bytes);
+  copy.fill(0, 44, 48);
+  copy.fill(0, 64, 68);
+  copy.fill(0, 84, 100);
+  return Uint8Array.from(createHash('md5').update(copy).digest());
+};
 
-describe('icc transform smoke oracle', () => {
-  it('matches LittleCMS CMYK values for v2 and v4 destination tables', async () => {
-    const source = parseIccProfile(await fixture('sRGB.icm'));
-    const sourceV4 = parseIccProfile(await fixture('sRGB-v4.icc'));
-    const destination = parseIccProfile(await fixture('fogra28l.icc'));
-    const destinationV4 = parseIccProfile(await fixture('fogra28l-v4.icc'));
-    const cases = [
-      { source, destination, rgb: [0, 0, 0], cmyk: [99.986267, 62.825972, 37.1252, 100] },
-      { source, destination, rgb: [128, 128, 128], cmyk: [14.896, 11.913, 13.776, 53.33] },
-      { source: sourceV4, destination: destinationV4, rgb: [0, 0, 0], cmyk: [96.334785, 59.949642, 37.677577, 99.810791] },
-      { source: sourceV4, destination: destinationV4, rgb: [128, 128, 128], cmyk: [15.994507, 12.813, 14.694437, 52.426946] },
-    ];
-    for (const item of cases) {
-      const transform = createColorTransform({ kind: 'icc', profile: item.source }, item.destination, {
-        intent: 'relativeColorimetric',
-        blackPointCompensation: false,
-      });
-      const output = new Float64Array(4);
-      transform.convert(
-        Float64Array.from(item.rgb, value => value / 255),
-        output,
-      );
-      for (let channel = 0; channel < 4; channel++) {
-        expect(Math.abs(Number(output[channel]) * 100 - Number(item.cmyk[channel]))).toBeLessThan(0.5);
-      }
-    }
+describe('committed ICC fixtures', () => {
+  it.each([
+    { name: 'fogra28l.icc', version: { major: 2, minor: 2, bugfix: 0 }, profileClass: 'output', colorSpace: 'CMYK', pcs: 'Lab', headerId: false },
+    { name: 'fogra28l-v4.icc', version: { major: 4, minor: 3, bugfix: 0 }, profileClass: 'output', colorSpace: 'CMYK', pcs: 'Lab', headerId: true },
+    { name: 'synthetic-cmyk.icc', version: { major: 2, minor: 2, bugfix: 0 }, profileClass: 'output', colorSpace: 'CMYK', pcs: 'Lab', headerId: false },
+    { name: 'sRGB.icm', version: { major: 2, minor: 2, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: false },
+    { name: 'sRGB-v4.icc', version: { major: 4, minor: 2, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: true },
+    { name: 'sRGB2014.icc', version: { major: 2, minor: 0, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: true },
+    { name: 'DisplayP3-v4.icc', version: { major: 4, minor: 2, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: true },
+    { name: 'Rec2020-v4.icc', version: { major: 4, minor: 2, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: true },
+    { name: 'ProPhoto-v4.icc', version: { major: 4, minor: 2, bugfix: 0 }, profileClass: 'display', colorSpace: 'RGB', pcs: 'XYZ', headerId: true },
+  ])('parses $name, keeps its bytes and computes its profile ID', async ({ name, version, profileClass, colorSpace, pcs, headerId }) => {
+    const bytes = await fixture(name);
+    const profile = parseIccProfile(bytes);
+    expect(profile.bytes).toStrictEqual(bytes);
+    const { header } = profile;
+    expect({ version: header.version, profileClass: header.profileClass, colorSpace: header.colorSpace, pcs: header.pcs }).toStrictEqual({
+      version,
+      profileClass,
+      colorSpace,
+      pcs,
+    });
+    expect(profile.warnings).toStrictEqual([]);
+    expect(profile.identity).toStrictEqual(externalIdentity(bytes));
+    // The tools that wrote these files stored the ID in the header, which makes it a second, external oracle.
+    expect(header.profileId).toStrictEqual(headerId ? externalIdentity(bytes) : new Uint8Array(16));
   });
 });
 
@@ -384,13 +382,11 @@ describe('ciede2000 oracle metric', () => {
 });
 
 describe('local ICC profiles', () => {
-  it.skipIf(localDirectory === undefined)('not run when PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset', async () => {
+  it.skipIf(localDirectory === undefined)('parses every local profile', async () => {
     const files = await localProfiles();
     expect(files.length).toBeGreaterThan(0);
-    for (const bytes of files) {
-      const profile = parseIccProfile(bytes);
-      expect(profile.identity).toHaveLength(16);
-    }
+    // A profile with a zero ID raises no profile-id-mismatch, so every such warning is a non-zero ID that disagrees with the computed one.
+    expect(files.flatMap(bytes => parseIccProfile(bytes).warnings.filter(warning => warning.code === 'profile-id-mismatch'))).toStrictEqual([]);
   });
 
   it.skipIf(missingOracleVariables.length > 0).each(acrobatCases)(

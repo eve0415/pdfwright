@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
+import { rawIccProfileBytes } from '../testing/iccProfileBytes.ts';
 
 import { parseIccProfile } from './iccProfile.ts';
 
@@ -24,20 +25,6 @@ const oneTag = (name: string, dataType: string, size = 8): Uint8Array => {
   view.setUint32(136, 144);
   view.setUint32(140, size);
   bytes.set(new TextEncoder().encode(dataType), 144);
-  return bytes;
-};
-
-const twoTags = (): Uint8Array => {
-  const bytes = base(172);
-  const view = new DataView(bytes.buffer);
-  view.setUint32(128, 2);
-  bytes.set(new TextEncoder().encode('rTRC'), 132);
-  view.setUint32(136, 156);
-  view.setUint32(140, 16);
-  bytes.set(new TextEncoder().encode('gTRC'), 144);
-  view.setUint32(148, 156);
-  view.setUint32(152, 16);
-  bytes.set(new TextEncoder().encode('curv'), 156);
   return bytes;
 };
 
@@ -98,26 +85,40 @@ describe('malformed icc profiles', () => {
     expect(reason(oneTag('A2B0', 'XYZ '))).toBe('tag-type-mismatch');
   });
 
-  it('rejects duplicate signatures and partial overlap but permits shared data', () => {
-    const shared = twoTags();
-    expect(reason(shared)).toBe('accepted');
-    shared.set(new TextEncoder().encode('rTRC'), 144);
-    expect(reason(shared)).toBe('duplicate-tag');
-    shared.set(new TextEncoder().encode('gTRC'), 144);
-    const view = new DataView(shared.buffer);
-    view.setUint32(148, 160);
-    view.setUint32(152, 12);
-    expect(reason(shared)).toBe('tag-overlap');
+  // ICC.1:2022, 7.3.1: two tags may share one data element with the same offset and size, but must not partially overlap or repeat a signature.
+  it.each([
+    { name: 'share one element', first: ['rTRC', 156, 16], second: ['gTRC', 156, 16], expected: 'accepted' },
+    { name: 'start together with different sizes', first: ['zzz1', 156, 12], second: ['zzz2', 156, 16], expected: 'tag-overlap' },
+    { name: 'start one inside the other', first: ['zzz1', 156, 16], second: ['zzz2', 160, 12], expected: 'tag-overlap' },
+    { name: 'are adjacent', first: ['zzz1', 156, 16], second: ['zzz2', 172, 8], expected: 'accepted' },
+    { name: 'repeat a signature', first: ['rTRC', 156, 16], second: ['rTRC', 156, 16], expected: 'duplicate-tag' },
+  ] as const)('two tags that $name', ({ first, second, expected }) => {
+    const bytes = rawIccProfileBytes({
+      profileClass: 'mntr',
+      colorSpace: 'RGB ',
+      pcs: 'XYZ ',
+      length: 180,
+      tags: [first, second].map(([signature, offset, size]) => ({ signature, offset, size })),
+      data: [[156, new TextEncoder().encode('curv')]],
+    });
+    expect(reason(bytes)).toBe(expected);
   });
 
-  it('reports misalignment and bounds CLUT allocation', () => {
+  it.each([
+    { offset: 146, warnings: [{ code: 'tag-misaligned', offset: 136 }] },
+    { offset: 148, warnings: [] },
+  ])('warns about a tag at offset $offset only when it is not 4-byte aligned', ({ offset, warnings }) => {
+    // ICC.1:2022, 7.3.4: tag data starts on a 4-byte boundary; a misaligned tag is still read.
     const misaligned = base(156);
     const view = new DataView(misaligned.buffer);
     view.setUint32(128, 1);
     misaligned.set(new TextEncoder().encode('zzzz'), 132);
-    view.setUint32(136, 145);
+    view.setUint32(136, offset);
     view.setUint32(140, 8);
-    expect(parseIccProfile(misaligned).warnings.map(warning => warning.code)).toContain('tag-misaligned');
+    expect(parseIccProfile(misaligned).warnings).toStrictEqual(warnings);
+  });
+
+  it('bounds CLUT allocation', () => {
     const huge = oneTag('A2B0', 'mft2', 52);
     huge[152] = 15;
     huge[153] = 3;
