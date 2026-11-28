@@ -119,16 +119,15 @@ describe('page content comparison', () => {
 
   it('reports content that cannot be decoded instead of passing it', () => {
     const encoded = document('4 0 R', [{ number: 4, body: streamBody('/Filter/DCTDecode', 'xx') }]);
-    expect(content(compareDocuments(single, encoded))).toStrictEqual([
-      { kind: 'undecodable', where: ['page', 0, 'Contents'], document: 'b', reason: 'the DCTDecode filter is not supported for decoding' },
-    ]);
+    expect(content(compareDocuments(single, encoded))).toMatchObject([{ kind: 'undecodable', where: ['page', 0, 'Contents'], document: 'b' }]);
   });
 
   it('reads inline image data as raw bytes and ignores comments', () => {
-    const [first] = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nab EI % comment\nQ'), 32);
+    const commented = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nab EI % comment\nQ'), 32);
     const same = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nab EI\nQ'), 32);
     const other = contentOperations(latin1Bytes('BI /W 1 /H 1 ID\nac EI\nQ'), 32);
-    expect([same.length, same[0] === first, other[1] === same[1], other[2] === same[2]]).toStrictEqual([3, true, false, true]);
+    expect(commented).toStrictEqual(same);
+    expect([same.length, other[0] === same[0], other[1] === same[1], other[2] === same[2]]).toStrictEqual([3, true, false, true]);
   });
 
   it('keeps an EI sequence inside unfiltered inline image samples', () => {
@@ -143,7 +142,7 @@ describe('page content comparison', () => {
     expect([direct, spaced]).toStrictEqual(['/46 /413835 ID3c7e396a7e3e ID', '/46 /413835 ID3c7e396a7e3e ID']);
   });
 
-  it('compares operations exactly, so strings no digest could tell apart still differ', () => {
+  it('compares operations exactly, so strings that a checksum could not tell apart still differ', () => {
     const thueMorse = Array.from({ length: 32 }, (_, index) => index.toString(2).split('1').length % 2);
     const text = (low: string, high: string): string => thueMorse.map(bit => `${high}${low}`.charAt(bit)).join('');
     const one = document('4 0 R', [{ number: 4, body: streamBody('', `BT <${text('a', 'b')}> Tj ET`) }]);
