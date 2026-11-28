@@ -890,6 +890,40 @@ describe('annotations and soft masks', () => {
     ]);
   });
 
+  it.each([
+    ['an appearance subdictionary and no AS', '/F 4/Rect[100 100 200 150]/AP<</N<</On 130 0 R>>>>'],
+    ['an AS that names no state of the subdictionary', '/F 4/Rect[100 100 200 150]/AS/Off/AP<</N<</On 130 0 R>>>>'],
+    ['no Rect', '/F 4/AP<</N 130 0 R>>'],
+  ])('draws nothing and warns of nothing for an annotation with %s', (_, entries) => {
+    const { texts, result } = run(
+      { content: '', entries: '/Annots[120 0 R]' },
+      [{ number: 120, body: `<</Type/Annot/Subtype/Square${entries}>>` }, appearance(130, '')],
+      {
+        annotations: 'all',
+      },
+    );
+    expect([texts, result.warnings]).toStrictEqual([[], []]);
+  });
+
+  it('maps an appearance onto a Rect given by any two opposite corners', () => {
+    // ISO 32000-1:2008, 7.9.5: a rectangle is written as "a pair of diagonally opposite corners", here the upper right one first.
+    const { texts } = run(
+      { content: '', entries: '/Annots[120 0 R]' },
+      [{ number: 120, body: '<</Type/Annot/Subtype/Square/F 4/Rect[200 150 100 100]/AP<</N 130 0 R>>>>' }, appearance(130, '')],
+      {
+        annotations: 'all',
+      },
+    );
+    expect(texts.map(text => text.state.ctm)).toStrictEqual([[10, 0, 0, 10, 100, 100]]);
+  });
+
+  it('draws an appearance with no marked-content sequence open, whatever the page leaves open', () => {
+    const { texts, result } = run({ content: '/P BMC', entries: '/Annots[120 0 R]' }, [annotation(120, '/F 4/AP<</N 130 0 R>>'), appearance(130, '')], {
+      annotations: 'all',
+    });
+    expect([texts.map(text => text.markedContent), result.warnings.map(warning => warning.code)]).toStrictEqual([[[]], ['marked-content-unbalanced']]);
+  });
+
   it('draws a soft-mask group as its own context when a graphics state sets it', () => {
     const { paints } = run({ content: '2 0 0 2 0 0 cm /Masked gs 0 0 1 1 re f', resources: '/ExtGState<</Masked<</SMask<</S/Alpha/G 110 0 R>>>>>>' }, [
       form(110, '/BBox[0 0 10 10]/Group<</S/Transparency>>/Resources<<>>', '0.5 g 0 0 10 10 re f'),
@@ -925,6 +959,55 @@ describe('damaged content', () => {
       false,
       ['resource-missing', 'resource-missing', 'resource-missing', 'resource-missing'],
     ]);
+  });
+
+  it('reports content that stops parsing part-way and keeps what came before', () => {
+    const { paints, result } = textRun('0 0 10 10 re f (unterminated');
+    expect([paints.map(paint => paint.kind), result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([
+      ['fill'],
+      false,
+      ['content-unreadable'],
+    ]);
+  });
+
+  it('reports a font whose dictionary parses but whose Widths cannot be read, and goes on', () => {
+    const { texts, result } = run({ content: 'BT /Bad 10 Tf (A) Tj /F1 10 Tf (A) Tj ET', resources: '/Font<</F1 101 0 R/Bad 150 0 R>>' }, [
+      { number: 150, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/FirstChar 65/LastChar 65/Widths 151 0 R>>' },
+      { number: 151, body: '[667 (unterminated' },
+    ]);
+    expect([texts.map(text => text.font.key), result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([
+      ['101.0'],
+      false,
+      ['font-unreadable', 'resource-missing'],
+    ]);
+  });
+
+  it("reports a font's own warnings once however often it is shown", () => {
+    const { texts, result } = textRun('BT /U 10 Tf (A) Tj (A) Tj ET', [{ number: 105, body: '<</Type/Font/Subtype/Type1/BaseFont/Unknown>>' }]);
+    expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([2, true, ['widths-unknown']]);
+  });
+
+  it('names a stream by its index in the Contents array, counting items it skips', () => {
+    const document = textPdf({ pages: [{ entries: '/Contents[null 120 0 R]' }], objects: [{ number: 120, body: streamBody('', 'foo') }] });
+    const { warnings } = interpretPage(document, 0);
+    expect(warnings.map(warning => warning.code)).toStrictEqual(['unknown-operator']);
+    expect(warnings[0]?.detail).toMatch(/\bcontent stream 1$/u);
+  });
+
+  it('lets an error that is not about unreadable content propagate', () => {
+    const failure = new Error('the paint handler failed');
+    const document = textPdf({ pages: [{ content: '0 0 10 10 re f' }] });
+    let thrown: unknown;
+    try {
+      interpretPage(document, 0, {
+        paint: () => {
+          throw failure;
+        },
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBe(failure);
   });
 
   it('reports a font object that cannot be parsed and goes on', () => {
@@ -971,6 +1054,7 @@ describe('damaged content', () => {
     const document = textPdf({ pages: [{ content: '' }] });
     expect(() => interpretPage(document, 1, {})).toThrow(InvalidArgumentError);
     expect(() => interpretPage(document, -1, {})).toThrow(InvalidArgumentError);
+    expect(() => interpretPage(document, 0.5, {})).toThrow(InvalidArgumentError);
   });
 
   it('refuses an annotations mode it does not know', () => {
