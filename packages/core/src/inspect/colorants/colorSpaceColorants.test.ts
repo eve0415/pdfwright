@@ -1,6 +1,7 @@
 import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { SpaceColorants } from './colorSpaceColorants.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { pdfReference } from '../../object/pdfObject.ts';
@@ -176,5 +177,87 @@ describe('colorants of colour spaces', () => {
       [],
       { colorants: [], warnings: [] },
     ]);
+  });
+});
+
+// One entry of a generated tint transform dictionary: a number or an array of numbers, written as integers or as equal reals, directly or as an indirect object.
+interface Entry {
+  readonly key: string;
+  readonly value: number | ReadonlyArray<number>;
+  readonly real: boolean;
+  readonly indirect: boolean;
+}
+
+const numberText = (value: number, real: boolean): string => (real ? `${String(value)}.0` : String(value));
+
+const valueText = ({ value, real }: Entry): string =>
+  typeof value === 'number' ? numberText(value, real) : `[${value.map(item => numberText(item, real)).join(' ')}]`;
+
+interface WrittenSpace {
+  readonly space: string;
+  readonly objects: ReadonlyArray<TestObject>;
+}
+
+// A Separation space whose tint transform holds the entries in the order given, and the objects that hold the indirect ones.
+const tintSpace = (entries: ReadonlyArray<Entry>): WrittenSpace => {
+  const objects: Array<TestObject> = [];
+  const pairs = entries.map(entry => {
+    if (!entry.indirect) {
+      return `/${entry.key} ${valueText(entry)}`;
+    }
+    const number = 101 + objects.length;
+    objects.push({ number, body: valueText(entry) });
+    return `/${entry.key} ${String(number)} 0 R`;
+  });
+  return { space: `[/Separation/Gold/DeviceCMYK <<${pairs.join('')}>>]`, objects };
+};
+
+const entryDefinition = (entries: ReadonlyArray<Entry>): string | undefined => {
+  const { space, objects } = tintSpace(entries);
+  return definition(space, objects);
+};
+
+describe('properties', () => {
+  const plain = fc.uniqueArray(
+    fc.record({
+      key: fc.constantFrom('C0', 'C1', 'Domain', 'N', 'Range', 'Size'),
+      value: fc.oneof(fc.integer({ min: -50, max: 50 }), fc.array(fc.integer({ min: -9, max: 9 }), { maxLength: 4 })),
+    }),
+    { selector: entry => entry.key, minLength: 1, maxLength: 6 },
+  );
+  // The same entries written plainly, and permuted with some values indirect or written as reals.
+  const written = plain.chain(entries =>
+    fc.tuple(
+      fc.constant(entries.map(entry => ({ ...entry, real: false, indirect: false }))),
+      fc
+        .shuffledSubarray(entries, { minLength: entries.length })
+        .chain(shuffled =>
+          fc.tuple(
+            ...shuffled.map(entry => fc.record({ key: fc.constant(entry.key), value: fc.constant(entry.value), real: fc.boolean(), indirect: fc.boolean() })),
+          ),
+        ),
+    ),
+  );
+
+  it('gives one definition to a tint transform whatever its key order, indirection and number form', () => {
+    fc.assert(
+      fc.property(written, ([original, rewritten]) => {
+        expect(entryDefinition(rewritten)).toBe(entryDefinition(original));
+      }),
+    );
+  });
+
+  it('gives another definition when a number of the tint transform changes', () => {
+    fc.assert(
+      fc.property(written, ([original]) => {
+        const [first, ...rest] = original;
+        if (first === undefined) {
+          throw new Error('the generator gives at least one entry');
+        }
+        const { value } = first;
+        const changed = typeof value === 'number' ? value + 1 : [(value[0] ?? 0) + 1, ...value.slice(1)];
+        expect(entryDefinition([{ ...first, value: changed }, ...rest])).not.toBe(entryDefinition(original));
+      }),
+    );
   });
 });
