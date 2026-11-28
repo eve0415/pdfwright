@@ -231,6 +231,10 @@ describe('icc multi-process lut tags', () => {
   it('rejects a tag shorter than its header and a tag of another type', () => {
     const tag = multiLutTag('mAB ', [3, 3], { b: identities(3) });
     expect(failure(tag, 31)).toStrictEqual({ reason: 'bad-tag-data', offset: START });
+    // ICC.1:2022, 10.12.1 Table 45: the header ends with the A-curve offset at bytes 28 to 31, so a buffer that ends at byte 31 cannot hold it.
+    const short = tag.slice(0, 31);
+    expect(() => readMultiLut(short, 0, short.length)).toThrow(InvalidProfileError);
+    expect(() => readMultiLut(short, 0, short.length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
     const other = Uint8Array.from(tag);
     other.set(new TextEncoder().encode('mft2'));
     expect(failure(other)).toStrictEqual({ reason: 'tag-type-mismatch', offset: START });
