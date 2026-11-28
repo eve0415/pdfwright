@@ -9,6 +9,7 @@ import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgb from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
@@ -339,6 +340,22 @@ describe('gts pdfx output intent', () => {
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', removed, ['GTS_PDFX']]);
     expect(deleted.map(number => document.get(pdfReference(number, 0)))).toStrictEqual(deleted.map(() => ({ kind: 'null' })));
+    expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
+  });
+
+  it.each<[string, string]>([
+    ['an object that cannot be parsed', '5 0 R'],
+    ['another generation of the profile object', '5 1 R'],
+  ])('replaces an intent whose profile reference names %s and refuses it by default', (_, reference) => {
+    const objects = [
+      { number: 4, body: `<</S/GTS_PDFA1/DestOutputProfile ${reference}>>` },
+      { number: 5, body: '<</Broken (unterminated' },
+    ];
+    const refused = withIntents('[4 0 R]', objects);
+    expect(() => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(ParseError);
+    const document = withIntents('[4 0 R]', objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
     expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
   });
 
