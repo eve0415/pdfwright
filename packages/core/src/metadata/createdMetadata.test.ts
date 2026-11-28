@@ -115,25 +115,42 @@ describe('metadata in created documents', () => {
   });
 
   // ISO 32000-1:2008, 14.3.3: a value that is not known "should be omitted from the dictionary rather than included with an empty string as its value".
+  const DC = 'http://purl.org/dc/elements/1.1/';
+  const PDF = 'http://ns.adobe.com/pdf/1.3/';
+  const XMP = 'http://ns.adobe.com/xap/1.0/';
   const TEXT_KEYS = [
-    ['title', 'Title', 'title'],
-    ['author', 'Author', 'creator'],
-    ['subject', 'Subject', 'description'],
-    ['keywords', 'Keywords', 'Keywords'],
-    ['creator', 'Creator', 'CreatorTool'],
-    ['producer', 'Producer', 'Producer'],
+    ['title', 'Title', DC, 'title', 'T'],
+    ['author', 'Author', DC, 'creator', 'A'],
+    ['subject', 'Subject', DC, 'description', 'S'],
+    ['keywords', 'Keywords', PDF, 'Keywords', 'K'],
+    ['creator', 'Creator', XMP, 'CreatorTool', 'C'],
+    ['producer', 'Producer', PDF, 'Producer', 'P'],
   ] as const;
   const EVERY_TEXT = { title: 'T', author: 'A', subject: 'S', keywords: 'K', creator: 'C', producer: 'P', modificationDate: MODIFIED };
+  const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<ReadonlyArray<string>> =>
+    rows.toSorted((a, b) => a.join(' ').localeCompare(b.join(' ')));
 
   it.each(TEXT_KEYS)('omits an empty %s from Info and the packet and keeps every other value', field => {
     const metadata = readMetadata(loadDocument(bytes({ info: { ...EVERY_TEXT, [field]: '' } })));
-    const xmpNames = metadata.xmp !== undefined && 'packet' in metadata.xmp ? metadata.xmp.packet.properties.map(property => property.localName) : [];
-    const others = TEXT_KEYS.flatMap(([other]) => (other === field ? [] : [other]));
-    expect([
-      metadata.findings,
-      TEXT_KEYS.flatMap(([other, key]) => (metadata.info?.values.has(key) === true ? [other] : [])),
-      TEXT_KEYS.flatMap(([other, , name]) => (xmpNames.includes(name) ? [other] : [])),
-    ]).toStrictEqual([[], others, others]);
+    const info = [...(metadata.info?.values ?? [])].map(([key, value]) => [key, value.kind === 'text' ? value.text : value.kind]);
+    // The packet's identifiers are derived from the whole document, so they are left out.
+    const xmp = (metadata.xmp !== undefined && 'packet' in metadata.xmp ? metadata.xmp.packet.properties : [])
+      .filter(property => property.namespace !== `${XMP}mm/`)
+      .map(({ namespace, localName, value }) => [
+        namespace,
+        localName,
+        ...(value.kind === 'text' ? [value.text] : value.kind === 'array' ? value.items.map(item => item.text) : [value.kind]),
+      ]);
+    const others = TEXT_KEYS.filter(([other]) => other !== field);
+    expect([metadata.findings, sorted(info), sorted(xmp)]).toStrictEqual([
+      [],
+      sorted([...others.map(([, key, , , text]) => [key, text]), ['ModDate', 'D:20240301120000Z']]),
+      sorted([
+        ...others.map(([, , namespace, localName, text]) => [namespace, localName, text]),
+        [XMP, 'ModifyDate', '2024-03-01T12:00:00Z'],
+        [XMP, 'MetadataDate', '2024-03-01T12:00:00Z'],
+      ]),
+    ]);
   });
 
   it('omits an empty Info value without a packet', () => {
