@@ -10,6 +10,7 @@ interface Measurement {
   readonly peakBytes: number;
   readonly fullBytes: number;
   readonly streamedBytes: number;
+  readonly imageBytes: number;
 }
 
 const measurement = (value: unknown): Measurement => {
@@ -20,7 +21,8 @@ const measurement = (value: unknown): Measurement => {
     !('pages' in value) ||
     !('peakBytes' in value) ||
     !('fullBytes' in value) ||
-    !('streamedBytes' in value)
+    !('streamedBytes' in value) ||
+    !('imageBytes' in value)
   ) {
     throw new Error('memory result is incomplete');
   }
@@ -29,7 +31,8 @@ const measurement = (value: unknown): Measurement => {
     typeof value.pages !== 'number' ||
     typeof value.peakBytes !== 'number' ||
     typeof value.fullBytes !== 'number' ||
-    typeof value.streamedBytes !== 'number'
+    typeof value.streamedBytes !== 'number' ||
+    typeof value.imageBytes !== 'number'
   ) {
     throw new TypeError('memory result is invalid');
   }
@@ -39,6 +42,7 @@ const measurement = (value: unknown): Measurement => {
     peakBytes: value.peakBytes,
     fullBytes: value.fullBytes,
     streamedBytes: value.streamedBytes,
+    imageBytes: value.imageBytes,
   };
 };
 
@@ -51,7 +55,9 @@ describe('print file memory', () => {
     const measured = measurement(result);
     expect(measured.pages).toBe(10);
     expect([measured.inputBytes > 80_000_000, measured.inputBytes < 90_000_000]).toStrictEqual([true, true]);
-    expect([measured.fullBytes > 0, measured.streamedBytes > 0]).toStrictEqual([true, true]);
+    expect(measured.imageBytes).toBeGreaterThan(80_000_000);
+    // Both saves keep the ten unmodified image streams, so each output is longer than their total.
+    expect([measured.fullBytes > measured.imageBytes, measured.streamedBytes > measured.imageBytes]).toStrictEqual([true, true]);
     expect(measured.peakBytes).toBeLessThanOrEqual(120_000_000);
   }, 120_000);
 });

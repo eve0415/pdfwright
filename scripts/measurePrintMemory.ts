@@ -32,11 +32,13 @@ const imageRows = function* (): Generator<Uint8Array> {
   }
 };
 
-const createFixture = async (filePath: string): Promise<void> => {
+// Returns the total length of the ten image streams, which every save of the file carries unchanged.
+const createFixture = async (filePath: string): Promise<number> => {
   const file = openSync(filePath, 'w+');
   const encoder = new TextEncoder();
   let length = 0;
   const offsets: Array<number> = [0];
+  let imageBytes = 0;
   const write = (value: string | Uint8Array): void => {
     length += writeAll(file, typeof value === 'string' ? encoder.encode(value) : value);
   };
@@ -71,6 +73,7 @@ const createFixture = async (filePath: string): Promise<void> => {
         write(chunk);
       }
       const streamLength = length - streamAt;
+      imageBytes += streamLength;
       write('\nendstream\nendobj\n');
       const dictionary = `<</Type/XObject/Subtype/Image/Width 5000/Height 5000/ColorSpace/DeviceCMYK/BitsPerComponent 8/Filter/FlateDecode/Length ${String(streamLength)}>>`;
       if (dictionary.length > 180) {
@@ -95,6 +98,7 @@ const createFixture = async (filePath: string): Promise<void> => {
   } finally {
     closeSync(file);
   }
+  return imageBytes;
 };
 
 const measure = async (filePath: string): Promise<void> => {
@@ -159,13 +163,17 @@ if (process.argv[2] === '--measure') {
   const directory = mkdtempSync(path.join(tmpdir(), 'pdfwright-memory-'));
   try {
     const filePath = path.join(directory, 'print.pdf');
-    await createFixture(filePath);
+    const imageBytes = await createFixture(filePath);
     const child = spawn(process.execPath, [new URL(import.meta.url).pathname, '--measure', filePath]);
     const [output, errors, closed] = await Promise.all([text(child.stdout), text(child.stderr), once(child, 'close')]);
     if (closed[0] !== 0) {
       throw new Error(errors);
     }
-    process.stdout.write(output);
+    const measured: unknown = JSON.parse(output);
+    if (typeof measured !== 'object' || measured === null) {
+      throw new TypeError('memory result is not an object');
+    }
+    process.stdout.write(`${JSON.stringify({ ...measured, imageBytes })}\n`);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
