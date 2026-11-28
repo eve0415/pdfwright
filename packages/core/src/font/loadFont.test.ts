@@ -161,6 +161,29 @@ describe('composite fonts', () => {
     expect(() => font.glyphs(shown, 1)).toThrow(ResourceLimitError);
   });
 
+  it('splits strings of two fonts that share a predefined CMap within the codespace check budget of each string', () => {
+    // 2000 one-code ranges in blocks of 100: each miss FFFF costs 4000 checks, so a string of 250 misses takes the whole budget of 1,000,000.
+    const ranges = Array.from({ length: 2000 }, (_, index) => `<${index.toString(16).padStart(4, '0')}>`.repeat(2));
+    const wide = Array.from(
+      { length: 20 },
+      (_, block) => `100 begincodespacerange ${ranges.slice(block * 100, block * 100 + 100).join(' ')} endcodespacerange`,
+    ).join('\n');
+    const cache = new FontCache(
+      fontDocument([
+        { number: 10, body: type0Font('/Wide', CID_FONT_TYPE2) },
+        { number: 11, body: type0Font('/Wide', CID_FONT_TYPE2) },
+      ]),
+      providerOf({ Wide: wide }),
+    );
+    const fonts = [cache.font(pdfReference(10, 0), '10.0'), cache.font(pdfReference(11, 0), '11.0')];
+    const string = new Uint8Array(500).fill(0xff);
+    const shown = [...fonts, ...fonts].map(font => {
+      const result = font.glyphs(string);
+      return result.kind === 'glyphs' ? result.glyphs.length : result.kind;
+    });
+    expect(shown).toStrictEqual([250, 250, 250, 250]);
+  });
+
   it('splits Identity-H strings into 2-byte CIDs and reads widths from W in both forms and DW', () => {
     const font = fontOf(type0Font('/Identity-H', CID_FONT_TYPE2));
     const glyphs = glyphsOf(font, Uint8Array.of(0x00, 0x41, 0x00, 0x42, 0x00, 0x96, 0x00, 0x20, 0x00, 0x00));
