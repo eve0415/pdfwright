@@ -658,6 +658,22 @@ describe('pdfx structural checker', () => {
       expect(report.findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe(status);
     });
 
+    it.each<[string, ReadonlyArray<TestObject>]>([
+      ['a direct Type EmbeddedFile', [{ number: 5, body: '<</Type/EmbeddedFile/Subtype 9 1 R>>' }]],
+      [
+        'an indirect Type EmbeddedFile',
+        [
+          { number: 5, body: '<</Type 7 0 R/Subtype 9 1 R>>' },
+          { number: 7, body: '/EmbeddedFile' },
+        ],
+      ],
+      ['a direct Subtype FileAttachment', [{ number: 5, body: '<</Type 9 1 R/Subtype/FileAttachment>>' }]],
+    ])('finds %s beside an entry that names another generation of an object', (_, objects) => {
+      const report = checkPdfX4(raw({ catalog: '/X 5 0 R', extra: [...objects, { number: 9, body: '/x' }] }));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe('violation');
+    });
+
     it.each<[string, (document: LoadedDocument) => PdfDirectObject, 'violation' | 'passed']>([
       ['a stream with Ref', document => stream(document, Uint8Array.of(1), [['Ref', pdfDictionary()]]), 'violation'],
       ['a stream with Alternates', document => stream(document, Uint8Array.of(1), [['Alternates', pdfArray([])]]), 'violation'],
