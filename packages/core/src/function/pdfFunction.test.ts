@@ -270,7 +270,7 @@ describe('sampled functions', () => {
   it('builds eight inputs and rejects nine', () => {
     expect(createPdfFunction(sampledInputs(8))(Array.from({ length: 8 }, () => 0.5))).toStrictEqual([1]);
     expect(() => createPdfFunction(sampledInputs(9))).toThrow(ParseError);
-    expect(() => createPdfFunction(sampledInputs(9))).toThrow(/dimensions/);
+    expect(() => createPdfFunction(sampledInputs(9))).toThrow(/invalid sampled function dimensions/);
   });
 
   it('builds a sample table of 16,777,216 values and rejects one more', () => {
@@ -288,8 +288,8 @@ describe('sampled functions', () => {
   });
 
   it.each([
-    ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /dimensions/],
-    ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /dimensions/],
+    ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /invalid sampled function dimensions/],
+    ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /invalid sampled function dimensions/],
     ['an Encode for two inputs', { Encode: numbers([0, 1, 0, 1]) }, /mapping/],
     ['a Decode for two outputs', { Decode: numbers([0, 1, 0, 1]) }, /mapping/],
   ])('rejects %s', (_, extra, pattern) => {
@@ -368,10 +368,13 @@ const bareFunction = (extra: Record<string, PdfDirectObject>): ReturnType<typeof
 };
 
 describe('function dictionaries', () => {
-  it('reads equal Domain bounds and a null Range as valid', () => {
+  it('reads equal Domain bounds and a Range that resolves to null as valid', () => {
     // ISO 32000-1:2008, 7.3.7: a null value is the same as an absent entry, so the output is not clipped.
     const point = createPdfFunction(functionObject(2, { Domain: numbers([0.5, 0.5]), N: pdfInteger(1) }));
-    const unclipped = createPdfFunction(functionObject(2, { C1: numbers([2]), Range: { kind: 'null' }, N: pdfInteger(1) }));
+    const objects = new Map<number, PdfDirectObject>([[1, { kind: 'null' }]]);
+    const unclipped = createPdfFunction(functionObject(2, { C1: numbers([2]), Range: pdfReference(1, 0), N: pdfInteger(1) }), value =>
+      resolveObject(objects, value),
+    );
     expect([point([0]), unclipped([1])]).toStrictEqual([[0.5], [2]]);
   });
 
