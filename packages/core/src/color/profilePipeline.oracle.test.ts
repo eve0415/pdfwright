@@ -11,6 +11,7 @@ import { parseIccProfile } from '../icc/iccProfile.ts';
 import { gammaCurveTag, iccProfileBytes, matrixLutTag, sampledCurveTag, xyzTag } from '../testing/iccProfileBytes.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
+import { largestDifference } from './testing/largestDifference.ts';
 
 const execute = async (file: string, args: ReadonlyArray<string>, input: string): Promise<string> => {
   const child = spawn(file, [...args]);
@@ -62,23 +63,9 @@ const convert = (source: Uint8Array, destination: Uint8Array, colors: ReadonlyAr
   });
 };
 
-// The largest absolute component difference between two colour lists, or infinity when their shapes differ.
-const largestDifference = (actual: ReadonlyArray<ReadonlyArray<number>>, expected: ReadonlyArray<ReadonlyArray<number>>): number => {
-  if (actual.length !== expected.length) {
-    return Number.POSITIVE_INFINITY;
-  }
-  let largest = 0;
-  for (const [index, row] of actual.entries()) {
-    const reference = expected[index] ?? [];
-    if (row.length !== reference.length) {
-      return Number.POSITIVE_INFINITY;
-    }
-    for (const [channel, value] of row.entries()) {
-      largest = Math.max(largest, Math.abs(value - (reference[channel] ?? Number.NaN)));
-    }
-  }
-  return largest;
-};
+// The largest component difference between two colour lists, or infinity when their shapes differ.
+const largestRowDifference = (actual: ReadonlyArray<ReadonlyArray<number>>, expected: ReadonlyArray<ReadonlyArray<number>>): number =>
+  actual.length === expected.length ? Math.max(0, ...actual.map((row, index) => largestDifference(row, expected[index] ?? []))) : Infinity;
 
 // Device RGB equals PCSXYZ in this matrix/TRC profile, so it serves as an XYZ reader and writer that both engines evaluate the same way.
 const xyzRgb = iccProfileBytes({
@@ -114,12 +101,12 @@ describe('profile pipelines against LittleCMS transicc', () => {
 
   it('applies a lutAToBType matrix as e1..e9 coefficients and e10..e12 offsets', async () => {
     const source = iccProfileBytes({ profileClass: 'scnr', colorSpace: 'RGB ', pcs: 'XYZ ', tags: [['A2B0', matrixLutTag('mAB ', elements)]] });
-    expect(largestDifference(convert(source, xyzRgb, rgbColors), await transicc(source, xyzRgb, rgbColors))).toBeLessThan(TOLERANCE);
+    expect(largestRowDifference(convert(source, xyzRgb, rgbColors), await transicc(source, xyzRgb, rgbColors))).toBeLessThan(TOLERANCE);
   });
 
   it('applies a lutBToAType matrix as e1..e9 coefficients and e10..e12 offsets', async () => {
     const destination = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'RGB ', pcs: 'XYZ ', tags: [['B2A0', matrixLutTag('mBA ', elements)]] });
-    expect(largestDifference(convert(xyzRgb, destination, rgbColors), await transicc(xyzRgb, destination, rgbColors))).toBeLessThan(TOLERANCE);
+    expect(largestRowDifference(convert(xyzRgb, destination, rgbColors), await transicc(xyzRgb, destination, rgbColors))).toBeLessThan(TOLERANCE);
   });
 
   it.each([
@@ -128,12 +115,12 @@ describe('profile pipelines against LittleCMS transicc', () => {
   ] as const)('converts gray with $source PCS to gray with $destination PCS', async ({ source, destination }) => {
     const from = grayProfile(source, 2.2);
     const to = grayProfile(destination, 1.8);
-    expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
+    expect(largestRowDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 
   it.each([[[65_535, 0]], [[65_535, 40_000, 12_000, 0]], [[65_535, 52_000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
     const from = grayProfile('XYZ ', 1);
     const to = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs: 'XYZ ', tags: [['kTRC', sampledCurveTag(samples)]] });
-    expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
+    expect(largestRowDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 });
