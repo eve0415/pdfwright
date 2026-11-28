@@ -68,9 +68,8 @@ describe('appending page content', () => {
         if (typeof key === 'string' && /^\d+$/u.test(key)) {
           return target[Number(key)];
         }
-        // Every other property is forwarded unbound, so a native method such as the iterator is called with the proxy as its receiver.
-        const forwarded: unknown = Reflect.get(target, key);
-        return forwarded;
+        // The native iterator is forwarded unbound, so it is called with the proxy as its receiver.
+        return key === Symbol.iterator ? target[Symbol.iterator] : undefined;
       },
     });
     expect(() => {
@@ -97,9 +96,8 @@ describe('appending page content', () => {
         if (key === 'subarray') {
           return target.subarray.bind(target);
         }
-        // Every other property is forwarded unbound, so a native method such as the iterator is called with the proxy as its receiver.
-        const forwarded: unknown = Reflect.get(target, key);
-        return forwarded;
+        // The native iterator is forwarded unbound, so it is called with the proxy as its receiver.
+        return key === Symbol.iterator ? target[Symbol.iterator] : undefined;
       },
     });
     document.page(0).appendContent(proxied, { isolate: false });
