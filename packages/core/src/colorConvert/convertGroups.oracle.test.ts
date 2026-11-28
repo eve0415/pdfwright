@@ -8,19 +8,18 @@ import { describe, expect, it } from 'vitest';
 import { calibratedProfile } from '../color/calibratedSource.ts';
 import { labToXyz } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
-import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
+import { readInlineImage } from '../testing/readInlineImage.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
 import { deviceRgbLuminosity } from './luminosityContent.ts';
@@ -395,7 +394,8 @@ const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
   return { color: shading.entries.get(pdfName('ColorSpace').bytes), start: evaluate([0])[0], end: evaluate([1])[0] };
 };
 
-const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
+/** The inline image of mask form 6 as a reader sees it: the operators the form holds, the warnings the image's own filters raise and the samples they decode to. */
+const maskInline = (document: ReturnType<typeof loadDocument>) => {
   const form = document.get(pdfReference(6, 0));
   if (form.kind !== 'stream') {
     throw new Error('mask form is missing');
@@ -408,12 +408,7 @@ const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   if (typeof data === 'string') {
     throw new TypeError(data);
   }
-  const [operation] = readContent(data, internals.maxNesting);
-  if (operation?.inlineImage === undefined) {
-    throw new Error('inline image is missing');
-  }
-  const decoded = inflateZlib(operation.inlineImage.data);
-  return decoded.data;
+  return readInlineImage(data);
 };
 
 const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
@@ -778,7 +773,7 @@ describe('transparency group conversion', () => {
     const document = loadDocument(inlineImageMaskPdf.bytes);
     convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(luminosityContent(document)).toContain('/CS /G');
-    expect(maskInline(document)).toStrictEqual(Uint8Array.of(77));
+    expect(maskInline(document).samples).toStrictEqual(Uint8Array.of(77));
   });
 
   it('converts an axial RGB shading in a luminosity group to a gray function', () => {

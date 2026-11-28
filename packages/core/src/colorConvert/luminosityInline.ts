@@ -11,6 +11,7 @@ import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName } from '../object/pdfObject.ts';
 
 import { readImageSample } from './imageRows.ts';
+import { INLINE_FLATE_FILTER, encodeAscii85 } from './inlineAscii85.ts';
 
 const parameters = (image: InlineImage): Map<string, PdfDirectObject> => {
   const values = new Map<string, PdfDirectObject>();
@@ -145,8 +146,8 @@ export const grayInlineImage = (image: InlineImage, gray: (values: ReadonlyArray
   const decode = decodeValues(entries.get('D') ?? entries.get('Decode'));
   const output = graySamples({ data, width, height, bits, outputBits, decode, gray });
   const writer = new ByteWriter();
-  writer.writeAscii(`BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /G /F /Fl ID\n`);
-  writer.writeBytes(deflateZlib(output));
+  writer.writeAscii(`BI /W ${String(width)} /H ${String(height)} /BPC ${String(outputBits)} /CS /G ${INLINE_FLATE_FILTER} ID\n`);
+  writer.writeBytes(encodeAscii85(deflateZlib(output)));
   writer.writeAscii('\nEI');
   return writer.toUint8Array();
 };

@@ -17,13 +17,13 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { DEFAULT_FRACTION_DIGITS, formatNumber } from '../number/formatNumber.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { gammaCurveTag, iccProfileBytes } from '../testing/iccProfileBytes.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
+import { readInlineImage } from '../testing/readInlineImage.ts';
 
 import { rewriteContentColors } from './rewriteContent.ts';
 import { rewritePageColors } from './rewritePage.ts';
@@ -363,11 +363,23 @@ describe('page colour conversion', () => {
       resources: document.page(0).resources(),
       options: { sourceRgbProfile: source, outputProfile: destination },
     });
-    const data = inlineData(result.bytes);
     expect(result.inlineImages).toBe(1);
-    expect(inflateZlib(data).data).toStrictEqual(rgbRow([0, 0, 0]));
+    expect(readInlineImage(result.bytes).samples).toStrictEqual(rgbRow([0, 0, 0]));
     expect(rgbRow([0, 0, 0])).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F [/A85 /Fl]');
+  });
+
+  it('writes every small converted inline image so that it reads back as one image with its converted samples', () => {
+    const image = fc
+      .integer({ min: 1, max: 4 })
+      .chain(width => fc.uint8Array({ minLength: width * 3, maxLength: width * 3 }).map(pixels => ({ width, pixels })));
+    fc.assert(
+      fc.property(image, ({ width, pixels }) => {
+        const result = rewrite(`BI /W ${String(width)} /H 1 /BPC 8 /CS /RGB ID\n${latin1Text(pixels)}\nEI`);
+        expect(readInlineImage(result.bytes)).toStrictEqual({ operators: ['BI'], warnings: [], samples: rgbRow([...pixels]) });
+      }),
+      { numRuns: 50 },
+    );
   });
 
   it('decodes a Flate inline RGB image before conversion', () => {
@@ -379,7 +391,7 @@ describe('page colour conversion', () => {
       options: { sourceRgbProfile: source, outputProfile: destination },
     });
     expect(result.inlineImages).toBe(1);
-    expect(inflateZlib(inlineData(result.bytes)).data).toHaveLength(4);
+    expect(readInlineImage(result.bytes).samples).toHaveLength(4);
   });
 
   it('keeps a DCT inline RGB image as an ICC-tagged image XObject', () => {
@@ -674,8 +686,8 @@ describe('page colour conversion', () => {
     const result = rewrite(`BI /W 1 /H 1 /BPC ${String(bits)} /CS /RGB ID\n${latin1Text(Uint8Array.from(packed))}\nEI`);
     const output = new Float64Array(4);
     createColorTransform(srgb, destination, { intent: 'relativeColorimetric', blackPointCompensation: true }).convert(Float64Array.from(rgb), output);
-    expect(inflateZlib(inlineData(result.bytes)).data).toStrictEqual(Uint8Array.from(output, value => Math.round(value * 255)));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
+    expect(readInlineImage(result.bytes).samples).toStrictEqual(Uint8Array.from(output, value => Math.round(value * 255)));
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F [/A85 /Fl]');
   });
 
   it('writes a 16-bit inline RGB pixel as 16-bit big-endian CMYK', () => {
@@ -686,8 +698,8 @@ describe('page colour conversion', () => {
       expected,
       1,
     );
-    expect(inflateZlib(inlineData(result.bytes)).data).toStrictEqual(Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256])));
-    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 16 /CS /CMYK /F /Fl');
+    expect(readInlineImage(result.bytes).samples).toStrictEqual(Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256])));
+    expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 16 /CS /CMYK /F [/A85 /Fl]');
   });
 
   it.each([
