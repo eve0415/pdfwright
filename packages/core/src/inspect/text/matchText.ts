@@ -820,7 +820,7 @@ const statusOf = (differences: ReadonlyArray<TextDifference>): TextMatch['status
 /**
  * Compares the text a page shows with an intended text, code point for code point after a small set of reported folds on the page's side; neither side is normalised.
  * `match` means every compared glyph is a real, painting glyph of its font, visible by the checks of `extractText`, and the glyphs' own text equals the intended text in the chosen order after the listed folds.
- * A mode option (`order`, `whitespace`, `folds`, `actualText`, `variationSelectors`, `duplicates`) outside its type throws InvalidArgumentError.
+ * A mode option (`order`, `whitespace`, `folds`, `actualText`, `variationSelectors`, `duplicates`) outside its type throws InvalidArgumentError, and texts so long and so different that aligning them would take more than 2,000,000 steps of work throw ResourceLimitError.
  * It does not prove that the shapes are right, that no fallback font was used (the result lists the fonts), or anything about sizes, positions, colours, or covering by anything other than opaque rectangles. A caller automating a check treats anything but `match` as a rejection.
  * Known limits, where `match` can be returned for text that does not print:
  * - Text under a soft mask counts as visible, so a mask that hides it entirely, such as a fully transparent mask image, is not detected.
