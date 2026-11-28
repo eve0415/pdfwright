@@ -57,11 +57,11 @@ export interface CarrierSeen {
   readonly categories: Map<number, Array<CarrierHolder>>;
   /** Object numbers of the streams an annotation's appearance names, whatever role they were listed by. */
   readonly appearances: Set<number>;
-  /** The indirect dictionaries whose entries a walk has queued, by object number and how they were read: as Resources, as an XObject or Pattern category, or as an ExtGState category. */
+  /** The indirect dictionaries and arrays whose entries a walk has queued, by object number and how they were read: as Resources, as an XObject or Pattern category, as an ExtGState category, or as a page's Annots array. */
   readonly expanded: Set<string>;
   /** The directly stored fonts in the direct Font category of each indirect Resources a walk has queued, by its object number, which later holders of it queue again without examining the rest of the category. */
   readonly directFonts: Map<number, ReadonlyArray<readonly [Uint8Array, PdfObject]>>;
-  /** The most steps the walks may take together, where a step is one resource entry or appearance a walk examines; every carrier costs one. */
+  /** The most steps the walks may take together, where a step is one resource entry, annotation or appearance a walk examines; every carrier costs one. */
   readonly maxSteps: number;
   steps: number;
 }
@@ -210,7 +210,7 @@ class CarrierWalk {
   }
 
   // The entries of an indirect dictionary reach the same carriers whichever holder names it, so they are queued once per pass; a dictionary shared by many holders then costs its size once rather than once per holder.
-  private expand(value: PdfDirectObject | undefined, reading: 'resources' | 'category' | 'states'): boolean {
+  private expand(value: PdfDirectObject | undefined, reading: 'resources' | 'category' | 'states' | 'annotations'): boolean {
     if (value?.kind !== 'reference') {
       return true;
     }
@@ -300,11 +300,15 @@ class CarrierWalk {
     this.pending.push(item);
   }
 
+  private step(): void {
+    if (++this.seen.steps > this.seen.maxSteps) {
+      throw new ResourceLimitError(`the resource carrier walk takes more than ${String(this.seen.maxSteps)} steps`);
+    }
+  }
+
   private drain(): void {
     for (let item = this.pending.pop(); item !== undefined; item = this.pending.pop()) {
-      if (++this.seen.steps > this.seen.maxSteps) {
-        throw new ResourceLimitError(`the resource carrier walk takes more than ${String(this.seen.maxSteps)} steps`);
-      }
+      this.step();
       if (item.kind === 'font') {
         this.directFont(item.slot, item.name, item.font, item.depth);
       } else {
@@ -318,9 +322,12 @@ class CarrierWalk {
     this.drain();
   }
 
+  // An indirect Annots array that an earlier page listed queues nothing new, so it is examined once per pass.
   appearances(page: PdfReference): void {
-    const annotations = this.internals.objects.deref(entriesOf(this.internals.objects.deref(page))?.get(ANNOTS));
+    const list = entriesOf(this.internals.objects.deref(page))?.get(ANNOTS);
+    const annotations = this.expand(list, 'annotations') ? this.internals.objects.deref(list) : undefined;
     for (const annotation of annotations?.kind === 'array' ? annotations.items : []) {
+      this.step();
       const appearance = this.internals.objects.deref(entriesOf(this.internals.objects.deref(annotation))?.get(AP));
       if (appearance?.kind !== 'dictionary') {
         continue;
