@@ -197,6 +197,19 @@ const sharedGlyphs = (fonts: number, glyphs: number, names: number, maxDecodedBy
   );
 };
 
+/** Font 10 and `fonts` Type 3 fonts after it share CharProcs object 5; font 10 reads it first and finds nothing, and each later font reads it with its own Resources, whose N selects the next font, and the last names GS for a transparent state. */
+const fontChain = (fonts: number) =>
+  single('<</Font<</F0 10 0 R/F1 11 0 R>>>>', streamBody('', 'BT /F0 1 Tf /F1 1 Tf ET'), [
+    { number: 5, body: '<</a 6 0 R>>' },
+    { number: 6, body: streamBody('', '0 0 d0 /GS gs BT /N 1 Tf ET') },
+    { number: 7, body: '<</ca 0.5>>' },
+    { number: 10, body: type3Font('5 0 R', '<<>>') },
+    ...Array.from({ length: fonts }, (_, index) => ({
+      number: 11 + index,
+      body: type3Font('5 0 R', index === fonts - 1 ? '<</ExtGState<</GS 7 0 R>>>>' : `<</Font<</N ${String(12 + index)} 0 R>>>>`),
+    })),
+  ]);
+
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
 
@@ -772,20 +785,8 @@ describe('pdfx page preparation', () => {
   });
 
   it('reads the names of a glyph procedure again through fonts that select one another as deep as maxNesting and refuses one more', () => {
-    // Font 10 reads CharProcs object 5 first and finds nothing; each later font reads it with its own Resources, whose N selects the next font, and the last names GS for a transparent state.
-    const chain = (fonts: number) =>
-      single('<</Font<</F0 10 0 R/F1 11 0 R>>>>', streamBody('', 'BT /F0 1 Tf /F1 1 Tf ET'), [
-        { number: 5, body: '<</a 6 0 R>>' },
-        { number: 6, body: streamBody('', '0 0 d0 /GS gs BT /N 1 Tf ET') },
-        { number: 7, body: '<</ca 0.5>>' },
-        { number: 10, body: type3Font('5 0 R', '<<>>') },
-        ...Array.from({ length: fonts }, (_, index) => ({
-          number: 11 + index,
-          body: type3Font('5 0 R', index === fonts - 1 ? '<</ExtGState<</GS 7 0 R>>>>' : `<</Font<</N ${String(12 + index)} 0 R>>>>`),
-        })),
-      ]);
-    expect(addedGroups(chain(256))).toStrictEqual([0]);
-    const prepare = () => preparePdfX4Pages(chain(257));
+    expect(addedGroups(fontChain(256))).toStrictEqual([0]);
+    const prepare = () => preparePdfX4Pages(fontChain(257));
     expect(prepare).toThrow(ResourceLimitError);
     expect(prepare).toThrow(/maxNesting \(256\)/u);
   });
