@@ -10,6 +10,7 @@ import path from 'node:path';
 import { text as streamText } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 
+import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createColorTransform } from '../color/createColorTransform.ts';
@@ -30,6 +31,7 @@ import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 import { convertMeshShadings } from './convertMeshes.ts';
 import { MeshBitReader } from './meshBits.ts';
 import { MeshBitWriter } from './meshBitWriter.ts';
+import { convertMeshSamples } from './meshSamples.ts';
 import { subdivideMesh } from './meshSubdivision.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
@@ -1071,4 +1073,145 @@ describe('mesh shading conversion', () => {
     expect(converted.componentBits).toBe(16);
     expect(corner?.color.map((value, channel) => Math.abs(value - (expected[channel] ?? Number.NaN)) <= 1)).toStrictEqual([true, true, true, true]);
   });
+});
+
+interface RandomMesh {
+  readonly type: 4 | 5 | 6 | 7;
+  readonly coordinateBits: number;
+  readonly componentBits: number;
+  readonly flagBits: number;
+  readonly channels: number;
+  readonly data: Uint8Array;
+  readonly records: number;
+}
+
+/** Writes a valid mesh stream of the given layout from a pool of raw values, each reduced to its field width. */
+const randomMesh = (layout: Omit<RandomMesh, 'data' | 'records'>, pool: ReadonlyArray<number>, records: number): RandomMesh => {
+  const writer = new MeshBitWriter();
+  let next = 0;
+  const take = (bits: number): number => {
+    const value = (pool[next % pool.length] ?? 0) % 2 ** bits;
+    next++;
+    return value;
+  };
+  for (let record = 0; record < records; record++) {
+    let flag = 0;
+    if (layout.type === 4) {
+      flag = take(2) % 3;
+    } else if (layout.type !== 5 && record > 0) {
+      flag = take(2);
+    }
+    if (layout.type !== 5) {
+      writer.write(layout.flagBits, flag);
+    }
+    // ISO 32000-1:2008, 8.7.4.5.5–8 Tables 84–86: a vertex has one point and one colour, and a patch 12 or 16 points and 4 colours, fewer when it shares an edge.
+    let points = 1;
+    let colors = 1;
+    if (layout.type === 6 || layout.type === 7) {
+      points = (layout.type === 6 ? 12 : 16) - (flag === 0 ? 0 : 4);
+      colors = flag === 0 ? 4 : 2;
+    }
+    for (let coordinate = 0; coordinate < points * 2; coordinate++) {
+      writer.write(layout.coordinateBits, take(layout.coordinateBits));
+    }
+    for (let component = 0; component < colors * layout.channels; component++) {
+      writer.write(layout.componentBits, take(layout.componentBits));
+    }
+    writer.alignByte();
+  }
+  return { ...layout, data: writer.finish(1 << 20), records };
+};
+
+const meshLayout = fc.record({
+  type: fc.constantFrom(4, 5, 6, 7),
+  coordinateBits: fc.constantFrom(1, 2, 4, 8, 12, 16, 24, 32),
+  componentBits: fc.constantFrom(1, 2, 4, 8, 12, 16),
+  flagBits: fc.constantFrom(2, 4, 8),
+  channels: fc.integer({ min: 1, max: 4 }),
+});
+
+const barycentric = (
+  point: { readonly x: number; readonly y: number },
+  corners: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+): ReadonlyArray<number> => {
+  const [a, b, c] = corners;
+  if (a === undefined || b === undefined || c === undefined) {
+    throw new Error('triangle is incomplete');
+  }
+  const denominator = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+  const wa = ((b.y - c.y) * (point.x - c.x) + (c.x - b.x) * (point.y - c.y)) / denominator;
+  const wb = ((c.y - a.y) * (point.x - c.x) + (a.x - c.x) * (point.y - c.y)) / denominator;
+  return [wa, wb, 1 - wa - wb];
+};
+
+describe('properties', () => {
+  it('rewrites only the colour fields, so an identity conversion returns the mesh unchanged', () => {
+    fc.assert(
+      fc.property(meshLayout, fc.array(fc.nat(), { minLength: 1, maxLength: 64 }), fc.integer({ min: 1, max: 6 }), (layout, pool, records) => {
+        const mesh = randomMesh(layout, pool, records);
+        const converted = convertMeshSamples(mesh.data, {
+          type: mesh.type,
+          coordinateBits: mesh.coordinateBits,
+          componentBits: mesh.componentBits,
+          outputComponentBits: mesh.componentBits,
+          flagBits: mesh.type === 5 ? 0 : mesh.flagBits,
+          channels: mesh.channels,
+          outputChannels: mesh.channels,
+          decode: [0, 1, 0, 1, ...Array.from({ length: mesh.channels }, () => [0, 1]).flat()],
+          transform: {
+            convert: (input, output) => {
+              output.set(input);
+            },
+          },
+          maxBytes: 1 << 20,
+        });
+        expect(converted).toStrictEqual({ data: mesh.data, records: mesh.records });
+      }),
+    );
+  });
+
+  it('emits subdivided vertices inside the source triangle and within the byte budget', () => {
+    const corner = fc.record({
+      x: fc.integer({ min: 0, max: 255 }),
+      y: fc.integer({ min: 0, max: 255 }),
+      color: fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 3, maxLength: 3 }),
+    });
+    fc.assert(
+      fc.property(fc.array(corner, { minLength: 3, maxLength: 3 }), fc.integer({ min: 27, max: 4096 }), (corners, maxBytes) => {
+        const [a, b, c] = corners;
+        fc.pre(a !== undefined && b !== undefined && c !== undefined && Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) >= 100);
+        const run = (): { readonly bytes: number; readonly records: ReadonlyArray<MeshRecord> } | undefined => {
+          try {
+            const result = subdivideMesh(vertexData(corners), {
+              type: 4,
+              coordinateBits: 8,
+              componentBits: 8,
+              flagBits: 2,
+              decode: [0, 255, 0, 255, 0, 1, 0, 1, 0, 1],
+              transform: rgbTransform,
+              destination,
+              maxBytes,
+            });
+            return { bytes: result.data.length, records: meshRecords(result.data, { flagBits: 8, coordinateBits: 16, componentBits: 8 }) };
+          } catch (error) {
+            if (error instanceof ResourceLimitError) {
+              return undefined;
+            }
+            throw error;
+          }
+        };
+        const result = run();
+        // Rounding to the 16-bit output grid can move a vertex by one step, which shifts its barycentric weights by at most one step over the shortest altitude.
+        const step = 255 / 65_535;
+        const doubledArea = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+        const longestEdge = Math.max(Math.hypot(b.x - a.x, b.y - a.y), Math.hypot(c.x - b.x, c.y - b.y), Math.hypot(a.x - c.x, a.y - c.y));
+        const tolerance = step / (doubledArea / longestEdge);
+        const outside = (result?.records ?? []).filter(record =>
+          barycentric({ x: record.x * step, y: record.y * step }, corners).some(weight => weight < -tolerance),
+        );
+        expect(result === undefined || result.bytes <= maxBytes).toBe(true);
+        expect(outside).toStrictEqual([]);
+      }),
+    );
+  }, 120_000);
 });
