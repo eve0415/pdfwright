@@ -403,7 +403,7 @@ describe('row conversion', () => {
     expect([...output]).toStrictEqual(expected);
   });
 
-  // The 8-bit cache keys on the first three components of a pixel, so it must be off for any transform but RGB to CMYK.
+  // The 8-bit cache keys on the first three components of a pixel, so a transform with more input channels must not use it; pixels that differ only past the third component show that.
   it.each([
     {
       label: 'CMYK to CMYK, with pixels that differ only in black',
@@ -447,6 +447,20 @@ describe('row conversion', () => {
     const perPixel = pixels.map(pixel => scalarRow8(transform, [pixel]).join());
     expect(new Set(perPixel).size).toBe(new Set(pixels.map(pixel => pixel.join())).size);
     expect(row8(transform, pixels)).toStrictEqual(scalarRow8(transform, pixels));
+  });
+
+  // The 8-bit cache stores four output bytes per pixel, so a transform with three output channels must not use it: a cached pixel would write a fourth byte past the row.
+  it.each([
+    { label: 'RGB to RGB', destinationProfile: iccProfile() },
+    { label: 'RGB to CMYK', destinationProfile: rowDestination() },
+  ])('writes nothing past the row when converting a repeated $label pixel', ({ destinationProfile }) => {
+    const transform = createColorTransform(calRgb, destinationProfile, relative);
+    const pixel = [100, 120, 80];
+    transform.convertRow8(Uint8Array.from(pixel), new Uint8Array(transform.outputChannels), 1);
+    const sentinel = 0xa5;
+    const output = new Uint8Array(2 * transform.outputChannels).fill(sentinel);
+    transform.convertRow8(Uint8Array.from(pixel), output, 1);
+    expect([...output]).toStrictEqual([...scalarRow8(transform, [pixel]), ...Array.from({ length: transform.outputChannels }, () => sentinel)]);
   });
 
   it.each([-1, 1.5, Number.NaN, Infinity, 2 ** 53])('rejects a pixel count of %d in both row functions', pixels => {
