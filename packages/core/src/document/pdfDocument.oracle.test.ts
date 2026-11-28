@@ -1,12 +1,10 @@
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { text } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
 
+import { runQpdf } from '../../../../scripts/readerOracle.ts';
 import { formatLength, mm, pt } from '../length/length.ts';
 
 import { createDocument } from './pdfDocument.ts';
@@ -27,26 +25,6 @@ interface PageBoxEntries {
   page: unknown;
   entries: Array<[string, unknown]>;
 }
-
-const runQpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
-  const child = spawn('qpdf', args);
-  const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-  if (closed[0] !== 0) {
-    throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
-  }
-  return { stdout, stderr };
-};
-
-const qpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
-  try {
-    return await runQpdf(args);
-  } catch (error: unknown) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-      throw new Error('qpdf is required; install it with sudo apt-get install -y qpdf', { cause: error });
-    }
-    throw error;
-  }
-};
 
 const boxForPage = (entries: ReadonlyArray<[string, unknown]>, page: unknown, boxName = '/MediaBox'): Array<string> => {
   if (typeof page !== 'object' || page === null || !('object' in page) || typeof page.object !== 'string') {
@@ -95,8 +73,8 @@ const checkDocument = async (directory: string, pageCount: number): Promise<Orac
   }
   const file = path.join(directory, `a4-${String(pageCount)}.pdf`);
   await writeFile(file, document.save().toBytes());
-  const checked = await qpdf(['--check', file]);
-  const reported = await qpdf(['--json', file]);
+  const checked = await runQpdf(['--check', file]);
+  const reported = await runQpdf(['--json', file]);
   const result: unknown = JSON.parse(reported.stdout);
   return { pageCount, checkOutput: checked.stdout, checkError: checked.stderr, ...pageBoxes(result) };
 };
@@ -128,10 +106,10 @@ describe('qpdf document oracle', () => {
       document.addPage(boxes);
       const file = path.join(directory, 'boxes.pdf');
       await writeFile(file, document.save().toBytes());
-      const check = await qpdf(['--check', file]);
+      const check = await runQpdf(['--check', file]);
       expect(check.stderr).toBe('');
       expect(check.stdout.toLowerCase()).not.toContain('warning');
-      const report = await qpdf(['--json', file]);
+      const report = await runQpdf(['--json', file]);
       const json: unknown = JSON.parse(report.stdout);
       const { page, entries } = pageBoxEntries(json);
       for (const [key, box] of Object.entries(boxes)) {
