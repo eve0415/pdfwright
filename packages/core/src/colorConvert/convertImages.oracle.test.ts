@@ -87,8 +87,9 @@ const qpdfCheck = async (chunks: ReadonlyArray<Uint8Array>): Promise<void> => {
     }
     const file = path.join(directory, 'converted.pdf');
     await writeFile(file, bytes);
+    // runQpdf rejects unless qpdf exits 0; exit 3 is how it reports a file it had to warn about or recover.
     const check = await runQpdf(['--check', file]);
-    expect(check.stdout).toContain('No syntax or stream encoding errors found');
+    expect(`${check.stdout}${check.stderr}`).not.toMatch(/warning|recover|error:/iu);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1009,6 +1010,18 @@ describe('preblended soft-mask images', () => {
     }
     expect(imageData(document)).toStrictEqual(expected);
     expect(softMaskOf(document, 5).dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+  });
+
+  it('removes the matte from 16-bit samples and writes 16-bit output', () => {
+    // The unblended green and blue fall below 0 and clamp, so the straight colour is exactly (1, 0, 0).
+    const parent = {
+      dictionary: '/Width 1/Height 1/BitsPerComponent 16/ColorSpace/DeviceRGB/Filter/FlateDecode',
+      data: deflateZlib(Uint8Array.of(0xff, 0xff, 0x80, 0x80, 0x80, 0x80)),
+    };
+    const document = loadDocument(softMaskedPdf([parent], whiteMatte));
+    convertImages(document, convertOptions);
+    expect(imageData(document)).toStrictEqual(opaqueConversion(Uint8Array.of(0xff, 0xff, 0, 0, 0, 0), { width: 1, bits: 16, decode: '/Decode[0 1 0 1 0 1]' }));
+    expect(imageStream(document.get(pdfReference(5, 0))).dictionary.get(pdfName('BitsPerComponent').bytes)).toStrictEqual(pdfInteger(16));
   });
 
   it('keeps the stored components of a pixel whose alpha is 0', () => {

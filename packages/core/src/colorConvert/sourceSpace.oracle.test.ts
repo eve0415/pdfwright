@@ -244,7 +244,7 @@ describe('source colour space resolution', () => {
       expected: { kind: 'indexed', base: { kind: 'rgb', source: { kind: 'icc', profile: fallback } }, hival: 0, lookup: Uint8Array.of(255, 0, 0) },
     },
   ])('resolves the abbreviation $short like $full', ({ full, short, expected }) => {
-    // ISO 32000-1:2008, 8.9.7 Table 93: inline images abbreviate these names.
+    // ISO 32000-1:2008, 8.9.7: inline images abbreviate these names.
     expect([resolveText(short), resolveText(full)]).toStrictEqual([expected, expected]);
   });
 
