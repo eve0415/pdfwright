@@ -221,6 +221,11 @@ class TransparencyScan {
         if (state !== undefined && transparentState(this.internals, state)) {
           return true;
         }
+        // ISO 32000-1:2008, 8.4.5, Table 58: a Font entry is an array of a font and a size, and gs selects that font as Tf does.
+        const selected = this.internals.objects.deref(state?.get(key('Font')));
+        if (selected?.kind === 'array' && this.font(selected.items[0])) {
+          return true;
+        }
       }
       if (operation.operator === 'Do' && this.xobject(xobjects?.get(operand.bytes), resources)) {
         return true;
