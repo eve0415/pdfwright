@@ -259,6 +259,31 @@ describe('stream decoding', () => {
     // An unknown filter is refused too; the message is what says decryption is the reason.
     expect(() => decode(crypt)).toThrow(/decryption/u);
   });
+
+  // ISO 32000-1:2008, 7.4.10, Table 14: Name defaults to Identity; 7.6.5, Table 26: Identity "Input data shall be passed through without any processing."
+  it.each([
+    ['DecodeParms naming Identity', [['DecodeParms', dictionary([['Name', pdfName('Identity')]])]]],
+    ['DecodeParms with no Name', [['DecodeParms', dictionary([['Type', pdfName('CryptFilterDecodeParms')]])]]],
+    ['no DecodeParms', []],
+  ] satisfies Array<[string, Array<[string, PdfDirectObject]>]>)('passes data through the Identity crypt filter given %s', (_, extra) => {
+    expect(decode(stream(text, [['Filter', pdfName('Crypt')], ...extra])).data).toStrictEqual(text);
+  });
+
+  it('decodes the filters after an Identity crypt filter', () => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfArray([pdfName('Crypt'), pdfName('FlateDecode')])],
+      ['DecodeParms', pdfArray([NULL, pngColumns4])],
+    ]);
+    expect(decode(input).data).toStrictEqual(upDecoded);
+  });
+
+  it('refuses a crypt filter Name that is not a name', () => {
+    const crypt = stream(text, [
+      ['Filter', pdfName('Crypt')],
+      ['DecodeParms', dictionary([['Name', pdfInteger(1)]])],
+    ]);
+    expect(() => decode(crypt)).toThrow(ParseError);
+  });
 });
 
 describe('filter names', () => {
