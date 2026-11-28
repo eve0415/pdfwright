@@ -85,6 +85,7 @@ describe('Illustrator container reader', () => {
     expect(facts.blockLengths).toStrictEqual(pieces.map(piece => piece.length));
   });
 
+  // ISO 32000-1:2008, 7.4.4: FlateDecode data is a zlib stream.
   it('inflates FlateDecode blocks and metadata', () => {
     const [first = new Uint8Array(), second = new Uint8Array()] = chunks(wrapped, [30]);
     const streams = [
@@ -96,11 +97,13 @@ describe('Illustrator container reader', () => {
     expect([facts.native, facts.metaData, facts.blockLengths]).toStrictEqual([native, metaData, [first.length, second.length]]);
   });
 
+  // ISO 32000-1:2008, 7.5.7: a page dictionary may be stored in an object stream, which a cross-reference stream indexes.
   it('reads a page held in an object stream', () => {
     const facts = readIllustratorContainer(illustratorShapedPdf({ streams: [block], pageInObjectStream: true }), decompress);
     expect([facts.native, facts.pageDate]).toStrictEqual([native, encoder.encode(SHAPED_DATE)]);
   });
 
+  // ISO 32000-1:2008, 7.5.6: the most recent copy of each object is the one accessed from the file.
   it('reads the page-piece dictionary an incremental update replaced', () => {
     const update = [{ number: 5, body: '<</LastModified(D:20261001000000Z)/Private 6 0 R>>' }];
     const facts = readIllustratorContainer(illustratorShapedPdf({ streams: [block], update }), decompress);
@@ -146,7 +149,7 @@ describe('Illustrator container reader', () => {
   });
 });
 
-// Each row changes one object of the container the first test reads.
+// Each row changes one object of the container the first test reads. ISO 32000-1:2008, 14.5: page-piece data lives in the page's PieceInfo dictionary, keyed by the conforming product's name, and each data dictionary carries a LastModified date.
 const refusals = [
   { name: 'page-piece data without an Illustrator entry', input: { streams: [block], pieceInfo: '<< /Other 5 0 R >>' }, error: ValidationError },
   {
