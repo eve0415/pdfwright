@@ -56,9 +56,11 @@ const descriptorObject = (flags: number, extra = ''): TestObject => ({
 });
 
 describe('simple fonts', () => {
-  it('checks a glyph budget before expanding a shown string', () => {
+  it('refuses a string longer than its glyph budget and accepts one exactly at it', () => {
     const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>');
-    expect(() => font.glyphs(latin1Bytes('A'.repeat(100_000)), 0)).toThrow(ResourceLimitError);
+    const atBudget = font.glyphs(latin1Bytes('AAA'), 3);
+    expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'glyphName') : atBudget.kind).toStrictEqual(['A', 'A', 'A']);
+    expect(() => font.glyphs(latin1Bytes('AAA'), 2)).toThrow(ResourceLimitError);
   });
 
   it('names codes by a predefined encoding and takes widths from Widths', () => {
@@ -95,9 +97,15 @@ describe('simple fonts', () => {
     expect(pick(glyphsOf(dingbats, '!'), 'encodingText')).toStrictEqual(['✁']);
   });
 
-  it('fills the undefined entries of a nonsymbolic TrueType font from StandardEncoding', () => {
-    const font = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/Encoding<</Differences[65/Euro]>>/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
-    expect(pick(glyphsOf(font, 'AB'), 'glyphName')).toStrictEqual(['Euro', 'B']);
+  it('fills the undefined entries of a nonsymbolic TrueType font from StandardEncoding, and only those of a TrueType font', () => {
+    // 9.6.6.4: "Finally, any undefined entries in the table shall be filled using StandardEncoding." MacRomanEncoding leaves code 255 (octal) undefined, and StandardEncoding names it guilsinglright.
+    const trueType = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/Encoding/MacRomanEncoding/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    const type1 = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding/MacRomanEncoding/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    const shown = Uint8Array.of(0o255, 0x41);
+    expect([pick(glyphsOf(trueType, shown), 'glyphName'), pick(glyphsOf(type1, shown), 'glyphName')]).toStrictEqual([
+      ['guilsinglright', 'A'],
+      [undefined, 'A'],
+    ]);
   });
 
   it('reports unknown widths for a font without Widths that is not a standard 14 font', () => {
@@ -161,11 +169,14 @@ const CID_FONT_TYPE2 =
   '/Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 900/W[65[500 600]100 200 700]';
 
 describe('composite fonts', () => {
-  it('checks the glyph budget before decoding a composite shown string', () => {
+  it('refuses a composite string longer than its glyph budget and accepts one exactly at it', () => {
     const font = fontOf('<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[12 0 R]>>', [
       { number: 12, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000>>' },
     ]);
-    expect(() => font.glyphs(Uint8Array.of(0, 65), 0)).toThrow(ResourceLimitError);
+    const shown = Uint8Array.of(0, 65, 0, 66);
+    const atBudget = font.glyphs(shown, 2);
+    expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'cid') : atBudget.kind).toStrictEqual([65, 66]);
+    expect(() => font.glyphs(shown, 1)).toThrow(ResourceLimitError);
   });
 
   it('splits Identity-H strings into 2-byte CIDs and reads widths from W in both forms and DW', () => {
@@ -269,8 +280,20 @@ describe('composite fonts', () => {
     expect(pick(glyphsOf(font, 'A'), 'vertical')).toStrictEqual([undefined]);
   });
 
-  it('takes the writing mode from the CMap', () => {
-    expect([fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)).writingMode, fontOf(type0Font('/Identity-H', CID_FONT_TYPE2)).writingMode]).toStrictEqual([1, 0]);
+  it('takes the writing mode from the CMap, whatever its name says', () => {
+    const cmap = streamBody('/Type/CMap/CMapName/Custom-H', '/CMapName /Custom-H def /WMode 1 def 1 begincodespacerange <0000> <FFFF> endcodespacerange');
+    const writingModes = [
+      fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]),
+      fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)),
+      fontOf(type0Font('/Identity-H', CID_FONT_TYPE2)),
+    ].map(font => font.writingMode);
+    expect(writingModes).toStrictEqual([1, 1, 0]);
+  });
+
+  it('takes the writing mode of a predefined CMap no provider supplies from the end of its name', () => {
+    // 9.7.5.2, NOTE 1: "CMaps whose names end in H specify horizontal writing mode; those ending in V specify vertical writing mode."
+    const cidFont = '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>';
+    expect([fontOf(type0Font('/UniJIS-UTF16-V', cidFont)).writingMode, fontOf(type0Font('/UniJIS-UTF16-H', cidFont)).writingMode]).toStrictEqual([1, 0]);
   });
 });
 
@@ -306,6 +329,18 @@ describe('fonts of subtype Type3', () => {
     const font = fontOf(chromium, [...PROCEDURES, { number: 14, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 4>>' }]);
     const other = fontOf(type3Font(''), PROCEDURES);
     expect([font.type3?.chromium, other.type3?.chromium, ...pick(glyphsOf(font, '\u0000\u0001'), 'notdef')]).toStrictEqual([true, false, true, false]);
+  });
+
+  it("needs both a FontDescriptor and uppercase hexadecimal names to take a font for Chromium's", () => {
+    const procedures: ReadonlyArray<TestObject> = [...PROCEDURES, { number: 14, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 4>>' }];
+    const shape = (names: string, descriptor: string): string =>
+      `<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.001 0 0 -0.001 0 0]/CharProcs<</g0 12 0 R/g1A 12 0 R/g1a 12 0 R>>/Encoding<</Differences[0${names}]>>/FirstChar 0/LastChar 1/Widths[1000 500]${descriptor}>>`;
+    const withoutDescriptor = fontOf(shape('/g0/g1A', ''), procedures);
+    const lowercase = fontOf(shape('/g0/g1a', '/FontDescriptor 14 0 R'), procedures);
+    expect([withoutDescriptor, lowercase].map(font => [font.type3?.chromium, ...pick(glyphsOf(font, '\u0000\u0001'), 'notdef')])).toStrictEqual([
+      [false, false, false],
+      [false, false, false],
+    ]);
   });
 });
 
