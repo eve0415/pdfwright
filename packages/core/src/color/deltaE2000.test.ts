@@ -68,6 +68,16 @@ describe('CIEDE2000', () => {
     expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
   });
 
+  // A tiny negative b* puts the hue just below 360°, which rounds to 360 rather than 0, so against a hue of 180° the mean hue stays at 270° whether or not the pair is an exact tie. Expected values are computed in double arithmetic with the hue kept at 360°.
+  it.each([
+    { first: [50, 100, -1e-14], second: [50, -100, 1e-14], expected: 96.1024 },
+    { first: [50, -100, 1e-14], second: [50, 100, -1e-14], expected: 96.1024 },
+    { first: [50, 100, -1e-14], second: [50, -50, 0], expected: 68.7222 },
+    { first: [50, -50, 0], second: [50, 100, -1e-14], expected: 68.7222 },
+  ])('gives ΔE00 $expected for $first against $second, with one hue just below 360°', ({ first, second, expected }) => {
+    expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
+  });
+
   it('gives zero for a colour against itself, including a neutral one', () => {
     expect(deltaE2000([50, 2.5, 0], [50, 2.5, 0])).toBe(0);
     expect(deltaE2000([50, 0, 0], [50, 0, 0])).toBe(0);
