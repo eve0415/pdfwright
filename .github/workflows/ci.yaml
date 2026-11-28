@@ -58,7 +58,6 @@ jobs:
         with:
           cache: true
 
-      # isolatedDeclarations errors (TS9xxx) surface here, when tsdown emits declarations, and not in the type-aware lint.
       - name: Build
         run: pnpm run build
 
