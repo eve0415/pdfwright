@@ -3,6 +3,7 @@ import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { TestPage } from '../../testing/textPdf.ts';
 import type { ExtractTextOptions, PageGlyph, PageText } from './extractText.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
@@ -10,6 +11,7 @@ import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { pdfReference } from '../../object/pdfObject.ts';
 import { latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
 import { extractText } from './extractText.ts';
@@ -179,6 +181,24 @@ const readUsingUnavailable = (codespace: string): Array<unknown> => {
   ];
 };
 
+// A Type 0 font, T or V, whose CIDFontType2 descendant embeds the program as FontFile2, every glyph 1000 thousandths wide.
+const embeddedFont = (encoding: 'Identity-H' | 'Identity-V', program: Uint8Array): ReadonlyArray<TestObject> => [
+  { number: 105, body: `<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/${encoding}/DescendantFonts[106 0 R]>>` },
+  {
+    number: 106,
+    body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000/FontDescriptor 113 0 R>>',
+  },
+  { number: 113, body: `${CID_DESCRIPTOR.body.slice(0, -2)}/FontFile2 114 0 R>>` },
+  { number: 114, body: streamBody('', latin1Text(program)) },
+];
+
+// The glyph the embedded cmap gives 山, and whether the program lacks a usable cmap, for each font of a page showing one glyph of such a font.
+const embeddedCmap = (program: Uint8Array): ReadonlyArray<unknown> =>
+  extract({ content: 'BT /T 10 Tf <0001> Tj ET', resources: '/Font<</T 105 0 R>>' }, embeddedFont('Identity-H', program)).fonts.map(font => [
+    font.cmap?.glyph(0x5c_71),
+    font.cmapMissing,
+  ]);
+
 describe('text extraction', () => {
   it('places each glyph at the origin the text rendering matrix gives, with its advance and advance box', () => {
     const shown = glyphs('BT /F1 10 Tf 100 200 Td (AB) Tj ET');
@@ -297,15 +317,106 @@ describe('text extraction', () => {
   });
 
   it('reports the code, CID, glyph index and text layers the font gives', () => {
-    const glyph = one(glyphs('BT /H 10 Tf <0041> Tj ET'));
+    // 9.7.4.2, Table 117: a CIDToGIDMap stream gives the glyph index of CID n in bytes 2n and 2n + 1, here glyph 7 for CID 65 at bytes 130 and 131.
+    const mapped: ReadonlyArray<TestObject> = [
+      { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]>>' },
+      {
+        number: 106,
+        body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000/CIDToGIDMap 107 0 R/FontDescriptor 111 0 R>>',
+      },
+      { number: 107, body: streamBody('', `${'\u0000'.repeat(130)}\u0000\u0007`) },
+    ];
+    const glyph = one(glyphs('BT /T 10 Tf <0041> Tj ET', mapped, '/Font<</T 105 0 R>>'));
     expect([[...glyph.code], glyph.cid, glyph.gid, glyph.toUnicode, glyph.encodingText, glyph.notdef, glyph.writingMode]).toStrictEqual([
       [0, 65],
       65,
-      65,
+      7,
       null,
       null,
       false,
       0,
+    ]);
+  });
+
+  it('refuses a document loadDocument did not return, even a copy of one', () => {
+    const copy = { ...loadDocument(textPdfBytes({ pages: [{}] })) };
+    expect(() => extractText(copy, 0)).toThrow(InvalidArgumentError);
+  });
+
+  it('lists the fonts glyphs are shown with in the order of first use, with whether each is a simple TrueType font', () => {
+    const trueType: TestObject = {
+      number: 105,
+      body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 110 0 R>>',
+    };
+    const text = extract(
+      { content: 'BT /H 10 Tf <0041> Tj /F1 10 Tf (A) Tj /T 10 Tf (A) Tj /H 10 Tf <0041> Tj ET', resources: '/Font<</F1 101 0 R/H 102 0 R/T 105 0 R>>' },
+      [trueType],
+    );
+    expect(text.fonts.map(font => [font.key, font.simpleTrueType, font.cmap, font.cmapMissing])).toStrictEqual([
+      ['102.0', false, undefined, false],
+      ['101.0', false, undefined, false],
+      ['105.0', true, undefined, false],
+    ]);
+  });
+
+  it('reports a CIDFontType2 font whose embedded program has no readable cmap', () => {
+    // ISO 32000-1:2008, Table 122: FontFile2 holds the TrueType program; the first 20 bytes of one end inside its table directory.
+    const program = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [100, 0, 900, 700] }], characters: [[0x5c_71, 1]] });
+    expect([embeddedCmap(program), embeddedCmap(program.subarray(0, 20))]).toStrictEqual([[[1, false]], [[undefined, true]]]);
+  });
+
+  it('counts a string the font cannot split as one glyph against maxGlyphs', () => {
+    const font: TestObject = { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/90ms-RKSJ-H/DescendantFonts[104 0 R]>>' };
+    const page = { content: 'BT /J 10 Tf <8341> Tj <8341> Tj ET', resources: '/Font<</J 105 0 R>>' };
+    expect(extract(page, [font], { maxGlyphs: 2 }).glyphs.map(glyph => glyph.reason)).toStrictEqual([
+      'predefined-cmap-unavailable',
+      'predefined-cmap-unavailable',
+    ]);
+    expect(() => extract(page, [font], { maxGlyphs: 1 })).toThrow(ResourceLimitError);
+  });
+
+  it('reports a page that fills rectangles and shows no glyphs', () => {
+    const text = extract({ content: '1 g 0 0 600 800 re f 0 g 10 10 20 20 re f' });
+    expect([text.glyphs, text.complete, text.warnings]).toStrictEqual([[], true, []]);
+  });
+
+  it.each([
+    ['a non-integer MCID', '<</MCID 3.5>>', undefined],
+    ['an MCID given by reference', '<</MCID 140 0 R>>', 7],
+    ['an MCID that is not a number', '<</MCID (x)>>', undefined],
+  ])('reads %s', (_, properties, mcid) => {
+    // 14.7.4.2: MCID is an integer marked-content identifier.
+    const glyph = one(glyphs(`/P ${properties} BDC BT /F1 10 Tf (A) Tj ET EMC`, [{ number: 140, body: '7' }]));
+    expect(glyph.markedContent.map(sequence => sequence.mcid)).toStrictEqual([mcid]);
+  });
+
+  it('estimates the extent of a font without a descriptor', () => {
+    // Without Descent, Ascent or FontBBox, and with no standard font's metrics to fall back on, the box spans the default −200 to 800 thousandths: at 10 points from (100, 200), 198 to 208.
+    const font: TestObject = { number: 105, body: '<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 65/LastChar 65/Widths[600]>>' };
+    const glyph = one(glyphs('BT /T 10 Tf 100 200 Td (A) Tj ET', [font], '/Font<</T 105 0 R>>'));
+    const described = one(glyphs('BT /F1 10 Tf 100 200 Td (A) Tj ET'));
+    expect([round(glyph.quad), glyph.extentEstimated, described.extentEstimated]).toStrictEqual([[100, 198, 106, 198, 106, 208, 100, 208], true, false]);
+  });
+
+  it('names the innermost form as the source of text in a form drawn in an annotation appearance or a soft mask', () => {
+    const form: TestObject = {
+      number: 120,
+      body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf (A) Tj ET'),
+    };
+    const appearance: TestObject = {
+      number: 121,
+      body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Resources<</XObject<</X 120 0 R>>>>', '/X Do'),
+    };
+    const annotation: TestObject = { number: 122, body: '<</Type/Annot/Subtype/FreeText/Rect[0 0 600 800]/F 4/AP<</N 121 0 R>>>>' };
+    const mask: TestObject = {
+      number: 125,
+      body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency/CS/DeviceGray>>/Resources<</XObject<</X 120 0 R>>>>', '/X Do'),
+    };
+    const annotated = extract({ content: '', entries: '/Annots[122 0 R]' }, [form, appearance, annotation], { annotations: 'printable' });
+    const masked = extract({ content: '/M gs', resources: '/ExtGState<</M<</SMask<</S/Luminosity/G 125 0 R>>>>>>' }, [form, mask]);
+    expect([...annotated.glyphs, ...masked.glyphs].map(glyph => glyph.source)).toStrictEqual([
+      { kind: 'form', reference: pdfReference(120, 0) },
+      { kind: 'form', reference: pdfReference(120, 0) },
     ]);
   });
 
@@ -322,8 +433,20 @@ describe('text extraction', () => {
 
   it('reports the CropBox and a bad page index', () => {
     const text = extract({ content: '', entries: '/CropBox[10 20 300 400]' });
-    expect([text.page, text.cropBox, text.complete, text.warnings]).toStrictEqual([0, [10, 20, 300, 400], true, []]);
+    expect([text.page, text.cropBox, text.mediaBox, text.complete, text.warnings]).toStrictEqual([0, [10, 20, 300, 400], [0, 0, 600, 800], true, []]);
     expect(() => extractText(loadDocument(textPdfBytes({ pages: [{}] })), 1)).toThrow(InvalidArgumentError);
+  });
+
+  it('reports page boxes that cannot be read as unknown, with a warning, and still reads the glyphs', () => {
+    // Table 30: CropBox is a rectangle, which a string is not.
+    const text = extract({ content: 'BT /F1 10 Tf 100 200 Td (A) Tj ET', resources: FONT_RESOURCES, entries: '/CropBox (x)' });
+    expect([
+      text.cropBox,
+      text.mediaBox,
+      text.complete,
+      text.glyphs.length,
+      text.warnings.map(warning => [warning.code, warning.detail.includes('CropBox')]),
+    ]).toStrictEqual([undefined, undefined, false, 1, [['content-unreadable', true]]]);
   });
 
   it('refuses option values outside their types', () => {
@@ -439,6 +562,27 @@ describe('text extraction', () => {
       const text = spans('BT /F1 10 Tf /P <</ActualText (x)>> BDC (A) Tj EMC ET');
       expect([text.actualText, text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([[], [undefined]]);
     });
+
+    it('takes the language of a language escape before the Lang entry', () => {
+      // 7.9.2.2: the escape 001B 6A61 001B names Japanese for the text after it.
+      const text = spans('BT /F1 10 Tf /Span <</ActualText <FEFF001B6A61001B5C71>/Lang (en)>> BDC (A) Tj EMC ET');
+      expect(text.actualText).toStrictEqual([{ text: '山', language: 'ja', glyphs: [0] }]);
+    });
+
+    it.each([
+      ['a name', '/x', []],
+      ['a reference to a string', '140 0 R', [{ text: 'AB', language: undefined, glyphs: [0] }]],
+      ['a reference to a missing object', '141 0 R', []],
+    ])('spans glyphs only under an ActualText string: %s', (_, value, expected) => {
+      // 14.9.4: ActualText is a text string.
+      const text = spans(`BT /F1 10 Tf /Span <</ActualText ${value}>> BDC (A) Tj EMC ET`, FONT_RESOURCES, [{ number: 140, body: '(AB)' }]);
+      expect([text.actualText, text.complete]).toStrictEqual([expected, true]);
+    });
+
+    it('lists no span inside which no glyph is shown', () => {
+      const text = spans('/Span <</ActualText (x)>> BDC EMC BT /F1 10 Tf (A) Tj ET');
+      expect([text.actualText, text.glyphs.map(glyph => glyph.actualText)]).toStrictEqual([[], [undefined]]);
+    });
   });
 
   describe('vertical writing', () => {
@@ -469,6 +613,13 @@ describe('text extraction', () => {
       expect(boxes(shownIn('BT /V 20 Tf 50 Tz 2 Tc 80 200 Td <00410041> Tj ET'))).toStrictEqual([
         [1, [80, 200], [0, -18], [75, 180, 85, 180, 85, 200, 75, 200]],
         [1, [80, 182], [0, -18], [75, 162, 85, 162, 85, 182, 75, 182]],
+      ]);
+    });
+
+    it('gives a string a vertical font cannot split no size, at the text position', () => {
+      const font: TestObject = { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/90ms-RKSJ-V/DescendantFonts[104 0 R]>>' };
+      expect(boxes(glyphs('BT /J 10 Tf 80 200 Td <8341> Tj ET', [font], '/Font<</J 105 0 R>>'))).toStrictEqual([
+        [1, [80, 200], [0, 0], [80, 200, 80, 200, 80, 200, 80, 200]],
       ]);
     });
 
@@ -580,6 +731,73 @@ describe('text extraction', () => {
       expect(shown.map(glyph => [latin1Text(glyph.code), glyph.source.kind, glyph.visible, glyph.invisibleBecause, glyph.softMasked])).toStrictEqual([
         ['B', 'soft-mask', false, 'soft-mask-group', false],
         ['A', 'page', true, undefined, true],
+      ]);
+    });
+
+    it('makes render modes that fill or stroke visible unless every paint they make has alpha 0', () => {
+      // 9.3.6, Table 106: modes 2 and 6 fill and stroke, 4 fills and 5 strokes, each adding to the clip; each row is modes 2, 4, 5 and 6 under one ExtGState.
+      const seen = ['', '/Clear gs', '/NoStroke gs', '/Clear gs /NoStroke gs'].map(state =>
+        [2, 4, 5, 6].flatMap(mode =>
+          flags(`q ${state} BT /F1 10 Tf ${String(mode)} Tr (A) Tj ET Q`).map(([visible, reason]) => (visible === true ? 'visible' : reason)),
+        ),
+      );
+      expect(seen).toStrictEqual([
+        ['visible', 'visible', 'visible', 'visible'],
+        ['visible', 'alpha', 'visible', 'visible'],
+        ['visible', 'visible', 'alpha', 'visible'],
+        ['alpha', 'alpha', 'alpha', 'alpha'],
+      ]);
+    });
+
+    it('multiplies the alpha constants by the alpha of the enclosing transparency group', () => {
+      // 11.6.4.4: the group is painted at the ca in force where it is drawn, 0.5, so text at ca 0.6 and CA 0.25 inside it is seen at 0.3 and 0.125.
+      const group: TestObject = {
+        number: 126,
+        body: streamBody(
+          `/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency>>/Resources<<${FONT_RESOURCES}/ExtGState<</Inner<</ca 0.6/CA 0.25>>>>>>`,
+          '/Inner gs BT /F1 10 Tf (A) Tj ET',
+        ),
+      };
+      const shown = glyphs('/Half gs /G Do', [maskGroup, group], `${FONT_RESOURCES}${states}/XObject<</G 126 0 R>>`);
+      expect(shown.map(glyph => [round([glyph.fillAlpha, glyph.strokeAlpha]), glyph.softMasked])).toStrictEqual([[[0.3, 0.125], false]]);
+    });
+
+    it('marks text in a transparency group drawn under a soft mask as soft-masked', () => {
+      // Table 52: the soft mask resets to None inside the group, which is composited through the mask where it is drawn.
+      const group: TestObject = {
+        number: 126,
+        body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency>>/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 10 Tf (A) Tj ET'),
+      };
+      const shown = glyphs('/Masked gs /G Do', [maskGroup, group], `${FONT_RESOURCES}${states}/XObject<</G 126 0 R>>`);
+      expect(shown.filter(glyph => glyph.source.kind === 'form').map(glyph => [glyph.visible, glyph.softMasked])).toStrictEqual([[true, true]]);
+    });
+
+    it.each([
+      ['render mode before alpha', '/Clear gs BT /F1 10 Tf 3 Tr (A) Tj ET', 'BT /F1 10 Tf (B) Tj ET', 'render-mode'],
+      ['alpha before the soft mask group', '/Masked gs BT /F1 10 Tf (A) Tj ET', '/Clear gs BT /F1 10 Tf (B) Tj ET', 'alpha'],
+      ['the soft mask group before a degenerate matrix', '/Masked gs BT /F1 10 Tf (A) Tj ET', 'BT /F1 10 Tf 0 Tz (B) Tj ET', 'soft-mask-group'],
+    ])('reports the first reason a glyph is invisible: %s', (_, content, maskContent, reason) => {
+      const mask: TestObject = {
+        number: 125,
+        body: streamBody(
+          `/Type/XObject/Subtype/Form/BBox[0 0 600 800]/Group<</S/Transparency/CS/DeviceGray>>/Resources<<${FONT_RESOURCES}${states}>>`,
+          maskContent,
+        ),
+      };
+      const shown = glyphs(content, [mask], `${FONT_RESOURCES}${states}`);
+      const glyph = shown.find(({ code }) => latin1Text(code) === (reason === 'render-mode' ? 'A' : 'B'));
+      expect(glyph?.invisibleBecause).toBe(reason);
+    });
+
+    it('reports a degenerate matrix before an empty Type 3 glyph', () => {
+      const glyph = one(type3Glyphs('BT /T 10 Tf 0 Tz (a) Tj ET', { matrix: '0.001 0 0 0.001 0 0', procedure: '1000 0 0 0 800 700 d1' }));
+      expect([glyph.empty, glyph.invisibleBecause]).toStrictEqual([true, 'degenerate']);
+    });
+
+    it('makes text whose em square is under half a unit of default user space invisible, and text at half a unit visible', () => {
+      expect(flags('BT /F1 0.4999 Tf (A) Tj ET BT /F1 0.5 Tf (A) Tj ET')).toStrictEqual([
+        [false, 'degenerate'],
+        [true, undefined],
       ]);
     });
 
@@ -700,10 +918,72 @@ describe('text extraction', () => {
       expect(hidden).toStrictEqual(['none', 'partly']);
     });
 
+    it('takes a d1 box up to 16 em wide as the ink, and a wider one as damage', () => {
+      // At 10 points from (100, 200) a clip from x 120 keeps the first 2 em: it cuts ink 16 em wide, but not the core box of the 1 em advance that stands in for a damaged one.
+      const hidden = ['16000', '16001'].map(
+        width =>
+          one(
+            type3Glyphs('0 0 120 800 re W n BT /T 10 Tf 100 200 Td (a) Tj ET', {
+              matrix: '0.001 0 0 0.001 0 0',
+              procedure: `1000 0 0 0 ${width} 700 d1 0 0 ${width} 700 re f`,
+            }),
+          ).coreHidden,
+      );
+      expect(hidden).toStrictEqual(['partly', 'none']);
+    });
+
+    it('measures a glyph whose extent lies wholly outside the em box by its whole extent', () => {
+      // A d0 glyph under FontBBox −500 to −200 thousandths lies below the em box's bottom of −120: at 10 points from (100, 200) it spans 195–198, and a clip from 196.5 cuts 0.15 em of it.
+      const glyph = one(
+        type3Glyphs('0 196.5 600 600 re W n BT /T 10 Tf 100 200 Td (a) Tj ET', {
+          matrix: '0.001 0 0 0.001 0 0',
+          bbox: '0 -500 1000 -200',
+          procedure: '1000 0 d0 0 -500 1000 300 re f',
+        }),
+      );
+      expect([round(glyph.quad), glyph.coreHidden]).toStrictEqual([[100, 195, 110, 195, 110, 198, 100, 198], 'partly']);
+    });
+
     it('limits the core box of a vertical glyph to the em width centred on it', () => {
       // CID 65 is 2000 thousandths wide: at 20 points from (80, 200) its box spans 60–100 across the column and its core box 70–90.
       const hidden = ['65 0 600 800 re W n', '75 0 600 800 re W n'].map(clip =>
         shownIn(`${clip} BT /V 20 Tf 80 200 Td <0041> Tj ET`, '/W[65[2000]]').map(glyph => glyph.coreHidden),
+      );
+      expect(hidden).toStrictEqual([['none'], ['partly']]);
+    });
+
+    it('measures a vertical glyph narrower than an em by its whole width', () => {
+      // CID 65 is 500 thousandths wide: at 20 points from (80, 200) its box spans 75–85, and a clip 1.5 points into it cuts less than 0.1 em.
+      const hidden = ['76.5 0 600 800 re W n', '78 0 600 800 re W n'].map(clip =>
+        shownIn(`${clip} BT /V 20 Tf 80 200 Td <0041> Tj ET`, '/W[65[500]]').map(glyph => glyph.coreHidden),
+      );
+      expect(hidden).toStrictEqual([['none'], ['partly']]);
+    });
+
+    it('measures a vertical TrueType glyph by its ink, placed by the position vector', () => {
+      // 9.2.4 and 9.7.4.3: origin 0 lies at −v = (−0.5, −0.88) em from the text position, so ink 500–900 across lies 0–0.4 em right of it: at 20 points from (80, 200), 80–88 in a box 70–90.
+      const program = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, { advance: 1000, box: [500, -100, 900, 800] }],
+        characters: [[0x5c_71, 1]],
+      });
+      const hidden = ['76 0 600 800 re W n', '84 0 600 800 re W n'].map(clip =>
+        glyphs(`${clip} BT /V 20 Tf 80 200 Td <0001> Tj ET`, embeddedFont('Identity-V', program), '/Font<</V 105 0 R>>').map(glyph => glyph.coreHidden),
+      );
+      expect(hidden).toStrictEqual([['none'], ['partly']]);
+    });
+
+    it('collapses the inset box of a glyph narrower than 0.2 em to its centre line', () => {
+      // CID 65 is 100 thousandths wide: at 10 points from (100, 200) it spans 100–101, and its inset box is the line x = 100.5.
+      const narrow: ReadonlyArray<TestObject> = [
+        { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]>>' },
+        {
+          number: 106,
+          body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000/W[65[100]]/FontDescriptor 111 0 R>>',
+        },
+      ];
+      const hidden = ['100.4 0 500 800 re W n', '100.6 0 500 800 re W n'].map(clip =>
+        glyphs(`${clip} BT /T 10 Tf 100 200 Td <0041> Tj ET`, narrow, '/Font<</T 105 0 R>>').map(glyph => glyph.coreHidden),
       );
       expect(hidden).toStrictEqual([['none'], ['partly']]);
     });
@@ -755,5 +1035,27 @@ describe('text extraction', () => {
         [true, 'notdef', undefined],
       ]);
     });
+  });
+});
+
+describe('properties', () => {
+  // F1's codes 32, 65 and 66 are 250, 600 and 500 thousandths wide; Tc and Tw in quarters and Tz in whole percentages, so that positions stay exact enough to compare.
+  const line = fc.record({
+    codes: fc.array(fc.constantFrom(' ', 'A', 'B'), { minLength: 2, maxLength: 12 }).map(characters => characters.join('')),
+    size: fc.integer({ min: 1, max: 40 }),
+    charSpacing: fc.integer({ min: -20, max: 20 }).map(value => value / 4),
+    wordSpacing: fc.integer({ min: -20, max: 20 }).map(value => value / 4),
+    scaling: fc.integer({ min: 1, max: 300 }),
+  });
+
+  it('places each glyph of an unrotated line at the previous origin plus its advance', () => {
+    // 9.4.4: after each glyph the text matrix moves by tx = ((w0 − Tj/1000) × Tfs + Tc + Tw) × Th, which `advance` reports.
+    fc.assert(
+      fc.property(line, ({ codes, size, charSpacing, wordSpacing, scaling }) => {
+        const shown = glyphs(`BT /F1 ${String(size)} Tf ${String(charSpacing)} Tc ${String(wordSpacing)} Tw ${String(scaling)} Tz 100 200 Td (${codes}) Tj ET`);
+        const next = shown.slice(0, -1).map(glyph => round([glyph.origin[0] + glyph.advance[0], glyph.origin[1] + glyph.advance[1]]));
+        expect(next).toStrictEqual(shown.slice(1).map(glyph => round(glyph.origin)));
+      }),
+    );
   });
 });
