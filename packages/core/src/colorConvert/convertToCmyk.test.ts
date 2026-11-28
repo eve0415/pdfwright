@@ -592,7 +592,7 @@ const grayPaint = [
 ] as const;
 
 // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte holds one value per component of the image's colour space, so it cannot stay on the gray image as three RGB values.
-const softMasked = (matte: string, maskWidth = 1): ReadonlyArray<TestObject> => [
+const softMasked = (matte: string, mask = '/Width 1/Height 1/BitsPerComponent 8', maskData = String.fromCodePoint(128)): ReadonlyArray<TestObject> => [
   maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
   {
     number: 9,
@@ -600,10 +600,7 @@ const softMasked = (matte: string, maskWidth = 1): ReadonlyArray<TestObject> => 
   },
   {
     number: 10,
-    body: streamBody(
-      `/Type/XObject/Subtype/Image/Width ${String(maskWidth)}/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray${matte}`,
-      String.fromCodePoint(128).repeat(maskWidth),
-    ),
+    body: streamBody(`/Type/XObject/Subtype/Image${mask}/ColorSpace/DeviceGray${matte}`, maskData),
   },
 ];
 
@@ -765,13 +762,17 @@ describe('luminosity soft masks', () => {
     expect(error instanceof Error ? error.message : error).toMatch(/Matte/u);
   });
 
-  // ISO 32000-1:2008, 11.6.5.3, Table 146: a Matte with other than one value per image component, or a preblended soft mask of another size, is malformed rather than unsupported.
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: a Matte with other than one value per image component, a preblended soft mask of another size, or a soft mask that is not a valid image (8.9.5) is malformed rather than unsupported.
   it.each([
-    { name: 'one Matte value for an RGB image', matte: '/Matte[1]', maskWidth: 1 },
-    { name: 'a non-numeric Matte value', matte: '/Matte[/A 0 0]', maskWidth: 1 },
-    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', maskWidth: 2 },
-  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, maskWidth }) => {
-    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, maskWidth))), cmykOptions);
+    { name: 'one Matte value for an RGB image', matte: '/Matte[1]', mask: undefined, maskData: undefined },
+    { name: 'a non-numeric Matte value', matte: '/Matte[/A 0 0]', mask: undefined, maskData: undefined },
+    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', mask: '/Width 2/Height 1/BitsPerComponent 8', maskData: 'AA' },
+    { name: 'a preblended soft mask taller than the image', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 2/BitsPerComponent 8', maskData: 'AA' },
+    { name: 'a preblended soft mask of 3 bits per component', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 3', maskData: 'A' },
+    { name: 'a preblended soft mask with a one-value Decode', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[0]', maskData: 'A' },
+    { name: 'a preblended soft mask with no samples', matte: '/Matte[1 0 0]', mask: undefined, maskData: '' },
+  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, mask, maskData }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, mask, maskData))), cmykOptions);
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error).toMatchObject({ reason: 'color-space' });
