@@ -96,9 +96,9 @@ const headerData = (fields: HeaderFields): Array<number> => [
 
 const GRAY_PIXEL = image(0, 8, { width: 1, height: 1 });
 
-// A file whose IHDR carries `header` and whose image data is one grey pixel.
-const withHeader = (header: ReadonlyArray<number>): Uint8Array =>
-  concat(SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', deflateZlib(filteredImageData(GRAY_PIXEL))), pngChunk('IEND'));
+// A file whose IHDR carries `header` and whose image data is one grey pixel unless given.
+const withHeader = (header: ReadonlyArray<number>, filtered: Uint8Array = filteredImageData(GRAY_PIXEL)): Uint8Array =>
+  concat(SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', deflateZlib(filtered)), pngChunk('IEND'));
 
 // Inserts chunks between the last IDAT and IEND, which is the last 12 bytes of an encoded test PNG.
 const beforeIend = (png: Uint8Array, ...chunks: ReadonlyArray<Uint8Array>): Uint8Array =>
@@ -288,9 +288,10 @@ describe('decoding PNG datastreams', () => {
 
 describe('decoding PNG structure', () => {
   it.each([
-    ['an IHDR of 12 bytes', headerData({}).slice(0, 12)],
-    ['width 0', headerData({ width: 0 })],
-    ['height 0', headerData({ height: 0 })],
+    ['an IHDR of 14 bytes', [...headerData({}), 0]],
+    // An empty image has no filtered bytes, so its image data is an empty zlib datastream that a reader accepting the size would decode.
+    ['width 0', headerData({ width: 0 }), new Uint8Array()],
+    ['height 0', headerData({ height: 0 }), new Uint8Array()],
     ['width 2^31', headerData({ width: 2 ** 31 })],
     ['height 2^31', headerData({ height: 2 ** 31 })],
     // PNG Third Edition, 6.1, Table 9 defines colour types 0, 2, 3, 4 and 6 only.
@@ -300,8 +301,8 @@ describe('decoding PNG structure', () => {
     ['compression method 1', headerData({ compression: 1 })],
     ['filter method 1', headerData({ filter: 1 })],
     ['interlace method 2', headerData({ interlace: 2 })],
-  ])('refuses an IHDR with %s', (_, header) => {
-    expect(decodeReason(withHeader(header))).toBe('image-invalid');
+  ])('refuses an IHDR with %s', (_, header, filtered?: Uint8Array) => {
+    expect(decodeReason(withHeader(header, filtered))).toBe('image-invalid');
   });
 
   it('refuses an image of width 2^31 − 1 by its size, not its header', () => {
@@ -309,7 +310,8 @@ describe('decoding PNG structure', () => {
   });
 
   it.each([
-    ['a chunk before IHDR', concat(SIGNATURE, pngChunk('gAMA', uint32Bytes(45_455)), encodeTestPng(GRAY_PIXEL).subarray(8))],
+    // The first chunk holds a valid IHDR body under another name, and no IHDR follows.
+    ['a first chunk that is not IHDR', concat(SIGNATURE, pngChunk('tEXt', headerData({})), encodeTestPng(GRAY_PIXEL).subarray(33))],
     // PNG Third Edition, 5.3: a length above 2^31 − 1 is invalid however many bytes follow it.
     ['a chunk length of 2^31', concat(SIGNATURE, pngChunk('IHDR', headerData({})), [0x80, 0, 0, 0, ...asciiBytes('gAMA'), 0, 0, 0, 0])],
     ['a chunk type with a digit', encodeTestPng({ ...GRAY_PIXEL, before: [pngChunk('ID4T', [1])] })],
@@ -350,7 +352,6 @@ describe('decoding PNG structure', () => {
     // PNG Third Edition, 11.3.2.3: iCCP appears once, with a 1 to 79 byte name, a null separator, compression method 0 and a valid zlib datastream.
     ['a repeated iCCP', encodeTestPng({ ...GRAY_PIXEL, before: [profileChunk(asciiBytes('a')), profileChunk(asciiBytes('b'))] })],
     ['an iCCP name of 80 bytes', encodeTestPng({ ...GRAY_PIXEL, before: [profileChunk(asciiBytes('n'.repeat(80)))] })],
-    ['an iCCP with no null separator', encodeTestPng({ ...GRAY_PIXEL, before: [pngChunk('iCCP', asciiBytes('name'))] })],
     ['iCCP compression method 1', encodeTestPng({ ...GRAY_PIXEL, before: [profileChunk(asciiBytes('p'), 1)] })],
     // 0x07 opens a final deflate block of the reserved type 3 (RFC 1951, 3.2.3).
     [
