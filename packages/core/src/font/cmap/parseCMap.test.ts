@@ -250,8 +250,19 @@ describe('embedded and ToUnicode CMaps', () => {
     expect(cmapOf('').writingMode).toBe(0);
   });
 
-  it('throws ResourceLimitError past 65,536 entries', () => {
-    const entries = Array.from({ length: 65_537 }, (_, index) => `<${index.toString(16).padStart(6, '0')}> 1`).join('\n');
-    expect(() => parse(`65537 begincidchar\n${entries}\nendcidchar`)).toThrow(ResourceLimitError);
+  // cidchar blocks of at most 8,000 entries, so that no block passes the content operand budget before the entry count is reached.
+  const cidChars = (count: number): string => {
+    const blocks: Array<string> = [];
+    for (let start = 0; start < count; start += 8000) {
+      const size = Math.min(8000, count - start);
+      const entries = Array.from({ length: size }, (_, index) => `<${(start + index).toString(16).padStart(6, '0')}> 1`);
+      blocks.push(`${String(size)} begincidchar\n${entries.join('\n')}\nendcidchar`);
+    }
+    return blocks.join('\n');
+  };
+
+  it('accepts 65,536 entries and throws ResourceLimitError at the next one', () => {
+    expect(parse(cidChars(65_536)).cids).toHaveLength(65_536);
+    expect(() => parse(cidChars(65_537))).toThrow(ResourceLimitError);
   });
 });
