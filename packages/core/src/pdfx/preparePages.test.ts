@@ -1,4 +1,4 @@
-import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { LoadedDocument, LoadOptions } from '../document/loadDocument.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 
@@ -52,7 +52,7 @@ const boxed = (...pages: ReadonlyArray<string>) =>
   );
 
 /** One page with an explicit TrimBox, the given resources and content stream 4, and further objects numbered from 5. */
-const single = (resources: string, content: string, extra: ReadonlyArray<TestObject> = [], page = '') =>
+const single = (resources: string, content: string, extra: ReadonlyArray<TestObject> = [], page = '', options: LoadOptions = {}) =>
   loadDocument(
     buildPdf([
       {
@@ -67,6 +67,7 @@ const single = (resources: string, content: string, extra: ReadonlyArray<TestObj
         trailer: '/Root 1 0 R',
       },
     ]).bytes,
+    options,
   );
 
 const boxFinding = (document: LoadedDocument) => checkPdfX4(document).findings.find(finding => finding.rule === 'X4-BOXES')?.status;
@@ -388,16 +389,29 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(document)).toStrictEqual(groups);
   });
 
-  it.each<[string, string, ReadonlyArray<TestObject>]>([
-    ['an indirect font', '<</Font<</T3 5 0 R>>>>', [{ number: 5, body: '<<FONT>>' }]],
-    ['a direct font', '<</Font<</T3 <<FONT>>>>>>', []],
-  ])('ends the scan of a glyph that selects its own font, %s', (_, resources, extra) => {
+  it.each<[string, string, ReadonlyArray<TestObject>, LoadOptions]>([
+    ['an indirect font', '<</Font<</T3 5 0 R>>>>', [{ number: 5, body: '<<FONT>>' }], {}],
+    ['a direct font', '<</Font<</T3 <<FONT>>>>>>', [], {}],
+    // Each glyph procedure reads the Font dictionary again, and with no room in the object cache that gives a new font dictionary every time.
+    [
+      'a direct font in an indirect Font dictionary that the object cache drops',
+      '<</Font 8 0 R>>',
+      [{ number: 8, body: '<</T3 <<FONT>>>>' }],
+      { parsedObjectCacheBytes: 1 },
+    ],
+  ])('ends the scan of a glyph that selects its own font, %s', (_, resources, extra, options) => {
     const font =
       '/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]';
-    const document = single(resources.replace('FONT', font), streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
-      ...extra.map(object => ({ ...object, body: object.body.replace('FONT', font) })),
-      { number: 6, body: streamBody('', '0 0 d0 BT /T3 12 Tf (a) Tj ET 0 0 1 1 re f') },
-    ]);
+    const document = single(
+      resources.replace('FONT', font),
+      streamBody('', 'BT /T3 12 Tf (a) Tj ET'),
+      [
+        ...extra.map(object => ({ ...object, body: object.body.replace('FONT', font) })),
+        { number: 6, body: streamBody('', '0 0 d0 BT /T3 12 Tf (a) Tj ET 0 0 1 1 re f') },
+      ],
+      '',
+      options,
+    );
     expect(addedGroups(document)).toStrictEqual([]);
   });
 
