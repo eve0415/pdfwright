@@ -10,7 +10,13 @@ const seventhPower = (value: number): number => {
   return square * square * square * value;
 };
 
-const hueDifference = (first: number, second: number, chromaProduct: number, opposite: boolean): number => {
+// A negative b* whose angle rounds onto the seam is a hue just below 360°, not 0°, or a partner near 180° lands on the wrong side of the 180° branch.
+const hue = (b: number, aPrime: number): number => {
+  const degrees = deterministicAtanDegrees(b, aPrime);
+  return degrees === 0 && b < 0 ? 360 : degrees;
+};
+
+const hueDifference =(first: number, second: number, chromaProduct: number, opposite: boolean): number => {
   if (chromaProduct === 0) {
     return 0;
   }
@@ -54,8 +60,8 @@ export const deltaE2000 = (first: ReadonlyArray<number>, second: ReadonlyArray<n
   const ap2 = a2 * (1 + g);
   const cp1 = Math.sqrt(ap1 * ap1 + b1 * b1);
   const cp2 = Math.sqrt(ap2 * ap2 + b2 * b2);
-  const h1 = deterministicAtanDegrees(b1, ap1);
-  const h2 = deterministicAtanDegrees(b2, ap2);
+  const h1 = hue(b1, ap1);
+  const h2 = hue(b2, ap2);
   // Hues exactly 180° apart take the unwrapped branch of both the hue difference and the mean hue (Sharma, Wu and Dalal 2005), but the two rounded angles can differ by slightly more than 180. The tie is settled from a*b* instead: a′ scales a* by the positive 1 + G, so the vectors are opposite exactly when these are.
   const opposite = a1 * b2 === b1 * a2 && a1 * a2 + b1 * b2 < 0;
   const deltaH = hueDifference(h1, h2, cp1 * cp2, opposite);
