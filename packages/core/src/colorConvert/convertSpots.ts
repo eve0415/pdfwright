@@ -456,7 +456,7 @@ const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReferen
   return [...plan.spot.discarded];
 };
 
-/** Converts RGB or calibrated-gray alternates while preserving every colorant name object, in page and image colour spaces and in the own resources of every form, tiling pattern, Type 3 font and appearance stream a page reaches; a soft-mask group and what only it reaches keep theirs. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
+/** Converts RGB or calibrated-gray alternates while preserving every colorant name object, in page and image colour spaces and in the own resources of every form, tiling pattern, Type 3 font and appearance stream a page reaches; the ColorSpace resources of a soft-mask group, and of carriers only it reaches, keep theirs. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
 export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColorOptions): SpotConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
