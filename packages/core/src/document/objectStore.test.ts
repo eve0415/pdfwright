@@ -132,7 +132,10 @@ describe('object store', () => {
       generationMismatch: 'error' as const,
       parsedObjectCacheBytes: 1_048_576,
     };
-    const store = new ObjectStore(new ByteSource(new SearchGuard(pdf.bytes)), ObjectIndex.fromEntries(entries), context);
+    const source = new ByteSource(new SearchGuard(pdf.bytes));
+    const store = new ObjectStore(source, ObjectIndex.fromEntries(entries), context);
+    // The guard only works while the source searches the caller's array rather than a copy.
+    expect(source.segments[0]).toBeInstanceOf(SearchGuard);
     expect(() => store.parse(2)).toThrow(ParseError);
   });
 
