@@ -227,7 +227,7 @@ describe('embedded and ToUnicode CMaps', () => {
     expect(parsed.problems.map(problem => problem.kind)).toStrictEqual(['damaged']);
     const cmap = new CMap(parsed);
     expect(cmap.unicode(code('01'))).toBe('\u{1F600}');
-    expect(cmap.unicode(code('02'))).toBe('A�');
+    expect(cmap.unicode(code('02'))).toBe('A\uFFFD');
   });
 
   it('reads multi-character bfchar destinations and lowercase hexadecimal', () => {
@@ -320,8 +320,8 @@ describe('damaged CMap entries', () => {
   it.each([
     { label: 'a 1-byte destination as one code unit', destination: '<41>', text: 'A', problems: [] },
     { label: 'an odd leading byte as a code unit of its own', destination: '<004142>', text: '\u0000䅂', problems: [] },
-    { label: 'a lone low surrogate as U+FFFD', destination: '<DC00>', text: '�', problems: ['damaged'] },
-    { label: 'a high surrogate at the end as U+FFFD', destination: '<0041D83D>', text: 'A�', problems: ['damaged'] },
+    { label: 'a lone low surrogate as U+FFFD', destination: '<DC00>', text: '\uFFFD', problems: ['damaged'] },
+    { label: 'a high surrogate at the end as U+FFFD', destination: '<0041D83D>', text: 'A\uFFFD', problems: ['damaged'] },
   ])('decodes $label', ({ destination, text, problems }) => {
     // 9.10.3: the destination is "a string of UTF-16BE-encoded Unicode characters".
     const parsed = parse(toUnicode(`1 beginbfchar <01> ${destination} endbfchar`));

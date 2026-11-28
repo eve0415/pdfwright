@@ -41,7 +41,7 @@ describe('CMaps', () => {
   it('gives U+FFFD where incrementing a bfrange destination passes U+FFFF', () => {
     // ISO 32000-1:2008, 9.10.3: a destination whose last byte passes 255 over the range gives a result that "is undefined"; a code unit past 0xFFFF is no UTF-16.
     const cmap = cmapOf('1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <00> <02> <FFFF> endbfrange');
-    expect([0, 1, 2].map(value => cmap.unicode({ value, length: 1 }))).toStrictEqual(['￿', '�', '�']);
+    expect([0, 1, 2].map(value => cmap.unicode({ value, length: 1 }))).toStrictEqual(['\uFFFF', '\uFFFD', '\uFFFD']);
   });
 });
 
