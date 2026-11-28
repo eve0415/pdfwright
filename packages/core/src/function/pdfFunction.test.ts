@@ -8,7 +8,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { md5 } from '../hash/md5.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
-import { createPdfFunction, createPdfFunctionReader } from './pdfFunction.ts';
+import { createPdfFunction, createPdfFunctionReader, pdfFunctionReferences } from './pdfFunction.ts';
 
 const key = (name: string): Uint8Array => new TextEncoder().encode(name);
 const numbers = (values: Array<number>): ReturnType<typeof pdfArray> => pdfArray(values.map(value => pdfReal(value)));
@@ -444,5 +444,37 @@ describe('function readers', () => {
     const children = Array.from({ length: 65_535 }, (_, index) => functionObject(2, { C0: numbers([index]), N: pdfInteger(1) }));
     const [first] = children;
     expect(createPdfFunction(evenStitching([...children, first ?? identity()]))([1])).toStrictEqual([1]);
+  });
+});
+
+describe('pdfFunctionReferences', () => {
+  it('lists each indirect object of a graph once, a self-reference and a shared one included', () => {
+    const objects = new Map<number, PdfDirectObject>([
+      [1, evenStitching([pdfReference(1, 0)])],
+      [10, pdfArray([pdfReference(11, 0), pdfReference(11, 0)])],
+      [11, functionObject(2, { C1: pdfReference(12, 0), N: pdfInteger(1) })],
+      [12, numbers([1])],
+    ]);
+    const resolve = (value: PdfDirectObject): PdfObject => resolveObject(objects, value);
+    const shared = functionObject(3, { Functions: pdfReference(10, 0), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0, 1]) });
+    const numbersOf = (value: PdfDirectObject) =>
+      pdfFunctionReferences(value, resolve)
+        .map(reference => reference.objectNumber)
+        .toSorted((a, b) => a - b);
+    expect([numbersOf(pdfReference(1, 0)), numbersOf(shared)]).toStrictEqual([[1], [10, 11, 12]]);
+  });
+
+  it('lists references inside a function stream dictionary', () => {
+    const objects = new Map<number, PdfObject>([
+      [2, streamFunction(4, { Domain: pdfReference(3, 0), Range: pdfReference(4, 0) }, new TextEncoder().encode('{ }'))],
+      [3, numbers([0, 1])],
+      [4, numbers([0, 1])],
+    ]);
+    const resolve = (value: PdfDirectObject): PdfObject => (value.kind === 'reference' ? (objects.get(value.objectNumber) ?? { kind: 'null' }) : value);
+    expect(
+      pdfFunctionReferences(pdfReference(2, 0), resolve)
+        .map(reference => reference.objectNumber)
+        .toSorted((a, b) => a - b),
+    ).toStrictEqual([2, 3, 4]);
   });
 });
