@@ -111,11 +111,11 @@ describe('reference cycles', () => {
     expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
   });
 
-  // Each object of a two-object cycle is described in six steps: the start, reference and end of its own array and of the other object's array.
+  // Each object of a two-object cycle is described in thirteen steps: entering each of the two objects, its array and the array's one link; each array and the link into it while the two are sorted into one class; and writing the array, the link back to it and the array's end.
   it('describes reference cycles within the number of steps it may take in all, and refuses to go past it', () => {
     const internals = internalsOrThrow(['[21 0 R]', '[20 0 R]']);
     const unlimited = new ResolvedTexts(internals);
-    const [atLimit, pastLimit] = [new ResolvedTexts(internals, 12), new ResolvedTexts(internals, 11)];
+    const [atLimit, pastLimit] = [new ResolvedTexts(internals, 26), new ResolvedTexts(internals, 25)];
     expect([atLimit.text(pdfReference(20, 0)), atLimit.text(pdfReference(21, 0))]).toStrictEqual([
       unlimited.text(pdfReference(20, 0)),
       unlimited.text(pdfReference(21, 0)),
