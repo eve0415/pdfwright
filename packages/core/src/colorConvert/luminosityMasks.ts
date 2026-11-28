@@ -239,11 +239,11 @@ interface GrayImage {
 }
 
 // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space, the samples are preblended with it, and the soft mask has the image's Width and Height.
-const checkPreblended = (scan: MaskScan, image: PdfStream, size: { width: number; height: number }): void => {
+const preblendedSoftMask = (scan: MaskScan, image: PdfStream, size: { width: number; height: number }): boolean => {
   const softMask = scan.internals.objects.deref(image.dictionary.get(MASK));
   const matte = softMask?.kind === 'stream' ? scan.internals.objects.deref(softMask.dictionary.get(MATTE)) : undefined;
   if (softMask?.kind !== 'stream' || matte === undefined) {
-    return;
+    return false;
   }
   if (matte.kind !== 'array' || matte.items.length !== 3) {
     throw new ValidationError('luminosity image soft-mask Matte does not match the image colour space', 'color-space');
@@ -278,16 +278,16 @@ const checkPreblended = (scan: MaskScan, image: PdfStream, size: { width: number
   if (typeof data === 'string' || data.length !== Math.ceil((size.width * bits) / 8) * size.height) {
     throw new ValidationError('luminosity image soft-mask sample count is invalid', 'color-space');
   }
-  throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
+  return true;
 };
 
 const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): GrayImage => {
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
-  checkPreblended(scan, image, { width, height });
   const bits = imageInteger(scan, image, BITS);
+  // ISO 32000-1:2008, 8.9.5, Table 89: an image has 1, 2, 4, 8 or 16 bits per component.
   if (![1, 2, 4, 8, 16].includes(bits)) {
-    throw new UnsupportedFeatureError('luminosity image bit depth is unsupported');
+    throw new ValidationError('luminosity image bit depth is invalid', 'color-space');
   }
   const inputRowBytes = Math.ceil((width * 3 * bits) / 8);
   const outputBits = bits === 16 ? 16 : 8;
@@ -308,6 +308,9 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
   const stencilRowBytes = Math.ceil(width / 8);
   const stencil = ranges === undefined ? undefined : new Uint8Array(stencilRowBytes * height);
   const decode = imageDecode(scan, image);
+  if (preblendedSoftMask(scan, image, { width, height })) {
+    throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
+  }
   const maximum = 2 ** bits - 1;
   const outputMaximum = 2 ** outputBits - 1;
   for (let row = 0; row < height; row++) {
