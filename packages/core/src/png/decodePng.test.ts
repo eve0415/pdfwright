@@ -249,8 +249,11 @@ describe('converting decoded PNG to 8-bit RGBA', () => {
     expect(rgba({ width: 2, height: 1, colorType: 0, bitDepth: 16, samples: [0x12_34, 0x12_35], before: [grayKey] })).toStrictEqual([
       0x12, 0x12, 0x12, 0, 0x12, 0x12, 0x12, 255,
     ]);
+    // Each opaque pixel differs from the key in one channel only, so the key must match red, green and blue together.
     const rgbKey = pngChunk('tRNS', [0, 1, 0, 2, 0, 3]);
-    expect(rgba({ width: 2, height: 1, colorType: 2, bitDepth: 8, samples: [1, 2, 3, 1, 2, 4], before: [rgbKey] })).toStrictEqual([1, 2, 3, 0, 1, 2, 4, 255]);
+    expect(rgba({ width: 4, height: 1, colorType: 2, bitDepth: 8, samples: [1, 2, 3, 1, 2, 4, 9, 2, 3, 1, 9, 3], before: [rgbKey] })).toStrictEqual([
+      1, 2, 3, 0, 1, 2, 4, 255, 9, 2, 3, 255, 1, 9, 3, 255,
+    ]);
   });
 
   it('applies palette alpha with opaque entries past the end of tRNS', () => {
