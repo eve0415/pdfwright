@@ -141,7 +141,11 @@ const missingUndecodable = (bytes: Uint8Array, undecodable: ReadonlySet<string>)
   const copy = loadDocument(Uint8Array.from(bytes));
   const { differences } = compareDocuments(loadDocument(bytes), copy);
   const places = new Set(differences.map(difference => (difference.kind === 'undecodable' ? difference.where.join('/') : '')));
-  return [...undecodable].filter(place => !places.has(place)).map(place => `did not report ${place} as undecodable`);
+  return undecodable
+    .values()
+    .filter(place => !places.has(place))
+    .map(place => `did not report ${place} as undecodable`)
+    .toArray();
 };
 
 const checkFile = async (file: string, expected: ExpectedFailure | undefined): Promise<Array<string>> => {

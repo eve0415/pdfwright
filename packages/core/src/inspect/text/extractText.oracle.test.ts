@@ -133,7 +133,8 @@ const unescapeXml = (text: string): string =>
 // mutool draw -F stext: one char element per glyph, with its origin as x and y and its quad; chars MuPDF adds between words carry flag 4 and are skipped.
 const mupdfChars = (xml: string, page: number): Array<Char> => {
   const pages = xml.split('<page ').slice(1);
-  return [...(pages[page] ?? '').matchAll(/<char [^>]*\/>/gu)]
+  return (pages[page] ?? '')
+    .matchAll(/<char [^>]*\/>/gu)
     .map(([element]) => element)
     .filter(element => Math.floor(Number(attribute(element, 'flags')) / 4) % 2 === 0)
     .map(element => {
@@ -146,7 +147,8 @@ const mupdfChars = (xml: string, page: number): Array<Char> => {
         right: Math.max(...xs),
         c: unescapeXml(attribute(element, 'c')),
       };
-    });
+    })
+    .toArray();
 };
 
 interface Word {
@@ -194,7 +196,11 @@ const mupdfDifferences = (glyphs: ReadonlyArray<PageGlyph>, chars: ReadonlyArray
         ? ''
         : `edges ${String(Math.min(...xs(glyph)))}–${String(Math.max(...xs(glyph)))} against ${String(char.left)}–${String(char.right)}`,
     ];
-    return problems.filter(problem => problem !== '').map(problem => `glyph ${String(index)}: ${problem}`);
+    return problems
+      .values()
+      .filter(problem => problem !== '')
+      .map(problem => `glyph ${String(index)}: ${problem}`)
+      .toArray();
   });
 };
 

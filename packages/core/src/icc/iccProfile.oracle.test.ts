@@ -276,7 +276,11 @@ const inputPatches = async (exportsDirectory: string): Promise<Array<Patch>> => 
     }
     return patches;
   }
-  return [...input].filter(([, paint]) => paint.space === 'RGB').map(([key, paint]) => ({ key, paint }));
+  return input
+    .entries()
+    .filter(([, paint]) => paint.space === 'RGB')
+    .map(([key, paint]) => ({ key, paint }))
+    .toArray();
 };
 
 const acrobatCases = [

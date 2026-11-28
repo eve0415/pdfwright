@@ -84,8 +84,16 @@ const compareFonts = (
   [left, right]: readonly [ReadonlyMap<string, FontIdentity>, ReadonlyMap<string, FontIdentity>],
   differences: Array<PdfDifference>,
 ): void => {
-  const added = [...right].filter(([key]) => !left.has(key)).map(([, font]) => font);
-  const removed = [...left].filter(([key]) => !right.has(key)).map(([, font]) => font);
+  const added = right
+    .entries()
+    .filter(([key]) => !left.has(key))
+    .map(([, font]) => font)
+    .toArray();
+  const removed = left
+    .entries()
+    .filter(([key]) => !right.has(key))
+    .map(([, font]) => font)
+    .toArray();
   if (added.length > 0 || removed.length > 0) {
     differences.push({ kind: 'font-set', page, added, removed });
   }

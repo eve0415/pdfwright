@@ -395,6 +395,7 @@ const sourceCorner = (data: Uint8Array): ReadonlyArray<number> => {
 const cornerCoordinates = (vertices: ReadonlyArray<{ readonly x: number; readonly y: number }>): ReadonlySet<string> =>
   new Set(
     vertices
+      .values()
       .filter(vertex => (vertex.x === 0 || vertex.x === 25_700) && (vertex.y === 0 || vertex.y === 25_700))
       .map(vertex => `${String(vertex.x)},${String(vertex.y)}`),
   );

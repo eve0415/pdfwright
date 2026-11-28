@@ -471,7 +471,11 @@ class FoundText {
       this.shown.set(glyph.index, glyph);
     }
     const indexes = glyphs.map(glyph => glyph.index);
-    const failures = glyphs.map(glyph => glyphFailure(glyph)).filter(found => isFailure(found));
+    const failures = glyphs
+      .values()
+      .map(glyph => glyphFailure(glyph))
+      .filter(found => isFailure(found))
+      .toArray();
     const failure = failures.find(found => found.kind === 'missing-glyph') ?? failures[0];
     if (failure !== undefined) {
       const shown = failure.kind === 'missing-glyph' ? text : REPLACEMENT;
