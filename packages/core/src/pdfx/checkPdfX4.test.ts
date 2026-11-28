@@ -133,6 +133,8 @@ const action = (document: LoadedDocument, subtype: 'JavaScript' | 'URI') =>
     ),
   );
 
+const info = ['Info', pdfLiteralString('x')] as const;
+
 const lzwImage = 'BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW ID\nX\nEI';
 
 describe('pdfx structural checker', () => {
@@ -221,9 +223,10 @@ describe('pdfx structural checker', () => {
 
   describe('output intent', () => {
     it.each<[string, Fields, 'violation' | 'passed', boolean]>([
-      ['without OutputConditionIdentifier', [['OutputConditionIdentifier', undefined]], 'violation', false],
-      ['with an empty OutputConditionIdentifier', [['OutputConditionIdentifier', pdfLiteralString('')]], 'violation', false],
-      ['with OutputConditionIdentifier written as a name', [['OutputConditionIdentifier', pdfName('FOGRA39')]], 'violation', false],
+      // Each identifier case carries Info, so that only the identifier check can report the violation.
+      ['without OutputConditionIdentifier', [['OutputConditionIdentifier', undefined], info], 'violation', false],
+      ['with an empty OutputConditionIdentifier', [['OutputConditionIdentifier', pdfLiteralString('')], info], 'violation', false],
+      ['with OutputConditionIdentifier written as a name', [['OutputConditionIdentifier', pdfName('FOGRA39')], info], 'violation', false],
       ['for an unregistered condition without Info', [['OutputConditionIdentifier', pdfLiteralString('Custom')]], 'violation', false],
       [
         'for an unregistered condition with Info',
