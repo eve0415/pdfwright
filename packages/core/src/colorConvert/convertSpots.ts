@@ -3,6 +3,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunction, PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SampledCmykFunction } from './sampleCmykFunction.ts';
 import type { SourceSpace } from './sourceSpace.ts';
@@ -68,7 +69,7 @@ interface PagePlan extends ResourceSpotPlan {
 }
 
 interface CarrierPlan extends ResourceSpotPlan {
-  readonly reference: PdfReference;
+  readonly carrier: ResourceCarrier;
 }
 
 interface ImagePlan {
@@ -295,15 +296,19 @@ const pagePlan = (document: LoadedDocument, pageIndex: number, options: RewriteC
   return planned === undefined ? undefined : { ...planned, reference: page.reference };
 };
 
-const planCarriers = (context: SpotContext, page: PdfReference, state: { seen: Set<number>; plans: Array<CarrierPlan> }): void => {
+const planCarriers = (
+  context: SpotContext,
+  page: { index: number; reference: PdfReference },
+  state: { seen: Set<number>; plans: Array<CarrierPlan> },
+): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  for (const carrier of resourceCarriers(internals, { reference: page, resources: context.resources }, state.seen)) {
+  for (const carrier of resourceCarriers(internals, { ...page, resources: context.resources }, state.seen)) {
     const planned = resourceSpots({ document: context.document, resources: carrier.resources, options: context.options });
     if (planned !== undefined) {
-      state.plans.push({ ...planned, reference: carrier.reference });
+      state.plans.push({ ...planned, carrier });
     }
   }
 };
@@ -435,14 +440,10 @@ const applyPage = (document: LoadedDocument, plan: PagePlan): Array<PdfReference
   return discarded;
 };
 
-const applyCarrier = (document: LoadedDocument, plan: CarrierPlan): Array<PdfReference> => {
-  const discarded = [...plan.discarded];
-  const oldResources = replaceCarrierResources(document, plan.reference, convertedResources(document, plan));
-  if (oldResources !== undefined) {
-    discarded.push(oldResources);
-  }
-  return discarded;
-};
+const applyCarrier = (document: LoadedDocument, plan: CarrierPlan): Array<PdfReference> => [
+  ...plan.discarded,
+  ...replaceCarrierResources(document, plan.carrier, convertedResources(document, plan)),
+];
 
 const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReference> => {
   const dictionary = new PdfDictionaryEntries(plan.image.dictionary.entries());
@@ -471,7 +472,11 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
     if (entry === undefined) {
       return invalid('page entry is missing');
     }
-    planCarriers({ document, resources: document.page(page).resources(), options }, entry.reference, { seen: seenCarriers, plans: carriers });
+    planCarriers(
+      { document, resources: document.page(page).resources(), options },
+      { index: page, reference: entry.reference },
+      { seen: seenCarriers, plans: carriers },
+    );
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,

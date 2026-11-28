@@ -1,6 +1,7 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
@@ -44,7 +45,7 @@ interface ResourceResult {
 }
 
 interface CarrierUpdate {
-  readonly reference: PdfReference;
+  readonly carrier: ResourceCarrier;
   readonly resources: PdfDictionaryEntries;
   readonly discarded: ReadonlyArray<PdfReference>;
 }
@@ -189,16 +190,20 @@ const planImages = (context: IndexedContext, updates: Map<number, ImageUpdate>):
   }
 };
 
-const planCarriers = (context: IndexedContext, page: PdfReference, state: { seen: Set<number>; updates: Array<CarrierUpdate> }): number => {
+const planCarriers = (
+  context: IndexedContext,
+  page: { index: number; reference: PdfReference },
+  state: { seen: Set<number>; updates: Array<CarrierUpdate> },
+): number => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
   let count = 0;
-  for (const carrier of resourceCarriers(internals, { reference: page, resources: context.resources }, state.seen)) {
+  for (const carrier of resourceCarriers(internals, { ...page, resources: context.resources }, state.seen)) {
     const converted = convertedResources({ document: context.document, resources: carrier.resources, options: context.options });
     if (converted.resources !== undefined) {
-      state.updates.push({ reference: carrier.reference, resources: converted.resources, discarded: converted.discarded });
+      state.updates.push({ carrier, resources: converted.resources, discarded: converted.discarded });
       count += converted.count;
     }
   }
@@ -223,10 +228,14 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
       updates.push(planned.update);
     }
     indexed += planned.count;
-    indexed += planCarriers({ document, resources: document.page(index).resources(), options }, entry.reference, {
-      seen: seenCarriers,
-      updates: carrierUpdates,
-    });
+    indexed += planCarriers(
+      { document, resources: document.page(index).resources(), options },
+      { index, reference: entry.reference },
+      {
+        seen: seenCarriers,
+        updates: carrierUpdates,
+      },
+    );
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(index).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -265,11 +274,7 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
     }
   }
   for (const update of carrierUpdates) {
-    const oldResources = replaceCarrierResources(document, update.reference, update.resources);
-    if (oldResources !== undefined) {
-      discarded.push(oldResources);
-    }
-    discarded.push(...update.discarded);
+    discarded.push(...replaceCarrierResources(document, update.carrier, update.resources), ...update.discarded);
   }
   deleteDiscarded(document, internals, discarded);
   internals.objects.requireFullRewrite('color-conversion');

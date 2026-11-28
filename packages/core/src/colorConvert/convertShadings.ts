@@ -4,6 +4,7 @@ import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { ResourceCarrier } from './resourceCarriers.ts';
 import type { ColorEntryState, RewriteColorOptions, ShadingUse } from './rewriteContent.ts';
 import type { ConvertedCmykFunction } from './stitchCmykFunction.ts';
 
@@ -21,7 +22,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -61,7 +62,7 @@ interface DirectShadingPlan {
 }
 
 interface CarrierShadingPlan {
-  readonly carrier: PdfReference;
+  readonly carrier: ResourceCarrier;
   readonly resources: PdfDictionaryEntries;
   readonly name: Uint8Array;
   readonly shading: ShadingPlan;
@@ -88,8 +89,8 @@ const invalid = (detail: string): never => {
   throw new ValidationError(detail, 'color-space');
 };
 
-const useKey = (scope: PdfReference, name: Uint8Array): string =>
-  `${String(scope.objectNumber)}:${String(scope.generation)}:${new TextDecoder('latin1').decode(name)}`;
+// A scope is a page or form reference, or a carrier key, which for an indirect carrier is the same `referenceKey`.
+const useKey = (scope: string, name: Uint8Array): string => `${scope} ${new TextDecoder('latin1').decode(name)}`;
 
 const rememberIntent = <Key>(values: Map<Key, RenderingIntent>, key: Key, intent: RenderingIntent): void => {
   const previous = values.get(key);
@@ -99,7 +100,7 @@ const rememberIntent = <Key>(values: Map<Key, RenderingIntent>, key: Key, intent
   values.set(key, intent);
 };
 
-const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference; uses: ReadonlyArray<ShadingUse> }, usage: ShadingUsage): void => {
+const recordShadingUses = (input: { context: ShadingContext; scope: string; uses: ReadonlyArray<ShadingUse> }, usage: ShadingUsage): void => {
   const { context, scope, uses } = input;
   const internals = internalsOf(context.document);
   if (internals === undefined) {
@@ -121,7 +122,7 @@ const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference
 
 interface UsageStream {
   readonly context: ShadingContext;
-  readonly scope: PdfReference;
+  readonly scope: string;
   readonly bytes: Uint8Array;
   readonly usage: ShadingUsage;
   readonly initialState?: ColorEntryState | undefined;
@@ -170,7 +171,7 @@ const scanUsageStream = (stream: UsageStream): void => {
     try {
       scanUsageStream({
         context: { document: context.document, resources, options: context.options },
-        scope: reference,
+        scope: referenceKey(reference),
         bytes: data,
         initialState: use.entry,
         usage,
@@ -201,7 +202,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
     }
     scanUsageStream({
       context: { document, resources: document.page(page).resources(), options },
-      scope: entry.reference,
+      scope: referenceKey(entry.reference),
       bytes: combineContentStreams(content.streams),
       usage,
     });
@@ -470,7 +471,7 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
     if (value.kind !== 'dictionary') {
       continue;
     }
-    const shading = planShading({ ...context, intent: usage.direct.get(useKey(page, name)) }, undefined, value);
+    const shading = planShading({ ...context, intent: usage.direct.get(useKey(referenceKey(page), name)) }, undefined, value);
     if (shading !== undefined) {
       plans.push({ page, resources: context.resources, name, shading });
     }
@@ -478,13 +479,17 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
   return plans;
 };
 
-const carrierShadingPlans = (context: ShadingContext, page: PdfReference, state: { seen: Set<number>; usage: ShadingUsage }): Array<CarrierShadingPlan> => {
+const carrierShadingPlans = (
+  context: ShadingContext,
+  page: { index: number; reference: PdfReference },
+  state: { seen: Set<number>; usage: ShadingUsage },
+): Array<CarrierShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
   const plans: Array<CarrierShadingPlan> = [];
-  for (const carrier of resourceCarriers(internals, { reference: page, resources: context.resources }, state.seen)) {
+  for (const carrier of resourceCarriers(internals, { ...page, resources: context.resources }, state.seen)) {
     const shadings = internals.objects.deref(carrier.resources.get(SHADING));
     if (shadings?.kind !== 'dictionary') {
       continue;
@@ -494,12 +499,12 @@ const carrierShadingPlans = (context: ShadingContext, page: PdfReference, state:
         continue;
       }
       const shading = planShading(
-        { document: context.document, resources: carrier.resources, options: context.options, intent: state.usage.direct.get(useKey(carrier.reference, name)) },
+        { document: context.document, resources: carrier.resources, options: context.options, intent: state.usage.direct.get(useKey(carrier.key, name)) },
         undefined,
         entry,
       );
       if (shading !== undefined) {
-        plans.push({ carrier: carrier.reference, resources: carrier.resources, name, shading });
+        plans.push({ carrier, resources: carrier.resources, name, shading });
       }
     }
   }
@@ -568,11 +573,11 @@ const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<Carr
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const grouped = new Map<number, Array<CarrierShadingPlan>>();
+  const grouped = new Map<string, Array<CarrierShadingPlan>>();
   for (const plan of plans) {
-    const list = grouped.get(plan.carrier.objectNumber) ?? [];
+    const list = grouped.get(plan.carrier.key) ?? [];
     list.push(plan);
-    grouped.set(plan.carrier.objectNumber, list);
+    grouped.set(plan.carrier.key, list);
   }
   const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
@@ -595,10 +600,7 @@ const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<Carr
       discarded.push(oldShadings);
     }
     resources.set(SHADING, pdfDictionary(mapped));
-    const oldResources = replaceCarrierResources(document, first.carrier, resources);
-    if (oldResources !== undefined) {
-      discarded.push(oldResources);
-    }
+    discarded.push(...replaceCarrierResources(document, first.carrier, resources));
   }
   return discarded;
 };
@@ -623,7 +625,9 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     }
     const effective = document.page(page).resources();
     direct.push(...directPagePlans({ document, resources: effective, options }, entry.reference, usage));
-    carrierDirect.push(...carrierShadingPlans({ document, resources: effective, options }, entry.reference, { seen: seenCarriers, usage }));
+    carrierDirect.push(
+      ...carrierShadingPlans({ document, resources: effective, options }, { index: page, reference: entry.reference }, { seen: seenCarriers, usage }),
+    );
     const resources: PdfDirectObject = { kind: 'dictionary', entries: effective };
     const unreadable = walkResources(internals, entry, {
       resources,
