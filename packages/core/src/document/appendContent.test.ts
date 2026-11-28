@@ -87,8 +87,10 @@ describe('appending page content', () => {
           checked ||= index >= target.length;
           return value;
         }
-        const value: unknown = Reflect.get(target, key);
-        return typeof value === 'function' ? value.bind(target) : value;
+        if (key === 'length') {
+          return target.length;
+        }
+        return key === 'subarray' ? target.subarray.bind(target) : undefined;
       },
     });
     document.page(0).appendContent(proxied, { isolate: false });
