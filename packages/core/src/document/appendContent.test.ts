@@ -377,17 +377,33 @@ describe('appending built content', () => {
     ]);
   });
 
-  // The source writes every colour component as a real, the number kind the Separation built for this document holds.
-  it('reuses a name the page resources already give the same separation', () => {
-    const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]/N 1>>]';
+  // ISO 32000-1:2008, 7.3.3, NOTE 2: "Wherever a real number is expected, an integer may be used instead", so a component written as 0 or 1 is the same number as 0.0 or 1.0.
+  it.each([
+    ['every component written as a real', '/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]', 'CS7', ['CS7']],
+    ['the components a save writes, whole ones as integers', '/C0[0 0 0 0]/C1[0 0.5 0 0]', 'CS7', ['CS7']],
+    ['a different tint', '/C0[0 0 0 0]/C1[0 0.4 0 0]', 'CS1', ['CS1', 'CS7']],
+  ])('reuses a name the page resources already give the same separation, with %s', (_, components, name, names) => {
+    const spot = `[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]${components}/N 1>>]`;
     const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
     document.page(0).appendContent(builder => {
       builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
     });
-    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace'))]).toStrictEqual([
-      'q\n/CS7 cs\n1 scn\nQ\n',
-      ['CS7'],
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
     ]);
+  });
+
+  it('reuses the name of a separation an earlier save wrote, after the file is loaded again', () => {
+    const first = load(page('/Contents 4 0 R/Resources<<>>'));
+    first.page(0).appendContent(builder => {
+      builder.fillColor(first.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+    });
+    const reloaded = loadDocument(first.save().chunks);
+    reloaded.page(0).appendContent(builder => {
+      builder.fillColor(reloaded.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+    });
+    expect(keys(resolved(reloaded, reloaded.page(0).resources().get(pdfName('ColorSpace').bytes)))).toStrictEqual(['CS1']);
   });
 
   it('writes a group drawn by two appends once and reuses its name', () => {
