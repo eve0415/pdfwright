@@ -59,6 +59,7 @@ export default defineConfig({
     expect: { requireAssertions: true },
     sequence: { shuffle: true },
     setupFiles: ['tests/setupFastCheck.ts'],
+    coverage: { include: ['packages/*/src/**/*.ts'], exclude: ['packages/*/src/**/testing/**'], reportOnFailure: true },
     projects: projects(),
   },
 });
