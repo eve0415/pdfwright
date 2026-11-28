@@ -16,16 +16,29 @@ interface Chain {
   warnings: Array<LoadWarning>;
 }
 
-const chainOf = (bytes: Uint8Array): Chain => {
+const chainOf = (bytes: Uint8Array, shift = 0): Chain => {
   const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
   const source = new ByteSource(bytes);
   const startxref = locateStartxref(source)?.offset ?? -1;
-  const chain = readSectionChain(source, { startxref, shift: 0 }, { warn, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576 });
+  const chain = readSectionChain(source, { startxref, shift }, { warn, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576 });
   return { chain, warnings };
 };
+
+// The offset a ParseError reports, or a description of the other outcome, so that one equality checks both the class and the offset.
+const parseErrorOffset = (run: () => void): { readonly offset: number } | string => {
+  try {
+    run();
+  } catch (error: unknown) {
+    return error instanceof ParseError ? { offset: error.offset } : String(error);
+  }
+  return 'no error';
+};
+
+// The trailer dictionary of the newest classic section starts after its keyword trailer and the line end.
+const newestTrailerStart = (text: string): number => text.lastIndexOf('trailer\n') + 'trailer\n'.length;
 
 const order = (chain: SectionChain): Array<string> => searchOrder(chain).map(section => `${section.kind}@${String(section.offset)}`);
 
@@ -39,6 +52,17 @@ const pages = { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' };
 
 const updated = (formats: ReadonlyArray<'classic' | 'stream'>): TestPdf =>
   buildPdf(formats.map((xref, index) => ({ xref, objects: index === 0 ? [catalog, pages] : [{ number: 3, body: String(index) }], trailer: '/Root 1 0 R' })));
+
+const hybridPdf = (): TestPdf =>
+  buildPdf([
+    { xref: 'classic', objects: [catalog, pages], trailer: '/Root 1 0 R' },
+    {
+      xref: 'hybrid',
+      objects: [{ number: 5, body: '<<>>' }],
+      objectStreams: [{ number: 4, members: [{ number: 3, body: '(hidden)' }] }],
+      trailer: '/Root 1 0 R',
+    },
+  ]);
 
 describe('cross-reference section chains', () => {
   it('follows Prev from the newest section to the oldest', () => {
@@ -88,5 +112,47 @@ describe('cross-reference section chains', () => {
     expect(() => chainOf(latin1Bytes(pdf.text.replace(/\/Prev \d+/u, '/Prev 17')))).toThrow(ParseError);
     expect(() => chainOf(latin1Bytes(pdf.text.replace(/\/Prev \d+/u, '/Prev 4 0 R')))).toThrow(ParseError);
     expect(() => chainOf(latin1Bytes('%PDF-1.4\nnothing\nstartxref\n9\n%%EOF'))).toThrow(ParseError);
+  });
+
+  it('refuses to correct a Prev entry a few bytes off a section, unlike startxref', () => {
+    const pdf = updated(['classic', 'classic']);
+    const [oldest = 0] = pdf.sections;
+    const text = pdf.text.replace(/\/Prev \d+/u, `/Prev ${String(oldest + 2)}`);
+    expect(parseErrorOffset(() => chainOf(latin1Bytes(text)))).toStrictEqual({ offset: oldest + 2 });
+  });
+
+  it.each([
+    ['a negative Prev', (pdf: TestPdf): string => pdf.text.replace(/\/Prev \d+/u, '/Prev -1'), (): TestPdf => updated(['classic', 'classic'])],
+    ['an XRefStm that is a reference', (pdf: TestPdf): string => pdf.text.replace(/\/XRefStm \d+/u, '/XRefStm 4 0 R'), hybridPdf],
+  ])('rejects %s at the start of its trailer', (_, edit, build) => {
+    const text = edit(build());
+    expect(parseErrorOffset(() => chainOf(latin1Bytes(text)))).toStrictEqual({ offset: newestTrailerStart(text) });
+  });
+
+  it('rejects an XRefStm entry that points at an object other than a cross-reference stream', () => {
+    const pdf = hybridPdf();
+    const text = pdf.text.replace(/\/XRefStm \d+/u, `/XRefStm ${String(pdf.offsets.get(1) ?? 0)}`);
+    expect(() => chainOf(latin1Bytes(text))).toThrow(ParseError);
+  });
+
+  it('adds the header position to Prev and XRefStm offsets in a header-relative file', () => {
+    // A file whose offsets count from its header, behind 4 bytes of junk, is read with a shift of 4.
+    const pdf = buildPdf([
+      { xref: 'classic', objects: [catalog, pages], trailer: '/Root 1 0 R' },
+      { xref: 'classic', objects: [{ number: 3, body: '(update)' }], trailer: '/Root 1 0 R' },
+      {
+        xref: 'hybrid',
+        objects: [{ number: 5, body: '<<>>' }],
+        objectStreams: [{ number: 4, members: [{ number: 6, body: '(hidden)' }] }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const { chain, warnings } = chainOf(latin1Bytes(`JUNK${pdf.text}`), 4);
+    const [newest = 0, middle = 0, oldest = 0] = pdf.sections.toReversed();
+    const stream = Number(/\/XRefStm (\d+)/u.exec(pdf.text)?.[1]);
+    expect([order(chain), warnings]).toStrictEqual([
+      [`classic@${String(newest + 4)}`, `stream@${String(stream + 4)}`, `classic@${String(middle + 4)}`, `classic@${String(oldest + 4)}`],
+      [],
+    ]);
   });
 });
