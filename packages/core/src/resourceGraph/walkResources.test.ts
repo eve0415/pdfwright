@@ -4,6 +4,7 @@ import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ResourceOrigin, ResourceVisit, UnreadableObject } from './walkResources.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -11,7 +12,7 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { inherited } from '../document/loadedPage.ts';
 import { ParseError } from '../error/parseError.ts';
 import { fontKey, pageResourcesOwner } from '../font/loadFont.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { walkAcroFormResources, walkResources } from './walkResources.ts';
@@ -416,5 +417,116 @@ describe('resource walks', () => {
     ])('walks $name', ({ catalog, objects, expected }) => {
       expect(walkForm(catalog, objects)).toStrictEqual(expected);
     });
+  });
+});
+
+describe('properties', () => {
+  interface Owner {
+    readonly kind: 'form' | 'tiling-pattern';
+    /** The index of the resource dictionary it names, if any. */
+    readonly resources: number | undefined;
+  }
+
+  interface Graph {
+    readonly owners: ReadonlyArray<Owner>;
+    /** The owners each resource dictionary names, by index; dictionary 0 is the page's. */
+    readonly dictionaries: ReadonlyArray<ReadonlyArray<number>>;
+  }
+
+  const OWNER = 10;
+  const DICTIONARY = 30;
+
+  // Forms and tiling patterns that share resource dictionaries, with cycles wherever a dictionary names an owner that leads back to it.
+  const graphs = fc.integer({ min: 1, max: 6 }).chain(ownerCount =>
+    fc.integer({ min: 1, max: 4 }).chain(dictionaryCount =>
+      fc.record({
+        owners: fc.array(
+          fc.record({
+            kind: fc.constantFrom('form', 'tiling-pattern'),
+            resources: fc.option(fc.integer({ min: 0, max: dictionaryCount - 1 }), { nil: undefined }),
+          }),
+          { minLength: ownerCount, maxLength: ownerCount },
+        ),
+        dictionaries: fc.array(fc.uniqueArray(fc.integer({ min: 0, max: ownerCount - 1 })), { minLength: dictionaryCount, maxLength: dictionaryCount }),
+      }),
+    ),
+  );
+
+  const objectsOf = (graph: Graph): ReadonlyArray<TestObject> => [
+    ...graph.owners.map(({ kind, resources }, index) => {
+      const named = resources === undefined ? '' : `/Resources ${String(DICTIONARY + resources)} 0 R`;
+      const dictionary = kind === 'form' ? '/Type/XObject/Subtype/Form/BBox[0 0 1 1]' : '/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1';
+      return { number: OWNER + index, body: streamBody(`${dictionary}${named}`, '') };
+    }),
+    ...graph.dictionaries.map((named, index) => {
+      const entries = (kind: Owner['kind']): string =>
+        named
+          .filter(owner => graph.owners[owner]?.kind === kind)
+          .map(owner => `/O${String(owner)} ${String(OWNER + owner)} 0 R`)
+          .join('');
+      return { number: DICTIONARY + index, body: `<</XObject<<${entries('form')}>>/Pattern<<${entries('tiling-pattern')}>>>>` };
+    }),
+  ];
+
+  interface Expected {
+    readonly visits: ReadonlyArray<{ readonly number: number; readonly origins: ReadonlyArray<ResourceOrigin> | undefined }>;
+    readonly reads: ReadonlyArray<number>;
+  }
+
+  // An independent reachability model: the page's dictionary is reached from the page, and each owner a reached dictionary names is reached once and reaches the dictionary it names.
+  const model = (graph: Graph): Expected => {
+    const origins = new Map<number, Array<ResourceOrigin>>([[0, [{ kind: 'page' }]]]);
+    const reached = new Set<number>();
+    const work = [0];
+    for (let dictionary = work.pop(); dictionary !== undefined; dictionary = work.pop()) {
+      for (const index of graph.dictionaries[dictionary] ?? []) {
+        const owner = graph.owners[index];
+        if (owner === undefined || reached.has(index)) {
+          continue;
+        }
+        reached.add(index);
+        if (owner.resources === undefined) {
+          continue;
+        }
+        const origin: ResourceOrigin = { kind: owner.kind, reference: pdfReference(OWNER + index, 0) };
+        const known = origins.get(owner.resources);
+        if (known === undefined) {
+          origins.set(owner.resources, [origin]);
+          work.push(owner.resources);
+        } else {
+          known.push(origin);
+        }
+      }
+    }
+    return {
+      visits: [...origins].map(([index, list]) => ({ number: DICTIONARY + index, origins: unordered(list) })),
+      reads: [...[...reached].map(index => OWNER + index), ...[...origins.keys()].map(index => DICTIONARY + index)].toSorted((left, right) => left - right),
+    };
+  };
+
+  it('reports every reachable resource dictionary once, with one origin per owner that names it, and reads each object once', () => {
+    fc.assert(
+      fc.property(graphs, graph => {
+        const document = internals(`/Resources ${String(DICTIONARY)} 0 R`, objectsOf(graph));
+        const page = firstPage(document);
+        const resources = inherited(document.objects, page, { key: pdfName('Resources').bytes })?.value;
+        const deref = vi.spyOn(document.objects, 'deref');
+        const visits: Array<ResourceVisit> = [];
+        walkResources(document, page, {
+          resources,
+          visit: visit => {
+            visits.push(visit);
+          },
+        });
+        const reads = deref.mock.calls
+          .flatMap(([value]) => (value?.kind === 'reference' && value.objectNumber >= OWNER ? [value.objectNumber] : []))
+          .toSorted((left, right) => left - right);
+        const expected = model(graph);
+        expect({
+          visits: unordered(visits.map(visit => ({ number: visit.reference?.objectNumber, origins: unordered(visit.origins) }))),
+          reads,
+        }).toStrictEqual({ visits: unordered(expected.visits), reads: expected.reads });
+      }),
+    );
   });
 });
