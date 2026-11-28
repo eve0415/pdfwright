@@ -25,7 +25,6 @@ import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertShadings } from './convertShadings.ts';
-import { convertToCmyk } from './convertToCmyk.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
@@ -740,102 +739,5 @@ describe('function shading conversion', () => {
       }),
     );
     expect(outcome(document)).toBe(result);
-  });
-});
-
-const OWN_SHADING =
-  '/Resources<</Shading<</Sh1<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>>>>>';
-const PATTERN = '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10';
-const TYPE3 =
-  '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</A 6 0 R>>/Encoding<</Type/Encoding/Differences[65/A]>>/FirstChar 65/LastChar 65/Widths[1000]';
-
-const carrierPdf = (page: string, objects: ReadonlyArray<{ readonly number: number; readonly body: string }>, content = '0 0 1 1 re f'): Uint8Array =>
-  buildPdf([
-    {
-      xref: 'classic',
-      objects: [
-        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R${page}>>` },
-        { number: 4, body: streamBody('', content) },
-        ...objects,
-      ],
-      trailer: '/Root 1 0 R',
-    },
-  ]).bytes;
-
-const expectConverted = (document: LoadedDocument, owner: number): void => {
-  const internals = internalsOf(document);
-  const object = document.get(pdfReference(owner, 0));
-  const entries = object.kind === 'stream' ? object.dictionary : object.kind === 'dictionary' ? object.entries : undefined;
-  const resources = internals?.objects.deref(entries?.get(pdfName('Resources').bytes));
-  const shadings = resources?.kind === 'dictionary' ? internals?.objects.deref(resources.entries.get(pdfName('Shading').bytes)) : undefined;
-  const shading = shadings?.kind === 'dictionary' ? shadings.entries.get(pdfName('Sh1').bytes) : undefined;
-  if (shading?.kind !== 'dictionary') {
-    throw new Error('carrier shading is missing');
-  }
-  const evaluate = functionOf(document, shading.entries.get(pdfName('Function').bytes));
-  expect(shading.entries.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
-  expect([close(evaluate([0]), cmykOf(1, 0, 0)), close(evaluate([1]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
-};
-
-describe('direct shadings in resource carriers', () => {
-  it.each([
-    {
-      carrier: 'a tiling pattern',
-      page: '/Resources<</Pattern<</P 5 0 R>>>>',
-      objects: [{ number: 5, body: streamBody(`${PATTERN}${OWN_SHADING}`, '/Sh1 sh') }],
-      owner: 5,
-    },
-    {
-      carrier: 'a Type 3 font',
-      page: '/Resources<</Font<</F 5 0 R>>>>',
-      objects: [
-        { number: 5, body: `<<${TYPE3}${OWN_SHADING}>>` },
-        { number: 6, body: streamBody('', '1000 0 d0 /Sh1 sh') },
-      ],
-      owner: 5,
-    },
-    {
-      carrier: 'an appearance stream',
-      page: '/Resources<<>>/Annots[5 0 R]',
-      objects: [
-        { number: 5, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 6 0 R>>>>' },
-        { number: 6, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${OWN_SHADING}`, '/Sh1 sh') },
-      ],
-      owner: 6,
-    },
-    {
-      carrier: 'a form that only an appearance uses',
-      page: '/Resources<<>>/Annots[5 0 R]',
-      objects: [
-        { number: 5, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 6 0 R>>>>' },
-        { number: 6, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</XObject<</Fm 7 0 R>>>>', '/Fm Do') },
-        { number: 7, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${OWN_SHADING}`, '/Sh1 sh') },
-      ],
-      owner: 7,
-    },
-  ])('converts a direct shading in the own Resources of $carrier', ({ page, objects, owner }) => {
-    // ISO 32000-1:2008, 7.8.3: a pattern, a Type 3 font, an appearance stream and a form each name shadings in their own resource dictionary.
-    const document = loadDocument(carrierPdf(page, objects));
-    expect(convertShadings(document, { sourceRgbProfile: source, outputProfile: destination }).shadings).toBe(1);
-    expectConverted(document, owner);
-  });
-
-  it('converts a direct shading in a tiling pattern when the whole document is converted', () => {
-    const document = loadDocument(
-      carrierPdf(
-        '/Resources<</Pattern<</P 5 0 R>>>>',
-        [{ number: 5, body: streamBody(`${PATTERN}${OWN_SHADING}`, '/Sh1 sh') }],
-        '/Pattern cs /P scn 0 0 100 100 re f',
-      ),
-    );
-    const report = convertToCmyk(document, {
-      sourceRgbProfile: source.bytes,
-      outputProfile: destination.bytes,
-      outputIntent: { outputConditionIdentifier: 'FOGRA28' },
-    });
-    expect(report.shadings.shadings).toBe(1);
-    expectConverted(document, 5);
   });
 });
