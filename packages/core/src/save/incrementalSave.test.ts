@@ -1,6 +1,6 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
-import type { TestSection } from '../testing/pdfBuilder.ts';
+import type { TestPdf, TestSection } from '../testing/pdfBuilder.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -18,21 +18,38 @@ const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(
 const illustratorPage =
   "<</Type/Page/Parent 2 0 R/ArtBox[0.242187 2.38184 611.611 792.0]/PieceInfo<</Illustrator 9 0 R>>/LastModified(D:20070624192720-05'00')/MediaBox[0 0 612 792]/Resources<<>>>>";
 
-const base = (extra: Partial<TestSection> = {}): Uint8Array =>
+const basePdfObjects = [
+  { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+  { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+  { number: 3, body: illustratorPage },
+  { number: 4, body: '(delete me)' },
+  { number: 5, body: '<</Producer(test)>>' },
+] as const;
+
+const basePdf = (extra: Partial<TestSection> = {}): TestPdf =>
   buildPdf([
     {
       xref: 'classic',
-      objects: [
-        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-        { number: 3, body: illustratorPage },
-        { number: 4, body: '(delete me)' },
-        { number: 5, body: '<</Producer(test)>>' },
-      ],
+      objects: basePdfObjects,
       trailer: `/Root 1 0 R/Info 5 0 R/ID[<${'11'.repeat(16)}><${'22'.repeat(16)}>]/Private(kept)`,
       ...extra,
     },
-  ]).bytes;
+  ]);
+
+const base = (extra: Partial<TestSection> = {}): Uint8Array => basePdf(extra).bytes;
+
+// A file whose first object is a linearization dictionary (ISO 32000-1:2008, Annex F).
+const linearized = (): Uint8Array =>
+  base({
+    objects: [{ number: 9, body: '<</Linearized 1/L 999/H[0 20]>>' }, ...basePdfObjects.slice(0, 3)],
+    trailer: '/Root 1 0 R',
+  });
+
+const trimBox = (document: LoadedDocument): void => {
+  document.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
+};
+
+const keyNames = (entries: PdfDictionaryEntries): ReadonlyArray<string> => [...entries.entries()].map(([key]) => latin1Text(key));
 
 const editedBytes = (): Uint8Array => {
   const document = loadDocument(base());
@@ -225,5 +242,128 @@ describe('incremental save', () => {
     edited?.setTrailerEntry(pdfName('Private').bytes, undefined);
     const saved = document.save({ mode: 'incremental' });
     expect(lastTrailer(saved.toBytes())).toMatch(/^\n<<\/Size 6\/Root 1 0 R\/Info 4 0 R\/Prev \d+\/ID\[<1{32}><[0-9A-F]{32}>\]>>/u);
+  });
+
+  // ISO 32000-1:2008, 7.5.8.2, Table 17: Filter and DecodeParms describe the stream they belong to; the appended stream is written unfiltered.
+  it('leaves the filter of a filtered base cross-reference stream out of the appended one', () => {
+    const document = loadDocument(base({ xref: 'stream', xrefStreamEncoding: 'flate-up' }));
+    trimBox(document);
+    const reloaded = loadDocument(document.save({ mode: 'incremental' }).chunks);
+    expect([
+      keyNames(reloaded.structure.trailer),
+      reloaded.structure.status,
+      reloaded.warnings,
+      reloaded.structure.sections.map(section => section.kind),
+      reloaded.page(0).boxes().TrimBox.rect,
+    ]).toStrictEqual([
+      ['Type', 'Size', 'Root', 'Info', 'Private', 'Prev', 'Index', 'W', 'ID', 'Length'],
+      'intact',
+      [],
+      ['stream', 'stream'],
+      [10, 10, 600, 780],
+    ]);
+  });
+
+  // Offsets of a file with bytes before its header are read relative to the header, so the update writes its own offsets the same way.
+  // The update's cross-reference stream is numbered 7, one above the base's own stream 6. A reload that kept the base's reading shows every new offset is header-relative too.
+  it.each([
+    ['classic', '\nxref\n'],
+    ['stream', '\n7 0 obj\n'],
+  ] as const)('writes header-relative offsets in a %s update to a file with bytes before its header', (xref, sectionStart) => {
+    const pdf = basePdf({ xref });
+    const document = loadDocument(latin1Bytes(`JUNK${pdf.text}`));
+    trimBox(document);
+    const output = latin1Text(document.save({ mode: 'incremental' }).toBytes());
+    const sectionOffset = output.lastIndexOf(sectionStart) + 1 - 4;
+    const reloaded = loadDocument(latin1Bytes(output));
+    expect([
+      output.endsWith(`\nstartxref\n${String(sectionOffset)}\n%%EOF\n`),
+      reloaded.structure.trailer.get(pdfName('Prev').bytes),
+      reloaded.structure.status,
+      reloaded.warnings,
+      reloaded.page(0).boxes().TrimBox.rect,
+    ]).toStrictEqual([true, pdfInteger(pdf.sections[0] ?? 0), document.structure.status, document.warnings, [10, 10, 600, 780]]);
+  });
+
+  // ISO 32000-1:2008, 7.5.8.3: the cross-reference stream's entry for itself is read like any other.
+  it('writes the header-relative offset of a cross-reference stream update into its own entry', () => {
+    const document = loadDocument(latin1Bytes(`JUNK${basePdf({ xref: 'stream' }).text}`));
+    trimBox(document);
+    const reloaded = loadDocument(document.save({ mode: 'incremental' }).chunks);
+    const updateStream = reloaded.get(pdfReference(7, 0));
+    expect([updateStream.kind === 'stream' ? keyNames(updateStream.dictionary) : updateStream.kind, reloaded.warnings]).toStrictEqual([
+      ['Type', 'Size', 'Root', 'Info', 'Private', 'Prev', 'Index', 'W', 'ID', 'Length'],
+      document.warnings,
+    ]);
+  });
+
+  it('writes the header-relative offset of a changed object into a classic update', () => {
+    const document = loadDocument(latin1Bytes(`JUNK${basePdf().text}`));
+    trimBox(document);
+    const output = latin1Text(document.save({ mode: 'incremental' }).toBytes());
+    const objectOffset = output.lastIndexOf('\n3 0 obj\n') + 1 - 4;
+    expect([document.structure.headerOffset, output]).toStrictEqual([
+      4,
+      expect.stringContaining(`\nxref\n3 1\n${String(objectOffset).padStart(10, '0')} 00000 n \ntrailer\n`),
+    ]);
+  });
+
+  it.each([
+    ['%%EOF without an end-of-line', '', '\n'],
+    ['%%EOF and a carriage return', '\r', ''],
+    ['%%EOF and a line feed', '\n', ''],
+  ])('appends after %s with an end-of-line only where one is missing', (_, ending, inserted) => {
+    const source = latin1Bytes(`${basePdf().text.slice(0, -1)}${ending}`);
+    const document = loadDocument(source);
+    trimBox(document);
+    const output = latin1Text(document.save({ mode: 'incremental' }).toBytes());
+    const reloaded = loadDocument(latin1Bytes(output));
+    expect([
+      output.slice(source.length).startsWith(`${inserted}3 0 obj\n`),
+      reloaded.structure.status,
+      reloaded.warnings,
+      reloaded.page(0).boxes().TrimBox.rect,
+    ]).toStrictEqual([true, 'intact', [], [10, 10, 600, 780]]);
+  });
+
+  // ISO 32000-1:2008, Annex F, Table F.1: an update makes a linearized file an ordinary one.
+  it('warns that an edit invalidates linearization, and returns an unedited linearized file as it is', () => {
+    const source = linearized();
+    const unedited = loadDocument(source).save({ mode: 'incremental' });
+    const document = loadDocument(linearized());
+    trimBox(document);
+    expect([
+      document.structure.linearized,
+      unedited.chunks[0] === source,
+      unedited.warnings,
+      document.save({ mode: 'incremental' }).warnings.map(warning => warning.code),
+    ]).toStrictEqual([true, true, [], ['linearization-invalidated']]);
+  });
+
+  // ISO 32000-1:2008, 7.5.4: a generation that reaches 65,535 is not incremented, and the number is never reused.
+  it('keeps generation 65,535 when deleting an object that has it', () => {
+    const document = loadDocument(base({ objects: [...basePdfObjects, { number: 6, generation: 65_535, body: '(last use)' }] }));
+    document.delete(pdfReference(6, 65_535));
+    const output = latin1Text(document.save({ mode: 'incremental' }).toBytes());
+    expect(output).toMatch(/\nxref\n0 1\n0000000006 65535 f \n6 1\n0000000000 65535 f \ntrailer\n/u);
+  });
+
+  // ISO 32000-1:2008, 7.5.6: the added trailer carries the previous one's entries, so a Size above what the update needs stays.
+  it('keeps a previous Size above the highest object number', () => {
+    const text = basePdf().text.replace('<</Size 6/Root', '<</Size 60/Root');
+    const document = loadDocument(latin1Bytes(text));
+    trimBox(document);
+    expect(lastTrailer(document.save({ mode: 'incremental' }).toBytes())).toMatch(/^\n<<\/Size 60\/Root/u);
+  });
+
+  // ISO 32000-1:2008, 14.4: a source without ID gets none unless the caller supplies one, and a supplied pair is written as given.
+  it.each([
+    ['derived for a source without ID', 'derive', undefined],
+    ['supplied for a source without ID', [new Uint8Array(16).fill(0xaa), new Uint8Array(16).fill(0xbb)], ['aa'.repeat(16), 'bb'.repeat(16)]],
+  ] as const)('writes the file identifier %s with an edit', (_, fileIdentifier, expected) => {
+    const document = loadDocument(base({ trailer: '/Root 1 0 R' }));
+    trimBox(document);
+    const saved = document.save({ mode: 'incremental', fileIdentifier: fileIdentifier === 'derive' ? 'derive' : [...fileIdentifier] });
+    expect([identifierOf(saved.toBytes()), lastTrailer(saved.toBytes()).includes('/ID')]).toStrictEqual([expected, expected !== undefined]);
   });
 });
