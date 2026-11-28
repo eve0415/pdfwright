@@ -400,6 +400,19 @@ describe('page colour conversion', () => {
     expect(readInline(result.bytes)).toStrictEqual({ operators: ['BI'], warnings: [], samples: rgbRow(pixels) });
   });
 
+  it('writes every small converted inline image so that it reads back as one image with its converted samples', () => {
+    const image = fc
+      .integer({ min: 1, max: 4 })
+      .chain(width => fc.uint8Array({ minLength: width * 3, maxLength: width * 3 }).map(pixels => ({ width, pixels })));
+    fc.assert(
+      fc.property(image, ({ width, pixels }) => {
+        const result = rewrite(`BI /W ${String(width)} /H 1 /BPC 8 /CS /RGB ID\n${latin1Text(pixels)}\nEI`);
+        expect(readInline(result.bytes)).toStrictEqual({ operators: ['BI'], warnings: [], samples: rgbRow([...pixels]) });
+      }),
+      { numRuns: 50 },
+    );
+  });
+
   it('decodes a Flate inline RGB image before conversion', () => {
     const document = loadDocument(pdf());
     const compressed = latin1Text(deflateZlib(Uint8Array.of(255, 0, 0)));
