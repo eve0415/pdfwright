@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
+import { createColorTransform } from '../color/createColorTransform.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -142,6 +144,51 @@ const inlineFormPdf = buildPdf([
   },
 ]);
 
+interface TestObject {
+  readonly number: number;
+  readonly body: string;
+}
+
+// One page, object 3, whose content is object 4; the caller supplies the page's extra keys and every other object.
+const onePage = (page: string, content: string, objects: ReadonlyArray<TestObject>, maxDecodedBytes?: number): ReturnType<typeof loadDocument> =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]${page}>>` },
+          { number: 4, body: streamBody('', content) },
+          ...objects,
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+    maxDecodedBytes === undefined ? {} : { maxDecodedBytes },
+  );
+
+const formBody = (content: string, extra = ''): string => streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${extra}`, content);
+const options = { sourceRgbProfile: source, outputProfile: destination };
+const CONVERTED = /^[\d.]+ [\d.]+ [\d.]+ [\d.]+ k 0 0 10 10 re f$/u;
+
+const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries => {
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
+  if (value?.kind === 'stream') {
+    return value.dictionary;
+  }
+  throw new Error('expected a dictionary');
+};
+
+const resourceEntry = (document: ReturnType<typeof loadDocument>, owner: number, category: string, name: string): PdfObject | undefined => {
+  const internals = internalsOf(document);
+  const resources = internals?.objects.deref(entriesOf(document.get(pdfReference(owner, 0))).get(pdfName('Resources').bytes));
+  const entries = internals?.objects.deref(entriesOf(resources).get(pdfName(category).bytes));
+  return internals?.objects.deref(entriesOf(entries).get(pdfName(name).bytes));
+};
+
 const formReference = (document: ReturnType<typeof loadDocument>, page: number, name = 'Fm'): ReturnType<typeof pdfReference> => {
   const resources = document.page(page).resources();
   const xobjects = resources.get(pdfName('XObject').bytes);
@@ -198,6 +245,9 @@ const pageText = (document: ReturnType<typeof loadDocument>): string => {
   }
   return latin1Text(data);
 };
+
+const resourceOwner = (document: ReturnType<typeof loadDocument>): PdfObject | undefined =>
+  internalsOf(document)?.objects.deref(entriesOf(document.get(pdfReference(5, 0))).get(pdfName('Resources').bytes));
 
 const formImageData = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): Uint8Array => {
   const form = streamValue(document.get(reference));
@@ -287,6 +337,20 @@ describe('form colour conversion', () => {
     expect(report).toStrictEqual({ forms: 1, clones: 0 });
     expect(formText(document)).toMatch(/\/PWOPM0 gs\s+0 0 m 10 10 l S\s+\/PWOPM1 gs/u);
     expect(document.get(pdfReference(8, 0)).kind).toBe('null');
+    const states = internalsOf(document)?.objects.deref(entriesOf(resourceOwner(document)).get(pdfName('ExtGState').bytes));
+    expect([...entriesOf(states).entries()].map(([key, value]) => [latin1Text(key), value])).toStrictEqual([
+      [
+        'GS',
+        pdfDictionary(
+          new PdfDictionaryEntries([
+            [pdfName('OP').bytes, { kind: 'boolean', value: true }],
+            [pdfName('OPM').bytes, pdfInteger(1)],
+          ]),
+        ),
+      ],
+      ['PWOPM0', pdfDictionary(new PdfDictionaryEntries([[pdfName('OPM').bytes, pdfInteger(0)]]))],
+      ['PWOPM1', pdfDictionary(new PdfDictionaryEntries([[pdfName('OPM').bytes, pdfInteger(1)]]))],
+    ]);
   });
 
   it('passes inherited colour state into a nested form', () => {
@@ -301,6 +365,136 @@ describe('form colour conversion', () => {
     const report = convertForms(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(report.forms).toBe(1);
     expect(formText(document)).toContain('/PWIM0 Do');
-    expect(formImageData(document, pdfReference(5, 0))).toHaveLength(5000);
+    const image = resourceEntry(document, 5, 'XObject', 'PWIM0');
+    const dictionary = entriesOf(image);
+    expect(['Subtype', 'Width', 'Height', 'BitsPerComponent', 'ColorSpace', 'Filter'].map(key => dictionary.get(pdfName(key).bytes))).toStrictEqual([
+      pdfName('Image'),
+      pdfInteger(50),
+      pdfInteger(25),
+      pdfInteger(8),
+      pdfName('DeviceCMYK'),
+      pdfName('FlateDecode'),
+    ]);
+    const expected = new Uint8Array(5000);
+    createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true }).convertRow8(
+      new Uint8Array(3750),
+      expected,
+      1250,
+    );
+    expect(formImageData(document, pdfReference(5, 0))).toStrictEqual(expected);
+  });
+
+  it.each([
+    { route: 'only an annotation appearance', page: '/Annots[7 0 R]/Resources<<>>', content: '' },
+    { route: 'only a coloured tiling pattern', page: '/Resources<</Pattern<</P 8 0 R>>>>', content: '/Pattern cs /P scn 0 0 10 10 re f' },
+  ])('converts a form reached through $route', ({ page, content }) => {
+    const document = onePage(`/Contents 4 0 R${page}`, content, [
+      { number: 7, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 10 0 R>>>>' },
+      {
+        number: 8,
+        body: streamBody(
+          '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10/Resources<</XObject<</Fm 11 0 R>>>>',
+          '/Fm Do',
+        ),
+      },
+      { number: 10, body: formBody('/Fm Do', '/Resources<</XObject<</Fm 12 0 R>>>>') },
+      { number: 11, body: formBody('1 0 0 rg 0 0 10 10 re f') },
+      { number: 12, body: formBody('0 1 0 rg 0 0 10 10 re f') },
+    ]);
+    expect(convertForms(document, options)).toStrictEqual({ forms: 1, clones: 0 });
+    const reached = page.includes('Annots') ? 12 : 11;
+    const unreached = reached === 12 ? 11 : 12;
+    expect(textOf(document, pdfReference(reached, 0))).toMatch(CONVERTED);
+    expect(textOf(document, pdfReference(unreached, 0))).toMatch(/^[01] [01] [01] rg 0 0 10 10 re f$/u);
+  });
+
+  it('refuses a form that draws itself', () => {
+    const document = onePage('/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>', '/Fm Do', [
+      { number: 5, body: formBody('/Fm Do', '/Resources<</XObject<</Fm 5 0 R>>>>') },
+    ]);
+    expect(() => convertForms(document, options)).toThrow(ResourceLimitError);
+  });
+
+  it('skips a generated form name the page already uses', () => {
+    const document = loadDocument(samePagePdf.bytes);
+    const profile = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries([[pdfName('N').bytes, pdfInteger(3)]]), data: displayP3.bytes });
+    const page = dictionaryValue(document.get(document.page(0).reference));
+    const resources = document.page(0).resources();
+    resources.set(pdfName('ColorSpace').bytes, pdfDictionary(new PdfDictionaryEntries([[pdfName('P3').bytes, pdfArray([pdfName('ICCBased'), profile])]])));
+    const xobjects = new PdfDictionaryEntries([
+      [pdfName('Fm').bytes, pdfReference(5, 0)],
+      [pdfName('PWFORM0').bytes, pdfReference(5, 0)],
+    ]);
+    resources.set(pdfName('XObject').bytes, pdfDictionary(xobjects));
+    page.entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
+    document.set(document.page(0).reference, page);
+    convertForms(document, options);
+    const text = pageText(document);
+    expect(text).toContain('/PWFORM1 Do');
+    expect(text).not.toContain('/PWFORM0 Do');
+    expect(formReference(document, 0, 'PWFORM0')).toStrictEqual(pdfReference(5, 0));
+    expect(formReference(document, 0, 'PWFORM1')).not.toStrictEqual(pdfReference(5, 0));
+  });
+
+  it('renames a Do in a carrier that uses one form under two colour states and gives the carrier new Resources', () => {
+    const document = onePage('/Contents 4 0 R/Annots[7 0 R]/Resources<<>>', '', [
+      { number: 7, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 10 0 R>>>>' },
+      { number: 10, body: formBody('0 0 0 rg /Fm Do /P3 cs 0 0 0 sc /Fm Do', '/Resources<</XObject<</Fm 11 0 R>>/ColorSpace<</P3[/ICCBased 12 0 R]>>>>') },
+      { number: 11, body: formBody('0.5 0.5 0.5 sc 0 0 10 10 re f') },
+      { number: 12, body: streamBody('/N 3', latin1Text(displayP3.bytes)) },
+    ]);
+    expect(convertForms(document, options)).toStrictEqual({ forms: 2, clones: 1 });
+    expect(textOf(document, pdfReference(10, 0))).toBe('0 0 0 rg /Fm Do /P3 cs 0 0 0 sc /PWFORM0 Do');
+    const renamed = entriesOf(internalsOf(document)?.objects.deref(entriesOf(document.get(pdfReference(10, 0))).get(pdfName('Resources').bytes))).get(
+      pdfName('XObject').bytes,
+    );
+    const names = internalsOf(document)?.objects.deref(renamed);
+    expect(entriesOf(names).get(pdfName('Fm').bytes)).toStrictEqual(pdfReference(11, 0));
+    expect(entriesOf(names).get(pdfName('PWFORM0').bytes)).not.toStrictEqual(pdfReference(11, 0));
+  });
+
+  it('joins a page Contents array into one stream when it renames a Do and deletes the old streams', () => {
+    // The Do that needs a new name sits in the second stream of the array.
+    const document = onePage('/Contents[4 0 R 6 0 R]/Resources<</XObject<</Fm 5 0 R>>/ColorSpace<</P3[/ICCBased 7 0 R]>>>>', '0 0 0 rg /Fm Do', [
+      { number: 5, body: formBody('0.5 0.5 0.5 sc 0 0 10 10 re f') },
+      { number: 6, body: streamBody('', '/P3 cs 0 0 0 sc /Fm Do') },
+      { number: 7, body: streamBody('/N 3', latin1Text(displayP3.bytes)) },
+    ]);
+    convertForms(document, options);
+    expect(pageText(document)).toBe('0 0 0 rg /Fm Do\n/P3 cs 0 0 0 sc /PWFORM0 Do');
+    expect([document.get(pdfReference(4, 0)), document.get(pdfReference(6, 0))]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+  });
+
+  it('accepts converted form content of exactly maxDecodedBytes and refuses one byte more', () => {
+    const objects = [{ number: 5, body: formBody('1 0 0 rg 0 0 10 10 re f', '/Resources<<>>') }];
+    const measured = onePage('/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>', '/Fm Do', objects);
+    convertForms(measured, options);
+    const limit = textOf(measured, pdfReference(5, 0)).length;
+    expect(convertForms(onePage('/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>', '/Fm Do', objects, limit), options).forms).toBe(1);
+    expect(() => convertForms(onePage('/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>', '/Fm Do', objects, limit - 1), options)).toThrow(
+      ResourceLimitError,
+    );
+  });
+
+  it('accepts renamed page content of exactly maxDecodedBytes and refuses one byte more', () => {
+    // The form inherits two rendering intents, so the second Do is renamed; the comment makes the page the longest stream the conversion writes.
+    const comment = `% ${'x'.repeat(80)}\n`;
+    const content = `${comment}0 0 0 rg /Fm Do /Perceptual ri /Fm Do`;
+    const renamed = `${comment}0 0 0 rg /Fm Do /Perceptual ri /PWFORM0 Do`;
+    const objects = [{ number: 5, body: formBody('0.5 0.5 0.5 sc 0 0 10 10 re f') }];
+    const page = '/Contents 4 0 R/Resources<</XObject<</Fm 5 0 R>>>>';
+    const atLimit = onePage(page, content, objects, renamed.length);
+    expect(convertForms(atLimit, options)).toStrictEqual({ forms: 2, clones: 1 });
+    expect(pageText(atLimit)).toBe(renamed);
+    expect(() => convertForms(onePage(page, content, objects, renamed.length - 1), options)).toThrow(ResourceLimitError);
+  });
+
+  it('neutralises overprint a form inherits from the page at Do', () => {
+    // ISO 32000-1:2008, 8.6.7 and Table 58: OPM 1 with a CMYK zero component leaves the plate unpainted, which converted RGB black would turn into knockout-free K.
+    const document = onePage('/Contents 4 0 R/Resources<</ExtGState<</GS<</OP true/OPM 1>>>>/XObject<</Fm 5 0 R>>>>', '/GS gs 0 0 0 rg /Fm Do', [
+      { number: 5, body: formBody('0 0 10 10 re f') },
+    ]);
+    expect(convertForms(document, options)).toStrictEqual({ forms: 1, clones: 0 });
+    expect(textOf(document, pdfReference(5, 0))).toMatch(/\/PWOPM0 gs\s+0 0 10 10 re f\s+\/PWOPM1 gs/u);
   });
 });
