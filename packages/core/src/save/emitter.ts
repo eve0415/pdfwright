@@ -58,9 +58,10 @@ export class PdfEmitter {
   /** The chunks emitted so far, finishing the current buffer. */
   finish(): Array<Uint8Array> {
     this.flush();
-    if (!this.chunks.every(part => isUint8Array(part))) {
+    const bytes = this.chunks.filter(part => isUint8Array(part));
+    if (bytes.length !== this.chunks.length) {
       throw new Error('produced output requires a streamed save');
     }
-    return this.chunks.filter(part => isUint8Array(part));
+    return bytes;
   }
 }
