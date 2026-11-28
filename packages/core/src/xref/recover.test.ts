@@ -276,6 +276,30 @@ describe('cross-reference reconstruction', () => {
     ]);
   });
 
+  // A member nested past the limit raises ResourceLimitError when it is parsed, so one above 2^31 - 1 must be skipped before parsing for the other objects to be recovered.
+  it('skips an object-stream member numbered above 2^31 - 1 without parsing it', () => {
+    const deep = '['.repeat(257);
+    expect(() => reconstruct(objectStream(2_147_483_647, deep))).toThrow(ResourceLimitError);
+    expect(
+      [2_147_483_648, 4_294_967_297].map(number =>
+        located(reconstruct(objectStream(number, deep)).reconstruction).map(([objectNumber, type]) => [objectNumber, type]),
+      ),
+    ).toStrictEqual([
+      [
+        [1, 'file'],
+        [2, 'file'],
+        [3, 'file'],
+        [5, 'compressed'],
+      ],
+      [
+        [1, 'file'],
+        [2, 'file'],
+        [3, 'file'],
+        [5, 'compressed'],
+      ],
+    ]);
+  });
+
   it('reads only trailer keywords that stand alone and hold a dictionary, and scans on past a broken one', () => {
     const text = '%PDF-1.4\nxtrailer<</Root 8 0 R>>\ntrailer 5\ntrailer <</A [>>\n1 0 obj (a) endobj\ntrailer <</Root 1 0 R>>\n';
     const { reconstruction } = reconstruct(text);
