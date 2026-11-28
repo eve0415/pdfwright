@@ -88,11 +88,16 @@ describe('properties', () => {
     );
   });
 
-  it('formats its own output to the same token', () => {
+  // A number with at most the requested fraction digits needs no rounding, so JavaScript's own shortest decimal string is an independent expected value.
+  it("agrees with JavaScript's decimal string wherever no rounding is needed", () => {
+    const exact = fc
+      .tuple(fc.integer({ min: -1_000_000_000, max: 1_000_000_000 }), fractionDigits)
+      .chain(([integer, digits]) => fc.tuple(fc.constant(integer), fc.integer({ min: 0, max: digits }), fc.constant(digits)))
+      .map(([integer, scale, digits]) => [integer / 10 ** scale, digits] as const)
+      .filter(([number]) => !String(number).includes('e'));
     fc.assert(
-      fc.property(value, fractionDigits, (number, digits) => {
-        const token = formatNumber(number, digits);
-        expect(formatNumber(Number(token), digits)).toBe(token);
+      fc.property(exact, ([number, digits]) => {
+        expect(formatNumber(number, digits)).toBe(Object.is(number, -0) ? '0' : String(number));
       }),
     );
   });
