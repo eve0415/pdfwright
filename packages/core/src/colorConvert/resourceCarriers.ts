@@ -59,6 +59,8 @@ export interface CarrierSeen {
   readonly appearances: Set<number>;
   /** The indirect dictionaries whose entries a walk has queued, by object number and how they were read: as Resources, as an XObject or Pattern category, or as an ExtGState category. */
   readonly expanded: Set<string>;
+  /** The directly stored fonts in the direct Font category of each indirect Resources a walk has queued, by its object number, which later holders of it queue again without examining the rest of the category. */
+  readonly directFonts: Map<number, ReadonlyArray<readonly [Uint8Array, PdfObject]>>;
   /** The most steps the walks may take together, where a step is one resource entry or appearance a walk examines; every carrier costs one. */
   readonly maxSteps: number;
   steps: number;
@@ -73,6 +75,7 @@ export const carrierSeen = (maxSteps: number = MAX_CARRIER_STEPS): CarrierSeen =
   categories: new Map(),
   appearances: new Set(),
   expanded: new Set(),
+  directFonts: new Map(),
   maxSteps,
   steps: 0,
 });
@@ -237,7 +240,7 @@ class CarrierWalk {
     return { kind: 'category', reference: value };
   }
 
-  // `reference` is how the holder names `resources`. When an earlier walk queued that dictionary, only the directly stored fonts of its direct Font category are queued again, because they are replaced through the holder.
+  // `reference` is how the holder names `resources`. When an earlier walk queued that dictionary, only the directly stored fonts of its direct Font category are queued again, because they are replaced through the holder; they are recorded when it is first queued, so a later holder does not examine the other entries.
   private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined, depth: number): void {
     const fresh = this.expand(reference, 'resources');
     const found: Array<PendingCarrier> = [];
@@ -248,14 +251,11 @@ class CarrierWalk {
       }
     }
     const slot = this.fontSlot(resources.get(FONT), holder);
-    if (slot !== undefined) {
-      const fonts = this.internals.objects.deref(resources.get(FONT));
-      for (const [name, value] of fonts?.kind === 'dictionary' ? fonts.entries.entries() : []) {
-        if (value.kind === 'dictionary') {
-          found.push({ kind: 'font', slot, name, font: value, depth });
-        } else if (fresh) {
-          found.push({ kind: 'owner', value, appearance: false, depth });
-        }
+    if (slot !== undefined && fresh) {
+      this.fonts(resources, reference, { slot, found, depth });
+    } else if (slot !== undefined && reference?.kind === 'reference') {
+      for (const [name, font] of this.seen.directFonts.get(reference.objectNumber) ?? []) {
+        found.push({ kind: 'font', slot, name, font, depth });
       }
     }
     // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
@@ -269,6 +269,24 @@ class CarrierWalk {
       if (item !== undefined) {
         this.queue(item);
       }
+    }
+  }
+
+  // Adds every entry of the Font category in `resources` to `found`, and records its directly stored fonts for an indirect `reference`.
+  private fonts(resources: PdfDictionaryEntries, reference: PdfDirectObject | undefined, into: { slot: FontSlot; found: Array<PendingCarrier>; depth: number }): void {
+    const { slot, found, depth } = into;
+    const fonts = this.internals.objects.deref(resources.get(FONT));
+    const direct: Array<readonly [Uint8Array, PdfObject]> = [];
+    for (const [name, value] of fonts?.kind === 'dictionary' ? fonts.entries.entries() : []) {
+      if (value.kind === 'dictionary') {
+        direct.push([name, value]);
+        found.push({ kind: 'font', slot, name, font: value, depth });
+      } else {
+        found.push({ kind: 'owner', value, appearance: false, depth });
+      }
+    }
+    if (reference?.kind === 'reference') {
+      this.seen.directFonts.set(reference.objectNumber, direct);
     }
   }
 
