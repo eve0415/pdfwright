@@ -311,9 +311,9 @@ describe('stream decoding', () => {
   });
 
   it('refuses a crypt filter whose Name refers to a crypt filter that needs decryption', () => {
-    const run = (): Uint8Array => decodeStream(cryptNamed(pdfReference(13, 0)), { maxDecodedBytes: 1_048_576, warn: ignore, deref });
-    expect(run).toThrow(UnsupportedFeatureError);
-    expect(run).toThrow(/decryption/u);
+    const crypt = cryptNamed(pdfReference(13, 0));
+    expect(() => decodeStream(crypt, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(UnsupportedFeatureError);
+    expect(() => decodeStream(crypt, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(/decryption/u);
   });
 
   it('refuses a crypt filter Name given as a reference with no resolver', () => {
