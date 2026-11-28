@@ -162,27 +162,30 @@ const siblingForm = (index: number, count: number): TestObject => ({
 });
 
 /**
- * `fonts` Type 3 fonts, objects 10 on, share CharProcs object 5 of `glyphs` glyph procedures, objects 100 on, the last of which applies `names` graphics states; each font names its states opaque, except that the last font names the last state transparent.
- * The scan takes one step for each entry of the CharProcs dictionary the first time it reads it, and one for each later font that reads it with other Resources and for each name that font looks up again, so it finds the transparent state at step glyphs + (fonts - 1) * (1 + names).
+ * `fonts` Type 3 fonts, objects 10 on, share `glyphs` glyph procedures, objects 100 on, the last of which applies `names` graphics states; each font names its states opaque, except that the last font names the last state transparent.
+ * With `shared` CharProcs the fonts list the glyphs in CharProcs object 5, and with `own` each font lists them in its own CharProcs object, 50 on.
+ * The scan takes one step for each entry of a CharProcs dictionary each time it walks it, which for `shared` is only the first time, one for each later font that reads the walked `shared` dictionary with other Resources, and one for each name a later font looks up again.
+ * So for `shared` it finds the transparent state at step glyphs + (fonts - 1) * (1 + names), and for `own` with one glyph at the same step, since each later font walks its own one-entry dictionary.
  */
-const sharedGlyphs = (fonts: number, glyphs: number, names: number, maxDecodedBytes: number) => {
+const sharedGlyphs = (fonts: number, glyphs: number, names: number, maxDecodedBytes: number, charProcs: 'shared' | 'own' = 'shared') => {
   const states = Array.from({ length: names }, (_, index) => `/G${String(index)}`);
   const fontObjects = Array.from({ length: fonts }, (_, font) => {
     const ext = states.map((name, index) => `${name} ${font === fonts - 1 && index === names - 1 ? '7' : '9'} 0 R`).join('');
     return {
       number: 10 + font,
-      body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs 5 0 R/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<<${ext}/X${String(font)} 9 0 R>>>>>>`,
+      body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${charProcs === 'shared' ? '5' : String(50 + font)} 0 R/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<<${ext}/X${String(font)} 9 0 R>>>>>>`,
     };
   });
   const glyphObjects = Array.from({ length: glyphs }, (_, glyph) => ({
     number: 100 + glyph,
     body: streamBody('', `0 0 d0 ${glyph === glyphs - 1 ? states.map(name => `${name} gs `).join('') : ''}0 0 1 1 re f`),
   }));
+  const listed = `<<${glyphObjects.map((_, glyph) => `/g${String(glyph)} ${String(100 + glyph)} 0 R`).join('')}>>`;
   return single(
     `<</Font<<${fontObjects.map((_, font) => `/F${String(font)} ${String(10 + font)} 0 R`).join('')}>>>>`,
     streamBody('', `BT ${fontObjects.map((_, font) => `/F${String(font)} 1 Tf`).join(' ')} ET`),
     [
-      { number: 5, body: `<<${glyphObjects.map((_, glyph) => `/g${String(glyph)} ${String(100 + glyph)} 0 R`).join('')}>>` },
+      ...(charProcs === 'shared' ? [5] : fontObjects.map((_, font) => 50 + font)).map(number => ({ number, body: listed })),
       ...fontObjects,
       ...glyphObjects,
       { number: 7, body: '<</ca 0.5>>' },
@@ -602,14 +605,15 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 7)).toHaveLength(1);
   });
 
-  it.each<[string, number, number, number, number]>([
-    ['names looked up again', 10, 1, 30, 280],
-    ['CharProcs entries once', 4, 60, 1, 66],
+  it.each<[string, number, number, number, number, 'shared' | 'own']>([
+    ['names looked up again', 10, 1, 30, 280, 'shared'],
+    ['CharProcs entries once', 4, 60, 1, 66, 'shared'],
+    ['names looked up again for a glyph that each font lists in its own CharProcs', 10, 1, 30, 280, 'own'],
   ])(
     'reads glyph procedures that fonts with different Resources share for as many steps as maxDecodedBytes and refuses one more, counting %s',
-    (_, fonts, glyphs, names, steps) => {
-      expect(addedGroups(sharedGlyphs(fonts, glyphs, names, steps))).toStrictEqual([0]);
-      const prepare = () => preparePdfX4Pages(sharedGlyphs(fonts, glyphs, names, steps - 1));
+    (_, fonts, glyphs, names, steps, charProcs) => {
+      expect(addedGroups(sharedGlyphs(fonts, glyphs, names, steps, charProcs))).toStrictEqual([0]);
+      const prepare = () => preparePdfX4Pages(sharedGlyphs(fonts, glyphs, names, steps - 1, charProcs));
       expect(prepare).toThrow(ResourceLimitError);
       expect(prepare).toThrow(new RegExp(`glyph procedures .*maxDecodedBytes \\(${String(steps - 1)}\\)`, 'u'));
     },
