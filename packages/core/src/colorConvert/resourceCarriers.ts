@@ -67,17 +67,23 @@ const holdsResources = (internals: DocumentInternals, object: PdfObject): boolea
   return object.kind === 'dictionary' && nameIs(internals.objects.deref(object.entries.get(SUBTYPE)), 'Type3');
 };
 
+type PendingCarrier =
+  | { readonly kind: 'owner'; readonly value: PdfDirectObject | undefined; readonly appearance: boolean }
+  | { readonly kind: 'font'; readonly holder: CarrierHolder; readonly name: Uint8Array; readonly font: PdfObject };
+
+// An explicit stack instead of recursion, so nesting depth is bounded by memory rather than the call stack. Entries are pushed in reverse and checked against `seen` when popped, which keeps the order a depth-first recursion would list.
 class CarrierWalk {
   readonly carriers: Array<ResourceCarrier> = [];
   private readonly internals: DocumentInternals;
   private readonly seen: Set<number>;
+  private readonly pending: Array<PendingCarrier> = [];
 
   constructor(internals: DocumentInternals, seen: Set<number>) {
     this.internals = internals;
     this.seen = seen;
   }
 
-  owner(value: PdfDirectObject | undefined, appearance: boolean): void {
+  private owner(value: PdfDirectObject | undefined, appearance: boolean): void {
     if (value?.kind !== 'reference' || this.seen.has(value.objectNumber)) {
       return;
     }
@@ -90,7 +96,7 @@ class CarrierWalk {
   }
 
   // A direct font has no object number to mark as seen; its holder is walked once, so it is listed once per holder.
-  directFont(holder: CarrierHolder, name: Uint8Array, font: PdfObject): void {
+  private directFont(holder: CarrierHolder, name: Uint8Array, font: PdfObject): void {
     if (holdsResources(this.internals, font)) {
       this.list({ kind: 'carrier', key: `${holderKey(holder)} Font ${hex(name)}`, owner: { kind: 'font', holder, name } }, font);
     }
@@ -104,26 +110,44 @@ class CarrierWalk {
     }
     const listed = { ...carrier, resources: own.entries };
     this.carriers.push(listed);
-    this.resources(own.entries, listed);
+    this.enqueue(own.entries, listed);
   }
 
-  resources(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
+  private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
+    const found: Array<PendingCarrier> = [];
     for (const key of [XOBJECT, PATTERN, FONT]) {
       const category = this.internals.objects.deref(resources.get(key));
       for (const [name, value] of category?.kind === 'dictionary' ? category.entries.entries() : []) {
-        if (key === FONT && value.kind === 'dictionary') {
-          this.directFont(holder, name, value);
-        } else {
-          this.owner(value, false);
-        }
+        found.push(key === FONT && value.kind === 'dictionary' ? { kind: 'font', holder, name, font: value } : { kind: 'owner', value, appearance: false });
       }
     }
     // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
     const states = this.internals.objects.deref(resources.get(EXT_G_STATE));
     for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
       const font = this.internals.objects.deref(entriesOf(this.internals.objects.deref(value))?.get(FONT));
-      this.owner(font?.kind === 'array' ? font.items[0] : undefined, false);
+      found.push({ kind: 'owner', value: font?.kind === 'array' ? font.items[0] : undefined, appearance: false });
     }
+    for (let index = found.length - 1; index >= 0; index--) {
+      const item = found[index];
+      if (item !== undefined) {
+        this.pending.push(item);
+      }
+    }
+  }
+
+  private drain(): void {
+    for (let item = this.pending.pop(); item !== undefined; item = this.pending.pop()) {
+      if (item.kind === 'font') {
+        this.directFont(item.holder, item.name, item.font);
+      } else {
+        this.owner(item.value, item.appearance);
+      }
+    }
+  }
+
+  resources(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
+    this.enqueue(resources, holder);
+    this.drain();
   }
 
   appearances(page: PdfReference): void {
@@ -140,9 +164,11 @@ class CarrierWalk {
         if (variants?.kind === 'dictionary') {
           for (const [, value] of variants.entries.entries()) {
             this.owner(value, true);
+            this.drain();
           }
         } else {
           this.owner(entry, true);
+          this.drain();
         }
       }
     }
