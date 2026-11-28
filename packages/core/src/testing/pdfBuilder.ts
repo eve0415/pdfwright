@@ -210,8 +210,31 @@ class TestPdfWriter {
   }
 }
 
+// A section the writer cannot express is refused rather than written as something else. A number may still appear twice in one section, which tests of duplicate objects rely on.
+const checkSection = (section: TestSection, index: number): void => {
+  // ISO 32000-1:2008, 7.5.8.3: only a cross-reference stream has type 2 entries for object-stream members; a classic table would list them as free.
+  if (section.xref === 'classic' && (section.objectStreams?.length ?? 0) > 0) {
+    throw new RangeError(`section ${String(index)} has object streams but a classic cross-reference table`);
+  }
+  const objects = [...section.objects, ...(section.objectStreams ?? []).flatMap(stream => [stream, ...stream.members])];
+  // ISO 32000-1:2008, 7.3.10: object numbers are positive integers and generations are non-negative; 7.5.4 limits a generation to five digits, at most 65535.
+  for (const object of objects) {
+    const generation = 'generation' in object ? (object.generation ?? 0) : 0;
+    if (!Number.isSafeInteger(object.number) || object.number < 1 || !Number.isInteger(generation) || generation < 0 || generation > 65_535) {
+      throw new RangeError(`section ${String(index)} has object ${String(object.number)} ${String(generation)}, which a cross-reference entry cannot hold`);
+    }
+  }
+  const stream = section.xrefStreamNumber;
+  if (stream !== undefined && (section.xref === 'classic' || !Number.isSafeInteger(stream) || stream < 1 || objects.some(object => object.number === stream))) {
+    throw new RangeError(`section ${String(index)} cannot number its cross-reference stream ${String(stream)}`);
+  }
+};
+
 /** Writes one PDF: the first section is the original file and each further section an incremental update whose Prev points at the one before. */
 export const buildPdf = (sections: ReadonlyArray<TestSection>, options: BuildOptions = {}): TestPdf => {
+  for (const [index, section] of sections.entries()) {
+    checkSection(section, index);
+  }
   const writer = new TestPdfWriter(sections, options);
   for (const [index, section] of sections.entries()) {
     writer.section(section, index === 0);

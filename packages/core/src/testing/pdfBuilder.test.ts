@@ -27,3 +27,38 @@ describe('Latin-1 text and bytes', () => {
     expect(() => buildPdf([{ xref: 'classic', objects: [CATALOG, PAGES, { number: 3, body: streamBody('', '–') }] }])).toThrow(RangeError);
   });
 });
+
+describe('sections the builder refuses', () => {
+  const member = { number: 4, body: '(member)' };
+  it.each([
+    ['object streams under a classic table', { xref: 'classic', objects: [CATALOG], objectStreams: [{ number: 3, members: [member] }] }],
+    ['object number 0', { xref: 'classic', objects: [{ number: 0, body: 'null' }] }],
+    ['a fractional object number', { xref: 'classic', objects: [{ number: 1.5, body: 'null' }] }],
+    ['a generation above 65535', { xref: 'classic', objects: [{ number: 1, generation: 65_536, body: 'null' }] }],
+    ['a negative generation', { xref: 'stream', objects: [{ number: 1, generation: -1, body: 'null' }] }],
+    ['an object-stream member numbered 0', { xref: 'stream', objects: [CATALOG], objectStreams: [{ number: 3, members: [{ number: 0, body: 'null' }] }] }],
+    ['a cross-reference stream numbered like an object', { xref: 'stream', objects: [CATALOG, PAGES], xrefStreamNumber: 2 }],
+    [
+      'a cross-reference stream numbered like an object-stream member',
+      { xref: 'stream', objects: [CATALOG], objectStreams: [{ number: 3, members: [member] }], xrefStreamNumber: 4 },
+    ],
+    ['a cross-reference stream number on a classic section', { xref: 'classic', objects: [CATALOG], xrefStreamNumber: 9 }],
+    ['a cross-reference stream numbered 0', { xref: 'stream', objects: [CATALOG], xrefStreamNumber: 0 }],
+  ] as const)('refuses %s', (_, section) => {
+    expect(() => buildPdf([section])).toThrow(RangeError);
+  });
+
+  it('accepts generation 65535, a number repeated within a section, and a later section reusing the stream number', () => {
+    const pdf = buildPdf([
+      {
+        xref: 'stream',
+        objects: [CATALOG, { number: 9, generation: 65_535, body: '(free soon)' }],
+        objectStreams: [{ number: 3, members: [{ number: 9, body: '(member)' }] }],
+        xrefStreamNumber: 10,
+      },
+      { xref: 'stream', objects: [{ number: 10, body: '(reused)' }], xrefStreamNumber: 11 },
+    ]);
+    expect(pdf.text.includes('9 65535 obj\n(free soon)\nendobj')).toBe(true);
+    expect(pdf.offsets.get(10)).toBe(pdf.text.lastIndexOf('10 0 obj\n(reused)'));
+  });
+});
