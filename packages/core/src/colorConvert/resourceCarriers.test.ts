@@ -1062,3 +1062,28 @@ describe('a direct Font category in an indirect Resources that many carriers sha
     expect(seen.steps).toBe(steps);
   });
 });
+
+const ANNOTATION_NUMBERS = [101, 102, 103];
+const annotationObjects = ANNOTATION_NUMBERS.map(number => ({ number, body: '<</Type/Annot/Subtype/Square/Rect[0 0 1 1]>>' }));
+const annotationList = `[${ANNOTATION_NUMBERS.map(number => `${String(number)} 0 R`).join(' ')}]`;
+
+/** Two pages that list three annotations without appearances, through one shared indirect Annots array or through an array of their own, with the steps the walks take. */
+const annotationLists = [
+  { lists: 'one indirect Annots array', page: '/Annots 100 0 R', objects: [{ number: 100, body: annotationList }, ...annotationObjects], steps: 3 },
+  { lists: 'an Annots array of their own', page: `/Annots${annotationList}`, objects: annotationObjects, steps: 6 },
+];
+
+describe('the annotations of the carrier walk', () => {
+  it.each(annotationLists)('counts a step for every annotation that two pages list through $lists', ({ page, objects, steps }) => {
+    const document = pagesPdf(
+      [
+        { page, content: '' },
+        { page, content: '' },
+      ],
+      objects,
+    );
+    const seen = carrierSeen();
+    expect([walkPage(document, 0, seen), walkPage(document, 1, seen)].map(listed => listed.length)).toStrictEqual([0, 0]);
+    expect(seen.steps).toBe(steps);
+  });
+});
