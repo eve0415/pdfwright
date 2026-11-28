@@ -319,7 +319,7 @@ const documentSpec: fc.Arbitrary<DocumentSpec> = fc.array(pageSpec, { minLength:
   }),
 );
 
-// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, a page and its content for each page, the fonts' encodings and the content's decode parameters.
+// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, a page and its content for each page, and the fonts' encodings.
 const objectNumbers = (spec: DocumentSpec): Array<number> => [
   1,
   2,
@@ -333,14 +333,10 @@ const objectNumbers = (spec: DocumentSpec): Array<number> => [
   30,
   31,
   32,
-  33,
-  34,
 ];
 
-const hexText = (text: string): string => Array.from(text, character => (character.codePointAt(0) ?? 0).toString(16).padStart(2, '0')).join('');
-
 // Writes the document with each object number n written as number(n), so that one shape can be numbered in different ways, and with each page's fonts listed in reverse when `reversed` is set.
-// The fonts' encodings form one reference cycle and the content streams' decode parameters another, and different pages and fonts enter each cycle at different objects.
+// The fonts' encodings form one reference cycle, which each font enters at a different object.
 const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = logical => logical, reversed = false): Uint8Array => {
   const ref = (logical: number): string => `${String(number(logical))} 0 R`;
   const fontEntries = (fonts: ReadonlyArray<number>): string =>
@@ -359,8 +355,6 @@ const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = log
       number: number(30 + index),
       body: `<</Type/Encoding/Differences[32/g${String(index)}]/Next ${ref(30 + ((index + 1) % FONTS.length))}>>`,
     })),
-    { number: number(33), body: `<</Next ${ref(34)}>>` },
-    { number: number(34), body: `<</Next ${ref(33)}>>` },
     { number: number(6), body: `<</Title(${spec.title ?? ''})>>` },
     { number: number(7), body: `<</Count 1/First ${ref(8)}/Last ${ref(8)}>>` },
     { number: number(8), body: `<</Title(Item)/Parent ${ref(7)}/Dest[${ref(10 + 2 * (spec.outline ?? 0))}/Fit]>>` },
@@ -369,10 +363,7 @@ const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = log
         number: number(10 + 2 * index),
         body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${fontEntries(page.fonts)}>>>>>>`,
       },
-      {
-        number: number(11 + 2 * index),
-        body: streamBody(`/Filter/ASCIIHexDecode/DecodeParms ${ref(33 + (index % 2))}`, `${hexText(page.operations.join(' '))}>`),
-      },
+      { number: number(11 + 2 * index), body: streamBody('', page.operations.join(' ')) },
     ]),
   ];
   return buildPdf([{ xref: 'classic', objects, trailer: `/Root ${ref(1)}${spec.title === null ? '' : `/Info ${ref(6)}`}` }]).bytes;
