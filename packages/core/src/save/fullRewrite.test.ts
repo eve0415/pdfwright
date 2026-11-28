@@ -1,5 +1,4 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
@@ -11,7 +10,7 @@ import { rect } from '../document/rect.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pt } from '../length/length.ts';
-import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -391,5 +390,110 @@ describe('full rewrite', () => {
     edited?.setTrailerEntry(pdfName('Info').bytes, pdfReference(5, 0));
     edited?.setTrailerEntry(pdfName('Private').bytes, undefined);
     expect(text(document.save({ mode: 'full' }).toBytes())).toMatch(/\ntrailer\n<<\/Size 6\/Root 1 0 R\/Info 5 0 R>>\nstartxref/u);
+  });
+
+  // Object 7 is replaced by bytes of its own length and its entry by an unused one, so the gap between objects 4 and 8 is a newline and those bytes.
+  // The gap runs from the end of endobj to the next header: one newline, then 16 bytes of header and endobj lines around the filler body.
+  it.each([
+    ['4,096 bytes of white space', 1, 4096 - 17, (length: number): string => ' '.repeat(length)],
+    ['4,097 bytes of white space', 2, 4097 - 17, (length: number): string => ' '.repeat(length)],
+    ['a comment line', 1, 10, (length: number): string => `%${'c'.repeat(length - 2)}\n`],
+    ['bytes that are not white space or a comment', 2, 10, (length: number): string => `junk${' '.repeat(length - 4)}`],
+  ])('counts the runs of source bytes copied for unchanged objects separated by %s: %i', (_, runs, bodyLength, filler) => {
+    const source = buildPdf([
+      {
+        xref: 'classic',
+        objects: [catalog, pages, page, content, { number: 7, body: 'x'.repeat(bodyLength) }, { number: 8, body: '(eight)' }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const start = source.offsets.get(7) ?? 0;
+    const end = source.offsets.get(8) ?? 0;
+    const entry = `${String(start).padStart(10, '0')} 00000 n \n`;
+    const bytes = latin1Bytes(`${source.text.slice(0, start)}${filler(end - start)}${source.text.slice(end)}`.replace(entry, '0000000000 65535 f \n'));
+    const document = loadDocument(bytes);
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      document.structure.status,
+      saved.chunks.filter(chunk => chunk.buffer === bytes.buffer).length,
+      reloaded.structure.status,
+      reloaded.warnings,
+      reloaded.get(pdfReference(8, 0)),
+      reloaded.pageCount,
+    ]).toStrictEqual(['intact', runs, 'intact', [], { kind: 'string', bytes: latin1Bytes('eight'), encoding: 'literal' }, 1]);
+  });
+
+  it('unpacks every object stream of a reconstructed file', () => {
+    const source = buildPdf([{ xref: 'stream', objects: [catalog, content], objectStreams: [{ number: 5, members: [pages, page] }], trailer: '/Root 1 0 R' }]);
+    const document = loadDocument(latin1Bytes(source.text.replace(/startxref\n\d+/u, 'startxref\n3')));
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      document.structure.status,
+      text(saved.toBytes()).includes('/Type/ObjStm'),
+      reloaded.structure.status,
+      reloaded.pageCount,
+      reloaded.page(0).boxes().MediaBox.rect,
+    ]).toStrictEqual(['reconstructed', false, 'intact', 1, [0, 0, 612, 792]]);
+  });
+
+  it('streams a produced object through a full rewrite with an indirect Length the reload accepts', async () => {
+    const document = loadDocument(classic([catalog, pages, page, content, { number: 5, body: '(placeholder)' }]));
+    const edited = internalsOf(document)?.objects;
+    if (edited === undefined) {
+      throw new Error('missing document internals');
+    }
+    edited.setProduced(pdfReference(5, 0), new PdfDictionaryEntries([[pdfName('Type').bytes, pdfName('Example')]]), function* () {
+      yield latin1Bytes('first');
+      yield latin1Bytes('second');
+    });
+    const parts: Array<Uint8Array> = [];
+    for await (const part of document.save({ mode: 'full' }).toStream()) {
+      parts.push(part);
+    }
+    const reloaded = loadDocument(parts);
+    const value = reloaded.get(pdfReference(5, 0));
+    // A wrong Length would be recovered from endstream with a warning, so a clean reload is what shows the Length object is right.
+    expect([
+      reloaded.structure.status,
+      reloaded.warnings,
+      value.kind === 'stream' ? [latin1Text(value.data), value.dictionary.get(pdfName('Length').bytes)?.kind] : value.kind,
+    ]).toStrictEqual(['intact', [], ['firstsecond', 'reference']]);
+  });
+
+  // ISO 32000-1:2008, 7.5.4: entry 0 heads the free list with generation 65,535, and a generation that reaches 65,535 is not incremented.
+  it.each([
+    ['nothing is free', [], undefined, /\nxref\n0 5\n0000000000 65535 f \n(?:\d{10} 00000 n \n){4}trailer\n/u],
+    [
+      'an object with generation 65,535 is deleted',
+      [{ number: 5, generation: 65_535, body: '(last use)' }],
+      5,
+      /\nxref\n0 6\n0000000005 65535 f \n(?:\d{10} 00000 n \n){4}0000000000 65535 f \ntrailer\n/u,
+    ],
+  ] as const)('writes the free list when %s', (_, extra, deleted, table) => {
+    const document = loadDocument(classic([catalog, pages, page, content, ...extra]));
+    if (deleted !== undefined) {
+      document.delete(pdfReference(deleted, 65_535));
+    }
+    expect(text(document.save({ mode: 'full' }).toBytes())).toMatch(table);
+  });
+
+  it('writes a PDF 1.7 header for a source whose header names no version', () => {
+    const saved = loadDocument(
+      buildPdf([{ xref: 'classic', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R' }], { header: '%PDF-' }).bytes,
+    ).save({ mode: 'full' });
+    expect([text(saved.toBytes()).slice(0, 9), loadDocument(saved.chunks).structure.lastSectionKind]).toStrictEqual(['%PDF-1.7\n', 'stream']);
+  });
+
+  it.each([
+    ['with', `/Root 1 0 R/ID[<${'11'.repeat(16)}><${'22'.repeat(16)}>]`],
+    ['without', '/Root 1 0 R'],
+  ])('writes a supplied file identifier as given for a source %s one', (_, trailer) => {
+    const saved = loadDocument(classic([catalog, pages, page, content], trailer)).save({
+      mode: 'full',
+      fileIdentifier: [new Uint8Array(16).fill(0xaa), new Uint8Array(16).fill(0xbb)],
+    });
+    expect(identifierOf(saved.chunks)).toStrictEqual(['aa'.repeat(16), 'bb'.repeat(16)]);
   });
 });
