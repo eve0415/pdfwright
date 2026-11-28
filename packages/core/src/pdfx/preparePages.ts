@@ -63,10 +63,12 @@ const transparentState = (internals: DocumentInternals, state: PdfDictionaryEntr
 
 class TransparencyScan {
   private readonly internals: DocumentInternals;
+  private readonly page: PdfDictionaryEntries;
   private readonly seen = new Set<number>();
 
-  constructor(internals: DocumentInternals) {
+  constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
     this.internals = internals;
+    this.page = page;
   }
 
   private xobject(value: PdfDirectObject | undefined, inherited: PdfDictionaryEntries): boolean {
@@ -126,6 +128,40 @@ class TransparencyScan {
     return this.operations(bytes, resources);
   }
 
+  private font(value: PdfDirectObject | undefined): boolean {
+    if (value?.kind === 'reference') {
+      if (this.seen.has(value.objectNumber)) {
+        return false;
+      }
+      this.seen.add(value.objectNumber);
+    }
+    const font = entriesOf(this.internals, value);
+    if (font === undefined || nameOf(this.internals.objects.deref(font.get(key('Subtype')))) !== 'Type3') {
+      return false;
+    }
+    // ISO 32000-1:2008, 9.6.5: each CharProcs entry is a glyph procedure, a content stream; Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
+    const resources = entriesOf(this.internals, font.get(key('Resources'))) ?? this.page;
+    const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
+    for (const [, procedure] of procedures?.entries() ?? []) {
+      if (procedure.kind !== 'reference' || this.seen.has(procedure.objectNumber)) {
+        continue;
+      }
+      this.seen.add(procedure.objectNumber);
+      const stream = this.internals.objects.deref(procedure);
+      if (stream?.kind !== 'stream') {
+        continue;
+      }
+      const bytes = decodedData(this.internals, stream);
+      if (typeof bytes === 'string') {
+        throw new ValidationError(`glyph procedure cannot be read: ${bytes}`, 'unreadable-resource');
+      }
+      if (this.operations(bytes, resources)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private appearance(value: PdfDirectObject | undefined, resources: PdfDictionaryEntries): boolean {
     if (value?.kind === 'reference') {
       if (this.seen.has(value.objectNumber)) {
@@ -168,6 +204,7 @@ class TransparencyScan {
     const states = entriesOf(this.internals, resources.get(key('ExtGState')));
     const xobjects = entriesOf(this.internals, resources.get(key('XObject')));
     const patterns = entriesOf(this.internals, resources.get(key('Pattern')));
+    const fonts = entriesOf(this.internals, resources.get(key('Font')));
     for (const operation of readContent(bytes, this.internals.maxNesting)) {
       const [operand] = operation.operands;
       if (operation.operator === 'scn' || operation.operator === 'SCN') {
@@ -186,6 +223,9 @@ class TransparencyScan {
         }
       }
       if (operation.operator === 'Do' && this.xobject(xobjects?.get(operand.bytes), resources)) {
+        return true;
+      }
+      if (operation.operator === 'Tf' && this.font(fonts?.get(operand.bytes))) {
         return true;
       }
     }
@@ -212,8 +252,8 @@ const pageUsesTransparency = (document: LoadedDocument, internals: DocumentInter
   if (content.problems.length > 0) {
     throw new ValidationError('page content cannot be read', 'unreadable-resource');
   }
-  const scan = new TransparencyScan(internals);
   const resources = page.resources();
+  const scan = new TransparencyScan(internals, resources);
   return scan.operations(content.streams, resources) || scan.annotations(object.entries.get(key('Annots')), resources);
 };
 
