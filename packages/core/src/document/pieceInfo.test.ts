@@ -110,4 +110,36 @@ describe('page-piece data and indirect objects', () => {
     page.pieceInfo({ lastModified, data: { App: { private: stream } } });
     expect(() => document.save()).toThrow(InvalidArgumentError);
   });
+
+  it('writes each application with its own LastModified and no Private key when no private value is given', () => {
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: { First: {}, Second: { private: { kind: 'integer', value: 2 } } } });
+    // ISO 32000-1:2008, 14.5, Table 319: each data dictionary requires LastModified, and Private is optional.
+    expect(ascii(document.save().toBytes())).toContain(
+      '/PieceInfo<</First<</LastModified(D:20240302010405Z)>>/Second<</LastModified(D:20240302010405Z)/Private 2>>>>',
+    );
+  });
+
+  it.each([
+    { name: '127 bytes', bytes: new Uint8Array(127).fill(0x41), accepted: true },
+    { name: '128 bytes', bytes: new Uint8Array(128).fill(0x41), accepted: false },
+    { name: 'a null byte', bytes: new Uint8Array([0x41, 0x00, 0x42]), accepted: false },
+  ])('bounds an application name of $name', ({ bytes, accepted }) => {
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    const add = (): string => {
+      try {
+        page.pieceInfo({ lastModified, data: new Map([[bytes, {}]]) });
+      } catch (error: unknown) {
+        if (error instanceof InvalidArgumentError) {
+          return 'refused';
+        }
+        throw error;
+      }
+      return ascii(document.save().toBytes()).includes(`/PieceInfo<</${'A'.repeat(127)}<<`) ? 'written' : 'missing';
+    };
+    // ISO 32000-1:2008, 7.3.5: a name has no null byte; Annex C, Table C.1 limits it to 127 bytes.
+    expect(add()).toBe(accepted ? 'written' : 'refused');
+  });
 });
