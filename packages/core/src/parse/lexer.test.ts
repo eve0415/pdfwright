@@ -185,6 +185,22 @@ describe('pdf lexer', () => {
     expect(lex('<> ()').tokens.map(token => summary(token))).toStrictEqual(['hex', 'literal']);
   });
 
+  // ISO 32000-1:2008, 7.3.4.3: a hexadecimal string holds the digits 0-9 and A-F or a-f.
+  it('reads every hexadecimal digit in either case', () => {
+    expect(stringBytes('<0123456789> <abcdef> <ABCDEF>')).toStrictEqual([
+      [0x01, 0x23, 0x45, 0x67, 0x89],
+      [0xab, 0xcd, 0xef],
+      [0xab, 0xcd, 0xef],
+    ]);
+  });
+
+  it.each(['/', ':', '@', 'G', '`', 'g'])('rejects %s, one past a hexadecimal digit range', character => {
+    const source = `<0${character}>`;
+    expect(() => lex(source)).toThrow(ParseError);
+    expect(() => lex(source)).toThrow(expect.objectContaining({ offset: 2 }));
+    expect(() => lex(source)).toThrow(/digit/);
+  });
+
   it.each([
     ['an unterminated literal string', ' (abc', 1, [/unterminated/, /literal/]],
     ['a literal string ending in a backslash', '(a\\', 0, [/unterminated/, /literal/]],
