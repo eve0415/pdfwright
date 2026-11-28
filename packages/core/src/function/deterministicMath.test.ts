@@ -42,11 +42,14 @@ describe('deterministic calculator math', () => {
     expect([0, -1, Number.NaN, Infinity].map(value => deterministicLog(value))).toStrictEqual([-Infinity, Number.NaN, Number.NaN, Infinity]);
   });
 
-  // 1.4 times a power of two has a mantissa in the range fdlibm e_log.c treats with a separate polynomial, and 1 or 2 plus a small fraction has the top mantissa bits clear.
-  it.each([1.4, 1.4 * 2 ** 30, 1.4 * 2 ** -30, 1 + 2 ** -40, 2 + 2 ** -39])('approximates the logarithm of %d within a few units in the last place', value => {
-    const expected = Math.log(value);
-    expect(Math.abs(deterministicLog(value) - expected)).toBeLessThanOrEqual(4 * Number.EPSILON * Math.abs(expected));
-  });
+  // 1.4 times a power of two has a mantissa in the range fdlibm e_log.c treats with a separate polynomial, and a value just above or below 1 or 2 has its top 20 mantissa bits all clear or all but the last set, which takes the short series.
+  it.each([1.4, 1.4 * 2 ** 30, 1.4 * 2 ** -30, 1 + 2 ** -40, 2 + 2 ** -39, 1 - 2 ** -20, 2 - 2 ** -19])(
+    'approximates the logarithm of %d within a few units in the last place',
+    value => {
+      const expected = Math.log(value);
+      expect(Math.abs(deterministicLog(value) - expected)).toBeLessThanOrEqual(4 * Number.EPSILON * Math.abs(expected));
+    },
+  );
 
   it('returns NaN for the sine and cosine of infinity and NaN', () => {
     expect([Infinity, -Infinity, Number.NaN].flatMap(value => [deterministicSinDegrees(value), deterministicCosDegrees(value)])).toStrictEqual(
@@ -57,6 +60,8 @@ describe('deterministic calculator math', () => {
   it('evaluates arctangents of ratios near one half, near two and beyond 2^66', () => {
     for (const [numerator, denominator] of [
       [1, 2],
+      [3, 5],
+      [-3, 5],
       [2, 1],
       [-1, 2],
       [2, -1],
