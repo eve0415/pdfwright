@@ -249,10 +249,11 @@ const globalCheck = (context: Context, forbidden: (value: PdfObject, name: NameR
   return passed(`no ${what} was found in reachable objects`);
 };
 
-const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string): boolean => {
+const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string, name: NameReader = item => resolvedName(context, item)): boolean => {
   const resolved = context.internals.objects.deref(value);
   if (resolved?.kind === 'array') {
-    return resolved.items.some(item => nameOf(context.internals.objects.deref(item)) === expected);
+    // Each item is read by itself, so that one the loader refuses does not hide the expected name after it.
+    return resolved.items.some(item => name(item) === expected);
   }
   return nameOf(resolved) === expected;
 };
@@ -333,7 +334,7 @@ const contentStreams = (context: Context): Set<Extract<PdfObject, { kind: 'strea
 const lzw: Check = context => {
   const streams = globalCheck(
     context,
-    value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'),
+    (value, name) => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode', name),
     'LZWDecode filter',
   );
   if (streams.status !== 'passed') {
