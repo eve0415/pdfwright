@@ -850,10 +850,22 @@ describe('text extraction', () => {
     });
 
     it('marks glyphs a later rectangle covers when another glyph on the page has a quad that is not finite', () => {
-      // Two scalings by 10^200 overflow the CTM, so the first glyph's quad holds Infinity and NaN; the second glyph lies under the white rectangle.
+      // Two scalings by 10^200 overflow the CTM, so the first glyph's quad is not finite; the second glyph lies under the white rectangle.
       const huge = `1${'0'.repeat(200)}.0`;
       const shown = glyphs(
         `q ${huge} 0 0 ${huge} 0 0 cm ${huge} 0 0 ${huge} 0 0 cm BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g 90 190 30 30 re f`,
+      );
+      expect(shown.map(glyph => [glyph.quad.every(value => Number.isFinite(value)), glyph.covered, glyph.coreHidden])).toStrictEqual([
+        [false, false, 'none'],
+        [true, true, 'entirely'],
+      ]);
+    });
+
+    it('leaves a glyph whose quad is not finite neither covered nor hidden, under a clip and a fill that span the page', () => {
+      // A point that is not finite lies outside every clip path, so testing the glyph's samples would report its core box hidden entirely.
+      const huge = `1${'0'.repeat(200)}.0`;
+      const shown = glyphs(
+        `0 0 600 800 re W n q ${huge} 0 0 ${huge} 0 0 cm ${huge} 0 0 ${huge} 0 0 cm BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g 0 0 600 800 re f`,
       );
       expect(shown.map(glyph => [glyph.quad.every(value => Number.isFinite(value)), glyph.covered, glyph.coreHidden])).toStrictEqual([
         [false, false, 'none'],

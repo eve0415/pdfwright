@@ -40,16 +40,23 @@ const addBand = (index: Map<number, Array<CoverEvent>>, span: { readonly first: 
   }
 };
 
-/** The bounds of the quads, or undefined when there are none or a coordinate is not finite. */
+/** The bounds of the quads whose coordinates are all finite, or undefined when there are none; a quad that is not finite cannot be placed, so it is skipped rather than allowed to unbound the rest. */
 export const quadBounds = (quads: Iterable<Quad>): Bounds | undefined => {
   let [left, bottom, right, top] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [x0, y0, x1, y1, x2, y2, x3, y3] of quads) {
-    left = Math.min(left, x0, x1, x2, x3);
-    bottom = Math.min(bottom, y0, y1, y2, y3);
-    right = Math.max(right, x0, x1, x2, x3);
-    top = Math.max(top, y0, y1, y2, y3);
+    const quadLeft = Math.min(x0, x1, x2, x3);
+    const quadBottom = Math.min(y0, y1, y2, y3);
+    const quadRight = Math.max(x0, x1, x2, x3);
+    const quadTop = Math.max(y0, y1, y2, y3);
+    // Math.min and Math.max give NaN when any argument is NaN, so the four extremes are finite exactly when all eight coordinates are.
+    if (Number.isFinite(quadLeft) && Number.isFinite(quadBottom) && Number.isFinite(quadRight) && Number.isFinite(quadTop)) {
+      left = Math.min(left, quadLeft);
+      bottom = Math.min(bottom, quadBottom);
+      right = Math.max(right, quadRight);
+      top = Math.max(top, quadTop);
+    }
   }
-  return [left, bottom, right, top].every(value => Number.isFinite(value)) ? { left, bottom, right, top } : undefined;
+  return left <= right && bottom <= top ? { left, bottom, right, top } : undefined;
 };
 
 /**

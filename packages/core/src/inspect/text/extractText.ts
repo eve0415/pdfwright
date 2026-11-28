@@ -417,7 +417,8 @@ class TextCollector {
       }
       const clip = this.clips[at] ?? Clip.NONE;
       const [core, inner] = this.cores[at] ?? [];
-      if (glyph === undefined || core === undefined || inner === undefined) {
+      // A glyph whose quad is not finite has no place to test, so it stays neither covered nor hidden.
+      if (glyph === undefined || core === undefined || inner === undefined || !glyph.quad.every(value => Number.isFinite(value))) {
         continue;
       }
       const covered = coveredBy(index, { quad: glyph.quad, clip });
