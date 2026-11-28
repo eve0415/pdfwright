@@ -1,3 +1,7 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfFunction } from '../function/pdfFunction.ts';
+import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
+
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -14,7 +18,9 @@ import { xyzToLab } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -480,6 +486,205 @@ const meshStop = (document: ReturnType<typeof loadDocument>): number => {
   return stop.value;
 };
 
+const rgbTransform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
+
+const cmykOf = (...rgb: ReadonlyArray<number>): Float64Array => {
+  const output = new Float64Array(4);
+  rgbTransform.convert(Float64Array.from(rgb), output);
+  return output;
+};
+
+const row8 = (rgb: ReadonlyArray<number>): Array<number> => {
+  const output = new Uint8Array(4);
+  rgbTransform.convertRow8(Uint8Array.from(rgb), output, 1);
+  return [...output];
+};
+
+const close = (actual: ReadonlyArray<number>, expected: Float64Array): boolean =>
+  actual.length === expected.length && actual.every((value, index) => Math.abs(value - (expected[index] ?? Number.NaN)) <= 0.005);
+
+interface PatchRecord {
+  readonly flag: 0 | 1 | 2 | 3;
+  readonly points: ReadonlyArray<readonly [number, number]>;
+  readonly colors: ReadonlyArray<readonly [number, number, number]>;
+}
+
+const patchData = (records: ReadonlyArray<PatchRecord>): Uint8Array => {
+  const writer = new MeshBitWriter();
+  for (const record of records) {
+    writer.write(2, record.flag);
+    for (const [x, y] of record.points) {
+      writer.write(8, x);
+      writer.write(8, y);
+    }
+    for (const color of record.colors) {
+      for (const value of color) {
+        writer.write(8, value);
+      }
+    }
+    writer.alignByte();
+  }
+  return writer.finish(4096);
+};
+
+/** Two patches, the second either joined to the first by an edge flag or written out in full with the points and colours ISO 32000-1:2008, 8.7.4.5.7 Table 85 says the flag implies. */
+const sharedPatches = (type: 6 | 7, flag: 1 | 2 | 3, explicit: boolean): Uint8Array => {
+  const count = type === 6 ? 12 : 16;
+  const first: PatchRecord = {
+    flag: 0,
+    points: Array.from({ length: count }, (_, index) => [index * 5, index * 3] as const),
+    colors: [
+      [255, 0, 0],
+      [0, 255, 0],
+      [0, 0, 255],
+      [255, 255, 255],
+    ],
+  };
+  const newPoints = Array.from({ length: count - 4 }, (_, index) => [(100 + index * 7) % 256, (50 + index * 11) % 256] as const);
+  const newColors = [
+    [255, 255, 0],
+    [0, 255, 255],
+  ] as const;
+  if (!explicit) {
+    return patchData([first, { flag, points: newPoints, colors: newColors }]);
+  }
+  // Flag f shares boundary points 3f to 3f + 3 of the previous patch, counted round its twelve boundary points, and its corner colours f and f + 1.
+  const shared = Array.from({ length: 4 }, (_, index) => first.points[(flag * 3 + index) % 12] ?? ([0, 0] as const));
+  const sharedColors = [first.colors[flag] ?? ([0, 0, 0] as const), first.colors[(flag + 1) % 4] ?? ([0, 0, 0] as const)];
+  return patchData([first, { flag: 0, points: [...shared, ...newPoints], colors: [...sharedColors, ...newColors] }]);
+};
+
+const decodedObject = (document: LoadedDocument, object: PdfObject): PdfObject => {
+  const internals = internalsOf(document);
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
+  if (object.kind !== 'stream') {
+    return object;
+  }
+  const data = decodedData(internals, object);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return { kind: 'stream', dictionary: object.dictionary, data };
+};
+
+/** Reads the written mesh Function, following and decoding the indirect children of a Type 3 function. */
+const writtenMeshFunction = (document: LoadedDocument): PdfFunction => {
+  const shading = document.get(pdfReference(5, 0));
+  const value = shading.kind === 'stream' ? shading.dictionary.get(pdfName('Function').bytes) : undefined;
+  if (value === undefined) {
+    throw new Error('mesh Function is missing');
+  }
+  const resolve = (item: PdfDirectObject): PdfObject => decodedObject(document, item.kind === 'reference' ? document.get(item) : item);
+  return createPdfFunction(resolve(value), resolve);
+};
+
+const shadingPdf = (dictionary: string, data: Uint8Array, objects: ReadonlyArray<{ readonly number: number; readonly body: string }> = []): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>>>>>' },
+        { number: 4, body: streamBody('', '/Sh1 sh') },
+        { number: 5, body: streamBody(dictionary, latin1Text(data)) },
+        ...objects,
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+interface VertexInput {
+  readonly flag?: number;
+  readonly x: number;
+  readonly y: number;
+  readonly color: ReadonlyArray<number>;
+}
+
+/** Writes free-form or lattice vertex records, with a 2-bit edge flag unless the records are unflagged. */
+const vertexData = (vertices: ReadonlyArray<VertexInput>, config: { readonly componentBits?: number; readonly flagged?: boolean } = {}): Uint8Array => {
+  const writer = new MeshBitWriter();
+  for (const vertex of vertices) {
+    if (config.flagged ?? true) {
+      writer.write(2, vertex.flag ?? 0);
+    }
+    writer.write(8, vertex.x);
+    writer.write(8, vertex.y);
+    for (const value of vertex.color) {
+      writer.write(config.componentBits ?? 8, value);
+    }
+    writer.alignByte();
+  }
+  return writer.finish(4096);
+};
+
+const rgbDictionary = (type: 4 | 5 | 6 | 7, entries = ''): string =>
+  `/ShadingType ${String(type)}/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8${type === 5 ? '/VerticesPerRow 2' : '/BitsPerFlag 2'}/Decode[0 100 0 100 0 1 0 1 0 1]${entries}`;
+
+const rgbTriangle: ReadonlyArray<VertexInput> = [
+  { x: 0, y: 0, color: [255, 0, 0] },
+  { x: 100, y: 0, color: [0, 255, 0] },
+  { x: 0, y: 100, color: [0, 0, 255] },
+];
+
+interface MeshRecord {
+  readonly flag: number;
+  readonly x: number;
+  readonly y: number;
+  readonly color: ReadonlyArray<number>;
+}
+
+const meshRecords = (
+  data: Uint8Array,
+  layout: { readonly flagBits: number; readonly coordinateBits: number; readonly componentBits: number },
+): ReadonlyArray<MeshRecord> => {
+  const reader = new MeshBitReader(data);
+  const records: Array<MeshRecord> = [];
+  while (reader.remainingBits > 0) {
+    const flag = reader.read(layout.flagBits);
+    const x = reader.read(layout.coordinateBits);
+    const y = reader.read(layout.coordinateBits);
+    const color = Array.from({ length: 4 }, () => reader.read(layout.componentBits));
+    reader.alignByte();
+    records.push({ flag, x, y, color });
+  }
+  return records;
+};
+
+const calGray = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
+const calGrayTransform = createColorTransform({ kind: 'calGray', whitePoint: { x: 0.9505, y: 1, z: 1.089 }, gamma: 2.2 }, destination, {
+  intent: 'relativeColorimetric',
+  blackPointCompensation: true,
+});
+
+const calGray8 = (sample: number): Array<number> => {
+  const output = new Float64Array(4);
+  calGrayTransform.convert(Float64Array.of(sample / 255), output);
+  return [...output].map(value => Math.round(value * 255));
+};
+
+const shadingValue = (document: LoadedDocument, key: string): PdfDirectObject | undefined => {
+  const shading = document.get(pdfReference(5, 0));
+  return shading.kind === 'stream' ? shading.dictionary.get(pdfName(key).bytes) : undefined;
+};
+
+/** Converts the document and names the result, so a table can hold both converted and refused rows. */
+const outcome = (document: LoadedDocument, summary: (report: ReturnType<typeof convertMeshShadings>) => string): string => {
+  try {
+    return summary(convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination }));
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return `ValidationError ${error.reason ?? ''}`;
+    }
+    if (error instanceof ResourceLimitError) {
+      return 'ResourceLimitError';
+    }
+    throw error;
+  }
+};
+
 describe('mesh shading conversion', () => {
   it('rejects an over-budget source before converting every vertex', () => {
     const sourceTriangle = triangle();
@@ -541,42 +746,73 @@ describe('mesh shading conversion', () => {
     expect(corner).toStrictEqual([...expected]);
   });
 
-  it.each([
-    { type: 5, input: lattice() },
-    { type: 6, input: patch(6) },
-    { type: 7, input: patch(7) },
-  ] as const)('triangulates Type $type mesh colour fields', ({ type, input }) => {
-    const document = loadDocument(meshPdf(type, input));
+  it('converts a Type 5 lattice into the two triangles of each cell', () => {
+    const document = loadDocument(meshPdf(5, lattice()));
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const converted = mesh(document);
     expect(report.meshes).toBe(1);
     expect(converted.colorSpace).toBe('DeviceCMYK');
     expect(converted.shadingType).toBe(4);
-    expect(converted.data.length % 27).toBe(0);
-    expect(converted.data.length).toBeGreaterThan(0);
+    const vertices = triangleVertices(converted.data);
+    const corners = [
+      { x: 0, y: 0, rgb: [255, 0, 0] },
+      { x: 25_700, y: 0, rgb: [0, 255, 0] },
+      { x: 0, y: 25_700, rgb: [0, 0, 255] },
+      { x: 25_700, y: 25_700, rgb: [255, 255, 255] },
+    ];
+    expect(corners.map(corner => vertices.find(vertex => vertex.x === corner.x && vertex.y === corner.y)?.color)).toStrictEqual(
+      corners.map(corner => row8(corner.rgb)),
+    );
+    // ISO 32000-1:2008, 8.7.4.5.6: the cell with corners a b (bottom) and c d (top) is the triangles a b c and b c d, so the colour is (|1 - u - v|, u, v).
+    let maximum = 0;
+    for (let column = 0; column < 8; column++) {
+      for (let row = 0; row < 8; row++) {
+        const u = (column + 0.5) / 8;
+        const v = (row + 0.5) / 8;
+        if (Math.abs(u + v - 1) < 0.1) {
+          continue;
+        }
+        const extent = (100 * 100) / 255;
+        const actual = interpolatedAt(converted.data, u * extent, v * extent);
+        maximum = Math.max(maximum, deltaE2000(lab(actual), lab(cmykOf(Math.abs(1 - u - v), u, v))));
+      }
+    }
+    expect(maximum).toBeLessThanOrEqual(1);
   });
 
-  it.each([6, 7] as const)('triangulates a shared edge in Type %i', type => {
-    const document = loadDocument(meshPdf(type, patch(type, true)));
-    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-    const converted = mesh(document);
+  it.each([
+    { type: 6, flag: 1 },
+    { type: 6, flag: 2 },
+    { type: 6, flag: 3 },
+    { type: 7, flag: 1 },
+    { type: 7, flag: 2 },
+    { type: 7, flag: 3 },
+  ] as const)('converts a Type $type patch sharing edge $flag like the same patch written out in full', ({ type, flag }) => {
+    const joined = loadDocument(meshPdf(type, sharedPatches(type, flag, false)));
+    const explicit = loadDocument(meshPdf(type, sharedPatches(type, flag, true)));
     const single = loadDocument(meshPdf(type, patch(type)));
-    convertMeshShadings(single, { sourceRgbProfile: source, outputProfile: destination });
-    expect(converted.shadingType).toBe(4);
-    expect(converted.data.length).toBeGreaterThan(mesh(single).data.length);
+    for (const document of [joined, explicit, single]) {
+      convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    }
+    expect(mesh(joined).shadingType).toBe(4);
+    expect(mesh(joined).data).toStrictEqual(mesh(explicit).data);
+    expect(mesh(joined).data.length).toBeGreaterThan(mesh(single).data.length);
   });
 
   it.each([6, 7] as const)('preserves the corners of a rectangular Type %i patch', type => {
     const document = loadDocument(meshPdf(type, rectangularPatch(type)));
-    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-    const vertices = triangleVertices(mesh(document).data);
+    const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const converted = mesh(document);
+    const vertices = triangleVertices(converted.data);
+    expect([report.meshes, converted.colorSpace, converted.shadingType]).toStrictEqual([1, 'DeviceCMYK', 4]);
     expect(cornerCoordinates(vertices)).toStrictEqual(new Set(['0,0', '0,25700', '25700,0', '25700,25700']));
   });
 
   it.each([6, 7] as const)('preserves bilinear RGB colour inside a saturated Type %i patch', type => {
     const document = loadDocument(meshPdf(type, rectangularPatch(type, true)));
     convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-    const { data } = mesh(document);
+    const { data, colorSpace, shadingType } = mesh(document);
+    expect([colorSpace, shadingType]).toStrictEqual(['DeviceCMYK', 4]);
     const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
     let maximum = 0;
     for (let column = 0; column < 8; column++) {
@@ -605,6 +841,9 @@ describe('mesh shading conversion', () => {
     expect(after.data).toStrictEqual(before.data);
     expect(after.decodeLength).toBe(6);
     expect(closeChannels(meshFunction(document)([0.5]), expected)).toStrictEqual([true, true, true, true]);
+    // ISO 32000-1:2008, 8.7.4.5.5: the parametric value t selects the colour through the Function, red at 0 and blue at 1.
+    expect([close(meshFunction(document)([0]), cmykOf(1, 0, 0)), close(meshFunction(document)([1]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
+    expect(report.approximations).toStrictEqual([]);
   });
 
   it('preserves a Type 3 parametric mesh colour stop', () => {
@@ -612,6 +851,9 @@ describe('mesh shading conversion', () => {
     const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(report.meshes).toBe(1);
     expect(meshStop(document)).toBe(0.5);
+    // ISO 32000-1:2008, 7.10.4: below the bound the first child (red) applies, above it the second (blue).
+    const evaluate = writtenMeshFunction(document);
+    expect([close(evaluate([0.25]), cmykOf(1, 0, 0)), close(evaluate([0.75]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
   });
 
   it.each([
@@ -634,5 +876,192 @@ describe('mesh shading conversion', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('converts a CalGray free-form mesh by rewriting only its colour fields', () => {
+    const vertices = [
+      { flag: 0, x: 0, y: 0, color: [0] },
+      { flag: 0, x: 100, y: 0, color: [128] },
+      { flag: 0, x: 0, y: 100, color: [255] },
+      { flag: 1, x: 100, y: 100, color: [64] },
+    ];
+    const document = loadDocument(
+      shadingPdf(`/ShadingType 4/ColorSpace${calGray}/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1]`, vertexData(vertices)),
+    );
+    const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const converted = mesh(document);
+    expect(report.meshes).toBe(1);
+    expect([converted.colorSpace, converted.shadingType, converted.componentBits, converted.decodeLength]).toStrictEqual(['DeviceCMYK', 4, 8, 12]);
+    // ISO 32000-1:2008, 8.7.4.5.5 Table 84: each record keeps its edge flag and coordinates, and only the colour becomes four CMYK components.
+    expect(meshRecords(converted.data, { flagBits: 2, coordinateBits: 8, componentBits: 8 })).toStrictEqual(
+      vertices.map(vertex => ({ flag: vertex.flag, x: vertex.x, y: vertex.y, color: calGray8(vertex.color[0] ?? 0) })),
+    );
+  });
+
+  it.each([
+    { name: 'converts a CalGray lattice of whole rows', count: 4, result: 'converted 5 2' },
+    { name: 'refuses a CalGray lattice with an incomplete row', count: 3, result: 'ValidationError color-space' },
+  ])('$name', ({ count, result }) => {
+    const vertices = [
+      { x: 0, y: 0, color: [0] },
+      { x: 100, y: 0, color: [128] },
+      { x: 0, y: 100, color: [255] },
+      { x: 100, y: 100, color: [64] },
+    ].slice(0, count);
+    const document = loadDocument(
+      shadingPdf(
+        `/ShadingType 5/ColorSpace${calGray}/BitsPerCoordinate 8/BitsPerComponent 8/VerticesPerRow 2/Decode[0 100 0 100 0 1]`,
+        vertexData(vertices, { flagged: false }),
+      ),
+    );
+    const perRow = (): string => {
+      const value = shadingValue(document, 'VerticesPerRow');
+      return value?.kind === 'integer' ? String(value.value) : 'missing';
+    };
+    expect(outcome(document, () => `converted ${String(mesh(document).shadingType)} ${perRow()}`)).toBe(result);
+  });
+
+  it.each([
+    { name: 'a 3-bit coordinate', dictionary: rgbDictionary(4).replace('/BitsPerCoordinate 8', '/BitsPerCoordinate 3') },
+    { name: 'a 32-bit component', dictionary: rgbDictionary(4).replace('/BitsPerComponent 8', '/BitsPerComponent 32') },
+    { name: 'a 1-bit flag', dictionary: rgbDictionary(4).replace('/BitsPerFlag 2', '/BitsPerFlag 1') },
+    { name: 'a Decode array of the wrong length', dictionary: rgbDictionary(4).replace('0 1 0 1 0 1]', '0 1 0 1]') },
+    { name: 'no ColorSpace', dictionary: rgbDictionary(4).replace('/ColorSpace/DeviceRGB', '') },
+  ])('refuses a mesh with $name', ({ dictionary }) => {
+    const document = loadDocument(shadingPdf(dictionary, vertexData(rgbTriangle)));
+    expect(() => convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+  });
+
+  it('converts a mesh Background with the vertex colours', () => {
+    const document = loadDocument(shadingPdf(rgbDictionary(4, '/Background[0.25 0.5 0.75]'), vertexData(rgbTriangle)));
+    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const background = shadingValue(document, 'Background');
+    const values =
+      background?.kind === 'array' ? background.items.map(item => (item.kind === 'real' && typeof item.value === 'number' ? item.value : Number.NaN)) : [];
+    expect(close(values, cmykOf(0.25, 0.5, 0.75))).toBe(true);
+  });
+
+  it.each([
+    { name: 'converts a parametric mesh with one Function per RGB component', functions: '[6 0 R 7 0 R 8 0 R]', result: 'converted true true' },
+    { name: 'refuses a parametric mesh whose Function array has two entries for RGB', functions: '[6 0 R 8 0 R]', result: 'ValidationError color-space' },
+  ])('$name', ({ functions, result }) => {
+    const document = loadDocument(
+      shadingPdf(
+        `/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1]/Function${functions}`,
+        functionTriangle(),
+        [
+          { number: 6, body: '<</FunctionType 2/Domain[0 1]/C0[1]/C1[0]/N 1>>' },
+          { number: 7, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[0]/N 1>>' },
+          { number: 8, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>' },
+        ],
+      ),
+    );
+    const endPoints = (): string => {
+      const evaluate = writtenMeshFunction(document);
+      return `converted ${String(close(evaluate([0]), cmykOf(1, 0, 0)))} ${String(close(evaluate([1]), cmykOf(0, 0, 1)))}`;
+    };
+    expect(outcome(document, endPoints)).toBe(result);
+  });
+
+  it.each([
+    { name: 'a Type 4 edge flag of 3', dictionary: rgbDictionary(4), data: vertexData([...rgbTriangle, { flag: 3, x: 100, y: 100, color: [0, 0, 0] }]) },
+    { name: 'an incomplete Type 4 triangle', dictionary: rgbDictionary(4), data: vertexData(rgbTriangle.slice(0, 2)) },
+    {
+      name: 'a first Type 6 patch that continues an edge',
+      dictionary: rgbDictionary(6),
+      data: patchData([
+        {
+          flag: 1,
+          points: Array.from({ length: 8 }, (_, index) => [index, index] as const),
+          colors: [
+            [0, 0, 0],
+            [255, 255, 255],
+          ],
+        },
+      ]),
+    },
+    { name: 'an empty Type 6 patch mesh', dictionary: rgbDictionary(6), data: new Uint8Array() },
+    { name: 'a Type 5 lattice with an incomplete row', dictionary: rgbDictionary(5), data: vertexData(rgbTriangle, { flagged: false }) },
+  ])('reports $name as a parse error', ({ dictionary, data }) => {
+    const document = loadDocument(shadingPdf(dictionary, data));
+    expect(() => convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(ParseError);
+  });
+
+  it.each([
+    { flag: 1, implied: [1, 2] },
+    { flag: 2, implied: [0, 2] },
+  ] as const)('converts a Type 4 vertex with edge flag $flag like the triangle it implies written out in full', ({ flag, implied }) => {
+    const fourth = { x: 100, y: 100, color: [255, 255, 0] };
+    const joined = loadDocument(shadingPdf(rgbDictionary(4), vertexData([...rgbTriangle, { ...fourth, flag }])));
+    // ISO 32000-1:2008, 8.7.4.5.5: flag 1 joins the new vertex to vb and vc of the previous triangle, flag 2 to va and vc.
+    const explicitVertices = [...rgbTriangle, ...implied.map(index => rgbTriangle[index] ?? fourth), fourth];
+    const explicit = loadDocument(shadingPdf(rgbDictionary(4), vertexData(explicitVertices)));
+    const single = loadDocument(shadingPdf(rgbDictionary(4), vertexData(rgbTriangle)));
+    for (const document of [joined, explicit, single]) {
+      convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    }
+    expect(mesh(joined).data).toStrictEqual(mesh(explicit).data);
+    expect(mesh(joined).data.length).toBeGreaterThan(mesh(single).data.length);
+  });
+
+  it.each([
+    { name: 'in-range colours', decode: '/Decode[0 100 0 100 0 1 0 1 0 1]', capped: false },
+    { name: 'colours its Decode array maps beyond the colour space range', decode: '/Decode[0 100 0 100 -1 2 -1 2 -1 2]', capped: true },
+  ])('reports capped subdivision only for a mesh with $name', ({ decode, capped }) => {
+    const document = loadDocument(
+      shadingPdf(
+        rgbDictionary(4).replace('/Decode[0 100 0 100 0 1 0 1 0 1]', decode),
+        vertexData([
+          { x: 0, y: 0, color: [0, 0, 0] },
+          { x: 255, y: 0, color: [255, 255, 255] },
+          { x: 0, y: 255, color: [255, 255, 255] },
+        ]),
+      ),
+    );
+    const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.approximations.map(item => ({ shading: item.shading, kind: item.kind, capped: (item.cappedTriangles ?? 0) > 0 }))).toStrictEqual(
+      capped ? [{ shading: pdfReference(5, 0), kind: 'mesh-interpolation', capped: true }] : [],
+    );
+  });
+
+  it.each([
+    { triangles: 2, result: 'converted 1' },
+    { triangles: 3, result: 'ResourceLimitError' },
+  ])('converts $triangles flat triangles under a 54-byte decoded-data budget only while they fit', ({ triangles, result }) => {
+    const vertices = Array.from({ length: triangles * 3 }, (_, index) => ({ x: index % 3 === 1 ? 255 : 0, y: index % 3 === 2 ? 255 : 0, color: [0, 128, 64] }));
+    const document = loadDocument(shadingPdf(rgbDictionary(4), vertexData(vertices)), { maxDecodedBytes: 54 });
+    expect(outcome(document, report => `converted ${String(report.meshes)}`)).toBe(result);
+  });
+
+  it('reports a parametric mesh Function that sampling cannot follow within tolerance', () => {
+    const document = loadDocument(
+      shadingPdf(
+        '/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 100 0 100 0 1]/Function 6 0 R',
+        functionTriangle(),
+        [{ number: 6, body: streamBody('/FunctionType 4/Domain[0 1]/Range[0 1 0 1 0 1]', '{ 0.5 lt { 1 0 0 } { 0 0 1 } ifelse }') }],
+      ),
+    );
+    const report = convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(report.approximations).toStrictEqual([{ shading: pdfReference(5, 0), kind: 'function-sampling' }]);
+  });
+
+  it('keeps 16-bit mesh colour components at 16 bits', () => {
+    const document = loadDocument(
+      shadingPdf(
+        rgbDictionary(4).replace('/BitsPerComponent 8', '/BitsPerComponent 16'),
+        vertexData(
+          rgbTriangle.map(vertex => ({ ...vertex, color: vertex.color.map(value => value * 257) })),
+          { componentBits: 16 },
+        ),
+      ),
+    );
+    convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const converted = mesh(document);
+    const corner = meshRecords(converted.data, { flagBits: 8, coordinateBits: 16, componentBits: 16 }).find(record => record.x === 0 && record.y === 0);
+    const expected = [...cmykOf(1, 0, 0)].map(value => Math.round(value * 65_535));
+    expect(converted.componentBits).toBe(16);
+    expect(corner?.color.map((value, channel) => Math.abs(value - (expected[channel] ?? Number.NaN)) <= 1)).toStrictEqual([true, true, true, true]);
   });
 });
