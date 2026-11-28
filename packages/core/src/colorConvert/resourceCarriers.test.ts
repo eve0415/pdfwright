@@ -691,3 +691,59 @@ describe('rendering intents of shadings that Type 3 glyphs paint', () => {
     },
   );
 });
+
+/** A document with one page per entry; page `index` is object 20 + 2 × index and its content object 21 + 2 × index. */
+const pagesPdf = (pages: ReadonlyArray<{ page: string; content: string }>, objects: ReadonlyArray<TestObject>): LoadedDocument =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: `<</Type/Pages/Kids[${pages.map((_, index) => `${String(20 + 2 * index)} 0 R`).join(' ')}]/Count ${String(pages.length)}>>` },
+          ...pages.flatMap(({ page, content }, index) => [
+            { number: 20 + 2 * index, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents ${String(21 + 2 * index)} 0 R${page}>>` },
+            { number: 21 + 2 * index, body: streamBody('', content) },
+          ]),
+          ...objects,
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+
+const FORM = '/Type/XObject/Subtype/Form/BBox[0 0 10 10]';
+
+/** Form 7 holds a direct shading that the first page names; the second page's appearance paints form 7 after selecting Perceptual. */
+const laterAppearancePdf = (firstContent: string): LoadedDocument =>
+  pagesPdf(
+    [
+      { page: '/Resources<</XObject<</F 7 0 R>>>>', content: firstContent },
+      { page: '/Resources<<>>/Annots[10 0 R]', content: '0 0 1 1 re f' },
+    ],
+    [
+      { number: 7, body: streamBody(`${FORM}${OWN_SHADING}`, '/Sh1 sh') },
+      { number: 10, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 11 0 R>>>>' },
+      { number: 11, body: streamBody(`${FORM}/Resources<</XObject<</F 7 0 R>>>>`, '/Perceptual ri /F Do') },
+    ],
+  );
+
+describe('rendering intents of direct shadings in carriers that an earlier page listed', () => {
+  const sample = (intent: Intent): ReadonlyArray<number> => {
+    const document = laterAppearancePdf('0 0 1 1 re f');
+    convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+    return sampled(document, 7, ['Resources', 'Shading', 'Sh1']);
+  };
+
+  it('samples the shading with the intent a later page selects before painting the carrier', () => {
+    expect(sample('perceptual')).not.toStrictEqual(sample('relativeColorimetric'));
+    expect(sample('document')).toStrictEqual(sample('perceptual'));
+  });
+
+  it('refuses the shading when the first page paints the carrier with another intent', () => {
+    const convert = (): ShadingConversionReport =>
+      convertShadings(laterAppearancePdf('/F Do'), { sourceRgbProfile: source, outputProfile: destination, intent: 'document' });
+    expect(convert).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+    expect(convert).toThrow(/different rendering intents/u);
+  });
+});
