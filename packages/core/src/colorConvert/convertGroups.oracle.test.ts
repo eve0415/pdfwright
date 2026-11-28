@@ -1,4 +1,5 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { GroupConversionReport } from './convertGroups.ts';
 
 import { readFile } from 'node:fs/promises';
 
@@ -732,6 +733,37 @@ describe('transparency group conversion', () => {
     expect(() => convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination, blendingSpace: 'refuse' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'blend-space-change' }),
     );
+    expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceRGB');
+  });
+
+  it('refuses calibrated gray paint in a luminosity mask before editing when no caller takes the refusal', () => {
+    const { bytes } = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          {
+            number: 3,
+            body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>>>>>',
+          },
+          { number: 4, body: streamBody('', '/GS gs 1 0 0 rg 0 0 10 10 re f') },
+          {
+            number: 6,
+            body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</XObject<</Im 9 0 R>>>>', '/Im Do'),
+          },
+          {
+            number: 9,
+            body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace[/CalGray<</WhitePoint[0.9505 1 1.089]>>]', 'A'),
+          },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const document = loadDocument(bytes);
+    const convert = (): GroupConversionReport => convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(convert).toThrow(UnsupportedFeatureError);
+    expect(convert).toThrow(/calibrated gray/u);
     expect(groupSpace(document, pdfReference(6, 0))).toBe('DeviceRGB');
   });
 
