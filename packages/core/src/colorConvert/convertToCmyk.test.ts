@@ -766,8 +766,8 @@ describe('luminosity soft masks', () => {
   it.each([
     { name: 'one Matte value for an RGB image', matte: '/Matte[1]', mask: undefined, maskData: undefined },
     { name: 'a non-numeric Matte value', matte: '/Matte[/A 0 0]', mask: undefined, maskData: undefined },
-    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', mask: '/Width 2/Height 1/BitsPerComponent 8', maskData: 'AA' },
-    { name: 'a preblended soft mask taller than the image', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 2/BitsPerComponent 8', maskData: 'AA' },
+    { name: 'a preblended soft mask wider than the image', matte: '/Matte[1 0 0]', mask: '/Width 2/Height 1/BitsPerComponent 8', maskData: 'A' },
+    { name: 'a preblended soft mask taller than the image', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 2/BitsPerComponent 8', maskData: 'A' },
     { name: 'a preblended soft mask of 3 bits per component', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 3', maskData: 'A' },
     { name: 'a preblended soft mask with a one-value Decode', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[0]', maskData: 'A' },
     { name: 'a preblended soft mask with no samples', matte: '/Matte[1 0 0]', mask: undefined, maskData: '' },
