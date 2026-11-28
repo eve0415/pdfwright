@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { glyphNameText } from './glyphNames.ts';
@@ -48,6 +49,46 @@ describe('glyph names', () => {
 
   it('reads u with four to six uppercase digits up to U+10FFFF, outside the surrogates', () => {
     const names = ['u0041', 'u1F600', 'u10FFFF', 'u110000', 'uD800', 'u041', 'u1000000', 'uniE000'];
-    expect(names.map(name => glyphNameText(name))).toStrictEqual(['A', '\u{1F600}', '\u{10FFFF}', undefined, undefined, undefined, undefined, '']);
+    expect(names.map(name => glyphNameText(name))).toStrictEqual(['A', '\u{1F600}', '\u{10FFFF}', undefined, undefined, undefined, undefined, '\uE000']);
+  });
+
+  it.each([
+    ['uniD7FF', '\uD7FF'],
+    ['uniDFFF', undefined],
+    ['uni004', undefined],
+    ['uni', undefined],
+    ['u1f600', undefined],
+  ])('reads the glyph name %s at the edges of the uni and u forms', (name, text) => {
+    // Adobe Glyph List Specification, section 2: each group of four digits must lie in "0000 through D7FF or E000 through FFFF", and the digits are uppercase.
+    expect(glyphNameText(name)).toBe(text);
+  });
+
+  it('maps a name the ITC Zapf Dingbats Glyph List lacks by the Adobe Glyph List in the ZapfDingbats font', () => {
+    expect(glyphNameText('alpha', 'ZapfDingbats')).toBe('\u03B1');
+  });
+});
+
+const hexDigits = (value: number, width: number): string => value.toString(16).toUpperCase().padStart(width, '0');
+
+describe('properties', () => {
+  const scalar = fc.oneof(fc.integer({ min: 0, max: 0xd7_ff }), fc.integer({ min: 0xe0_00, max: 0x10_ff_ff }));
+
+  it('reads uni followed by four digits as the scalar value they give, for every value in the Basic Multilingual Plane', () => {
+    fc.assert(
+      fc.property(
+        scalar.filter(value => value <= 0xff_ff),
+        value => {
+          expect(glyphNameText(`uni${hexDigits(value, 4)}`)).toBe(String.fromCodePoint(value));
+        },
+      ),
+    );
+  });
+
+  it('reads u followed by four to six digits as the scalar value they give', () => {
+    fc.assert(
+      fc.property(scalar, fc.integer({ min: 4, max: 6 }), (value, width) => {
+        expect(glyphNameText(`u${hexDigits(value, width)}`)).toBe(String.fromCodePoint(value));
+      }),
+    );
   });
 });
