@@ -50,6 +50,9 @@ const scalarText = (value: Exclude<PdfObject, { kind: 'array' | 'dictionary' | '
 /** How many references deep a described value may lead. */
 const MAX_DEPTH = 64;
 
+/** How many steps the descriptions of reference cycles may take in all, so that a document cannot make the work grow with the square of a cycle's size by referring to each object of a wide cycle from elsewhere. */
+const MAX_CYCLE_STEPS = 1 << 20;
+
 /** Texts of referenced objects longer than this are replaced by their digest, so that shared objects do not multiply a text's length. */
 const DIGEST_ABOVE = 64;
 
@@ -164,12 +167,15 @@ export class ResolvedTexts {
   private readonly known = new Map<string, string>();
   /** The objects of each reference cycle found, by the key of each of them, until the text of that object is asked for. */
   private readonly cycles = new Map<string, Cycle>();
+  private readonly maxCycleSteps: number;
+  private cycleSteps = 0;
 
-  constructor(document: DocumentInternals) {
+  constructor(document: DocumentInternals, maxCycleSteps: number = MAX_CYCLE_STEPS) {
     this.document = document;
+    this.maxCycleSteps = maxCycleSteps;
   }
 
-  /** The text of a value; throws ParseError when an object it leads to cannot be read. */
+  /** The text of a value; throws ParseError when an object it leads to cannot be read, and ResourceLimitError when it leads through too many references or the reference cycles described so far take too many steps. */
   text(value: PdfObject | undefined): string {
     const walk: Walk = { tasks: [{ kind: 'visit', value, producer: undefined }], results: [], frames: [], open: new Map(), members: [], entered: 0 };
     const { tasks, results } = walk;
@@ -256,7 +262,13 @@ export class ResolvedTexts {
       cursor.index += 1;
       if (token === undefined) {
         cursors.pop();
-      } else if (token.kind === 'member') {
+        continue;
+      }
+      this.cycleSteps += 1;
+      if (this.cycleSteps > this.maxCycleSteps) {
+        throw new ResourceLimitError(`describing the reference cycles of compared values takes more than ${String(this.maxCycleSteps)} steps`);
+      }
+      if (token.kind === 'member') {
         const position = positions.get(token.key);
         if (position === undefined) {
           cursors.push(enter(token.key));
