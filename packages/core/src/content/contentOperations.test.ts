@@ -38,6 +38,8 @@ const spansAndLeftOver = (content: string): readonly [Array<SpannedContentOperat
 
 // Arrays nested `depth` deep as the operand of TJ.
 const nested = (depth: number): string => `${'['.repeat(depth)}${']'.repeat(depth)} TJ`;
+// An open array of count values, the array included, its last value ending the stream. Booleans, because an integer reads ahead for a reference and reaches the token after it before it is counted.
+const openArray = (count: number): string => `[${'true '.repeat(count - 2)}true`;
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });
 const integer = (value: number): ContentOperand => ({ kind: 'integer', value });
@@ -169,11 +171,9 @@ describe('content operations', () => {
       expect(() => operations([`[${'0 '.repeat(8000)}`, `${'0 '.repeat(8384)}] TJ`])).toThrow(ResourceLimitError);
     });
 
-    // Booleans, because an integer reads ahead for a reference and reaches the string before it is counted.
-    const values = (count: number): string => `[${'true '.repeat(count - 2)}true`;
     it.each([
-      ['16,384 values', [values(16_384), '(a'], ParseError],
-      ['16,385 values', [values(16_385), '(a'], ResourceLimitError],
+      ['16,384 values', [openArray(16_384), '(a'], ParseError],
+      ['16,385 values', [openArray(16_385), '(a'], ResourceLimitError],
       ['nesting of 32', ['[', `${'['.repeat(31)}(a`], ParseError],
       ['nesting of 33', ['[', `${'['.repeat(32)}(a`], ResourceLimitError],
       ['nesting of 32 reached in a middle stream', ['[', '['.repeat(31), '(a'], ParseError],
