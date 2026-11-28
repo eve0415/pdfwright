@@ -243,6 +243,11 @@ describe('synthetic TrueType programs', () => {
     expect(() => syntheticTrueType({ name: 'T', glyphs: [{ advance: 500 }], characters: [], ...options })).toThrow(RangeError);
   });
 
+  it('refuses more BMP characters than one format 4 subtable can hold, rather than wrapping its length', () => {
+    const characters = Array.from({ length: 8200 }, (_, index) => [0x4e_00 + index, 1] as const);
+    expect(() => syntheticTrueType({ name: 'T', glyphs: [{ advance: 500 }, { advance: 500 }], characters })).toThrow(RangeError);
+  });
+
   it('accepts the extremes of each field', () => {
     const font = syntheticTrueType({
       name: 'T',
