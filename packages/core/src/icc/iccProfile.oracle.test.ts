@@ -67,7 +67,7 @@ if (localDirectory === undefined) {
   stdout.write('Local ICC profiles not run: PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset.\n');
 }
 
-const localProfiles = async (): Promise<Uint8Array[]> => {
+const localProfiles = async (): Promise<Array<Uint8Array>> => {
   if (localDirectory === undefined) {
     return [];
   }
@@ -78,18 +78,18 @@ const localProfiles = async (): Promise<Uint8Array[]> => {
 
 interface Paint {
   readonly space: 'RGB' | 'CMYK' | 'Gray';
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
 }
 interface Patch {
   readonly key: string;
   readonly paint: Paint;
 }
 
-const numeric = (operands: readonly { readonly kind: string }[], count: number): number[] | undefined => {
+const numeric = (operands: ReadonlyArray<{ readonly kind: string }>, count: number): Array<number> | undefined => {
   if (operands.length !== count) {
     return undefined;
   }
-  const values: number[] = [];
+  const values: Array<number> = [];
   for (const operand of operands) {
     if (operand.kind !== 'integer' && operand.kind !== 'real') {
       return undefined;
@@ -102,7 +102,7 @@ const numeric = (operands: readonly { readonly kind: string }[], count: number):
   return values;
 };
 
-const rectangleKey = (page: number, rectangle: readonly number[], stroke: boolean): string =>
+const rectangleKey = (page: number, rectangle: ReadonlyArray<number>, stroke: boolean): string =>
   `${String(page)}:${rectangle.map(value => value.toFixed(3)).join(',')}:${stroke ? 'stroke' : 'fill'}`;
 
 const colorOperators = new Set(['rg', 'RG', 'k', 'K', 'g', 'G']);
@@ -130,11 +130,11 @@ const colorChange = (operation: ContentOperation): Paint | undefined => {
   return { space, values };
 };
 
-const readPagePaints = (config: { streams: readonly Uint8Array[]; maxNesting: number; page: number; paints: Map<string, Paint> }): void => {
+const readPagePaints = (config: { streams: ReadonlyArray<Uint8Array>; maxNesting: number; page: number; paints: Map<string, Paint> }): void => {
   let fill: Paint = { space: 'Gray', values: [0] };
   let stroke: Paint = { space: 'Gray', values: [0] };
-  const stack: { readonly fill: Paint; readonly stroke: Paint }[] = [];
-  let rectangles: number[][] = [];
+  const stack: Array<{ readonly fill: Paint; readonly stroke: Paint }> = [];
+  let rectangles: Array<Array<number>> = [];
   for (const operation of readContent(config.streams, config.maxNesting)) {
     const { operator } = operation;
     if (operator === 'q') {
@@ -201,11 +201,11 @@ const paintsIn = async (file: string): Promise<Map<string, Paint>> => {
   return paints;
 };
 
-const numberArray = (value: unknown): readonly number[] | undefined => {
+const numberArray = (value: unknown): ReadonlyArray<number> | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
   }
-  const entries: readonly unknown[] = value;
+  const entries: ReadonlyArray<unknown> = value;
   if (!entries.every((item): item is number => typeof item === 'number' && Number.isFinite(item))) {
     return undefined;
   }
@@ -227,12 +227,12 @@ const jsonPatch = (item: unknown): Patch | null | undefined => {
   return { key: rectangleKey(item.page, rectangle, item.kind === 'special-stroke'), paint: { space: 'RGB', values } };
 };
 
-const patchesFromJson = (value: unknown): Patch[] | undefined => {
+const patchesFromJson = (value: unknown): Array<Patch> | undefined => {
   if (typeof value !== 'object' || value === null || !('patches' in value) || !Array.isArray(value.patches)) {
     return undefined;
   }
-  const items: readonly unknown[] = value.patches;
-  const patches: Patch[] = [];
+  const items: ReadonlyArray<unknown> = value.patches;
+  const patches: Array<Patch> = [];
   for (const item of items) {
     const patch = jsonPatch(item);
     if (patch === undefined) {
@@ -256,7 +256,7 @@ const optionalText = async (file: string): Promise<string | undefined> => {
   }
 };
 
-const inputPatches = async (exportsDirectory: string): Promise<Patch[]> => {
+const inputPatches = async (exportsDirectory: string): Promise<Array<Patch>> => {
   const input = await paintsIn(path.join(exportsDirectory, '_inputs', 'C-colour-oracle.pdf'));
   const candidates = [
     path.join(exportsDirectory, 'probes', 'C-colour-oracle.json'),
@@ -290,7 +290,7 @@ const acrobatCases = [
 
 const normalizedDescription = (description: string): string => description.replaceAll(/[^a-z0-9]/giu, '').toLowerCase();
 
-const profileFor = (profiles: readonly IccProfile[], description: string): IccProfile => {
+const profileFor = (profiles: ReadonlyArray<IccProfile>, description: string): IccProfile => {
   const expected = normalizedDescription(description);
   const profile = profiles.find(candidate => candidate.description !== undefined && normalizedDescription(candidate.description).startsWith(expected));
   if (profile === undefined) {
@@ -299,7 +299,7 @@ const profileFor = (profiles: readonly IccProfile[], description: string): IccPr
   return profile;
 };
 
-const localOracleProfiles = async (directory: string): Promise<IccProfile[]> => {
+const localOracleProfiles = async (directory: string): Promise<Array<IccProfile>> => {
   const entries = await readdir(directory);
   const names = entries.filter(name => /\.(?:icc|icm)$/iu.test(name));
   return Promise.all(
@@ -310,7 +310,7 @@ const localOracleProfiles = async (directory: string): Promise<IccProfile[]> => 
   );
 };
 
-const labOf = (pcs: ReturnType<ReturnType<typeof sourceEvaluator>>): readonly number[] => (pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values));
+const labOf = (pcs: ReturnType<ReturnType<typeof sourceEvaluator>>): ReadonlyArray<number> => (pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values));
 
 const patchError = (
   patch: Patch,

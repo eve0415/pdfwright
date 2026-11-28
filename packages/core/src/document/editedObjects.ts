@@ -220,7 +220,7 @@ export class EditedObjects implements ObjectResolver {
   }
 
   /** The trailer entry changes, in the order they were last made. */
-  get trailerChanges(): readonly TrailerChange[] {
+  get trailerChanges(): ReadonlyArray<TrailerChange> {
     return [...this.trailerEdits.values()];
   }
 

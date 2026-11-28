@@ -40,10 +40,10 @@ export interface RewrittenContent {
   readonly operators: number;
   readonly kOnly: number;
   readonly overprintAdjustments: number;
-  readonly formUses: readonly FormUse[];
-  readonly shadingUses: readonly ShadingUse[];
+  readonly formUses: ReadonlyArray<FormUse>;
+  readonly shadingUses: ReadonlyArray<ShadingUse>;
   readonly inlineImages: number;
-  readonly newInlineImages: readonly (ConvertedInlineImage & { readonly name: string })[];
+  readonly newInlineImages: ReadonlyArray<ConvertedInlineImage & { readonly name: string }>;
 }
 
 export interface OverprintNames {
@@ -86,17 +86,17 @@ interface RewriteContext {
   readonly resources: PdfDictionaryEntries;
   readonly options: RewriteColorOptions;
   readonly transforms: Map<string, ColorTransform>;
-  readonly edits: ContentEdit[];
-  readonly formUses: FormUse[];
-  readonly shadingUses: ShadingUse[];
-  readonly newInlineImages: (ConvertedInlineImage & { readonly name: string })[];
+  readonly edits: Array<ContentEdit>;
+  readonly formUses: Array<FormUse>;
+  readonly shadingUses: Array<ShadingUse>;
+  readonly newInlineImages: Array<ConvertedInlineImage & { readonly name: string }>;
   readonly overprintNames: OverprintNames | undefined;
   kOnly: number;
   inlineImages: number;
   overprintAdjustments: number;
   pathStart: number | undefined;
   state: ColorEntryState;
-  readonly stack: ColorEntryState[];
+  readonly stack: Array<ColorEntryState>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -117,7 +117,7 @@ const numberValue = (operand: ContentOperand): number | undefined => {
   return undefined;
 };
 
-const colorValues = (operands: readonly ContentOperand[], count: number): number[] => {
+const colorValues = (operands: ReadonlyArray<ContentOperand>, count: number): Array<number> => {
   if (operands.length !== count) {
     return invalid(`colour operator requires ${String(count)} components`);
   }
@@ -211,7 +211,7 @@ const transformFor = (context: RewriteContext, source: ColorSource): ColorTransf
   return transform;
 };
 
-const deviceCmyk = (context: RewriteContext, source: ColorSource, values: readonly number[]): number[] => {
+const deviceCmyk = (context: RewriteContext, source: ColorSource, values: ReadonlyArray<number>): Array<number> => {
   if (context.options.pureBlack !== 'convert' && values.every(value => value === 0)) {
     context.kOnly++;
     return [0, 0, 0, 1];
@@ -221,14 +221,14 @@ const deviceCmyk = (context: RewriteContext, source: ColorSource, values: readon
   return [...output];
 };
 
-const formatted = (values: readonly number[], operator: string): string =>
+const formatted = (values: ReadonlyArray<number>, operator: string): string =>
   `${values.map(value => formatNumber(value, DEFAULT_FRACTION_DIGITS)).join(' ')} ${operator}`;
 
 const setSpace = (context: RewriteContext, stroke: boolean, space: SourceSpace): void => {
   context.state = stroke ? { ...context.state, stroke: space, strokeConvertedZero: false } : { ...context.state, fill: space, fillConvertedZero: false };
 };
 
-const setConvertedZero = (context: RewriteContext, stroke: boolean, values: readonly number[]): void => {
+const setConvertedZero = (context: RewriteContext, stroke: boolean, values: ReadonlyArray<number>): void => {
   const zero = values.some(value => value === 0);
   context.state = stroke ? { ...context.state, strokeConvertedZero: zero } : { ...context.state, fillConvertedZero: zero };
 };

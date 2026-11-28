@@ -37,15 +37,15 @@ export interface MappedProperty {
   /** The value of the first occurrence of the XMP property, or undefined when it is absent or empty. */
   readonly xmp: XmpValue | undefined;
   /** Properties that XMP versions before Part 2 used for the same key, as the packet carries them. */
-  readonly legacy: readonly LegacyValue[];
+  readonly legacy: ReadonlyArray<LegacyValue>;
   readonly agreement: Agreement;
 }
 
 export interface MetadataMapping {
-  readonly properties: readonly MappedProperty[];
+  readonly properties: ReadonlyArray<MappedProperty>;
   /** Which side ISO 32000-1:2008, 14.3.2 makes authoritative where they disagree. */
   readonly authority: 'xmp' | 'info' | 'indeterminate';
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
 }
 
 interface Row {
@@ -55,11 +55,11 @@ interface Row {
   readonly prefix: string;
   readonly kind: 'alternative' | 'creators' | 'text' | 'date' | 'trapped';
   /** Pre-Part-2 names for the same value: pdf:Title, pdf:Author, pdf:Subject, pdf:Creator, pdf:CreationDate and pdf:ModDate, and xap:Title, xap:Author and xap:Description, none of which XMP Part 1 Table 5 or Part 2 3.1 defines. */
-  readonly legacy: readonly (readonly [string, string, string])[];
+  readonly legacy: ReadonlyArray<readonly [string, string, string]>;
 }
 
 // XMP Part 3 2.2, Table 20 "Mapping of PDF keys to XMP properties".
-export const MAPPED_ROWS: readonly Row[] = [
+export const MAPPED_ROWS: ReadonlyArray<Row> = [
   {
     key: 'Title',
     namespace: DC_NAMESPACE,
@@ -116,7 +116,7 @@ export const comparableText = (value: XmpValue): string | undefined => {
 };
 
 class RowMapper {
-  readonly findings: MetadataFinding[] = [];
+  readonly findings: Array<MetadataFinding> = [];
 
   private report(code: MetadataFinding['code'], detail: string): void {
     this.findings.push({ code, detail });
@@ -215,8 +215,8 @@ class RowMapper {
     return this.bothAgreement(row, infoSide, xmp);
   }
 
-  legacyValues(row: Row, packet: XmpPacket | undefined, compared: string | undefined): LegacyValue[] {
-    const values: LegacyValue[] = [];
+  legacyValues(row: Row, packet: XmpPacket | undefined, compared: string | undefined): Array<LegacyValue> {
+    const values: Array<LegacyValue> = [];
     for (const [namespace, prefix, name] of row.legacy) {
       const property = find(packet, namespace, name);
       if (property === undefined) {
@@ -243,7 +243,7 @@ const stampOf = (packet: XmpPacket): XmpDate | undefined => {
 const authorityOf = (
   info: ReadonlyMap<string, InfoValue> | undefined,
   packet: XmpPacket | undefined,
-  findings: MetadataFinding[],
+  findings: Array<MetadataFinding>,
 ): MetadataMapping['authority'] => {
   if (packet === undefined) {
     return 'info';
@@ -272,7 +272,7 @@ const authorityOf = (
 export const mapMetadata = (info: ReadonlyMap<string, InfoValue> | undefined, packet: XmpPacket | undefined): MetadataMapping => {
   const mapper = new RowMapper();
   const { findings } = mapper;
-  const rows: { property: MappedProperty; row: Row }[] = [];
+  const rows: Array<{ property: MappedProperty; row: Row }> = [];
   for (const row of MAPPED_ROWS) {
     const infoValue = mapper.infoText(row, info?.get(row.key));
     const xmp = mapper.xmpValue(row, find(packet, row.namespace, row.name)?.value);

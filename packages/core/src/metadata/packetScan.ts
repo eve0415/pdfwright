@@ -29,7 +29,7 @@ export interface ScannedPackets {
 }
 
 // XMP Part 1 7.3.2, Figure 6: the header processing instruction starts with <?xpacket begin=.
-const HEADER: readonly number[] = [...new TextEncoder().encode('<?xpacket begin=')];
+const HEADER: ReadonlyArray<number> = [...new TextEncoder().encode('<?xpacket begin=')];
 const FILTER = pdfName('Filter').bytes;
 
 const ignore = (): void => {
@@ -83,9 +83,9 @@ interface Extent {
   readonly start: number;
 }
 
-const inFileObjects = (document: DocumentInternals): Extent[] => {
+const inFileObjects = (document: DocumentInternals): Array<Extent> => {
   const { index } = document.objects.store;
-  const extents: Extent[] = [];
+  const extents: Array<Extent> = [];
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
     if (entry.type === IN_FILE) {

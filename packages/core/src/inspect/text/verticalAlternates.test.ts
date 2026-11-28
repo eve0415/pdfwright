@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hasVerticalAlternate } from './verticalAlternates.ts';
 
-const alternates = (text: string): boolean[] => Array.from(text, character => hasVerticalAlternate(character.codePointAt(0) ?? 0));
+const alternates = (text: string): Array<boolean> => Array.from(text, character => hasVerticalAlternate(character.codePointAt(0) ?? 0));
 
 describe('vertical alternates', () => {
   it('lists the characters Unicode 18.0.0 marks Tu or Tr, and no others', () => {

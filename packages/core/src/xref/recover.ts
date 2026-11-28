@@ -23,13 +23,13 @@ import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
 export interface Reconstruction {
   readonly index: ObjectIndex;
   /** Trailer dictionaries and cross-reference stream dictionaries, in file order. */
-  readonly trailers: readonly PdfDictionaryEntries[];
+  readonly trailers: ReadonlyArray<PdfDictionaryEntries>;
   /** Top-level objects that are dictionaries with Type Catalog and a Pages entry, in file order. */
-  readonly catalogs: readonly number[];
+  readonly catalogs: ReadonlyArray<number>;
   /** Object numbers with differing readable copies, or with both readable and unreadable copies. */
-  readonly ambiguous: readonly number[];
+  readonly ambiguous: ReadonlyArray<number>;
   /** Object numbers whose only copies cannot be parsed or decoded; they resolve to null. */
-  readonly unreadable: readonly number[];
+  readonly unreadable: ReadonlyArray<number>;
   readonly objects: number;
   readonly objectStreams: number;
 }
@@ -74,10 +74,10 @@ const typeName = (value: PdfObject): string => {
   return text;
 };
 
-const matchesAt = (bytes: Uint8Array, position: number, pattern: readonly number[]): boolean =>
+const matchesAt = (bytes: Uint8Array, position: number, pattern: ReadonlyArray<number>): boolean =>
   pattern.every((byte, index) => bytes[position + index] === byte);
 
-const indexOfPattern = (bytes: Uint8Array, pattern: readonly number[], from: number): number => {
+const indexOfPattern = (bytes: Uint8Array, pattern: ReadonlyArray<number>, from: number): number => {
   for (let position = bytes.indexOf(pattern[0] ?? 0, from); position >= 0; position = bytes.indexOf(pattern[0] ?? 0, position + 1)) {
     if (matchesAt(bytes, position, pattern)) {
       return position;
@@ -94,7 +94,7 @@ interface IndexedEndstream {
   readonly recovered: number;
 }
 
-const indexEndstreams = (source: ByteSource, bytes: Uint8Array): IndexedEndstream[] => {
+const indexEndstreams = (source: ByteSource, bytes: Uint8Array): Array<IndexedEndstream> => {
   const positions = source.indexesOf(ENDSTREAM);
   // Check following white space once too: many damaged streams can share the same candidate.
   const preferred = positions.map(position => {
@@ -174,14 +174,14 @@ class Scanner {
   private readonly source: ByteSource;
   private readonly bytes: Uint8Array;
   private readonly context: ObjectStreamContext;
-  readonly candidates = new Map<number, Candidate[]>();
-  readonly trailers: PdfDictionaryEntries[] = [];
-  readonly catalogs: number[] = [];
-  readonly objectStreams: { object: ParsedIndirectObject; candidate: Candidate }[] = [];
+  readonly candidates = new Map<number, Array<Candidate>>();
+  readonly trailers: Array<PdfDictionaryEntries> = [];
+  readonly catalogs: Array<number> = [];
+  readonly objectStreams: Array<{ object: ParsedIndirectObject; candidate: Candidate }> = [];
   /** Object numbers with copies that cannot be parsed or decoded, including object-stream members. */
   readonly unreadable = new Set<number>();
 
-  private readonly endstreams: readonly IndexedEndstream[];
+  private readonly endstreams: ReadonlyArray<IndexedEndstream>;
 
   constructor(source: ByteSource, context: ObjectStreamContext) {
     // A reconstruction scans one contiguous buffer; a source held as several segments is joined for it.
@@ -315,8 +315,8 @@ class Scanner {
   }
 
   // Members of every object stream found rank at the stream's position.
-  members(): DecodedObjectStream[] {
-    const decoded: DecodedObjectStream[] = [];
+  members(): Array<DecodedObjectStream> {
+    const decoded: Array<DecodedObjectStream> = [];
     for (const { object, candidate } of this.objectStreams) {
       const stream = this.decode(object);
       if (stream === undefined) {
@@ -341,7 +341,7 @@ class Scanner {
   }
 }
 
-const reportExtendsCycles = (streams: readonly DecodedObjectStream[], context: ObjectStreamContext): void => {
+const reportExtendsCycles = (streams: ReadonlyArray<DecodedObjectStream>, context: ObjectStreamContext): void => {
   const extending = new Map(streams.map(stream => [stream.objectNumber, stream.extends]));
   for (const stream of streams) {
     const seen = new Set<number>();
@@ -371,8 +371,8 @@ export const reconstructIndex = (input: ByteSource, context: ObjectStreamContext
   refuseEncryption(scanner.trailers);
   const streams = scanner.members();
   reportExtendsCycles(streams, context);
-  const ranked: XrefEntry[] = [];
-  const ambiguous: number[] = [];
+  const ranked: Array<XrefEntry> = [];
+  const ambiguous: Array<number> = [];
   for (const [objectNumber, list] of scanner.candidates) {
     const ordered = list.toSorted((left, right) => right.position - left.position);
     const [latest] = ordered;

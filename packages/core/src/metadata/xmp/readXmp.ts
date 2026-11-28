@@ -16,7 +16,7 @@ export interface XmpArrayItem {
 export type XmpValue =
   | { readonly kind: 'text'; readonly text: string; readonly language: string | undefined }
   | { readonly kind: 'uri'; readonly uri: string }
-  | { readonly kind: 'array'; readonly type: 'Alt' | 'Seq' | 'Bag'; readonly items: readonly XmpArrayItem[] }
+  | { readonly kind: 'array'; readonly type: 'Alt' | 'Seq' | 'Bag'; readonly items: ReadonlyArray<XmpArrayItem> }
   | { readonly kind: 'opaque' };
 
 /** A namespace-qualified XMP element or attribute with its source span and interpreted or opaque value under XMP Part 1, 7.9. */
@@ -47,8 +47,8 @@ export interface XmpPacket {
   /** The non-empty rdf:about of the top-level rdf:Description elements, or empty. */
   readonly subject: string;
   /** The top-level properties in document order. */
-  readonly properties: readonly XmpProperty[];
-  readonly findings: readonly XmpFinding[];
+  readonly properties: ReadonlyArray<XmpProperty>;
+  readonly findings: ReadonlyArray<XmpFinding>;
 }
 
 /** A property with its place in the decoded text, for editing. */
@@ -61,7 +61,7 @@ export interface ReadPacket extends XmpPacket {
   readonly text: string;
   /** Text offset just after the first xpacket trailer, when one is present. */
   readonly packetEnd: number | undefined;
-  readonly properties: readonly ReadProperty[];
+  readonly properties: ReadonlyArray<ReadProperty>;
   /** Offset of the rdf:RDF end tag in the text, or of the "/>" that closes it when it is an empty-element tag. */
   readonly rdfEnd: number;
   /** The qualified name of rdf:RDF as written when it is an empty-element tag, else undefined. */
@@ -86,13 +86,13 @@ interface XmlElement {
   readonly selfClosing: boolean;
   readonly namespace: string | undefined;
   readonly localName: string;
-  readonly attributes: readonly Attribute[];
+  readonly attributes: ReadonlyArray<Attribute>;
   readonly language: string | undefined;
-  readonly children: XmlElement[];
+  readonly children: Array<XmlElement>;
   /** Character data and CDATA directly inside the element, in order. */
-  readonly text: string[];
+  readonly text: Array<string>;
   /** Array items are collected when each rdf:li closes, so the tree does not retain a node for every item. */
-  arrayItems?: XmpArrayItem[];
+  arrayItems?: Array<XmpArrayItem>;
   arrayInvalid?: boolean;
   readonly span: { start: number; end: number };
   endTagStart: number;
@@ -117,7 +117,7 @@ const splitName = (name: string): readonly [string, string] => {
 };
 
 // Namespaces in XML 1.0, 3 and 6: xmlns and xmlns:p attributes declare namespaces for the element and its content; xml is bound to its fixed URI.
-const declarations = (attributes: readonly XmlAttribute[], scope: ReadonlyMap<string, string>): ReadonlyMap<string, string> => {
+const declarations = (attributes: ReadonlyArray<XmlAttribute>, scope: ReadonlyMap<string, string>): ReadonlyMap<string, string> => {
   const declared = attributes.filter(attribute => attribute.name === 'xmlns' || attribute.name.startsWith('xmlns:'));
   if (declared.length === 0) {
     return scope;
@@ -207,18 +207,18 @@ const collectArrayItem = (parent: XmlElement | undefined, item: XmlElement): voi
 };
 
 interface BuiltTree {
-  readonly rdfs: readonly XmlElement[];
-  readonly instructions: readonly string[];
+  readonly rdfs: ReadonlyArray<XmlElement>;
+  readonly instructions: ReadonlyArray<string>;
   readonly packetEnd: () => number | undefined;
   readonly accept: (token: XmlToken) => void;
 }
 
 // Builds the element tree as tokens arrive; the tokenizer has already bounded the depth.
 const createTreeBuilder = (): BuiltTree => {
-  const rdfs: XmlElement[] = [];
-  const instructions: string[] = [];
+  const rdfs: Array<XmlElement> = [];
+  const instructions: Array<string> = [];
   let packetEnd: number | undefined;
-  const stack: OpenElement[] = [];
+  const stack: Array<OpenElement> = [];
   const accept = (token: XmlToken): void => {
     const parent = stack.at(-1);
     if (token.kind === 'start') {
@@ -281,12 +281,12 @@ const elementValue = (element: XmlElement): XmpValue => {
 };
 
 interface Subjects {
-  readonly values: string[];
+  readonly values: Array<string>;
   unprefixed: boolean;
 }
 
-const descriptionProperties = (description: XmlElement, subjects: Subjects): Omit<ReadProperty, 'span'>[] => {
-  const properties: Omit<ReadProperty, 'span'>[] = [];
+const descriptionProperties = (description: XmlElement, subjects: Subjects): Array<Omit<ReadProperty, 'span'>> => {
+  const properties: Array<Omit<ReadProperty, 'span'>> = [];
   for (const attribute of description.attributes) {
     if (isDeclaration(attribute) || attribute.namespace === XML_NAMESPACE) {
       continue;
@@ -337,7 +337,7 @@ const codePointBytes = (code: number, encoding: XmlEncoding): number => {
 };
 
 // Byte offsets of text offsets, in one pass over the text; every offset given lies between code points, since the text decoded without error.
-const byteOffsets = (text: string, encoding: XmlEncoding, offsets: readonly number[]): ReadonlyMap<number, number> => {
+const byteOffsets = (text: string, encoding: XmlEncoding, offsets: ReadonlyArray<number>): ReadonlyMap<number, number> => {
   const sorted = [...new Set(offsets)].toSorted((left, right) => left - right);
   const result = new Map<number, number>();
   let bytes = 0;
@@ -353,13 +353,13 @@ const byteOffsets = (text: string, encoding: XmlEncoding, offsets: readonly numb
   return result;
 };
 
-const wrapper = (instructions: readonly string[]): XmpPacket['wrapper'] => {
+const wrapper = (instructions: ReadonlyArray<string>): XmpPacket['wrapper'] => {
   const end = instructions.map(content => /^end=(["'])([rw])\1/u.exec(content)?.[2]).find(value => value !== undefined);
   return { begin: instructions.some(content => content.startsWith('begin=')), end: end === 'r' || end === 'w' ? end : undefined };
 };
 
-const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: readonly ReadProperty[]): XmpFinding[] => {
-  const findings: XmpFinding[] = [];
+const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: ReadonlyArray<ReadProperty>): Array<XmpFinding> => {
+  const findings: Array<XmpFinding> = [];
   // XMP Part 3 1.6.1: "The XMP must be encoded as UTF-8".
   if (encoding !== 'utf8') {
     findings.push({ code: 'xmp-not-utf8', detail: `the packet is encoded as ${encoding}` });
@@ -405,7 +405,7 @@ const readTree = (text: string, encoding: XmlEncoding, tree: BuiltTree): ReadPac
     encoding,
     found.flatMap(property => [property.textSpan.start, property.textSpan.end]),
   );
-  const properties: ReadProperty[] = [];
+  const properties: Array<ReadProperty> = [];
   for (const { namespace, localName, form, textSpan, value } of found) {
     properties.push({ namespace, localName, form, textSpan, value, span: { start: offsets.get(textSpan.start) ?? 0, end: offsets.get(textSpan.end) ?? 0 } });
   }

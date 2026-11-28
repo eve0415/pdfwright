@@ -18,7 +18,7 @@ import { rect } from './rect.ts';
 
 const catalog = { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' };
 
-const load = (objects: readonly TestObject[], options?: LoadOptions): LoadedDocument =>
+const load = (objects: ReadonlyArray<TestObject>, options?: LoadOptions): LoadedDocument =>
   loadDocument(buildPdf([{ xref: 'classic', objects: [catalog, ...objects], trailer: '/Root 1 0 R' }]).bytes, options);
 
 // Root 2 holds MediaBox, Rotate and Resources; intermediate node 3 holds CropBox; pages 4 and 5 sit under 3, page 6 under the root.
@@ -32,7 +32,7 @@ const tree = [
 ];
 
 // Page tree nodes 2 to depth + 1, each the only kid of the one before; the root carries MediaBox and Resources.
-const chain = (depth: number): TestObject[] =>
+const chain = (depth: number): Array<TestObject> =>
   Array.from({ length: depth }, (_, index) => ({
     number: index + 2,
     body: `<</Type/Pages/Kids[${String(index + 3)} 0 R]/Count 1${index === 0 ? '/MediaBox[0 0 7 7]/Resources<<>>' : ''}>>`,
@@ -40,7 +40,7 @@ const chain = (depth: number): TestObject[] =>
 
 // One page per level under a chain of page tree nodes; every node carries MediaBox and Resources, or only the root does.
 const depthProbe = (depth: number, attributes: 'every-node' | 'root-only' = 'every-node'): Uint8Array => {
-  const objects: TestObject[] = [catalog];
+  const objects: Array<TestObject> = [catalog];
   for (let level = 1; level <= depth; level++) {
     const node = 2 * level;
     const page = node + 1;
@@ -57,7 +57,7 @@ const depthProbe = (depth: number, attributes: 'every-node' | 'root-only' = 'eve
   return buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes;
 };
 
-const resourceKeys = (document: LoadedDocument, index: number): string[] =>
+const resourceKeys = (document: LoadedDocument, index: number): Array<string> =>
   [...document.page(index).resources().entries()].map(([key]) => new TextDecoder().decode(key));
 
 describe('page tree', () => {

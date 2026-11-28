@@ -38,11 +38,11 @@ import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface ImageConversionReport {
   readonly converted: number;
-  readonly keptRgbImages: readonly {
+  readonly keptRgbImages: ReadonlyArray<{
     readonly ref: PdfReference;
     readonly filter: 'DCTDecode' | 'JPXDecode';
     readonly tagged: 'added' | 'existing' | 'jpx-colr';
-  }[];
+  }>;
 }
 
 interface ImagePlan {
@@ -61,7 +61,7 @@ interface ImageScan {
   readonly document: LoadedDocument;
   readonly internals: DocumentInternals;
   readonly options: RewriteColorOptions;
-  readonly plans: ImagePlan[];
+  readonly plans: Array<ImagePlan>;
   readonly seen: Map<number, string>;
   readonly uses: Map<number, RenderingIntent>;
   readonly transforms: Map<string, ColorTransform>;
@@ -82,7 +82,7 @@ interface ImageGeometry {
   readonly channels: number;
   readonly inputRow: number;
   readonly outputBits: number;
-  readonly ranges: readonly number[] | undefined;
+  readonly ranges: ReadonlyArray<number> | undefined;
   readonly matte: SoftMaskMatte | undefined;
 }
 
@@ -90,9 +90,9 @@ interface ImageGeometry {
 interface SoftMaskMatte {
   readonly reference: PdfReference;
   readonly mask: PdfStream;
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
   readonly geometry: ImageGeometry;
-  readonly decode: readonly number[];
+  readonly decode: ReadonlyArray<number>;
 }
 
 const XOBJECT = pdfName('XObject').bytes;
@@ -129,9 +129,9 @@ const imageNumber = (scan: ImageScan, image: PdfStream, key: Uint8Array): number
   return value.value;
 };
 
-const filterNames = (scan: ImageScan, image: PdfStream): string[] => {
+const filterNames = (scan: ImageScan, image: PdfStream): Array<string> => {
   const value = deref(scan, image.dictionary.get(FILTER));
-  let entries: readonly PdfDirectObject[] = [];
+  let entries: ReadonlyArray<PdfDirectObject> = [];
   if (value?.kind === 'array') {
     entries = value.items;
   } else if (value !== undefined) {
@@ -156,7 +156,7 @@ const filterNames = (scan: ImageScan, image: PdfStream): string[] => {
   });
 };
 
-const compressedFilter = (names: readonly string[]): 'DCTDecode' | 'JPXDecode' | undefined => {
+const compressedFilter = (names: ReadonlyArray<string>): 'DCTDecode' | 'JPXDecode' | undefined => {
   if (names.includes('JPXDecode')) {
     return 'JPXDecode';
   }
@@ -231,7 +231,7 @@ const transformFor = (scan: ImageScan, image: PdfStream, selection: { source: Co
   return transform;
 };
 
-const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): number[] | undefined => {
+const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): Array<number> | undefined => {
   const value = deref(scan, image.dictionary.get(DECODE));
   if (value === undefined) {
     return undefined;
@@ -239,7 +239,7 @@ const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): numbe
   if (value.kind !== 'array' || value.items.length !== channels * 2) {
     return invalid('image Decode array has the wrong length');
   }
-  const values: number[] = [];
+  const values: Array<number> = [];
   for (const item of value.items) {
     const component = deref(scan, item);
     if (component?.kind !== 'integer' && component?.kind !== 'real') {
@@ -253,7 +253,7 @@ const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): numbe
   return values;
 };
 
-const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: number; bits: number }): readonly number[] | undefined => {
+const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: number; bits: number }): ReadonlyArray<number> | undefined => {
   const { channels, bits } = config;
   const mask = deref(scan, image.dictionary.get(MASK));
   if (mask?.kind !== 'array') {
@@ -263,7 +263,7 @@ const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: numbe
     return invalid('image colour-key mask has the wrong number of ranges');
   }
   const maximum = 2 ** bits - 1;
-  const ranges: number[] = [];
+  const ranges: Array<number> = [];
   for (const item of mask.items) {
     const value = deref(scan, item);
     if (value?.kind !== 'integer' || value.value < 0 || value.value > maximum) {
@@ -274,7 +274,7 @@ const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: numbe
   return ranges;
 };
 
-const stencilRow = (row: Uint8Array, config: { width: number; channels: number; bits: number; ranges: readonly number[] }): Uint8Array => {
+const stencilRow = (row: Uint8Array, config: { width: number; channels: number; bits: number; ranges: ReadonlyArray<number> }): Uint8Array => {
   const { width, channels, bits, ranges } = config;
   // ISO 32000-1:2008, 8.9.6.4 tests the raw samples before Decode; 8.9.6.2 makes stencil bit 1 transparent by default.
   const stencil = new Uint8Array(Math.ceil(width / 8));
@@ -420,7 +420,7 @@ class ImageChunkCursor {
   }
 }
 
-const imageChunks = (image: PdfStream, filters: readonly string[], expected: number): Iterable<Uint8Array> | undefined => {
+const imageChunks = (image: PdfStream, filters: ReadonlyArray<string>, expected: number): Iterable<Uint8Array> | undefined => {
   if (filters.length === 1 && filters[0] === 'FlateDecode') {
     return inflateChunks(image.data, { maxOutputBytes: expected, copyInput: false });
   }
@@ -644,7 +644,7 @@ const planCompressedRgb = (
     filter: 'DCTDecode' | 'JPXDecode';
     color: PdfDirectObject;
     resources: PdfDictionaryEntries;
-    filters: readonly string[];
+    filters: ReadonlyArray<string>;
   },
 ): void => {
   if (scan.options.compressedRgbImages === 'refuse') {
@@ -759,7 +759,7 @@ const scanResources = (scan: ImageScan, visit: ResourceVisit): void => {
   }
 };
 
-const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: readonly FormUse[]): void => {
+const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: ReadonlyArray<FormUse>): void => {
   const category = deref(scan, resources.get(XOBJECT));
   if (category?.kind !== 'dictionary') {
     return;
@@ -859,8 +859,8 @@ const unblendedSoftMask = (scan: ImageScan, matte: SoftMaskMatte, copies: Map<nu
 const applyPlans = (scan: ImageScan): ImageConversionReport => {
   const profileReferences = new Map<string, PdfReference>();
   const softMaskCopies = new Map<number, PdfReference>();
-  const discarded: PdfReference[] = [];
-  const keptRgbImages: { ref: PdfReference; filter: 'DCTDecode' | 'JPXDecode'; tagged: 'added' | 'existing' | 'jpx-colr' }[] = [];
+  const discarded: Array<PdfReference> = [];
+  const keptRgbImages: Array<{ ref: PdfReference; filter: 'DCTDecode' | 'JPXDecode'; tagged: 'added' | 'existing' | 'jpx-colr' }> = [];
   let converted = 0;
   let changed = false;
   for (const plan of scan.plans) {

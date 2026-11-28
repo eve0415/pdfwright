@@ -15,7 +15,7 @@ const quiet = (): void => {
 };
 
 // Reads the data after the first ID in the text and returns it with the text that follows EI.
-const read = (text: string, parameters: readonly PdfDirectObject[]): readonly [string, string] => {
+const read = (text: string, parameters: ReadonlyArray<PdfDirectObject>): readonly [string, string] => {
   const bytes = latin1Bytes(text);
   const lexer = new Lexer({ bytes, base: 0, final: true }, 0, { warn: quiet, names: new Map() });
   lexer.seek(text.indexOf('ID') + 2);
@@ -23,7 +23,7 @@ const read = (text: string, parameters: readonly PdfDirectObject[]): readonly [s
   return [latin1Text(data), latin1Text(bytes.subarray(lexer.position))];
 };
 
-const gray = (width: number, height: number, bits: number): PdfDirectObject[] => [
+const gray = (width: number, height: number, bits: number): Array<PdfDirectObject> => [
   pdfName('W'),
   integer(width),
   pdfName('H'),

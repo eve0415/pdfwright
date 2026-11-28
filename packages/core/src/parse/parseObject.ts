@@ -10,9 +10,9 @@ export interface SourceNode {
   readonly value: PdfDirectObject;
   readonly start: number;
   readonly end: number;
-  readonly items?: readonly SourceNode[];
+  readonly items?: ReadonlyArray<SourceNode>;
   /** Every entry in source order, duplicates included; `value` uses the last occurrence of a key. */
-  readonly entries?: readonly SourceEntry[];
+  readonly entries?: ReadonlyArray<SourceEntry>;
 }
 
 export interface SourceEntry {
@@ -145,7 +145,7 @@ class DirectObjectParser {
 
   private annotatedArray(start: number, depth: number): SourceNode {
     checkDepth(depth, this.maxNesting);
-    const items: SourceNode[] = [];
+    const items: Array<SourceNode> = [];
     for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) {
       items.push(this.node(token, depth));
     }
@@ -154,7 +154,7 @@ class DirectObjectParser {
 
   private annotatedDictionary(start: number, depth: number): SourceNode {
     checkDepth(depth, this.maxNesting);
-    const entries: SourceEntry[] = [];
+    const entries: Array<SourceEntry> = [];
     this.entries((key, token) => {
       entries.push({ key: key.bytes, keyStart: key.start, keyEnd: key.end, node: this.node(token, depth) });
     });
@@ -187,7 +187,7 @@ class DirectObjectParser {
   // ISO 32000-1:2008, 7.3.6: "An array shall be written as a sequence of objects enclosed in SQUARE BRACKETS (using LEFT SQUARE BRACKET (5Bh) and RIGHT SQUARE BRACKET (5Dh))."
   private array(depth: number): PdfDirectObject {
     checkDepth(depth, this.maxNesting);
-    const items: PdfDirectObject[] = [];
+    const items: Array<PdfDirectObject> = [];
     for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) {
       items.push(this.value(token, depth));
     }
@@ -198,7 +198,7 @@ class DirectObjectParser {
   // "Multiple entries in the same dictionary shall not have the same key." When they do, the last one is used and a warning names it.
   private dictionary(depth: number): PdfDirectObject {
     checkDepth(depth, this.maxNesting);
-    const entries: [Uint8Array, PdfDirectObject][] = [];
+    const entries: Array<[Uint8Array, PdfDirectObject]> = [];
     this.entries((key, token) => {
       entries.push([key.bytes, this.value(token, depth)]);
     });

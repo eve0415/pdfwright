@@ -24,7 +24,7 @@ const ignore = (): void => {
 type Side = 'a' | 'b';
 
 /** The content stream references of a page, read through an indirect array (ISO 32000-1:2008, 7.7.3.3, Table 30, Contents). */
-const contentReferences = (document: DocumentInternals, page: PageEntry): PdfDirectObject[] => {
+const contentReferences = (document: DocumentInternals, page: PageEntry): Array<PdfDirectObject> => {
   const dictionary = document.objects.resolve(page.reference.objectNumber, page.reference.generation);
   const contents = dictionary.kind === 'dictionary' ? dictionary.entries.get(CONTENTS) : undefined;
   if (contents === undefined) {
@@ -58,8 +58,8 @@ export const decodeForComparison = (document: DocumentInternals, stream: PdfObje
 
 // ISO 32000-1:2008, 7.7.3.3, Table 30: streams in a Contents array are concatenated in order to form one stream.
 // The joined content is held under the document's maxDecodedBytes, and a stream the array names more than once is decoded once.
-const joinedContent = (document: DocumentInternals, references: readonly PdfDirectObject[]): Decoded => {
-  const parts: Uint8Array[] = [];
+const joinedContent = (document: DocumentInternals, references: ReadonlyArray<PdfDirectObject>): Decoded => {
+  const parts: Array<Uint8Array> = [];
   const decodedStreams = new Map<string, Uint8Array>();
   let total = 0;
   for (const reference of references) {
@@ -114,8 +114,8 @@ const sameStored = (sides: Pick<PageSides, 'a' | 'b' | 'texts'>, [left, right]: 
 const readReferences = (
   page: number,
   [document, entry, side]: readonly [DocumentInternals, PageEntry, Side],
-  differences: PdfDifference[],
-): PdfDirectObject[] | undefined => {
+  differences: Array<PdfDifference>,
+): Array<PdfDirectObject> | undefined => {
   try {
     return contentReferences(document, entry);
   } catch (error: unknown) {
@@ -136,7 +136,11 @@ interface PageSides {
 }
 
 // Operations compare as exact text; a difference records how many operations each side has and how many they share at the start and at the end.
-const reportOperations = (page: number, [operationsA, operationsB]: readonly [readonly string[], readonly string[]], differences: PdfDifference[]): void => {
+const reportOperations = (
+  page: number,
+  [operationsA, operationsB]: readonly [ReadonlyArray<string>, ReadonlyArray<string>],
+  differences: Array<PdfDifference>,
+): void => {
   let prefix = 0;
   while (prefix < operationsA.length && prefix < operationsB.length && operationsA[prefix] === operationsB[prefix]) {
     prefix++;
@@ -161,7 +165,7 @@ const reportOperations = (page: number, [operationsA, operationsB]: readonly [re
 /**
  * Compares the content of one page, however it is split across streams or compressed: by stored bytes under the same filters, then by decoded bytes, then operation by operation.
  */
-export const comparePageContent = (page: number, sides: PageSides, differences: PdfDifference[]): void => {
+export const comparePageContent = (page: number, sides: PageSides, differences: Array<PdfDifference>): void => {
   const left = readReferences(page, [sides.a, sides.pageA, 'a'], differences);
   const right = readReferences(page, [sides.b, sides.pageB, 'b'], differences);
   if (left === undefined || right === undefined) {

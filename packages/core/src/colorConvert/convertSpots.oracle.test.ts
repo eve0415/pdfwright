@@ -155,10 +155,10 @@ const calculatorStepPdf = buildPdf([
 interface ConvertedSpot {
   readonly name: Uint8Array;
   readonly alternate: string;
-  readonly evaluate: (tint: number) => number[];
+  readonly evaluate: (tint: number) => Array<number>;
 }
 
-const closeChannels = (actual: readonly number[], expected: Float64Array): boolean[] =>
+const closeChannels = (actual: ReadonlyArray<number>, expected: Float64Array): Array<boolean> =>
   actual.map((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 0.005);
 
 const spot = (document: ReturnType<typeof loadDocument>): ConvertedSpot => {
@@ -191,9 +191,9 @@ const spot = (document: ReturnType<typeof loadDocument>): ConvertedSpot => {
 };
 
 interface ConvertedDeviceN {
-  readonly names: readonly Uint8Array[];
+  readonly names: ReadonlyArray<Uint8Array>;
   readonly alternate: string;
-  readonly evaluate: (first: number, second: number) => number[];
+  readonly evaluate: (first: number, second: number) => Array<number>;
 }
 
 const deviceN = (document: ReturnType<typeof loadDocument>): ConvertedDeviceN => {
@@ -330,7 +330,7 @@ const boundNumber = (value: PdfObject): number => {
   throw new Error('bound is not numeric');
 };
 
-const stitchedBounds = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const stitchedBounds = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
   if (spaces?.kind !== 'dictionary') {
     throw new Error('ColorSpace resources are missing');

@@ -26,7 +26,7 @@ interface QpdfField {
   value: unknown;
 }
 
-const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+const runQpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
   const child = spawn('qpdf', args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
   if (closed[0] !== 0) {
@@ -64,11 +64,11 @@ const qpdfObjects = (json: unknown): QpdfField => {
   return { value: sections[1] };
 };
 
-const scanNumbers = (bytes: Uint8Array): string[] => {
+const scanNumbers = (bytes: Uint8Array): Array<string> => {
   const pdf = ascii(bytes);
   let cursor = 0;
   let nonstream = '';
-  const contents: string[] = [];
+  const contents: Array<string> = [];
   let marker = pdf.indexOf('\nstream\n', cursor);
   while (marker !== -1) {
     const start = marker + 8;

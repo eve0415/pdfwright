@@ -62,7 +62,7 @@ const nativeName = (value: string, name: string): void => {
 };
 
 const spotKey = (spot: SpotColor): string => [...(spot.nameBytes ?? new TextEncoder().encode(spot.name))].join(',');
-const knownFields = (value: unknown, names: readonly string[], context: string): void => {
+const knownFields = (value: unknown, names: ReadonlyArray<string>, context: string): void => {
   if (typeof value !== 'object' || value === null) {
     throw new ValidationError(`${context} must be an object`, 'illustrator-model');
   }
@@ -72,13 +72,13 @@ const knownFields = (value: unknown, names: readonly string[], context: string):
     }
   }
 };
-const knownVariant = (kind: string, names: readonly string[], context: string): void => {
+const knownVariant = (kind: string, names: ReadonlyArray<string>, context: string): void => {
   if (!names.includes(kind)) {
     throw new UnsupportedFeatureError(`${context} kind is unsupported`);
   }
 };
 
-const bleedSideValues = (bleed: unknown): readonly unknown[] => {
+const bleedSideValues = (bleed: unknown): ReadonlyArray<unknown> => {
   if (typeof bleed !== 'object' || bleed === null) {
     throw new ValidationError('bleed sides must be an object', 'illustrator-model');
   }
@@ -292,7 +292,7 @@ export const validateDocument = (document: IllustratorDocument): void => {
       }
     }
   };
-  const items = (values: readonly Item[], depth: number): void => {
+  const items = (values: ReadonlyArray<Item>, depth: number): void => {
     if (depth > GROUP_NESTING_LIMIT) {
       throw new ValidationError(`group nesting cannot exceed ${String(GROUP_NESTING_LIMIT)} levels`, 'illustrator-model');
     }

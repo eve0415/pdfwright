@@ -1,7 +1,7 @@
 import type { BoxName } from '../document/loadedPage.ts';
 
 /** Where in a value a difference lies: dictionary keys as latin1 names, array indices as numbers. */
-export type ValuePath = readonly (string | number)[];
+export type ValuePath = ReadonlyArray<string | number>;
 
 /** A short description of one side of a difference. */
 export interface ValueSummary {
@@ -11,7 +11,7 @@ export interface ValueSummary {
 
 /** A compared box or rotation value with whether it was explicit rather than inherited or defaulted under ISO 32000-1:2008, 7.7.3.3, Table 30. */
 export interface BoxValue {
-  readonly value: readonly number[] | number;
+  readonly value: ReadonlyArray<number> | number;
   /** For boxes: whether the page or an ancestor sets it rather than a default applying. */
   readonly explicit: boolean;
 }
@@ -43,7 +43,12 @@ export type PdfDifference =
       readonly commonSuffix: number;
     }
   | { readonly kind: 'page-resources'; readonly page: number; readonly path: ValuePath; readonly a: ValueSummary; readonly b: ValueSummary }
-  | { readonly kind: 'font-set'; readonly page: number | 'document'; readonly added: readonly FontIdentity[]; readonly removed: readonly FontIdentity[] }
+  | {
+      readonly kind: 'font-set';
+      readonly page: number | 'document';
+      readonly added: ReadonlyArray<FontIdentity>;
+      readonly removed: ReadonlyArray<FontIdentity>;
+    }
   | {
       readonly kind: 'piece-info';
       readonly owner: PieceOwner;
@@ -70,11 +75,11 @@ export type DifferenceArea = 'pages' | 'boxes' | 'content' | 'resources' | 'font
 /** Selects comparison areas with `include`; all areas are compared by default and object numbers are ignored under ISO 32000-1:2008, 7.3.10. */
 export interface CompareOptions {
   /** The areas to compare; all by default. */
-  readonly include?: readonly DifferenceArea[];
+  readonly include?: ReadonlyArray<DifferenceArea>;
 }
 
 /** Whether two documents compare equal, alongside typed differences; the result reports differences without making comparison itself an exception. */
 export interface DocumentComparison {
   readonly equal: boolean;
-  readonly differences: readonly PdfDifference[];
+  readonly differences: ReadonlyArray<PdfDifference>;
 }

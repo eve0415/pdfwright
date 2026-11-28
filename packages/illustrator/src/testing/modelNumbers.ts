@@ -1,6 +1,6 @@
 import type { IllustratorDocument } from '../model/illustratorDocument.ts';
 
-const numbersOf = (value: unknown): number[] => {
+const numbersOf = (value: unknown): Array<number> => {
   if (typeof value === 'number') {
     return [value];
   }

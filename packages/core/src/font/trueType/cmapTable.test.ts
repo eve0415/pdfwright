@@ -7,19 +7,19 @@ import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { readTrueTypeCmap } from './cmapTable.ts';
 
 // Big-endian bytes of unsigned integers of the given byte widths.
-const bytes = (...fields: readonly (readonly [number, number])[]): number[] =>
+const bytes = (...fields: ReadonlyArray<readonly [number, number]>): Array<number> =>
   fields.flatMap(([value, width]) => Array.from({ length: width }, (_, index) => Math.floor(value / 256 ** (width - 1 - index)) % 256));
 
-const u16 = (...values: readonly number[]): number[] => bytes(...values.map(value => [value, 2] as const));
-const u32 = (...values: readonly number[]): number[] => bytes(...values.map(value => [value, 4] as const));
-const u24 = (value: number): number[] => bytes([value, 3]);
+const u16 = (...values: ReadonlyArray<number>): Array<number> => bytes(...values.map(value => [value, 2] as const));
+const u32 = (...values: ReadonlyArray<number>): Array<number> => bytes(...values.map(value => [value, 4] as const));
+const u24 = (value: number): Array<number> => bytes([value, 3]);
 
 // A font program holding only a table directory and the given tables, each at a 4-byte aligned offset.
-const program = (tables: readonly (readonly [string, readonly number[]])[]): Uint8Array => {
+const program = (tables: ReadonlyArray<readonly [string, ReadonlyArray<number>]>): Uint8Array => {
   const header = [...u32(0x00010000), ...u16(tables.length, 0, 0, 0)];
   let offset = header.length + 16 * tables.length;
-  const directory: number[] = [];
-  const bodies: number[] = [];
+  const directory: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [tag, body] of tables) {
     directory.push(...Array.from(tag, character => character.codePointAt(0) ?? 0), ...u32(0, offset, body.length));
     const padded = [...body, ...Array.from({ length: (4 - (body.length % 4)) % 4 }, () => 0)];
@@ -30,10 +30,10 @@ const program = (tables: readonly (readonly [string, readonly number[]])[]): Uin
 };
 
 // A cmap table with the given subtables, as [platform, encoding, subtable bytes].
-const cmapTable = (subtables: readonly (readonly [number, number, readonly number[]])[]): number[] => {
+const cmapTable = (subtables: ReadonlyArray<readonly [number, number, ReadonlyArray<number>]>): Array<number> => {
   let offset = 4 + 8 * subtables.length;
-  const records: number[] = [];
-  const bodies: number[] = [];
+  const records: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [platform, encoding, body] of subtables) {
     records.push(...u16(platform, encoding), ...u32(offset));
     bodies.push(...body);
@@ -47,13 +47,13 @@ interface TestSegment {
   readonly start: number;
   readonly end: number;
   readonly delta: number;
-  readonly glyphs?: readonly number[];
+  readonly glyphs?: ReadonlyArray<number>;
 }
 
-const format4 = (segments: readonly TestSegment[]): number[] => {
-  const all: readonly TestSegment[] = [...segments, { start: 0xffff, end: 0xffff, delta: 1 }];
+const format4 = (segments: ReadonlyArray<TestSegment>): Array<number> => {
+  const all: ReadonlyArray<TestSegment> = [...segments, { start: 0xffff, end: 0xffff, delta: 1 }];
   const count = all.length;
-  const glyphArrays: number[] = [];
+  const glyphArrays: Array<number> = [];
   const rangeOffsets = all.map(({ glyphs }, index) => {
     if (glyphs === undefined) {
       return 0;
@@ -74,14 +74,14 @@ const format4 = (segments: readonly TestSegment[]): number[] => {
   return [...u16(4, 14 + body.length, 0, 2 * count, 0, 0, 0), ...body];
 };
 
-const format12 = (groups: readonly (readonly [number, number, number])[]): number[] => [
+const format12 = (groups: ReadonlyArray<readonly [number, number, number]>): Array<number> => [
   ...u16(12, 0),
   ...u32(16 + 12 * groups.length, 0, groups.length),
   ...groups.flatMap(([start, end, glyph]) => u32(start, end, glyph)),
 ];
 
 // Format 14 with one selector record: a default UVS range [start, additional count] and non-default mappings [code point, glyph].
-const format14 = (selector: number, ranges: readonly (readonly [number, number])[], mappings: readonly (readonly [number, number])[]): number[] => {
+const format14 = (selector: number, ranges: ReadonlyArray<readonly [number, number]>, mappings: ReadonlyArray<readonly [number, number]>): Array<number> => {
   const defaultTable = [...u32(ranges.length), ...ranges.flatMap(([start, count]) => [...u24(start), count])];
   const mappingTable = [...u32(mappings.length), ...mappings.flatMap(([codePoint, glyph]) => [...u24(codePoint), ...u16(glyph)])];
   const header = 10 + 11;
@@ -103,7 +103,7 @@ const cmapOf = (reading: CmapReading): TrueTypeCmap => {
 };
 
 // A program with one cmap table of the given subtables.
-const programWith = (subtables: readonly (readonly [number, number, readonly number[]])[]): Uint8Array => program([['cmap', cmapTable(subtables)]]);
+const programWith = (subtables: ReadonlyArray<readonly [number, number, ReadonlyArray<number>]>): Uint8Array => program([['cmap', cmapTable(subtables)]]);
 
 // Count byte reads through every subarray of the same font program.
 const countReads = (input: Uint8Array) => {

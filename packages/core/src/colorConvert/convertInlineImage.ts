@@ -81,14 +81,14 @@ const number = (value: PdfDirectObject | undefined, name: string): number => {
   return value.value;
 };
 
-const decodeValues = (value: PdfDirectObject | undefined): number[] | undefined => {
+const decodeValues = (value: PdfDirectObject | undefined): Array<number> | undefined => {
   if (value === undefined) {
     return undefined;
   }
   if (value.kind !== 'array' || value.items.length !== 6) {
     return invalid('inline RGB image Decode array is invalid');
   }
-  const values: number[] = [];
+  const values: Array<number> = [];
   for (const item of value.items) {
     if ((item.kind !== 'integer' && item.kind !== 'real') || typeof item.value !== 'number') {
       return invalid('inline RGB image Decode entry is invalid');
@@ -143,7 +143,7 @@ const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirec
   const width = number(values.get('W') ?? values.get('Width'), 'Width');
   const height = number(values.get('H') ?? values.get('Height'), 'Height');
   const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
-  const tokens: string[] = [];
+  const tokens: Array<string> = [];
   for (let index = 0; index < config.image.parameters.length; index += 2) {
     const key = config.image.parameters[index];
     const value = config.image.parameters[index + 1];
@@ -224,7 +224,7 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
 const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>): ConvertedInlineImage | undefined => {
   const { document, image, resources, options } = config;
   const filter = values.get('F') ?? values.get('Filter');
-  let filters: readonly PdfDirectObject[] = [];
+  let filters: ReadonlyArray<PdfDirectObject> = [];
   if (filter?.kind === 'array') {
     filters = filter.items;
   } else if (filter !== undefined) {

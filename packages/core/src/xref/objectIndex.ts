@@ -44,7 +44,7 @@ export class ObjectIndex {
   }
 
   /** Builds the index from entries in precedence order: the first entry for an object number wins. */
-  static fromEntries(entries: readonly XrefEntry[], shift = 0): ObjectIndex {
+  static fromEntries(entries: ReadonlyArray<XrefEntry>, shift = 0): ObjectIndex {
     let highest = -1;
     for (const entry of entries) {
       highest = Math.max(highest, entry.objectNumber);
@@ -73,7 +73,7 @@ export class ObjectIndex {
   }
 
   /** Builds the index from cross-reference sections in search order. */
-  static fromSections(sections: readonly XrefSection[], shift = 0): ObjectIndex {
+  static fromSections(sections: ReadonlyArray<XrefSection>, shift = 0): ObjectIndex {
     return ObjectIndex.fromEntries(
       sections.flatMap(section => section.entries),
       shift,

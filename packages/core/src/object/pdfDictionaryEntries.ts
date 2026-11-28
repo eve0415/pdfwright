@@ -67,7 +67,7 @@ export class PdfDictionaryEntries {
 }
 
 /** Builds entries from keys a parser read, without the validation and copying that keys from callers get; a later key replaces an earlier equal one. */
-export const parsedDictionaryEntries = (entries: readonly (readonly [Uint8Array, PdfDirectObject])[]): PdfDictionaryEntries => {
+export const parsedDictionaryEntries = (entries: ReadonlyArray<readonly [Uint8Array, PdfDirectObject]>): PdfDictionaryEntries => {
   parsedKeys = true;
   try {
     return new PdfDictionaryEntries(entries);

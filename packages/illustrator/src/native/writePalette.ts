@@ -5,7 +5,7 @@ import { formatNativeNumber } from './formatNativeNumber.ts';
 import { documentColors } from './writeHeader.ts';
 
 /** Writes the observed spot palette without a locale-specific registration swatch. */
-export const writePalette = (writer: NativeWriter, document: IllustratorDocument, spots: readonly SpotColor[] = documentColors(document).spots): void => {
+export const writePalette = (writer: NativeWriter, document: IllustratorDocument, spots: ReadonlyArray<SpotColor> = documentColors(document).spots): void => {
   writer.line('%AI5_BeginPalette');
   writer.line('0 0 Pb');
   for (const spot of spots) {

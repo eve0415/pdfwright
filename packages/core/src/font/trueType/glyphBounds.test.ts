@@ -8,15 +8,15 @@ import { syntheticTrueType } from '../../testing/syntheticTrueType.ts';
 import { readTrueTypeGlyphBounds } from './glyphBounds.ts';
 
 // Big-endian bytes of unsigned 16-bit and 32-bit integers.
-const u16 = (...values: readonly number[]): number[] => values.flatMap(value => [Math.floor(value / 256) % 256, value % 256]);
-const u32 = (...values: readonly number[]): number[] => values.flatMap(value => u16(Math.floor(value / 65_536), value % 65_536));
+const u16 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => [Math.floor(value / 256) % 256, value % 256]);
+const u32 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => u16(Math.floor(value / 65_536), value % 65_536));
 
 // A font program holding only a table directory and the given tables, each at a 4-byte aligned offset.
-const program = (tables: readonly (readonly [string, readonly number[]])[]): Uint8Array => {
+const program = (tables: ReadonlyArray<readonly [string, ReadonlyArray<number>]>): Uint8Array => {
   const header = [...u32(0x00010000), ...u16(tables.length, 0, 0, 0)];
   let offset = header.length + 16 * tables.length;
-  const directory: number[] = [];
-  const bodies: number[] = [];
+  const directory: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [tag, body] of tables) {
     directory.push(...Array.from(tag, character => character.codePointAt(0) ?? 0), ...u32(0, offset, body.length));
     const padded = [...body, ...Array.from({ length: (4 - (body.length % 4)) % 4 }, () => 0)];
@@ -26,17 +26,17 @@ const program = (tables: readonly (readonly [string, readonly number[]])[]): Uin
   return Uint8Array.from([...header, ...directory, ...bodies]);
 };
 
-const zeros = (length: number): number[] => Array.from({ length }, () => 0);
+const zeros = (length: number): Array<number> => Array.from({ length }, () => 0);
 
 // head with unitsPerEm at byte 18 and indexToLocFormat at byte 50; maxp with numGlyphs at byte 4.
-const head = (unitsPerEm: number, format: number): number[] => [...zeros(18), ...u16(unitsPerEm), ...zeros(30), ...u16(format, 0)];
-const maxp = (glyphs: number): number[] => [...u32(0x00005000), ...u16(glyphs)];
+const head = (unitsPerEm: number, format: number): Array<number> => [...zeros(18), ...u16(unitsPerEm), ...zeros(30), ...u16(format, 0)];
+const maxp = (glyphs: number): Array<number> => [...u32(0x00005000), ...u16(glyphs)];
 
 // A glyf header: numberOfContours, xMin, yMin, xMax, yMax, as 16-bit two's complement.
-const glyph = (...box: readonly number[]): number[] => u16(1, ...box.map(value => (value < 0 ? value + 65_536 : value)));
+const glyph = (...box: ReadonlyArray<number>): Array<number> => u16(1, ...box.map(value => (value < 0 ? value + 65_536 : value)));
 
 // The boxes the program gives the glyphs, or the kind of reading when it gives none.
-const boundsOf = (font: Uint8Array, glyphs: readonly number[]): readonly (Rectangle | 'empty' | undefined)[] | GlyphBoundsReading['kind'] => {
+const boundsOf = (font: Uint8Array, glyphs: ReadonlyArray<number>): ReadonlyArray<Rectangle | 'empty' | undefined> | GlyphBoundsReading['kind'] => {
   const reading = readTrueTypeGlyphBounds(font);
   return reading.kind === 'bounds' ? glyphs.map(index => reading.bounds.bounds(index)) : reading.kind;
 };

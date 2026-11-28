@@ -151,7 +151,7 @@ export class ZlibDeflater {
 
 /** Pushes uncompressed bytes and finishes one zlib stream; writing after finish raises InvalidArgumentError without a reason, while RFC 1950, 2.2 defines its header and trailer. */
 export interface DeflateStream {
-  push: (data: Uint8Array) => Uint8Array[];
+  push: (data: Uint8Array) => Array<Uint8Array>;
   finish: () => Uint8Array;
 }
 
@@ -164,7 +164,7 @@ export const createDeflateStream = (options?: DeflateOptions): DeflateStream => 
       if (finished) {
         throw new InvalidArgumentError('deflate stream is finished');
       }
-      const parts: Uint8Array[] = [];
+      const parts: Array<Uint8Array> = [];
       for (let offset = 0; offset < data.length; offset += 65536) {
         encoder.write(data.subarray(offset, offset + 65536));
         const part = encoder.drain();

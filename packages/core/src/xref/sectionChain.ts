@@ -18,7 +18,7 @@ export interface ChainedSection {
 
 export interface SectionChain {
   /** Newest first, as reached through the Prev entries. */
-  readonly sections: readonly ChainedSection[];
+  readonly sections: ReadonlyArray<ChainedSection>;
   readonly startxrefCorrected: boolean;
   /** Whether some Prev entry links a classic section to a cross-reference stream or the reverse. */
   readonly mixed: boolean;
@@ -68,7 +68,7 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
       offset: first.offset,
     });
   }
-  const sections: ChainedSection[] = [];
+  const sections: Array<ChainedSection> = [];
   const visited = new Set<number>();
   let mixed = false;
   for (let offset: number | undefined = first.offset; offset !== undefined;) {
@@ -98,5 +98,5 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
 };
 
 // ISO 32000-1:2008, 7.5.8.4: "if an entry is not found in any given standard cross-reference section, the search shall proceed to a cross-reference stream specified by the XRefStm entry before looking in the previous cross-reference section (the Prev entry in the trailer)."
-export const searchOrder = (chain: SectionChain): XrefSection[] =>
+export const searchOrder = (chain: SectionChain): Array<XrefSection> =>
   chain.sections.flatMap(({ section, hybrid }) => (hybrid === undefined ? [section] : [section, hybrid]));

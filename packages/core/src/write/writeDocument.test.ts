@@ -34,7 +34,7 @@ describe('classic PDF writer', () => {
     const saved = writeDocument([{ objectNumber: 1, generation: 0, value: pdfDictionary() }], trailer, { fractionDigits: 5 });
     expect(saved.chunks.length).toBeGreaterThan(1);
     expect(saved.byteLength).toBe(saved.toBytes().length);
-    const chunks: Uint8Array[] = [];
+    const chunks: Array<Uint8Array> = [];
     for await (const chunk of saved.toStream()) {
       chunks.push(chunk);
     }

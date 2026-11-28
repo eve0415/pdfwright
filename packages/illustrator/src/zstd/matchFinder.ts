@@ -8,7 +8,7 @@ export interface MatchSequence {
 
 export interface MatchParse {
   readonly literals: Uint8Array;
-  readonly sequences: readonly MatchSequence[];
+  readonly sequences: ReadonlyArray<MatchSequence>;
   readonly trailingLiterals: number;
 }
 
@@ -23,7 +23,7 @@ const MAX_CHAIN = 16;
 const MIN_MATCH = 4;
 const MAX_MATCH = 131_074;
 
-const join = (parts: readonly Uint8Array[]): Uint8Array => {
+const join = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let offset = 0;
   for (const part of parts) {
@@ -78,8 +78,8 @@ export const createMatchFinder = (input: Uint8Array): MatchFinder => {
       if (start !== nextStart || end < start || end > input.length || end - start > BLOCK_SIZE) {
         throw new InvalidArgumentError('match blocks must be sequential and at most 128 KiB');
       }
-      const parts: Uint8Array[] = [];
-      const sequences: MatchSequence[] = [];
+      const parts: Array<Uint8Array> = [];
+      const sequences: Array<MatchSequence> = [];
       let position = start;
       let literalStart = start;
       while (position + MIN_MATCH <= end) {

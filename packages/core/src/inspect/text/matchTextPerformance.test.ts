@@ -44,7 +44,7 @@ describe('text matching cost', () => {
       const plain = pageOf(`BT /T 0.001 Tf 100 700 Td ${shown} ET`);
       const spanned = pageOf(`BT /T 0.001 Tf 100 700 Td /Span <</ActualText <FEFF0078>>> BDC ${shown} EMC ET`);
       const intended = '山'.repeat(count);
-      const results: string[] = [];
+      const results: Array<string> = [];
       const base = elapsed(() => {
         results.push(matchText(plain, intended, { select: () => true }).status);
       });

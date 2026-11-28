@@ -70,10 +70,10 @@ const identifiers = (trailer: PdfDictionaryEntries): readonly [Uint8Array, Uint8
  */
 class FullRewriter {
   private readonly input: SaveInput;
-  private readonly warnings: SaveWarning[];
+  private readonly warnings: Array<SaveWarning>;
   private readonly emitter = new PdfEmitter();
   private readonly entries = new Map<number, Entry>();
-  private readonly clean: CleanObject[] = [];
+  private readonly clean: Array<CleanObject> = [];
   private readonly rewritten = new Map<number, { generation: number; value: PdfObject }>();
   private readonly dropped = new Set<number>();
   private keptStreams = false;
@@ -181,7 +181,7 @@ class FullRewriter {
     const { store, changes } = this.input;
     const touched = this.touchedStreams();
     const xrefStreams = this.input.base?.xrefStreams ?? new Map<number, number>();
-    const unpacked: number[] = [];
+    const unpacked: Array<number> = [];
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
       // Cross-reference streams describe the source's layout and are never written; an ordinary object that reuses such a number is.
@@ -309,7 +309,7 @@ class FullRewriter {
   // ISO 32000-1:2008, 7.5.4: object 0 heads the linked list of free entries and "The last free entry (the tail of the linked list) links back to object number 0".
   private freeEntries(): void {
     const { store, changes } = this.input;
-    const free: { objectNumber: number; generation: number }[] = [];
+    const free: Array<{ objectNumber: number; generation: number }> = [];
     const candidates = new Set([...store.index.freeEntries(), ...changes.keys(), ...this.dropped]);
     for (const number of [...candidates].toSorted((left, right) => left - right)) {
       if (number === 0) {

@@ -16,9 +16,9 @@ const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 const hex = (codePoint: number): string => codePoint.toString(16).toUpperCase().padStart(4, '0');
 
 // Each data line is `XXXX ; V # name` or `XXXX..XXXX ; V # names`: a code point or range and its East_Asian_Width value, A, F, H, N, Na or W. Only F and W are kept, with adjacent ranges joined.
-const wide = (text: string): string[] => {
+const wide = (text: string): Array<string> => {
   const lines = text.split('\n').filter(line => line.trim() !== '' && !line.startsWith('#'));
-  const ranges: [number, number][] = [];
+  const ranges: Array<[number, number]> = [];
   for (const line of lines) {
     const match = /^([0-9A-F]{4,6})(?:\.\.([0-9A-F]{4,6}))?\s*;\s*(A|F|H|N|Na|W)\s*#/u.exec(line);
     if (match === null) {

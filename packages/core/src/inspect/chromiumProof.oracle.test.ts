@@ -76,7 +76,7 @@ const proofBytes = async (proof: Proof): Promise<Uint8Array> => {
 
 const proofText = async (proof: Proof): Promise<PageText> => extractText(loadDocument(await proofBytes(proof)), 0);
 
-const proofFonts = async (proof: Proof): Promise<readonly FontEntry[]> => listFonts(loadDocument(await proofBytes(proof))).fonts;
+const proofFonts = async (proof: Proof): Promise<ReadonlyArray<FontEntry>> => listFonts(loadDocument(await proofBytes(proof))).fonts;
 
 const ascii = (bytes: Uint8Array | undefined): string | undefined => (bytes === undefined ? undefined : new TextDecoder().decode(bytes));
 
@@ -150,7 +150,7 @@ const unescapeXml = (text: string): string =>
   });
 
 // mutool draw -F stext: one char element per character, with the glyph origin as x and y from the page's top-left corner; chars MuPDF adds between words carry flag 4 and are skipped.
-const mupdfChars = (xml: string): Char[] =>
+const mupdfChars = (xml: string): Array<Char> =>
   [...xml.matchAll(/<char [^>]*\/>/gu)]
     .map(([element]) => element)
     .filter(element => Math.floor(Number(attribute(element, 'flags')) / 4) % 2 === 0)
@@ -160,7 +160,7 @@ const ORIGIN_TOLERANCE = 0.01;
 
 // Each glyph against the MuPDF chars it produced, in content order.
 // MuPDF writes one char per code point of a glyph's text, or of the ActualText span the glyph opens, the first at the glyph's origin, and nothing for a span's later glyphs; so the records are joined by glyph rather than by index.
-const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
+const mupdfDifferences = (page: PageText, chars: ReadonlyArray<Char>): Array<string> => {
   // MuPDF measures y down from the top of the MediaBox.
   const top = page.mediaBox?.[3] ?? 0;
   const opened = new Set<number>();
@@ -200,7 +200,7 @@ const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
   });
 };
 
-const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; readonly chars: Char[] }> => {
+const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; readonly chars: Array<Char> }> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-proof-'));
   try {
     const file = path.join(directory, `${proof}.pdf`);
@@ -219,7 +219,7 @@ const qpdfRank = (code: number): number => {
   return code === 3 ? 1 : 2;
 };
 
-const qpdfWarnings = (output: string, file: string): string[] =>
+const qpdfWarnings = (output: string, file: string): Array<string> =>
   output
     .replaceAll(file, 'FILE')
     .split('\n')

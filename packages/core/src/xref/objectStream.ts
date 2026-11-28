@@ -21,7 +21,7 @@ export interface DecodedObjectStream {
   readonly objectNumber: number;
   readonly data: Uint8Array;
   /** Members in the order of the stream's header, which is the order of the indices cross-reference entries use. */
-  readonly members: readonly ObjectStreamMember[];
+  readonly members: ReadonlyArray<ObjectStreamMember>;
   /** The stream this one extends, from its Extends entry. */
   readonly extends?: number;
 }
@@ -48,9 +48,9 @@ const latin1 = (bytes: Uint8Array): string => {
 
 const nonNegative = (value: PdfDirectObject | undefined): number | undefined => (value?.kind === 'integer' && value.value >= 0 ? value.value : undefined);
 
-const readHeader = (data: Uint8Array, count: number, context: LexContext): number[] => {
+const readHeader = (data: Uint8Array, count: number, context: LexContext): Array<number> => {
   const lexer = new Lexer({ bytes: data, base: 0, final: true }, 0, context);
-  const pairs: number[] = [];
+  const pairs: Array<number> = [];
   for (let index = 0; index < count * 2; index++) {
     const token = lexer.next();
     if (token.kind !== 'integer' || token.value < 0) {
@@ -62,7 +62,7 @@ const readHeader = (data: Uint8Array, count: number, context: LexContext): numbe
 };
 
 // The first start in `sorted` greater than `start`, or `fallback`.
-const nextStart = (sorted: readonly number[], start: number, fallback: number): number => {
+const nextStart = (sorted: ReadonlyArray<number>, start: number, fallback: number): number => {
   let low = 0;
   let high = sorted.length;
   while (low < high) {
@@ -116,7 +116,7 @@ export const decodeObjectStream = (objectNumber: number, stream: PdfObject, cont
   }
   const pairs = readHeader(data.subarray(0, first), count, context);
   // "A conforming reader shall rely on the First entry in the stream dictionary to locate the first object." and "The offsets shall be in increasing order."
-  const starts: number[] = [];
+  const starts: Array<number> = [];
   for (let index = 1; index < pairs.length; index += 2) {
     starts.push(first + (pairs[index] ?? 0));
   }

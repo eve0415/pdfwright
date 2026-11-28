@@ -9,32 +9,32 @@ import { parseObject } from './parseObject.ts';
 
 const encode = (text: string): Uint8Array => Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
 
-const chunked = (bytes: Uint8Array, size: number): Uint8Array[] => {
-  const chunks: Uint8Array[] = [];
+const chunked = (bytes: Uint8Array, size: number): Array<Uint8Array> => {
+  const chunks: Array<Uint8Array> = [];
   for (let offset = 0; offset < bytes.length; offset += size) {
     chunks.push(bytes.subarray(offset, offset + size));
   }
   return chunks;
 };
 
-const parsed = (source: ByteSource, offset: number, warnings: LoadWarning[]): PdfDirectObject => {
+const parsed = (source: ByteSource, offset: number, warnings: Array<LoadWarning>): PdfDirectObject => {
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
   return source.parseAt(offset, { warn, names: new Map() }, (window, local, context) => parseObject(new Lexer(window, local, context), 256));
 };
 
-const joined = (views: readonly Uint8Array[]): string => views.map(view => new TextDecoder('latin1').decode(view)).join('');
+const joined = (views: ReadonlyArray<Uint8Array>): string => views.map(view => new TextDecoder('latin1').decode(view)).join('');
 
 describe('segmented byte source', () => {
   const text = '%PDF-1.7 <</Key/Value/Duplicate 1/Duplicate 2/Array[1 2 3 0 R (string)]>> trailing';
   const bytes = encode(text);
 
   it('parses an object the same way however the input is split, warning once', () => {
-    const expected: LoadWarning[] = [];
+    const expected: Array<LoadWarning> = [];
     const whole = parsed(new ByteSource(bytes), 9, expected);
     for (const size of [1, 2, 3, 7, 16, 64]) {
-      const warnings: LoadWarning[] = [];
+      const warnings: Array<LoadWarning> = [];
       const source = new ByteSource(chunked(bytes, size));
       expect([size, parsed(source, 9, warnings), warnings]).toStrictEqual([size, whole, expected]);
     }

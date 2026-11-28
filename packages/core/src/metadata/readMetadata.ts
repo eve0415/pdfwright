@@ -54,15 +54,15 @@ export interface DocumentMetadata {
     | { readonly reference: PdfReference; readonly unreadable: string }
     | undefined;
   /** One entry per row of XMP Part 3 Table 20. */
-  readonly properties: readonly MappedProperty[];
+  readonly properties: ReadonlyArray<MappedProperty>;
   readonly authority: 'xmp' | 'info' | 'indeterminate';
   readonly packets: {
-    readonly components: readonly ComponentPacket[];
-    readonly orphans: readonly PdfReference[];
+    readonly components: ReadonlyArray<ComponentPacket>;
+    readonly orphans: ReadonlyArray<PdfReference>;
     /** The packet headers a byte scan of the source finds, by where each lies. */
     readonly scanned: ScannedPackets;
   };
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
 }
 
 const INFO = pdfName('Info').bytes;
@@ -97,7 +97,7 @@ export type DocumentPacket =
 export class MetadataReader {
   private readonly document: DocumentInternals;
   private readonly maxXmpTokens: number;
-  readonly findings: MetadataFinding[] = [];
+  readonly findings: Array<MetadataFinding> = [];
 
   constructor(document: DocumentInternals, maxXmpTokens: number = DEFAULT_XML_LIMITS.maxTokens) {
     this.document = document;
@@ -184,10 +184,10 @@ export class MetadataReader {
   }
 
   // Every Metadata entry of every reachable object, looking into direct dictionaries and arrays, such as marked-content property lists in a page's Resources.
-  components(reachable: ReadonlyMap<number, number>, catalogNumber: number | undefined): ComponentPacket[] {
-    const components: ComponentPacket[] = [];
+  components(reachable: ReadonlyMap<number, number>, catalogNumber: number | undefined): Array<ComponentPacket> {
+    const components: Array<ComponentPacket> = [];
     for (const [objectNumber, generation] of reachable) {
-      const work: PdfObject[] = [];
+      const work: Array<PdfObject> = [];
       const value = this.resolve({ kind: 'reference', objectNumber, generation });
       if (objectNumber === catalogNumber && value?.kind === 'dictionary') {
         for (const [, entry] of value.entries.entries()) {
@@ -223,10 +223,10 @@ export class MetadataReader {
   }
 
   // An in-use metadata object that nothing reachable from the trailer references, including a malformed XML stream missing the Type required by ISO 32000-1:2008, Table 315.
-  orphans(reachable: ReadonlyMap<number, number>): PdfReference[] {
+  orphans(reachable: ReadonlyMap<number, number>): Array<PdfReference> {
     const { objects } = this.document;
     const numbers = new Set([...objects.store.index.inUse(), ...objects.changes.keys()]);
-    const orphans: PdfReference[] = [];
+    const orphans: Array<PdfReference> = [];
     for (const objectNumber of [...numbers].toSorted((left, right) => left - right)) {
       const generation = objects.generationOf(objectNumber);
       if (generation === undefined || reachable.has(objectNumber)) {

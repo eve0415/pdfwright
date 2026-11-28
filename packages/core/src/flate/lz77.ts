@@ -8,7 +8,7 @@ interface LevelLimits {
 const DEFAULT_LIMITS: LevelLimits = { chain: 128, lazy: 2 };
 
 // Chain limits and lazy-match thresholds for levels 1-9; both bounds increase with compression effort.
-const LEVEL_LIMITS: readonly LevelLimits[] = [
+const LEVEL_LIMITS: ReadonlyArray<LevelLimits> = [
   { chain: 0, lazy: 0 },
   { chain: 4, lazy: 0 },
   { chain: 8, lazy: 0 },

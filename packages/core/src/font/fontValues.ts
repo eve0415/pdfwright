@@ -40,12 +40,12 @@ export const numberOf = (value: PdfObject | undefined): number | undefined => {
 };
 
 /** The numbers of an array, resolving references to its items, or undefined when it is not an array of numbers. */
-export const numbersOf = (source: FontSource, value: PdfDirectObject | undefined): number[] | undefined => {
+export const numbersOf = (source: FontSource, value: PdfDirectObject | undefined): Array<number> | undefined => {
   const array = source.objects.deref(value);
   if (array?.kind !== 'array') {
     return undefined;
   }
-  const numbers: number[] = [];
+  const numbers: Array<number> = [];
   for (const item of array.items) {
     const number = numberOf(source.objects.deref(item));
     if (number === undefined) {

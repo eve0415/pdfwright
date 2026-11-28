@@ -39,7 +39,7 @@ export interface PdfX4Rule {
 }
 
 /** The rules checkPdfX4 applies, each with the source its check follows and that source's authority; a rule whose requirement only ISO 15930-7:2010, clause 6 sets reports `not-checked`. */
-export const pdfX4Rules: readonly PdfX4Rule[] = [
+export const pdfX4Rules: ReadonlyArray<PdfX4Rule> = [
   { id: 'X4-VERSION', source: 'ISO 15930-7:2010 preview, Introduction, Table 1, and clause 1; table of contents, 6.1', authority: 'iso15930-7-preview' },
   {
     id: 'X4-PDF17-KEYS',

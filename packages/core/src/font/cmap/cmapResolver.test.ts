@@ -14,7 +14,7 @@ import { buildPdf, latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
 import { PREDEFINED_CMAPS } from './cmapProvider.ts';
 import { CMapResolver } from './cmapResolver.ts';
 
-const document = (objects: readonly TestObject[] = []): DocumentInternals => {
+const document = (objects: ReadonlyArray<TestObject> = []): DocumentInternals => {
   const loaded = loadDocument(
     buildPdf([
       {

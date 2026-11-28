@@ -10,7 +10,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 export interface FontSet {
   readonly fonts: Map<string, FontIdentity>;
   /** Objects that could not be parsed, by the page entry the walk started from. */
-  readonly unreadable: readonly UnreadableObject[];
+  readonly unreadable: ReadonlyArray<UnreadableObject>;
 }
 
 /** The fonts a page uses, through its resources and its annotations' appearances. */

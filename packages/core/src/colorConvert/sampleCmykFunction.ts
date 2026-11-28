@@ -18,8 +18,8 @@ export interface SampledCmykFunction {
 
 export interface CmykFunctionConfig {
   readonly dimensions: number;
-  readonly domain: readonly number[];
-  readonly evaluate: (values: readonly number[]) => Float64Array;
+  readonly domain: ReadonlyArray<number>;
+  readonly evaluate: (values: ReadonlyArray<number>) => Float64Array;
   readonly destination: IccProfile;
   readonly grid?: number;
   readonly minimumGrid?: number;
@@ -40,7 +40,7 @@ const gridValues = (config: CmykFunctionConfig, grid: number): Float64Array => {
   }
   const values = new Float64Array(count * 4);
   for (let index = 0; index < count; index++) {
-    const inputs: number[] = [];
+    const inputs: Array<number> = [];
     for (let axis = 0; axis < dimensions; axis++) {
       const fraction = (Math.floor(index / grid ** axis) % grid) / (grid - 1);
       inputs.push((domain[axis * 2] ?? 0) + fraction * ((domain[axis * 2 + 1] ?? 1) - (domain[axis * 2] ?? 0)));
@@ -53,7 +53,7 @@ const gridValues = (config: CmykFunctionConfig, grid: number): Float64Array => {
 const midpointError = (config: CmykFunctionConfig, values: Float64Array, grid: number): number => {
   const { domain, evaluate, destination } = config;
   const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
-  const lab = (cmyk: Float64Array): readonly number[] => {
+  const lab = (cmyk: Float64Array): ReadonlyArray<number> => {
     const pcs = toPcs(cmyk);
     return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
   };

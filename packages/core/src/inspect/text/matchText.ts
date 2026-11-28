@@ -22,9 +22,9 @@ export interface MatchTextOptions {
   /** `ignore` (the default) removes every White_Space character from both texts; `exact` compares them. */
   readonly whitespace?: 'ignore' | 'exact';
   /** The folds applied to the page's text; all by default. */
-  readonly folds?: readonly TextFold[];
+  readonly folds?: ReadonlyArray<TextFold>;
   /** Further pairs a caller has verified are drawn with one glyph in its font, as [found, intended]: a glyph whose folded text is `found` is read as `intended`. */
-  readonly equivalents?: readonly (readonly [string, string])[];
+  readonly equivalents?: ReadonlyArray<readonly [string, string]>;
   /**
    * `require-glyph-evidence` (the default): a variation selector of the intended text counts only when the glyph's own text carries it.
    * `ignore` removes variation selectors from both texts.
@@ -47,24 +47,24 @@ export interface MatchTextOptions {
  */
 export type TextDifference =
   /** A .notdef glyph, or a Type 3 glyph that paints nothing, stands where text is shown: the print shows a box or nothing. */
-  | { readonly kind: 'missing-glyph'; readonly glyphs: readonly number[]; readonly intendedIndex: number | undefined }
+  | { readonly kind: 'missing-glyph'; readonly glyphs: ReadonlyArray<number>; readonly intendedIndex: number | undefined }
   /** A glyph without text, or whose text is the empty string, as a ToUnicode mapping to `<>` gives. */
-  | { readonly kind: 'unmapped'; readonly glyphs: readonly number[]; readonly reason: GlyphTextReason }
-  | { readonly kind: 'substituted'; readonly intended: string; readonly found: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
+  | { readonly kind: 'unmapped'; readonly glyphs: ReadonlyArray<number>; readonly reason: GlyphTextReason }
+  | { readonly kind: 'substituted'; readonly intended: string; readonly found: string; readonly intendedIndex: number; readonly glyphs: ReadonlyArray<number> }
   | { readonly kind: 'missing'; readonly intended: string; readonly intendedIndex: number }
-  | { readonly kind: 'extra'; readonly found: string; readonly glyphs: readonly number[] }
+  | { readonly kind: 'extra'; readonly found: string; readonly glyphs: ReadonlyArray<number> }
   /** An ActualText span whose text differs from its glyphs' own text; the glyphs' text was compared. `span` indexes `PageText.actualText`. */
   | {
       readonly kind: 'actual-text-disagrees';
       readonly actualText: string;
       readonly glyphText: string;
       readonly span: number;
-      readonly glyphs: readonly number[];
+      readonly glyphs: ReadonlyArray<number>;
     }
   /** An intended variation selector that only an ActualText span, not the glyph's own text, carries. */
-  | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: readonly number[] }
+  | { readonly kind: 'variant-unverified'; readonly intended: string; readonly intendedIndex: number; readonly glyphs: ReadonlyArray<number> }
   /** ToUnicode disagrees with the character named by a simple TrueType font's encoding. */
-  | { readonly kind: 'encoding-disagrees'; readonly toUnicode: string; readonly encodingText: string; readonly glyphs: readonly number[] }
+  | { readonly kind: 'encoding-disagrees'; readonly toUnicode: string; readonly encodingText: string; readonly glyphs: ReadonlyArray<number> }
   /**
    * A glyph of an embedded TrueType font whose cmap maps the glyph's text to another glyph than the one drawn, `expectedGid`.
    * `expectedGid` is undefined when the cmap does not list the glyph's folded text but maps its own text, before folds, to the glyph drawn: the font tells the two characters apart.
@@ -75,18 +75,18 @@ export type TextDifference =
       readonly text: string;
       readonly expectedGid: number | undefined;
       readonly drawnGid: number;
-      readonly glyphs: readonly number[];
+      readonly glyphs: ReadonlyArray<number>;
     }
   /**
    * Glyphs of a Type 0 font with a CIDFontType2 descendant whose embedded TrueType program has no usable Unicode cmap, so that the program gives no evidence that the glyph drawn is the one the text names.
    */
-  | { readonly kind: 'glyph-unchecked'; readonly font: string; readonly glyphs: readonly number[] }
+  | { readonly kind: 'glyph-unchecked'; readonly font: string; readonly glyphs: ReadonlyArray<number> }
   /** An ActualText span none of whose glyphs is compared, between compared glyphs. */
   | { readonly kind: 'no-glyph-evidence'; readonly text: string; readonly span: number }
   /** Some of the page's content could not be read (`PageText.complete` is false), so what it would have drawn over or beside the text is unknown. */
   | { readonly kind: 'page-incomplete' }
   /** A run of compared glyphs, adjacent in the order compared, whose core boxes the clip or later opaque rectangles hide in part (`PageGlyph.coreHidden`): the print shows only part of each. */
-  | { readonly kind: 'partly-hidden'; readonly glyphs: readonly number[] };
+  | { readonly kind: 'partly-hidden'; readonly glyphs: ReadonlyArray<number> };
 
 /** A fold used on the page's text, with the glyphs it was used for. */
 export interface FoldApplied {
@@ -94,12 +94,12 @@ export interface FoldApplied {
   readonly fold: TextFold | 'caller' | 'embedded-cmap';
   readonly from: string;
   readonly to: string;
-  readonly glyphs: readonly number[];
+  readonly glyphs: ReadonlyArray<number>;
 }
 
 /** Runs of glyphs drawn as copies of one text: the glyphs of each copy, and the index of the copy compared. */
 export interface DuplicateRuns {
-  readonly copies: readonly (readonly number[])[];
+  readonly copies: ReadonlyArray<ReadonlyArray<number>>;
   readonly kept: number;
 }
 
@@ -113,13 +113,13 @@ export interface TextMatch {
   readonly intended: string;
   /** The page's compared text, folds applied, for display; U+FFFD stands for a glyph without text. */
   readonly found: string;
-  readonly differences: readonly TextDifference[];
-  readonly folds: readonly FoldApplied[];
-  readonly duplicates: readonly DuplicateRuns[];
+  readonly differences: ReadonlyArray<TextDifference>;
+  readonly folds: ReadonlyArray<FoldApplied>;
+  readonly duplicates: ReadonlyArray<DuplicateRuns>;
   /** The keys of the fonts of the compared glyphs, in the order of first use. */
-  readonly fonts: readonly string[];
+  readonly fonts: ReadonlyArray<string>;
   /** The compared glyphs in the order compared. */
-  readonly glyphs: readonly number[];
+  readonly glyphs: ReadonlyArray<number>;
   /** `glyph-checked` when the embedded cmap of every compared glyph's font maps the glyph's text to the glyph drawn; `glyph-text-only` when some glyph was checked by its text alone, as a Type 3 or simple font's is. */
   readonly evidence: 'glyph-checked' | 'glyph-text-only';
 }
@@ -138,8 +138,8 @@ interface Cluster {
 }
 
 // Splits text into clusters: a base character and the variation selectors that follow it.
-const clusters = (text: string, keep: (character: string) => boolean): Cluster[] => {
-  const result: { text: string; offset: number }[] = [];
+const clusters = (text: string, keep: (character: string) => boolean): Array<Cluster> => {
+  const result: Array<{ text: string; offset: number }> = [];
   let offset = 0;
   for (const character of text) {
     if (keep(character)) {
@@ -158,7 +158,7 @@ const clusters = (text: string, keep: (character: string) => boolean): Cluster[]
 /** A cluster of the page's text, or a glyph that stands for no text. */
 interface FoundCluster {
   readonly text: string;
-  readonly glyphs: readonly number[];
+  readonly glyphs: ReadonlyArray<number>;
   /** Whether the cluster's variation selectors come from ActualText only. */
   readonly variantFromActualText: boolean;
   /** The text without the variation selectors only ActualText gives, which an intended text without them compares with; the text itself when there are none. */
@@ -241,7 +241,7 @@ const halfWidthOfWide = (glyph: PageGlyph): boolean =>
   wideCharacter(glyph) !== undefined && glyph.width !== undefined && Math.abs(glyph.width - 0.5) <= HALF_EM_TOLERANCE;
 
 /** The fonts that show a full-width or wide character at a width neither one em nor half an em, so that a half-em width says nothing about which glyph is drawn. */
-const proportionalFonts = (glyphs: readonly PageGlyph[]): Set<string> => {
+const proportionalFonts = (glyphs: ReadonlyArray<PageGlyph>): Set<string> => {
   const fonts = new Set<string>();
   for (const glyph of glyphs) {
     const { width } = glyph;
@@ -258,7 +258,7 @@ const proportionalFonts = (glyphs: readonly PageGlyph[]): Set<string> => {
 interface Settings {
   readonly actualText: 'checked' | 'ignore';
   readonly whitespace: 'ignore' | 'exact';
-  readonly folds: readonly TextFold[];
+  readonly folds: ReadonlyArray<TextFold>;
   readonly equivalents: ReadonlyMap<string, string>;
   readonly selectors: 'require-glyph-evidence' | 'ignore';
   readonly cmaps: ReadonlyMap<string, EmbeddedCmap>;
@@ -272,13 +272,13 @@ interface Settings {
 }
 
 class FoundText {
-  readonly clusters: FoundCluster[] = [];
+  readonly clusters: Array<FoundCluster> = [];
   /** Differences that are not about alignment: spans that disagree with their glyphs or have none compared. */
-  readonly notes: TextDifference[] = [];
+  readonly notes: Array<TextDifference> = [];
   /** The glyphs whose font's embedded cmap maps their text to the glyph drawn. */
   readonly confirmed = new Set<number>();
   /** By font, the glyphs whose font's embedded program has no usable cmap to check them against. */
-  readonly unchecked = new Map<string, number[]>();
+  readonly unchecked = new Map<string, Array<number>>();
   private readonly settings: Settings;
   private readonly folds = new Map<string, { fold: FoldApplied['fold']; from: string; to: string; glyphs: Set<number> }>();
   /** The glyphs added, by index. */
@@ -290,11 +290,11 @@ class FoundText {
     this.settings = settings;
   }
 
-  foldsApplied(): FoldApplied[] {
+  foldsApplied(): Array<FoldApplied> {
     return [...this.folds.values()].map(({ fold, from, to, glyphs }) => ({ fold, from, to, glyphs: [...glyphs] }));
   }
 
-  private recordFold(fold: FoldApplied['fold'], { from, to }: { from: string; to: string }, glyphs: readonly number[]): void {
+  private recordFold(fold: FoldApplied['fold'], { from, to }: { from: string; to: string }, glyphs: ReadonlyArray<number>): void {
     const key = `${fold}\u0000${from}\u0000${to}`;
     const entry = this.folds.get(key) ?? { fold, from, to, glyphs: new Set<number>() };
     for (const glyph of glyphs) {
@@ -382,7 +382,7 @@ class FoundText {
   }
 
   // Whether a selector a span gives a one-glyph unit is confirmed by the format 14 subtable of the glyph's font.
-  private variantByCmap(glyphs: readonly PageGlyph[], cluster: string): boolean {
+  private variantByCmap(glyphs: ReadonlyArray<PageGlyph>, cluster: string): boolean {
     const [glyph] = glyphs;
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [base, selector] = Array.from(cluster, character => character.codePointAt(0) ?? 0);
@@ -393,7 +393,7 @@ class FoundText {
   }
 
   // Adds the clusters of a text; `plainOf` gives a cluster without the variation selectors only ActualText gives it.
-  private push(text: string, glyphs: readonly number[], plainOf: (cluster: string) => string): void {
+  private push(text: string, glyphs: ReadonlyArray<number>, plainOf: (cluster: string) => string): void {
     for (const cluster of clusters(text, character => this.keep(character))) {
       const plain = plainOf(cluster.text);
       const variantFromActualText = plain !== cluster.text;
@@ -432,7 +432,7 @@ class FoundText {
   }
 
   // Whether the embedded cmap of a one-glyph span's font maps the span's one character to exactly the glyph drawn, which then shows that character whatever its own text says; the fold is recorded.
-  private spanByCmap(glyphs: readonly PageGlyph[], { glyphText, text }: { glyphText: string; text: string }): boolean {
+  private spanByCmap(glyphs: ReadonlyArray<PageGlyph>, { glyphText, text }: { glyphText: string; text: string }): boolean {
     const [glyph] = glyphs;
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [character, ...rest] = Array.from(text, value => value.codePointAt(0) ?? 0);
@@ -466,7 +466,7 @@ class FoundText {
    * Adds the glyphs of an ActualText span as one unit (ISO 32000-1:2008, 14.9.4: "The value of ActualText shall be considered to be a character substitution for the structure element or marked-content sequence").
    * A missing glyph fails the unit whatever the span claims, and the span's text is compared only when it agrees with the glyphs' folded text.
    */
-  addSpan(glyphs: readonly PageGlyph[], { index, text }: { index: number; text: string }): void {
+  addSpan(glyphs: ReadonlyArray<PageGlyph>, { index, text }: { index: number; text: string }): void {
     for (const glyph of glyphs) {
       this.shown.set(glyph.index, glyph);
     }
@@ -524,8 +524,8 @@ const failureDifference = (found: FoundCluster, intendedIndex?: number): TextDif
 };
 
 // The unmatched intended and found clusters between two matches: pairs in order are substitutions, unless the found text accepts the intended character, and the rest missing or extra.
-const gapDifferences = (intended: readonly Cluster[], found: readonly FoundCluster[], text: FoundText): TextDifference[] => {
-  const differences: TextDifference[] = [];
+const gapDifferences = (intended: ReadonlyArray<Cluster>, found: ReadonlyArray<FoundCluster>, text: FoundText): Array<TextDifference> => {
+  const differences: Array<TextDifference> = [];
   const paired = Math.min(intended.length, found.length);
   for (let index = 0; index < Math.max(intended.length, found.length); index++) {
     const want = intended[index];
@@ -546,11 +546,11 @@ const gapDifferences = (intended: readonly Cluster[], found: readonly FoundClust
   return differences;
 };
 
-const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Cluster[], text: FoundText): TextDifference[] => {
+const differencesOf = (steps: ReadonlyArray<AlignmentStep>, intended: ReadonlyArray<Cluster>, text: FoundText): Array<TextDifference> => {
   const found = text.clusters;
-  const differences: TextDifference[] = [];
-  let wanted: Cluster[] = [];
-  let had: FoundCluster[] = [];
+  const differences: Array<TextDifference> = [];
+  let wanted: Array<Cluster> = [];
+  let had: Array<FoundCluster> = [];
   const flush = (): void => {
     for (const difference of gapDifferences(wanted, had, text)) {
       differences.push(difference);
@@ -595,7 +595,7 @@ const sameCode = (a: PageGlyph, b: PageGlyph): boolean =>
   a.font === b.font && a.code.length === b.code.length && a.code.every((byte, index) => byte === b.code[index]);
 
 // Whether the runs are copies of the first: the same codes in the same fonts, with origins moved by one translation per copy, shorter than a quarter of the font size and half the run's advance so that the copies overlap.
-const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
+const copies = (runs: ReadonlyArray<ReadonlyArray<PageGlyph>>): boolean => {
   const [first, ...rest] = runs;
   if (first === undefined) {
     return false;
@@ -624,7 +624,7 @@ const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
 };
 
 /** Splits the glyphs into the most consecutive equal-length runs that are copies of the first, when there are two or more. */
-const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] | undefined => {
+const duplicateRuns = (glyphs: ReadonlyArray<PageGlyph>): Array<ReadonlyArray<PageGlyph>> | undefined => {
   for (let count = glyphs.length; count >= 2; count--) {
     if (glyphs.length % count !== 0) {
       continue;
@@ -639,9 +639,9 @@ const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] |
 };
 
 // Each run of adjacent glyphs, in the order compared, whose core box is partly hidden.
-const partlyHidden = (selected: readonly PageGlyph[]): TextDifference[] => {
-  const runs: number[][] = [];
-  let run: number[] | undefined;
+const partlyHidden = (selected: ReadonlyArray<PageGlyph>): Array<TextDifference> => {
+  const runs: Array<Array<number>> = [];
+  let run: Array<number> | undefined;
   for (const glyph of selected) {
     if (glyph.coreHidden !== 'partly') {
       run = undefined;
@@ -660,17 +660,17 @@ const MISMATCHES = new Set<TextDifference['kind']>(['missing-glyph', 'unmapped',
 /** A glyph compared on its own, or the compared glyphs of an ActualText span, or a span none of whose glyphs is compared. */
 type Unit =
   | { readonly kind: 'glyph'; readonly glyph: PageGlyph }
-  | { readonly kind: 'span'; readonly index: number; readonly glyphs: readonly PageGlyph[] }
+  | { readonly kind: 'span'; readonly index: number; readonly glyphs: ReadonlyArray<PageGlyph> }
   | { readonly kind: 'unseen'; readonly index: number };
 
 // Whether a span's compared glyphs are read one after another, with no other glyph between them.
-const readTogether = (glyphs: readonly PageGlyph[], positions: ReadonlyMap<number, number>): boolean => {
+const readTogether = (glyphs: ReadonlyArray<PageGlyph>, positions: ReadonlyMap<number, number>): boolean => {
   const read = glyphs.map(glyph => positions.get(glyph.index) ?? -1).toSorted((a, b) => a - b);
   return read.every((position, index) => index === 0 || position === (read[index - 1] ?? 0) + 1);
 };
 
 // The smallest and largest of the values, by a loop, since spreading a long array into Math.min exceeds the call stack.
-const extent = (values: readonly number[]): readonly [number, number] => {
+const extent = (values: ReadonlyArray<number>): readonly [number, number] => {
   let [low, high] = [Infinity, -Infinity];
   for (const value of values) {
     low = Math.min(low, value);
@@ -680,11 +680,11 @@ const extent = (values: readonly number[]): readonly [number, number] => {
 };
 
 // Units in reading order: a span is taken whole where its first compared glyph is read, when its compared glyphs are read together, and otherwise its glyphs are compared one by one; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
-const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'checked' | 'ignore'): Unit[] => {
+const unitsOf = (page: PageText, selected: ReadonlyArray<PageGlyph>, actualText: 'checked' | 'ignore'): Array<Unit> => {
   if (actualText === 'ignore') {
     return selected.map(glyph => ({ kind: 'glyph', glyph }));
   }
-  const bySpan = new Map<number, PageGlyph[]>();
+  const bySpan = new Map<number, Array<PageGlyph>>();
   for (const glyph of selected) {
     if (glyph.actualText === undefined) {
       continue;
@@ -712,7 +712,7 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
       return first < start && last > end ? [{ index, start }] : [];
     })
     .toSorted((a, b) => a.start - b.start);
-  const units: Unit[] = [];
+  const units: Array<Unit> = [];
   const taken = new Set<number>();
   let next = 0;
   for (const glyph of selected) {
@@ -731,7 +731,7 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
 };
 
 // An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value; the first allowed value is the default.
-const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...T[]]): T => {
+const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...Array<T>]): T => {
   if (value === undefined) {
     return allowed[0];
   }
@@ -764,7 +764,7 @@ const direction = (x: number, y: number): readonly [number, number] | undefined 
 };
 
 /** The glyphs that, with the glyph read before or after them, are stacked down a column upright, as Chromium sets upright text in vertical writing one Td per glyph. */
-const uprightInColumns = (glyphs: readonly PageGlyph[]): Set<number> => {
+const uprightInColumns = (glyphs: ReadonlyArray<PageGlyph>): Set<number> => {
   const upright = new Set<number>();
   for (const [position, first] of glyphs.entries()) {
     const next = glyphs[position + 1];
@@ -790,7 +790,7 @@ const uprightInColumns = (glyphs: readonly PageGlyph[]): Set<number> => {
   return upright;
 };
 
-const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): void => {
+const readUnits = (found: FoundText, page: PageText, units: ReadonlyArray<Unit>): void => {
   for (const unit of units) {
     if (unit.kind === 'glyph') {
       found.add(unit.glyph);
@@ -806,7 +806,7 @@ const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): vo
 };
 
 // Font evidence that contradicts the text is a mismatch; incomplete evidence leaves an otherwise agreeing result unverified.
-const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
+const statusOf = (differences: ReadonlyArray<TextDifference>): TextMatch['status'] => {
   if (differences.some(difference => MISMATCHES.has(difference.kind))) {
     return 'mismatch';
   }
@@ -846,7 +846,7 @@ export const matchText = (page: PageText, intended: string, options: MatchTextOp
     return have !== undefined && have.failure === undefined && (have.text === want || have.plain === want);
   });
   const unchecked = [...found.unchecked].map(([font, glyphs]): TextDifference => ({ kind: 'glyph-unchecked', font, glyphs }));
-  const incomplete: TextDifference[] = page.complete ? [] : [{ kind: 'page-incomplete' }];
+  const incomplete: Array<TextDifference> = page.complete ? [] : [{ kind: 'page-incomplete' }];
   const differences = [...differencesOf(steps, wanted, found), ...found.notes, ...unchecked, ...partlyHidden(selected), ...incomplete];
   return {
     status: statusOf(differences),

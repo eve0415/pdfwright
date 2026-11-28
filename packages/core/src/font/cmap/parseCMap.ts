@@ -31,7 +31,7 @@ export interface CidMapping extends CodeRange {
  * A bfchar or bfrange mapping to text (ISO 32000-1:2008, 9.10.3).
  * `units` is the UTF-16 destination of a bfchar or of a bfrange with a string destination, whose last code unit is incremented for each code after `low`; `strings` is the decoded array destination of a bfrange.
  */
-export type UnicodeMapping = (CodeRange & { readonly units: readonly number[] }) | (CodeRange & { readonly strings: readonly (string | undefined)[] });
+export type UnicodeMapping = (CodeRange & { readonly units: ReadonlyArray<number> }) | (CodeRange & { readonly strings: ReadonlyArray<string | undefined> });
 
 export interface CidSystemInfo {
   readonly registry: Uint8Array | undefined;
@@ -52,11 +52,11 @@ export interface ParsedCMap {
   readonly cidSystemInfo: CidSystemInfo | undefined;
   /** The name a usecmap operator gives. */
   readonly useCMap: string | undefined;
-  readonly codespaces: readonly CodespaceRange[];
-  readonly cids: readonly CidMapping[];
-  readonly notdefs: readonly CidMapping[];
-  readonly unicode: readonly UnicodeMapping[];
-  readonly problems: readonly CMapProblem[];
+  readonly codespaces: ReadonlyArray<CodespaceRange>;
+  readonly cids: ReadonlyArray<CidMapping>;
+  readonly notdefs: ReadonlyArray<CidMapping>;
+  readonly unicode: ReadonlyArray<UnicodeMapping>;
+  readonly problems: ReadonlyArray<CMapProblem>;
 }
 
 const REGISTRY = pdfName('Registry').bytes;
@@ -88,8 +88,8 @@ const codeBytes = (operand: ContentOperand | undefined): Uint8Array | undefined 
 const integerOf = (operand: ContentOperand | undefined): number | undefined => (operand?.kind === 'integer' && operand.value >= 0 ? operand.value : undefined);
 
 /** UTF-16 code units of a big-endian byte string; an odd leading byte is read as a unit of its own, as a 1-byte destination such as `<41>` means U+0041. */
-const utf16Units = (bytes: Uint8Array): number[] => {
-  const units: number[] = [];
+const utf16Units = (bytes: Uint8Array): Array<number> => {
+  const units: Array<number> = [];
   const start = bytes.length % 2;
   if (start === 1) {
     units.push(bytes[0] ?? 0);
@@ -110,7 +110,7 @@ export interface Utf16Text {
   readonly unpaired: boolean;
 }
 
-export const utf16Text = (units: readonly number[]): Utf16Text => {
+export const utf16Text = (units: ReadonlyArray<number>): Utf16Text => {
   let text = '';
   let unpaired = false;
   for (let index = 0; index < units.length; index++) {
@@ -137,11 +137,11 @@ class CMapReader {
   ordering: Uint8Array | undefined = undefined;
   supplement: number | undefined = undefined;
   hasSystemInfo = false;
-  readonly codespaces: CodespaceRange[] = [];
-  readonly cids: CidMapping[] = [];
-  readonly notdefs: CidMapping[] = [];
-  readonly unicode: UnicodeMapping[] = [];
-  readonly problems: CMapProblem[] = [];
+  readonly codespaces: Array<CodespaceRange> = [];
+  readonly cids: Array<CidMapping> = [];
+  readonly notdefs: Array<CidMapping> = [];
+  readonly unicode: Array<UnicodeMapping> = [];
+  readonly problems: Array<CMapProblem> = [];
   private entries = 0;
 
   private count(): void {
@@ -172,7 +172,7 @@ class CMapReader {
   }
 
   // `/Key value def`, at the top level or inside the `3 dict dup begin … end def` form that Adobe's CMap files use for CIDSystemInfo (9.7.5.4, EXAMPLE).
-  define(operands: readonly ContentOperand[]): void {
+  define(operands: ReadonlyArray<ContentOperand>): void {
     const key = operands.at(-2);
     const value = operands.at(-1);
     if (key?.kind !== 'name' || value === undefined) {
@@ -197,7 +197,7 @@ class CMapReader {
     }
   }
 
-  codespaceRanges(operands: readonly ContentOperand[]): void {
+  codespaceRanges(operands: ReadonlyArray<ContentOperand>): void {
     for (let index = 0; index + 1 < operands.length; index += 2) {
       const low = codeBytes(operands[index]);
       const high = codeBytes(operands[index + 1]);
@@ -214,7 +214,7 @@ class CMapReader {
   }
 
   // cidchar and notdefchar entries are `code CID`; cidrange and notdefrange entries are `low high CID` (9.7.5.4, EXAMPLE).
-  cidMappings(operands: readonly ContentOperand[], range: boolean, target: CidMapping[]): void {
+  cidMappings(operands: ReadonlyArray<ContentOperand>, range: boolean, target: Array<CidMapping>): void {
     const size = range ? 3 : 2;
     for (let index = 0; index + size - 1 < operands.length; index += size) {
       const low = codeBytes(operands[index]);
@@ -232,7 +232,7 @@ class CMapReader {
     }
   }
 
-  private destination(bytes: Uint8Array): Utf16Text & { readonly units: readonly number[] } {
+  private destination(bytes: Uint8Array): Utf16Text & { readonly units: ReadonlyArray<number> } {
     const units = utf16Units(bytes);
     const decoded = utf16Text(units);
     if (decoded.unpaired) {
@@ -241,7 +241,7 @@ class CMapReader {
     return { ...decoded, units };
   }
 
-  bfChars(operands: readonly ContentOperand[]): void {
+  bfChars(operands: ReadonlyArray<ContentOperand>): void {
     for (let index = 0; index + 1 < operands.length; index += 2) {
       const source = codeBytes(operands[index]);
       const target = operands[index + 1];
@@ -270,13 +270,13 @@ class CMapReader {
   }
 
   // "Consecutive codes starting with srcCode1 and ending with srcCode2 shall be mapped to the destination strings in the array starting with dstString1 and ending with dstStringm."
-  private arrayRange(range: CodeRange, items: readonly PdfDirectObject[]): void {
+  private arrayRange(range: CodeRange, items: ReadonlyArray<PdfDirectObject>): void {
     const count = range.high - range.low + 1;
     this.entries += items.length;
     if (this.entries > MAX_CMAP_ENTRIES) {
       throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
     }
-    const strings: (string | undefined)[] = [];
+    const strings: Array<string | undefined> = [];
     for (let index = 0; index < Math.min(items.length, count); index++) {
       const item = items[index];
       strings.push(item?.kind === 'string' ? this.destination(item.bytes).text : undefined);
@@ -290,7 +290,7 @@ class CMapReader {
     this.unicode.push({ ...range, strings });
   }
 
-  bfRanges(operands: readonly ContentOperand[]): void {
+  bfRanges(operands: ReadonlyArray<ContentOperand>): void {
     for (let index = 0; index + 2 < operands.length; index += 3) {
       const low = codeBytes(operands[index]);
       const high = codeBytes(operands[index + 1]);
@@ -313,7 +313,7 @@ class CMapReader {
     }
   }
 
-  operation(operator: string, operands: readonly ContentOperand[]): void {
+  operation(operator: string, operands: ReadonlyArray<ContentOperand>): void {
     switch (operator) {
       case 'def': {
         this.define(operands);

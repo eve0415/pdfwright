@@ -9,7 +9,7 @@ export interface PrintingCondition {
 }
 
 // International Color Consortium, CMYK Characterization Data, https://registry.color.org/cmyk-registry/, read 2026-09-28.
-const registryRows: readonly (readonly [string, string, string, string])[] = [
+const registryRows: ReadonlyArray<readonly [string, string, string, string]> = [
   ['FOGRA53', 'Universal', 'Universal', 'Large gamut exchange space'],
   ['CGATS21-2-CRPC7', 'Universal', 'Universal', 'CGATS21-2'],
   ['APTEC_CTV_8', 'Offset', 'Premium coated', 'APTEC_CMYKOGV_Coated'],
@@ -69,7 +69,7 @@ const registryRows: readonly (readonly [string, string, string, string])[] = [
 ];
 
 /** The printing-condition identifiers and descriptions bundled for output-intent defaults. */
-export const registeredPrintingConditions: readonly PrintingCondition[] = registryRows.map(([identifier, process, media, designation]) => ({
+export const registeredPrintingConditions: ReadonlyArray<PrintingCondition> = registryRows.map(([identifier, process, media, designation]) => ({
   identifier,
   process,
   media,

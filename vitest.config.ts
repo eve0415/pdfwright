@@ -14,7 +14,7 @@ const project = (runtime: Runtime) => ({ name: runtime, include, exclude: oracle
 
 // Bun and Deno each run this config in their own process, and there the suite runs once, in that runtime.
 // Everywhere else the config runs in Node, which hosts the Node, browser, workerd and oracle projects.
-const projects = (): TestProjectInlineConfiguration[] => {
+const projects = (): Array<TestProjectInlineConfiguration> => {
   if ('Bun' in globalThis) {
     return [{ test: project('bun') }];
   }

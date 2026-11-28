@@ -44,10 +44,10 @@ export interface IccWarning {
 
 export interface IccStructure {
   readonly header: IccHeader;
-  readonly tags: readonly IccTagRecord[];
+  readonly tags: ReadonlyArray<IccTagRecord>;
   readonly identity: Uint8Array;
   readonly bytes: Uint8Array;
-  readonly warnings: readonly IccWarning[];
+  readonly warnings: ReadonlyArray<IccWarning>;
 }
 
 export const colorSpaceChannels = (space: DataColorSpace): number => {
@@ -85,7 +85,7 @@ const spaces = new Map<string, DataColorSpace>([
   ['HSV ', 'HSV'],
   ['HLS ', 'HLS'],
 ]);
-const intents: readonly RenderingIntent[] = ['perceptual', 'relativeColorimetric', 'saturation', 'absoluteColorimetric'];
+const intents: ReadonlyArray<RenderingIntent> = ['perceptual', 'relativeColorimetric', 'saturation', 'absoluteColorimetric'];
 
 const space = (text: string, offset: number): DataColorSpace => {
   const known = spaces.get(text);
@@ -144,7 +144,7 @@ const readHeader = (bytes: Uint8Array, view: DataView): IccHeader => {
   };
 };
 
-const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): IccTagRecord[] => {
+const readTags = (bytes: Uint8Array, view: DataView, warnings: Array<IccWarning>): Array<IccTagRecord> => {
   // ICC.1:2022, 7.3.1 Table 24 gives 12-byte records; 7.3.1 permits complete sharing but forbids partial overlap and duplicate signatures.
   const count = view.getUint32(128);
   if (count > 8192) {
@@ -154,7 +154,7 @@ const readTags = (bytes: Uint8Array, view: DataView, warnings: IccWarning[]): Ic
     throw new InvalidProfileError('ICC tag table exceeds profile size', 'tag-table-out-of-bounds', { offset: 128 });
   }
   const tableEnd = 132 + 12 * count;
-  const tags: IccTagRecord[] = [];
+  const tags: Array<IccTagRecord> = [];
   const seen = new Set<string>();
   for (let index = 0; index < count; index++) {
     const record = 132 + index * 12;
@@ -199,7 +199,7 @@ export const parseIccStructure = (source: Uint8Array): IccStructure => {
   const view = new DataView(copy.buffer, copy.byteOffset, copy.byteLength);
   const header = readHeader(copy, view);
   const bytes = copy.subarray(0, header.size);
-  const warnings: IccWarning[] = [];
+  const warnings: Array<IccWarning> = [];
   if (copy.length > header.size) {
     warnings.push({ code: 'trailing-data', offset: header.size });
   }

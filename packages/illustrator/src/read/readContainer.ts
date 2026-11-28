@@ -17,13 +17,13 @@ export type NativePayloadCompression =
   | { readonly kind: 'zlib' };
 
 export interface ContainerFacts {
-  readonly privateKeys: readonly string[];
+  readonly privateKeys: ReadonlyArray<string>;
   readonly containerVersion: number | undefined;
   readonly creatorVersion: number | undefined;
   readonly roundtripStreamType: number | undefined;
   readonly roundtripVersion: number | undefined;
   readonly numBlock: number | undefined;
-  readonly blockLengths: readonly number[];
+  readonly blockLengths: ReadonlyArray<number>;
   readonly compression: NativePayloadCompression;
   readonly frameHeaderDescriptor: number | undefined;
   readonly windowDescriptor: number | undefined;
@@ -92,7 +92,7 @@ const stream = (loaded: LoadedDocument, value: PdfObject | undefined, what: stri
   return inflateZlib(object.data).data;
 };
 
-const join = (chunks: readonly Uint8Array[]): Uint8Array => {
+const join = (chunks: ReadonlyArray<Uint8Array>): Uint8Array => {
   const size = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const output = new Uint8Array(size);
   let offset = 0;

@@ -12,7 +12,7 @@ const EOD = 257;
 export const decodeLzw = (data: Uint8Array, options: { readonly earlyChange: number; readonly maxOutputBytes: number }): Uint8Array => {
   const output = new BoundedOutput(options.maxOutputBytes, 'LZWDecode');
   const early = options.earlyChange === 0 ? 0 : 1;
-  const table: Uint8Array[] = [];
+  const table: Array<Uint8Array> = [];
   for (let byte = 0; byte < 256; byte++) {
     table.push(Uint8Array.of(byte));
   }

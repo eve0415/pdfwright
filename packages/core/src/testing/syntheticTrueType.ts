@@ -11,37 +11,37 @@ export interface SyntheticGlyph {
 /** A variation selector and the sequences it forms: base characters that keep their default glyph, and base characters with a glyph of their own. */
 export interface SyntheticVariations {
   readonly selector: number;
-  readonly defaults: readonly number[];
-  readonly glyphs: readonly (readonly [number, number])[];
+  readonly defaults: ReadonlyArray<number>;
+  readonly glyphs: ReadonlyArray<readonly [number, number]>;
 }
 
 export interface SyntheticFontOptions {
   /** The PostScript name, written to the name table. */
   readonly name: string;
   /** The glyphs by index; glyph 0 is .notdef. */
-  readonly glyphs: readonly SyntheticGlyph[];
+  readonly glyphs: ReadonlyArray<SyntheticGlyph>;
   /** Unicode code points and the glyph index each maps to. */
-  readonly characters: readonly (readonly [number, number])[];
-  readonly variations?: readonly SyntheticVariations[];
+  readonly characters: ReadonlyArray<readonly [number, number]>;
+  readonly variations?: ReadonlyArray<SyntheticVariations>;
   readonly unitsPerEm?: number;
   readonly ascender?: number;
   readonly descender?: number;
 }
 
-const bytesOf = (value: number, width: number): number[] => {
+const bytesOf = (value: number, width: number): Array<number> => {
   const unsigned = value < 0 ? value + 256 ** width : value;
   return Array.from({ length: width }, (_, index) => Math.floor(unsigned / 256 ** (width - 1 - index)) % 256);
 };
 
-const u16 = (...values: readonly number[]): number[] => values.flatMap(value => bytesOf(value, 2));
-const u24 = (value: number): number[] => bytesOf(value, 3);
-const u32 = (...values: readonly number[]): number[] => values.flatMap(value => bytesOf(value, 4));
-const tag = (text: string): number[] => Array.from(text, character => character.codePointAt(0) ?? 0);
+const u16 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => bytesOf(value, 2));
+const u24 = (value: number): Array<number> => bytesOf(value, 3);
+const u32 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => bytesOf(value, 4));
+const tag = (text: string): Array<number> => Array.from(text, character => character.codePointAt(0) ?? 0);
 
-const padded = (data: readonly number[]): number[] => [...data, ...Array.from({ length: (4 - (data.length % 4)) % 4 }, () => 0)];
+const padded = (data: ReadonlyArray<number>): Array<number> => [...data, ...Array.from({ length: (4 - (data.length % 4)) % 4 }, () => 0)];
 
 // A table checksum is the sum of the table as big-endian uint32 values, padded with zeros to a multiple of four bytes, modulo 2^32.
-const checksum = (data: readonly number[]): number => {
+const checksum = (data: ReadonlyArray<number>): number => {
   const words = padded(data);
   let sum = 0;
   for (let index = 0; index < words.length; index += 4) {
@@ -51,7 +51,7 @@ const checksum = (data: readonly number[]): number => {
 };
 
 // A rectangle as one clockwise contour of four on-curve points, coordinates as int16 deltas (flag 0x01, no short vectors).
-const glyphData = (box: SyntheticGlyph['box']): number[] => {
+const glyphData = (box: SyntheticGlyph['box']): Array<number> => {
   if (box === undefined) {
     return [];
   }
@@ -61,12 +61,12 @@ const glyphData = (box: SyntheticGlyph['box']): number[] => {
   return padded([...u16(1, xMin, yMin, xMax, yMax), ...u16(3, 0), 1, 1, 1, 1, ...u16(...xs), ...u16(...ys)]);
 };
 
-const extent = (glyphs: readonly SyntheticGlyph[], index: 0 | 1 | 2 | 3, pick: (...values: number[]) => number): number => {
+const extent = (glyphs: ReadonlyArray<SyntheticGlyph>, index: 0 | 1 | 2 | 3, pick: (...values: Array<number>) => number): number => {
   const values = glyphs.flatMap(glyph => (glyph.box === undefined ? [] : [glyph.box[index]]));
   return values.length === 0 ? 0 : pick(...values);
 };
 
-const format4 = (characters: readonly (readonly [number, number])[]): number[] => {
+const format4 = (characters: ReadonlyArray<readonly [number, number]>): Array<number> => {
   const bmp = characters.filter(([codePoint]) => codePoint <= 0xfffe).toSorted(([left], [right]) => left - right);
   // One segment per character, with the delta that maps it to its glyph, and the terminal 0xFFFF segment.
   const segments = [...bmp.map(([codePoint, glyph]) => [codePoint, (glyph - codePoint + 65_536) % 65_536] as const), [0xffff, 1] as const];
@@ -82,15 +82,15 @@ const format4 = (characters: readonly (readonly [number, number])[]): number[] =
   return [...u16(4, 14 + body.length, 0, 2 * count, 2 * power, Math.log2(power), 2 * count - 2 * power), ...body];
 };
 
-const format12 = (characters: readonly (readonly [number, number])[]): number[] => {
+const format12 = (characters: ReadonlyArray<readonly [number, number]>): Array<number> => {
   const sorted = characters.toSorted(([left], [right]) => left - right);
   return [...u16(12, 0), ...u32(16 + 12 * sorted.length, 0, sorted.length), ...sorted.flatMap(([codePoint, glyph]) => u32(codePoint, codePoint, glyph))];
 };
 
-const format14 = (variations: readonly SyntheticVariations[]): number[] => {
+const format14 = (variations: ReadonlyArray<SyntheticVariations>): Array<number> => {
   const header = 10 + 11 * variations.length;
-  const records: number[] = [];
-  const tables: number[] = [];
+  const records: Array<number> = [];
+  const tables: Array<number> = [];
   for (const { selector, defaults, glyphs } of variations) {
     const defaultOffset = header + tables.length;
     tables.push(...u32(defaults.length));
@@ -107,8 +107,8 @@ const format14 = (variations: readonly SyntheticVariations[]): number[] => {
   return [...u16(14), ...u32(header + tables.length, variations.length), ...records, ...tables];
 };
 
-const cmapTable = (options: SyntheticFontOptions): number[] => {
-  const subtables: (readonly [number, number, number[]])[] = [[3, 1, format4(options.characters)]];
+const cmapTable = (options: SyntheticFontOptions): Array<number> => {
+  const subtables: Array<readonly [number, number, Array<number>]> = [[3, 1, format4(options.characters)]];
   if (options.characters.some(([codePoint]) => codePoint > 0xffff)) {
     subtables.push([3, 10, format12(options.characters)]);
   }
@@ -117,8 +117,8 @@ const cmapTable = (options: SyntheticFontOptions): number[] => {
   }
   subtables.sort(([leftPlatform, leftEncoding], [rightPlatform, rightEncoding]) => leftPlatform - rightPlatform || leftEncoding - rightEncoding);
   let offset = 4 + 8 * subtables.length;
-  const records: number[] = [];
-  const bodies: number[] = [];
+  const records: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [platform, encoding, body] of subtables) {
     records.push(...u16(platform, encoding), ...u32(offset));
     bodies.push(...body);
@@ -128,16 +128,16 @@ const cmapTable = (options: SyntheticFontOptions): number[] => {
 };
 
 // Name records for the Macintosh (1, 0, English) and Windows (3, 1, en-US) platforms: family, subfamily, unique identifier, full name and PostScript name.
-const nameTable = (name: string): number[] => {
-  const values: readonly (readonly [number, string])[] = [
+const nameTable = (name: string): Array<number> => {
+  const values: ReadonlyArray<readonly [number, string]> = [
     [1, name],
     [2, 'Regular'],
     [3, name],
     [4, name],
     [6, name],
   ];
-  const records: number[] = [];
-  const strings: number[] = [];
+  const records: Array<number> = [];
+  const strings: Array<number> = [];
   for (const [platform, encoding, language] of [
     [1, 0, 0],
     [3, 1, 0x409],
@@ -169,7 +169,7 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   const firstChar = Math.min(0xffff, ...codePoints);
   const lastChar = Math.min(0xffff, Math.max(0, ...codePoints));
   const verticalAdvance = (glyph: SyntheticGlyph): number => glyph.vertical?.advance ?? unitsPerEm;
-  const tables: readonly (readonly [string, number[]])[] = [
+  const tables: ReadonlyArray<readonly [string, Array<number>]> = [
     // head: version, fontRevision, checkSumAdjustment (set below), magicNumber, flags, unitsPerEm, created, modified, bounding box, macStyle, lowestRecPPEM, fontDirectionHint, indexToLocFormat 1 (long offsets), glyphDataFormat.
     ['head', [...u32(0x00010000, 0x00010000, 0, 0x5f0f3cf5), ...u16(3, unitsPerEm), ...u32(0, 0, 0, 0), ...u16(xMin, yMin, xMax, yMax, 0, 8, 2, 1, 0)]],
     // hhea: version, ascender, descender, lineGap, advanceWidthMax, minLeftSideBearing, minRightSideBearing, xMaxExtent, caret slope and offset, four reserved fields, metricDataFormat, numberOfHMetrics.
@@ -227,8 +227,8 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   const power = 2 ** Math.floor(Math.log2(sorted.length));
   const header = [...u32(0x00010000), ...u16(sorted.length, 16 * power, Math.log2(power), 16 * sorted.length - 16 * power)];
   let offset = header.length + 16 * sorted.length;
-  const directory: number[] = [];
-  const bodies: number[] = [];
+  const directory: Array<number> = [];
+  const bodies: Array<number> = [];
   let headOffset = 0;
   for (const [name, data] of sorted) {
     if (name === 'head') {

@@ -17,7 +17,7 @@ export interface Plate extends PlateFile {
 
 const decodePlateName = (fileName: string): Uint8Array => {
   const encoded = fileName.slice(2, -5);
-  const bytes: number[] = [];
+  const bytes: Array<number> = [];
   for (let index = 0; index < encoded.length; index++) {
     if (encoded[index] === '%') {
       bytes.push(Number.parseInt(encoded.slice(index + 1, index + 3), 16));
@@ -29,7 +29,7 @@ const decodePlateName = (fileName: string): Uint8Array => {
   return Uint8Array.from(bytes);
 };
 
-export const renderPlates = async (pdfFile: string, directory: string, includeProcess = false): Promise<PlateFile[]> => {
+export const renderPlates = async (pdfFile: string, directory: string, includeProcess = false): Promise<Array<PlateFile>> => {
   await mkdir(directory, { recursive: true });
   const output = path.join(directory, 'o.tif');
   const child = spawn('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-sDEVICE=tiffsep', '-sCompression=none', '-r72', `-sOutputFile=${output}`, pdfFile]);
@@ -46,7 +46,7 @@ export const renderPlates = async (pdfFile: string, directory: string, includePr
 
 /** The spot plates tiffsep made for each page, by 1-based page number, and the pages Ghostscript reported it could not draw. */
 export interface PagePlates {
-  readonly plates: ReadonlyMap<number, readonly Uint8Array[]>;
+  readonly plates: ReadonlyMap<number, ReadonlyArray<Uint8Array>>;
   readonly failed: ReadonlySet<number>;
 }
 
@@ -78,7 +78,7 @@ export const renderPagePlates = async (pdfFile: string, directory: string, resol
       failed.add(page);
     }
   }
-  const plates = new Map<number, Uint8Array[]>();
+  const plates = new Map<number, Array<Uint8Array>>();
   for (const file of await readdir(directory)) {
     const match = /^p(\d+)\((.*)\)\.tif$/u.exec(file);
     if (match === null) {
@@ -101,7 +101,7 @@ interface TiffData {
   samplesPerPixel: number;
 }
 
-const tiffValues = (...[bytes, view, littleEndian, entryOffset]: [Uint8Array, DataView, boolean, number]): number[] => {
+const tiffValues = (...[bytes, view, littleEndian, entryOffset]: [Uint8Array, DataView, boolean, number]): Array<number> => {
   const type = view.getUint16(entryOffset + 2, littleEndian);
   const count = view.getUint32(entryOffset + 4, littleEndian);
   let elementSize = 1;
@@ -112,7 +112,7 @@ const tiffValues = (...[bytes, view, littleEndian, entryOffset]: [Uint8Array, Da
     elementSize = 4;
   }
   const dataOffset = count * elementSize <= 4 ? entryOffset + 8 : view.getUint32(entryOffset + 8, littleEndian);
-  const values: number[] = [];
+  const values: Array<number> = [];
   for (let item = 0; item < count; item++) {
     if (type === 3) {
       values.push(view.getUint16(dataOffset + item * 2, littleEndian));
@@ -125,10 +125,10 @@ const tiffValues = (...[bytes, view, littleEndian, entryOffset]: [Uint8Array, Da
   return values;
 };
 
-const readTags = (bytes: Uint8Array, view: DataView, littleEndian: boolean): Map<number, number[]> => {
+const readTags = (bytes: Uint8Array, view: DataView, littleEndian: boolean): Map<number, Array<number>> => {
   const ifd = view.getUint32(4, littleEndian);
   const entries = view.getUint16(ifd, littleEndian);
-  const tags = new Map<number, number[]>();
+  const tags = new Map<number, Array<number>>();
   for (let index = 0; index < entries; index++) {
     const offset = ifd + 2 + 12 * index;
     tags.set(view.getUint16(offset, littleEndian), tiffValues(bytes, view, littleEndian, offset));
@@ -163,7 +163,7 @@ const readTiff = async (file: string): Promise<TiffData> => {
   return { width, height, data, samplesPerPixel };
 };
 
-export const readPlate = async (files: readonly PlateFile[], name: Uint8Array): Promise<Plate> => {
+export const readPlate = async (files: ReadonlyArray<PlateFile>, name: Uint8Array): Promise<Plate> => {
   const file = files.find(plate => plate.name.length === name.length && plate.name.every((byte, index) => byte === name[index]));
   if (file === undefined) {
     throw new Error('missing separation plate');

@@ -10,7 +10,7 @@ import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
 
-const converted = (resources: string, content: string, objects: readonly TestObject[]) => {
+const converted = (resources: string, content: string, objects: ReadonlyArray<TestObject>) => {
   const { bytes } = buildPdf([
     {
       xref: 'classic',
@@ -33,12 +33,12 @@ const converted = (resources: string, content: string, objects: readonly TestObj
   return { report, document };
 };
 
-const convert = (resources: string, content: string, objects: readonly TestObject[]) => {
+const convert = (resources: string, content: string, objects: ReadonlyArray<TestObject>) => {
   const { report } = converted(resources, content, objects);
   return { shadings: report.shadings.shadings, meshes: report.meshes.meshes, separations: report.spots.separations };
 };
 
-const axial = (functionObjects: readonly TestObject[]) =>
+const axial = (functionObjects: ReadonlyArray<TestObject>) =>
   convert('/Shading<</Sh 5 0 R>>', '/Sh sh', [
     { number: 5, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>' },
     ...functionObjects,
@@ -117,7 +117,7 @@ describe('nested stitching functions', () => {
 });
 
 // Objects 7 to levels + 6 are stitching functions that each refer four times to the object below, and object 6 is a Type 2 function.
-const sharedChain = (levels: number, outputs: number): TestObject[] => [
+const sharedChain = (levels: number, outputs: number): Array<TestObject> => [
   { number: 6, body: `<</FunctionType 2/Domain[0 1]/C0[${' 0'.repeat(outputs)}]/C1[${' 1'.repeat(outputs)}]/N 1>>` },
   ...Array.from({ length: levels }, (_, index) => {
     const below = `${String(index + 6)} 0 R`;
@@ -141,14 +141,14 @@ describe('shared function subtrees', () => {
 });
 
 // Object numbers 6 to 12 that are still in use after converting, saving and loading again.
-const remainingFunctionObjects = (resources: string, content: string, objects: readonly TestObject[]): number[] => {
+const remainingFunctionObjects = (resources: string, content: string, objects: ReadonlyArray<TestObject>): Array<number> => {
   const saved = converted(resources, content, objects).document.save().toBytes();
   const reloaded = loadDocument(saved);
   return [6, 7, 8, 9, 10, 11, 12].filter(number => reloaded.get(pdfReference(number, 0)).kind !== 'null');
 };
 
 // A stitching function whose Functions entry is an indirect array, with a nested stitching child, a shared grandchild and an indirect exponent.
-const stitchedGraph = (outputs: string): TestObject[] => [
+const stitchedGraph = (outputs: string): Array<TestObject> => [
   { number: 6, body: '<</FunctionType 3/Domain[0 1]/Functions 7 0 R/Bounds[0.5]/Encode[0 1 0 1]>>' },
   { number: 7, body: '[8 0 R 9 0 R]' },
   { number: 8, body: '<</FunctionType 3/Domain[0 1]/Functions 10 0 R/Bounds[0.5]/Encode[0 1 0 1]>>' },

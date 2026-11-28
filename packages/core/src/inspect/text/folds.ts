@@ -7,7 +7,7 @@ import { EQUIVALENT_UNIFIED_IDEOGRAPHS } from './equivalentIdeographs.ts';
 export type TextFold = 'radicals' | 'vertical-forms' | 'ligatures' | 'shared-glyphs';
 
 /** Every fold, in the order they are tried. */
-export const TEXT_FOLDS: readonly TextFold[] = ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'];
+export const TEXT_FOLDS: ReadonlyArray<TextFold> = ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'];
 
 // Noto Sans JP draws U+2F2C and U+2F3E, and Noto Serif JP U+2F2A, with the glyph of a different ideograph than the one the table gives, so a glyph mapped to them may show another character.
 const RADICAL_EXCEPTIONS = new Set([0x2f2a, 0x2f2c, 0x2f3e]);
@@ -101,12 +101,12 @@ export const foldOf = (fold: TextFold, codePoint: number): string | undefined =>
 /** A text with folds applied, and each fold used. */
 export interface FoldedText {
   readonly text: string;
-  readonly uses: readonly FoldUse[];
+  readonly uses: ReadonlyArray<FoldUse>;
 }
 
 /** Applies the folds to each code point of a text, and lists each fold used. */
-export const foldText = (text: string, folds: readonly TextFold[]): FoldedText => {
-  const uses: FoldUse[] = [];
+export const foldText = (text: string, folds: ReadonlyArray<TextFold>): FoldedText => {
+  const uses: Array<FoldUse> = [];
   const folded = Array.from(text, character => {
     const codePoint = character.codePointAt(0) ?? 0;
     for (const fold of folds) {

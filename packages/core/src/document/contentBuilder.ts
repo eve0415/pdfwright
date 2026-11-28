@@ -60,7 +60,7 @@ export interface PaintOptions {
 
 // What a finished content stream tells a caller that places it as a form.
 export interface ContentSummary {
-  readonly whiteRequirements: readonly WhiteRequirement[];
+  readonly whiteRequirements: ReadonlyArray<WhiteRequirement>;
   // The deepest q/Q nesting the content reaches, counted from the start of the stream.
   readonly depth: number;
 }
@@ -103,7 +103,7 @@ export interface ContentBuilder {
   lineJoin: (join: 'miter' | 'round' | 'bevel') => void;
   lineCap: (cap: 'butt' | 'round' | 'square') => void;
   miterLimit: (limit: ContentNumber) => void;
-  dash: (array: ContentNumber[], phase: ContentNumber) => void;
+  dash: (array: Array<ContentNumber>, phase: ContentNumber) => void;
   fillColor: (color: DeviceColor | Separation, tint?: number) => void;
   strokeColor: (color: DeviceColor | Separation, tint?: number) => void;
   graphicsState: (options: GraphicsStateOptions) => void;
@@ -203,7 +203,7 @@ const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGra
 };
 
 export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentSession => {
-  const commands: string[] = [];
+  const commands: Array<string> = [];
   let finished = false;
   const ensureOpen = (): void => {
     if (finished) {
@@ -227,13 +227,13 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   let state: CurrentGraphicsState = { ...(hooks.inheritsState === true ? INHERITED_STATE : INITIAL_STATE) };
   const blendingSpace = hooks.blendingSpace ?? 'DeviceCMYK';
   const whiteRequirements = new Map<string, WhiteRequirement>();
-  const stack: CurrentGraphicsState[] = [];
+  const stack: Array<CurrentGraphicsState> = [];
   const localStates = new Map<string, string>();
   const localSeparations = new Map<Separation, string>();
   const localImages = new Map<PdfImage, string>();
   const localGroups = new Map<PdfGroup, string>();
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
-  const emit = (operator: string, operands: ContentNumber[] = []): void => {
+  const emit = (operator: string, operands: Array<ContentNumber> = []): void => {
     push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
   };
   const nonnegative = (value: ContentNumber, name: string): void => {

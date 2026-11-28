@@ -56,7 +56,7 @@ export interface DecodedPng {
   /** An indexed-colour image's `tRNS` alpha table; it may be shorter than the palette, and entries past its end are opaque. */
   readonly paletteAlpha: Uint8Array | undefined;
   /** A grey or truecolour image's `tRNS` sample value (one value for grey, three for truecolour); pixels equal to it are fully transparent. */
-  readonly transparentColor: readonly number[] | undefined;
+  readonly transparentColor: ReadonlyArray<number> | undefined;
   readonly iccProfile: PngIccProfile | undefined;
   readonly srgbIntent: PngRenderingIntent | undefined;
   /** A `gAMA` chunk's value as stored: the image gamma times 100,000 (PNG Third Edition, 11.3.2.2). */
@@ -73,7 +73,7 @@ export interface DecodePngOptions {
 interface ColorTypeInfo {
   readonly colorType: PngColorType;
   readonly channels: 1 | 2 | 3 | 4;
-  readonly depths: readonly PngBitDepth[];
+  readonly depths: ReadonlyArray<PngBitDepth>;
 }
 
 // PNG Third Edition, 6.1, Table 9: the allowed bit depths of each colour type.
@@ -85,7 +85,7 @@ const COLOR_TYPES = new Map<number, ColorTypeInfo>([
   [6, { colorType: 'rgba', channels: 4, depths: [8, 16] }],
 ]);
 
-const INTENTS: readonly PngRenderingIntent[] = ['perceptual', 'relative-colorimetric', 'saturation', 'absolute-colorimetric'];
+const INTENTS: ReadonlyArray<PngRenderingIntent> = ['perceptual', 'relative-colorimetric', 'saturation', 'absolute-colorimetric'];
 
 // PNG Third Edition, 8.1: Adam7's seven passes as starting column, starting row, column step and row step.
 const ADAM7 = [
@@ -223,9 +223,9 @@ const inflateImageData = (stream: Uint8Array, expected: number, offset: number):
   }
 };
 
-const passes = (header: Header): Pass[] => {
+const passes = (header: Header): Array<Pass> => {
   const layout = header.interlaced ? ADAM7 : SEQUENTIAL;
-  const result: Pass[] = [];
+  const result: Array<Pass> = [];
   for (const [x, y, stepX, stepY] of layout) {
     const width = Math.ceil(Math.max(0, header.width - x) / stepX);
     const height = Math.ceil(Math.max(0, header.height - y) / stepY);
@@ -238,7 +238,7 @@ const passes = (header: Header): Pass[] => {
 };
 
 // Exact powers of two for shifting and masking packed samples with integer division, since the repository's lint rejects bitwise operators here.
-const POWERS_OF_TWO: readonly number[] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+const POWERS_OF_TWO: ReadonlyArray<number> = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 
 const readSample = (row: Uint8Array, index: number, depth: PngBitDepth): number => {
   if (depth === 8) {
@@ -305,7 +305,7 @@ const readPalette = (chunk: Chunk, header: Header): Uint8Array => {
 
 interface Transparency {
   readonly paletteAlpha: Uint8Array | undefined;
-  readonly transparentColor: readonly number[] | undefined;
+  readonly transparentColor: ReadonlyArray<number> | undefined;
 }
 
 const readTransparency = (chunk: Chunk, header: Header, palette: Uint8Array | undefined): Transparency => {
@@ -419,7 +419,7 @@ const COLOR_CHUNKS = new Set(['tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP']);
 
 interface Datastream {
   readonly state: Ancillary;
-  readonly parts: readonly Uint8Array[];
+  readonly parts: ReadonlyArray<Uint8Array>;
   readonly firstIdat: number;
 }
 
@@ -433,7 +433,7 @@ const readDatastream = (data: Uint8Array, header: Header, context: { readonly st
     gamma: undefined,
     chromaticities: undefined,
   };
-  const parts: Uint8Array[] = [];
+  const parts: Array<Uint8Array> = [];
   let idat: 'before' | 'inside' | 'after' = 'before';
   let firstIdat = 0;
   let chunk = readChunk(data, context.start);
@@ -480,7 +480,7 @@ const readDatastream = (data: Uint8Array, header: Header, context: { readonly st
   return { state, parts, firstIdat };
 };
 
-const concatenate = (parts: readonly Uint8Array[]): Uint8Array => {
+const concatenate = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let written = 0;
   for (const part of parts) {

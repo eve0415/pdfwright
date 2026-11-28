@@ -72,7 +72,7 @@ class MergeWriter {
   }
 
   dictionary(entries: PdfDictionaryEntries, original: SourceNode | undefined): void {
-    const occurrences = new Map<string, SourceEntry[]>();
+    const occurrences = new Map<string, Array<SourceEntry>>();
     for (const entry of original?.entries ?? []) {
       const key = latin1(entry.key);
       occurrences.set(key, [...(occurrences.get(key) ?? []), entry]);
@@ -101,7 +101,7 @@ class MergeWriter {
     this.writer.writeAscii('>>');
   }
 
-  private array(items: readonly PdfDirectObject[], original: SourceNode): void {
+  private array(items: ReadonlyArray<PdfDirectObject>, original: SourceNode): void {
     const originals = original.items ?? [];
     const [first] = originals;
     const last = originals.at(-1);

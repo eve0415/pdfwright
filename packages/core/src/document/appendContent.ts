@@ -119,8 +119,8 @@ const place = (context: ContentContext, record: ResourceRecord): void => {
   }
 };
 
-const additions = (resources: PdfDirectObject | undefined): ResourceAddition[] => {
-  const list: ResourceAddition[] = [];
+const additions = (resources: PdfDirectObject | undefined): Array<ResourceAddition> => {
+  const list: Array<ResourceAddition> = [];
   if (resources?.kind !== 'dictionary') {
     return list;
   }
@@ -214,7 +214,7 @@ const contentStream = (context: ContentContext, data: Uint8Array, compress: bool
   return context.objects.add({ kind: 'stream', dictionary, data: deflateZlib(data) });
 };
 
-const existingContents = (context: ContentContext, page: PageEntry): PdfDirectObject[] => {
+const existingContents = (context: ContentContext, page: PageEntry): Array<PdfDirectObject> => {
   const contents = pageEntries(context, page).get(CONTENTS);
   if (contents === undefined) {
     return [];

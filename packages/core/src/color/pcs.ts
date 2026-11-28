@@ -12,7 +12,7 @@ const LINEAR_DIVISOR = 3 * DELTA * DELTA;
 const labForward = (value: number): number => (value > CUBE_THRESHOLD ? deterministicCbrt(value) : value / LINEAR_DIVISOR + 4 / 29);
 const labInverse = (value: number): number => (value > DELTA ? value * value * value : LINEAR_DIVISOR * (value - 4 / 29));
 
-export const xyzToLab = (xyz: readonly number[]): number[] => {
+export const xyzToLab = (xyz: ReadonlyArray<number>): Array<number> => {
   // ICC.1:2022, Annex A Equations A.4–A.6 express PCSLAB through the D50 PCS white.
   const fx = labForward((xyz[0] ?? 0) / D50.x);
   const fy = labForward((xyz[1] ?? 0) / D50.y);
@@ -20,7 +20,7 @@ export const xyzToLab = (xyz: readonly number[]): number[] => {
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 };
 
-export const labToXyz = (lab: readonly number[]): number[] => {
+export const labToXyz = (lab: ReadonlyArray<number>): Array<number> => {
   const fy = ((lab[0] ?? 0) + 16) / 116;
   const fx = fy + (lab[1] ?? 0) / 500;
   const fz = fy - (lab[2] ?? 0) / 200;
@@ -30,7 +30,7 @@ export const labToXyz = (lab: readonly number[]): number[] => {
 const clamp = (value: number): number => Math.min(1, Math.max(0, value));
 const adobeLut8 = (tag: LutTag, option: 'icc' | 'adobe'): boolean => tag.kind === 'lut8' && option === 'adobe';
 
-export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
+export const encodePcs = (values: ReadonlyArray<number>, pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): Array<number> => {
   // ICC.1:2022, 6.3.4.2 Tables 11–13 and 10.10: mft2 uses legacy PCSLAB (FFFF/FF00 conversion) even inside v4 profiles.
   if (pcs === 'XYZ') {
     return values.map(value => clamp(value / XYZ_SCALE));
@@ -42,7 +42,7 @@ export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config:
   return [clamp((values[0] ?? 0) / 100), clamp(((values[1] ?? 0) + 128) / divisor), clamp(((values[2] ?? 0) + 128) / divisor)];
 };
 
-export const decodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
+export const decodePcs = (values: ReadonlyArray<number>, pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): Array<number> => {
   if (pcs === 'XYZ') {
     return values.map(value => value * XYZ_SCALE);
   }

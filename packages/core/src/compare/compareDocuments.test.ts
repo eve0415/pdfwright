@@ -13,7 +13,7 @@ import { compareDocuments } from './compareDocuments.ts';
 
 const catalog = { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' };
 
-const pdf = (objects: readonly TestObject[]): Uint8Array => buildPdf([{ xref: 'classic', objects: [catalog, ...objects], trailer: '/Root 1 0 R' }]).bytes;
+const pdf = (objects: ReadonlyArray<TestObject>): Uint8Array => buildPdf([{ xref: 'classic', objects: [catalog, ...objects], trailer: '/Root 1 0 R' }]).bytes;
 
 const twoPages = pdf([
   { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2/MediaBox[0 0 600 800]/Resources<<>>>>' },
@@ -105,7 +105,7 @@ const duplicated = (resources: string): Uint8Array =>
 
 const emptyPages = { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' };
 
-const holding = (pages: string, page: string, objects: readonly TestObject[]): Uint8Array =>
+const holding = (pages: string, page: string, objects: ReadonlyArray<TestObject>): Uint8Array =>
   pdf([
     { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]${pages}>>` },
     { number: 3, body: `<</Type/Page/Parent 2 0 R${page}>>` },

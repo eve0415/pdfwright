@@ -16,8 +16,8 @@ export const MAX_MESH_OUTPUT_BYTES: number = 4 * 1024 * 1024;
 interface Vertex {
   readonly x: number;
   readonly y: number;
-  readonly rgb: readonly number[];
-  readonly cmyk: readonly number[];
+  readonly rgb: ReadonlyArray<number>;
+  readonly cmyk: ReadonlyArray<number>;
   readonly parameter?: { readonly u: number; readonly v: number; readonly surface: (u: number, v: number) => Vertex };
 }
 
@@ -27,8 +27,8 @@ interface Point {
 }
 
 interface Patch {
-  readonly points: readonly Point[];
-  readonly colors: readonly (readonly number[])[];
+  readonly points: ReadonlyArray<Point>;
+  readonly colors: ReadonlyArray<ReadonlyArray<number>>;
 }
 
 interface VertexRecord {
@@ -43,7 +43,7 @@ export interface MeshSubdivisionOptions {
   readonly coordinateBits: number;
   readonly componentBits: number;
   readonly flagBits: number;
-  readonly decode: readonly number[];
+  readonly decode: ReadonlyArray<number>;
   readonly verticesPerRow?: number | undefined;
   readonly transform: ColorTransform;
   readonly destination: IccProfile;
@@ -60,7 +60,7 @@ export interface SubdividedMesh {
 
 const component = (raw: number, bits: number, range: { low: number; high: number }): number => range.low + (raw / (2 ** bits - 1)) * (range.high - range.low);
 
-const converted = (transform: ColorTransform, rgb: readonly number[]): readonly number[] => {
+const converted = (transform: ColorTransform, rgb: ReadonlyArray<number>): ReadonlyArray<number> => {
   const output = new Float64Array(4);
   transform.convert(Float64Array.from(rgb), output);
   return [...output];
@@ -80,20 +80,20 @@ const readVertex = (reader: MeshBitReader, options: MeshSubdivisionOptions): Ver
   return { vertex: { x, y, rgb, cmyk: converted(options.transform, rgb) }, flag };
 };
 
-const pushTriangle = (triangles: Triangle[], triangle: Triangle, maxTriangles: number): void => {
+const pushTriangle = (triangles: Array<Triangle>, triangle: Triangle, maxTriangles: number): void => {
   if (triangles.length >= maxTriangles) {
     throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
   }
   triangles.push(triangle);
 };
 
-const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
-  const triangles: Triangle[] = [];
+const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): ReadonlyArray<Triangle> => {
+  const triangles: Array<Triangle> = [];
   const perRow = options.verticesPerRow;
   if (perRow === undefined || perRow < 2) {
     throw new ParseError('mesh VerticesPerRow is invalid', 0);
   }
-  const vertices: Vertex[] = [];
+  const vertices: Array<Vertex> = [];
   while (reader.remainingBits > 0) {
     vertices.push(readVertex(reader, options).vertex);
     if (vertices.length > maxTriangles + 2) {
@@ -121,9 +121,9 @@ const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions
   return triangles;
 };
 
-const freeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
-  const triangles: Triangle[] = [];
-  let pending: Vertex[] = [];
+const freeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): ReadonlyArray<Triangle> => {
+  const triangles: Array<Triangle> = [];
+  let pending: Array<Vertex> = [];
   let previous: Triangle | undefined;
   while (reader.remainingBits > 0) {
     const { vertex, flag } = readVertex(reader, options);
@@ -153,7 +153,7 @@ const point = (reader: MeshBitReader, options: MeshSubdivisionOptions): Point =>
   y: component(reader.read(options.coordinateBits), options.coordinateBits, { low: options.decode[2] ?? 0, high: options.decode[3] ?? 1 }),
 });
 
-const patchColor = (reader: MeshBitReader, options: MeshSubdivisionOptions): readonly number[] =>
+const patchColor = (reader: MeshBitReader, options: MeshSubdivisionOptions): ReadonlyArray<number> =>
   Array.from({ length: 3 }, (_, channel) =>
     component(reader.read(options.componentBits), options.componentBits, {
       low: options.decode[4 + channel * 2] ?? 0,
@@ -161,17 +161,17 @@ const patchColor = (reader: MeshBitReader, options: MeshSubdivisionOptions): rea
     }),
   );
 
-const sharedEdge = (patch: Patch, flag: number): readonly Point[] => {
+const sharedEdge = (patch: Patch, flag: number): ReadonlyArray<Point> => {
   const start = flag * 3;
   return Array.from({ length: 4 }, (_, index) => patch.points[(start + index) % 12] ?? { x: 0, y: 0 });
 };
 
-const sharedColors = (patch: Patch, flag: number): readonly (readonly number[])[] => {
+const sharedColors = (patch: Patch, flag: number): ReadonlyArray<ReadonlyArray<number>> => {
   const first = flag;
   return [patch.colors[first] ?? [], patch.colors[(first + 1) % 4] ?? []];
 };
 
-const interior = (points: readonly Point[], index: number): Point => {
+const interior = (points: ReadonlyArray<Point>, index: number): Point => {
   const at = (entry: number): Point => points[entry] ?? { x: 0, y: 0 };
   const allTerms = [
     [
@@ -222,7 +222,7 @@ const interior = (points: readonly Point[], index: number): Point => {
   };
 };
 
-const tensorPoints = (patch: Patch, type: 6 | 7): readonly Point[] => {
+const tensorPoints = (patch: Patch, type: 6 | 7): ReadonlyArray<Point> => {
   const { points } = patch;
   const at = (index: number): Point => points[index] ?? { x: 0, y: 0 };
   // ISO 32000-1:2008, 8.7.4.5.8: Type 6 interior points are fixed by its twelve boundary points.
@@ -246,11 +246,11 @@ const tensorPoints = (patch: Patch, type: 6 | 7): readonly Point[] => {
   ];
 };
 
-const bernstein = (value: number): readonly number[] => [(1 - value) ** 3, 3 * value * (1 - value) ** 2, 3 * value * value * (1 - value), value ** 3];
+const bernstein = (value: number): ReadonlyArray<number> => [(1 - value) ** 3, 3 * value * (1 - value) ** 2, 3 * value * value * (1 - value), value ** 3];
 
 const distance = (actual: Point, x: number, y: number): number => Math.hypot(actual.x - x, actual.y - y);
 
-const patchTriangles = (patch: Patch, type: 6 | 7, transform: ColorTransform): readonly Triangle[] => {
+const patchTriangles = (patch: Patch, type: 6 | 7, transform: ColorTransform): ReadonlyArray<Triangle> => {
   const control = tensorPoints(patch, type);
   const sample = (u: number, v: number): Vertex => {
     const bu = bernstein(u);
@@ -276,7 +276,7 @@ const patchTriangles = (patch: Patch, type: 6 | 7, transform: ColorTransform): r
     );
     return { x, y, rgb, cmyk: converted(transform, rgb), parameter: { u, v, surface: sample } };
   };
-  const triangles: Triangle[] = [];
+  const triangles: Array<Triangle> = [];
   const refine = (quad: { u0: number; v0: number; u1: number; v1: number; depth: number }): void => {
     const { u0, v0, u1, v1, depth } = quad;
     const a = sample(u0, v0);
@@ -306,20 +306,20 @@ const patchTriangles = (patch: Patch, type: 6 | 7, transform: ColorTransform): r
   return triangles;
 };
 
-const patches = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
-  const triangles: Triangle[] = [];
+const patches = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): ReadonlyArray<Triangle> => {
+  const triangles: Array<Triangle> = [];
   let previous: Patch | undefined;
   while (reader.remainingBits > 0) {
     const flag = reader.read(options.flagBits) % 4;
     if (previous === undefined && flag !== 0) {
       throw new ParseError('the first mesh patch must start a new patch', 0);
     }
-    const points: Point[] = previous === undefined || flag === 0 ? [] : [...sharedEdge(previous, flag)];
+    const points: Array<Point> = previous === undefined || flag === 0 ? [] : [...sharedEdge(previous, flag)];
     const count = options.type === 6 ? 12 : 16;
     while (points.length < count) {
       points.push(point(reader, options));
     }
-    const colors: (readonly number[])[] = previous === undefined || flag === 0 ? [] : [...sharedColors(previous, flag)];
+    const colors: Array<ReadonlyArray<number>> = previous === undefined || flag === 0 ? [] : [...sharedColors(previous, flag)];
     while (colors.length < 4) {
       colors.push(patchColor(reader, options));
     }
@@ -337,7 +337,7 @@ const patches = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTria
   return triangles;
 };
 
-const trianglesOf = (data: Uint8Array, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
+const trianglesOf = (data: Uint8Array, options: MeshSubdivisionOptions, maxTriangles: number): ReadonlyArray<Triangle> => {
   const reader = new MeshBitReader(data);
   if (options.type === 5) {
     return latticeTriangles(reader, options, maxTriangles);
@@ -370,7 +370,7 @@ const centroid = (triangle: Triangle, transform: ColorTransform): Vertex => {
   return { x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3, rgb, cmyk: converted(transform, rgb) };
 };
 
-const edgeError = (a: Vertex, b: Vertex, config: { exact: Vertex; lab: (cmyk: readonly number[]) => readonly number[] }): number => {
+const edgeError = (a: Vertex, b: Vertex, config: { exact: Vertex; lab: (cmyk: ReadonlyArray<number>) => ReadonlyArray<number> }): number => {
   const interpolated = a.cmyk.map((value, index) => (value + (b.cmyk[index] ?? 0)) / 2);
   return deltaE2000(config.lab(config.exact.cmyk), config.lab(interpolated));
 };
@@ -389,7 +389,7 @@ export const subdivideMesh = (data: Uint8Array, options: MeshSubdivisionOptions)
   const componentBits = Math.max(options.componentBits, 8);
   const writer = new MeshBitWriter();
   const toPcs = sourceEvaluator(options.destination, 'relativeColorimetric', 'icc');
-  const lab = (cmyk: readonly number[]): readonly number[] => {
+  const lab = (cmyk: ReadonlyArray<number>): ReadonlyArray<number> => {
     const pcs = toPcs(cmyk);
     return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
   };

@@ -29,7 +29,7 @@ const band = (value: number, low: number, high: number): number => {
   return Math.min(LARGE_BANDS - 1, Math.max(0, at));
 };
 
-const addBand = (index: Map<number, CoverEvent[]>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
+const addBand = (index: Map<number, Array<CoverEvent>>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
   for (let at = span.first; at <= span.last; at++) {
     const list = index.get(at);
     if (list === undefined) {
@@ -60,9 +60,9 @@ export class CoverIndex {
   private readonly bounds: Bounds;
   private readonly columns: number;
   private readonly rows: number;
-  private readonly cells = new Map<number, CoverEvent[]>();
-  private readonly rowBands = new Map<number, CoverEvent[]>();
-  private readonly columnBands = new Map<number, CoverEvent[]>();
+  private readonly cells = new Map<number, Array<CoverEvent>>();
+  private readonly rowBands = new Map<number, Array<CoverEvent>>();
+  private readonly columnBands = new Map<number, Array<CoverEvent>>();
   private readonly seen = new WeakMap<CoverEvent['clip'], Set<string>>();
   private comparisons = 0;
 

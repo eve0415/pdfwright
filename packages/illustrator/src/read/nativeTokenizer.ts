@@ -10,8 +10,8 @@ const RASTER_SIZE = /\]\s+0 0\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+8\s+\d+\s+1\s+/u;
 const BEGIN_DATA = /^%%BeginData: (\d+)$/u;
 
 /** Reads CR records while treating the colour and alpha planes following `XI\n` as binary. */
-export const tokenizeNative = (bytes: Uint8Array): NativeRecord[] => {
-  const records: NativeRecord[] = [];
+export const tokenizeNative = (bytes: Uint8Array): Array<NativeRecord> => {
+  const records: Array<NativeRecord> = [];
   let position = 0;
   let rasterPixels: number | undefined;
   while (position < bytes.length) {

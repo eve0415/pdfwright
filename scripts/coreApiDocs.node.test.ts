@@ -7,8 +7,8 @@ interface ExportEntry {
   readonly source: URL;
 }
 
-const declarations = (index: string, root: URL): ExportEntry[] => {
-  const entries: ExportEntry[] = [];
+const declarations = (index: string, root: URL): Array<ExportEntry> => {
+  const entries: Array<ExportEntry> = [];
   const blocks = /export\s+(?:type\s+)?\{([^}]+)\}\s+from\s+'([^']+)'/gu;
   for (const match of index.matchAll(blocks)) {
     const [names, source] = match.slice(1);
@@ -45,7 +45,7 @@ const hasDoc = async (entry: ExportEntry, depth = 0): Promise<boolean> => {
   return previous.endsWith('*/') && previous.lastIndexOf('/**') > previous.lastIndexOf('*/', previous.length - 3);
 };
 
-const undocumented = async (index: string, root: URL): Promise<string[]> => {
+const undocumented = async (index: string, root: URL): Promise<Array<string>> => {
   const checks = await Promise.all(declarations(index, root).map(async entry => ({ name: entry.name, documented: await hasDoc(entry) })));
   return checks.filter(check => !check.documented).map(check => check.name);
 };

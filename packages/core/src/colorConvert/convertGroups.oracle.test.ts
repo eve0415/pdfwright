@@ -494,7 +494,7 @@ const contentAt = (document: ReturnType<typeof loadDocument>, number: number): s
 
 const luminosityContent = (document: ReturnType<typeof loadDocument>): string => contentAt(document, 6);
 
-const backdrop = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const backdrop = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const state = document.page(0).resources().get(pdfName('ExtGState').bytes);
   if (state?.kind !== 'dictionary') {
     throw new Error('ExtGState is missing');

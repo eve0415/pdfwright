@@ -16,8 +16,8 @@ const xor64 = (left: bigint, right: bigint): bigint => {
   return result;
 };
 
-export const samples = (): Rgb[] => {
-  const result: Rgb[] = [];
+export const samples = (): Array<Rgb> => {
+  const result: Array<Rgb> = [];
   for (let red = 0; red < 17; red++) {
     for (let green = 0; green < 17; green++) {
       for (let blue = 0; blue < 17; blue++) {
@@ -53,7 +53,7 @@ export const samples = (): Rgb[] => {
   let state = 0x9e3779b97f4a7c15n;
   const modulus = 2n ** 64n;
   for (let sample = 0; sample < 1000; sample++) {
-    const rgb: number[] = [];
+    const rgb: Array<number> = [];
     for (let channel = 0; channel < 3; channel++) {
       state = xor64(state, (state * 2n ** 13n) % modulus);
       state = xor64(state, state / 2n ** 7n);

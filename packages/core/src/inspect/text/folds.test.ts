@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { TEXT_FOLDS, foldOf, foldText } from './folds.ts';
 
-const hexPairs = (text: string): [number, string][] =>
+const hexPairs = (text: string): Array<[number, string]> =>
   text
     .split(/\s+/u)
     .filter(pair => pair !== '')
@@ -42,7 +42,7 @@ FE3A;3015 FE3B;3010 FE3C;3011 FE3D;300A FE3E;300B FE3F;3008 FE40;3009 FE41;300C 
 FE44;300F FE47;FF3B FE48;FF3D
 `);
 
-const LIGATURES: [number, string][] = [
+const LIGATURES: Array<[number, string]> = [
   [0xfb00, 'ff'],
   [0xfb01, 'fi'],
   [0xfb02, 'fl'],
@@ -53,8 +53,8 @@ const LIGATURES: [number, string][] = [
 ];
 
 // Every code point each fold changes.
-const folded = (fold: TextFold): [number, string][] => {
-  const result: [number, string][] = [];
+const folded = (fold: TextFold): Array<[number, string]> => {
+  const result: Array<[number, string]> = [];
   for (let codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
     const to = foldOf(fold, codePoint);
     if (to !== undefined) {
@@ -69,7 +69,7 @@ const KANGXI = Array.from({ length: 0x2fd6 - 0x2f00 }, (_, index) => 0x2f00 + in
 describe('text folds', () => {
   it('folds every Kangxi radical to its compatibility decomposition except U+2F2A, U+2F2C and U+2F3E, and the supplement and strokes by the table', () => {
     const exceptions = new Set([0x2f2a, 0x2f2c, 0x2f3e]);
-    const kangxi: [number, string][] = KANGXI.filter(codePoint => !exceptions.has(codePoint)).map(codePoint => [
+    const kangxi: Array<[number, string]> = KANGXI.filter(codePoint => !exceptions.has(codePoint)).map(codePoint => [
       codePoint,
       String.fromCodePoint(codePoint).normalize('NFKC'),
     ]);

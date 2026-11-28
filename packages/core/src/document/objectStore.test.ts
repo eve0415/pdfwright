@@ -14,12 +14,12 @@ import { ObjectStore } from './objectStore.ts';
 
 interface Store {
   store: ObjectStore;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
 const storeFrom = (bytes: Uint8Array, startxref: number, generationMismatch: 'error' | 'null' = 'error'): Store => {
   const source = new ByteSource(bytes);
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -36,12 +36,12 @@ const storeFrom = (bytes: Uint8Array, startxref: number, generationMismatch: 'er
   return { store: new ObjectStore(source, ObjectIndex.fromSections(searchOrder(chain)), context), warnings };
 };
 
-const storeOf = (objects: readonly TestObject[], generationMismatch: 'error' | 'null' = 'error'): Store => {
+const storeOf = (objects: ReadonlyArray<TestObject>, generationMismatch: 'error' | 'null' = 'error'): Store => {
   const pdf = buildPdf([{ xref: 'classic', objects }]);
   return storeFrom(pdf.bytes, pdf.sections.at(-1) ?? 0, generationMismatch);
 };
 
-const lastSection = (sections: readonly number[]): number => sections.at(-1) ?? 0;
+const lastSection = (sections: ReadonlyArray<number>): number => sections.at(-1) ?? 0;
 
 const data = (value: PdfObject): string => (value.kind === 'stream' ? new TextDecoder().decode(value.data) : '');
 

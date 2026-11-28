@@ -46,7 +46,7 @@ const latin1 = (bytes: Uint8Array): string => {
   return text;
 };
 
-const asList = (value: PdfDirectObject | undefined, context: DecodeContext): (PdfObject | undefined)[] => {
+const asList = (value: PdfDirectObject | undefined, context: DecodeContext): Array<PdfObject | undefined> => {
   const deref = context.deref ?? ((item: PdfDirectObject | undefined): PdfObject | undefined => item);
   const resolved = deref(value);
   if (resolved === undefined || resolved.kind === 'null') {

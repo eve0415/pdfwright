@@ -13,11 +13,11 @@ import { readSectionChain, searchOrder } from './sectionChain.ts';
 
 interface Chain {
   chain: SectionChain;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
 const chainOf = (bytes: Uint8Array): Chain => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -27,9 +27,9 @@ const chainOf = (bytes: Uint8Array): Chain => {
   return { chain, warnings };
 };
 
-const order = (chain: SectionChain): string[] => searchOrder(chain).map(section => `${section.kind}@${String(section.offset)}`);
+const order = (chain: SectionChain): Array<string> => searchOrder(chain).map(section => `${section.kind}@${String(section.offset)}`);
 
-const expectedOrder = (pdf: TestPdf, formats: readonly string[]): string[] =>
+const expectedOrder = (pdf: TestPdf, formats: ReadonlyArray<string>): Array<string> =>
   pdf.sections.map((offset, index) => `${formats[index] ?? ''}@${String(offset)}`).toReversed();
 
 const hybridOffset = (chain: SectionChain): number => chain.sections[0]?.hybrid?.offset ?? -1;
@@ -37,7 +37,7 @@ const hybridOffset = (chain: SectionChain): number => chain.sections[0]?.hybrid?
 const catalog = { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' };
 const pages = { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' };
 
-const updated = (formats: readonly ('classic' | 'stream')[]): TestPdf =>
+const updated = (formats: ReadonlyArray<'classic' | 'stream'>): TestPdf =>
   buildPdf(formats.map((xref, index) => ({ xref, objects: index === 0 ? [catalog, pages] : [{ number: 3, body: String(index) }], trailer: '/Root 1 0 R' })));
 
 describe('cross-reference section chains', () => {

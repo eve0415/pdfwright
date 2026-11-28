@@ -12,13 +12,13 @@ import { decodeRunLength } from './runLength.ts';
 const LIMIT = 1_048_576;
 
 // Packs codes high-order bit first into bytes, as ISO 32000-1:2008, 7.4.4.2 describes.
-const packCodes = (codes: readonly (readonly [number, number])[]): Uint8Array => {
+const packCodes = (codes: ReadonlyArray<readonly [number, number]>): Uint8Array => {
   let bits = '';
   for (const [code, width] of codes) {
     bits += code.toString(2).padStart(width, '0');
   }
   bits = bits.padEnd(Math.ceil(bits.length / 8) * 8, '0');
-  const bytes: number[] = [];
+  const bytes: Array<number> = [];
   for (let offset = 0; offset < bits.length; offset += 8) {
     bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
   }

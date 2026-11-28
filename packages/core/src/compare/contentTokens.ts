@@ -66,11 +66,11 @@ const operatorText = (lexer: Lexer, token: Token): string => new TextDecoder('la
  * ISO 32000-1:2008, 7.8.2: "A content stream is a PDF stream object whose data consists of a sequence of instructions describing the graphical elements to be painted on a page."
  * Throws ParseError for operands that cannot be read, such as an unterminated string.
  */
-export const contentOperations = (bytes: Uint8Array, maxNesting: number): string[] => {
+export const contentOperations = (bytes: Uint8Array, maxNesting: number): Array<string> => {
   const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
-  const operations: string[] = [];
-  let operands: string[] = [];
-  let imageParameters: PdfDirectObject[] = [];
+  const operations: Array<string> = [];
+  let operands: Array<string> = [];
+  let imageParameters: Array<PdfDirectObject> = [];
   for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
     if (token.kind === 'keyword' && token.keyword !== 'true' && token.keyword !== 'false' && token.keyword !== 'null') {
       lexer.next();
@@ -96,7 +96,7 @@ export const contentOperations = (bytes: Uint8Array, maxNesting: number): string
   return operations;
 };
 
-export type ContentOperations = { readonly ok: true; readonly operations: readonly string[] } | { readonly ok: false; readonly reason: string };
+export type ContentOperations = { readonly ok: true; readonly operations: ReadonlyArray<string> } | { readonly ok: false; readonly reason: string };
 
 /** The operations of decoded content, or why they cannot be read; resource limits propagate. */
 export const readOperations = (bytes: Uint8Array, maxNesting: number): ContentOperations => {

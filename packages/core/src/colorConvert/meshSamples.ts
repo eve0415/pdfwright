@@ -19,7 +19,7 @@ export interface MeshSampleOptions {
   readonly flagBits: number;
   readonly channels: number;
   readonly outputChannels: number;
-  readonly decode: readonly number[];
+  readonly decode: ReadonlyArray<number>;
   readonly transform: Pick<ColorTransform, 'convert'>;
   readonly maxBytes: number;
 }

@@ -1,6 +1,10 @@
 import { createMd5 } from '../hash/md5.ts';
 
-export const fileIdentifier = (body: readonly Uint8Array[], trailerWithoutId: Uint8Array, supplied?: [Uint8Array, Uint8Array]): [Uint8Array, Uint8Array] => {
+export const fileIdentifier = (
+  body: ReadonlyArray<Uint8Array>,
+  trailerWithoutId: Uint8Array,
+  supplied?: [Uint8Array, Uint8Array],
+): [Uint8Array, Uint8Array] => {
   if (supplied !== undefined) {
     return supplied;
   }

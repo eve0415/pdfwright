@@ -21,7 +21,7 @@ const page = { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792.
 const content = { number: 4, body: streamBody('', '0 0 m 10 10 l S') };
 
 // A PDF 1.4 file with one classic section, which a full rewrite writes with a classic table.
-const classic = (objects: readonly TestObject[], trailer = '/Root 1 0 R'): Uint8Array =>
+const classic = (objects: ReadonlyArray<TestObject>, trailer = '/Root 1 0 R'): Uint8Array =>
   buildPdf([{ xref: 'classic', objects, trailer }], { header: '%PDF-1.4' }).bytes;
 
 const text = (bytes: Uint8Array): string => latin1Text(bytes);
@@ -41,12 +41,12 @@ const highStream = (high: number): Uint8Array =>
   buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content, { number: high, body: '(high)' }], trailer: '/Root 1 0 R' }]).bytes;
 
 // The header a full rewrite writes and the codes of its warnings.
-const headerAndWarnings = (sections: readonly TestSection[], header: string): readonly [string, readonly string[]] => {
+const headerAndWarnings = (sections: ReadonlyArray<TestSection>, header: string): readonly [string, ReadonlyArray<string>] => {
   const saved = loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' });
   return [text(saved.toBytes()).slice(0, 8), saved.warnings.map(warning => warning.code)];
 };
 
-const kind = (sections: readonly TestSection[], header: string): string | undefined =>
+const kind = (sections: ReadonlyArray<TestSection>, header: string): string | undefined =>
   loadDocument(loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' }).chunks).structure.lastSectionKind;
 
 // A classic PDF 1.4 file whose update adds one object far above the others, so that no section lists the numbers between.

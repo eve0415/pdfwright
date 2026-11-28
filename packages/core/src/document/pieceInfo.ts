@@ -31,7 +31,7 @@ export interface PieceInfoRecord {
 
 const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => data instanceof Map;
 
-const dataEntries = (data: PieceDataEntries): [string | Uint8Array, PieceData][] => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
+const dataEntries = (data: PieceDataEntries): Array<[string | Uint8Array, PieceData]> => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
 
 // ISO 32000-1:2008, 14.5, Tables 318 and 319 require a LastModified date in each application data dictionary.
 export const pieceInfoRecord = (lastModified: PdfDate, data: PieceDataEntries): PieceInfoRecord => {

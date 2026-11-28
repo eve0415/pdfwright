@@ -10,7 +10,7 @@ export class Huffman {
   private readonly maxBits: number;
   readonly empty: boolean;
 
-  constructor(codeLengths: readonly number[], offset: number) {
+  constructor(codeLengths: ReadonlyArray<number>, offset: number) {
     // RFC 1951, 3.2.2 assigns canonical codes by length and symbol order.
     const counts = new Uint16Array(16);
     let maxBits = 0;

@@ -80,7 +80,7 @@ const content = (document: ReturnType<typeof loadDocument>, number: number): str
   return latin1Text(data);
 };
 
-const color = (document: ReturnType<typeof loadDocument>, key: string): readonly number[] => {
+const color = (document: ReturnType<typeof loadDocument>, key: string): ReadonlyArray<number> => {
   const annotation = document.get(pdfReference(7, 0));
   if (annotation.kind !== 'dictionary') {
     throw new Error('annotation is missing');

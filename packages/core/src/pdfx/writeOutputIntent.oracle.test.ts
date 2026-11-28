@@ -77,7 +77,7 @@ const withIntent = (bytes: Uint8Array) => {
   return { document, profileReference };
 };
 
-const subtypesOf = (document: ReturnType<typeof loadDocument>): (string | undefined)[] => {
+const subtypesOf = (document: ReturnType<typeof loadDocument>): Array<string | undefined> => {
   const intents = document.catalog().get(pdfName('OutputIntents').bytes);
   if (intents?.kind !== 'array') {
     throw new Error('missing output intents');

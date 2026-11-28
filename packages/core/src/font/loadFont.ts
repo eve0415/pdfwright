@@ -126,7 +126,7 @@ export const graphicsStateFontOwner = (
 interface LoadContext {
   readonly source: FontSource;
   readonly cmaps: CMapResolver;
-  readonly warnings: FontWarning[];
+  readonly warnings: Array<FontWarning>;
 }
 
 interface Loaded {
@@ -175,7 +175,7 @@ const fontBBoxOf = (context: LoadContext, dictionary: PdfDictionaryEntries): Rec
 };
 
 // The shape of the Type 3 fonts Chromium prints, whose glyph `g0` is taken to be the source font's .notdef glyph as a house rule, since the file does not say so: a FontDescriptor, and every Differences name `g` followed by uppercase hexadecimal digits, the source font's glyph index.
-const chromiumType3 = (differences: readonly string[], hasDescriptor: boolean): boolean =>
+const chromiumType3 = (differences: ReadonlyArray<string>, hasDescriptor: boolean): boolean =>
   hasDescriptor && differences.length > 0 && differences.every(name => /^g[0-9A-F]+$/u.test(name));
 
 const standardWidths = (metrics: Standard14Metrics | undefined, names: EncodingTable): SimpleWidths => {
@@ -303,7 +303,7 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
       cmapUnavailable: undefined,
     };
   };
-  const glyphs: (FontGlyph | undefined)[] = [];
+  const glyphs: Array<FontGlyph | undefined> = [];
   return {
     descendant: undefined,
     encoding: simpleEncoding(source, dictionary.get(ENCODING), differences.length),
@@ -423,9 +423,9 @@ const splitComposite = (
   parts: CompositeParts,
   cache: Map<string, FontGlyph>,
   input: { readonly string: Uint8Array; readonly maxGlyphs: number },
-): FontGlyph[] => {
+): Array<FontGlyph> => {
   const { string, maxGlyphs } = input;
-  const shown: FontGlyph[] = [];
+  const shown: Array<FontGlyph> = [];
   for (let offset = 0; offset < string.length;) {
     if (shown.length >= maxGlyphs) {
       throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);

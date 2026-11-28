@@ -9,7 +9,7 @@ import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdf
 import { createPdfFunction, createPdfFunctionReader } from './pdfFunction.ts';
 
 const key = (name: string): Uint8Array => new TextEncoder().encode(name);
-const numbers = (values: number[]): ReturnType<typeof pdfArray> => pdfArray(values.map(value => pdfReal(value)));
+const numbers = (values: Array<number>): ReturnType<typeof pdfArray> => pdfArray(values.map(value => pdfReal(value)));
 const functionObject = (type: number, extra: Record<string, PdfDirectObject>): ReturnType<typeof pdfDictionary> => {
   const entries = new PdfDictionaryEntries();
   entries.set(key('FunctionType'), pdfInteger(type));
@@ -51,14 +51,14 @@ const sharedChain = (levels: number): Map<number, PdfDirectObject> => {
 };
 
 // A stitching function that splits [0 1] evenly between its subfunctions.
-const evenStitching = (children: PdfDirectObject[]): ReturnType<typeof pdfDictionary> => {
+const evenStitching = (children: Array<PdfDirectObject>): ReturnType<typeof pdfDictionary> => {
   const bounds = numbers(Array.from({ length: children.length - 1 }, (_, index) => (index + 1) / children.length));
   const encode = numbers(children.flatMap(() => [0, 1]));
   return functionObject(3, { Functions: pdfArray(children), Bounds: bounds, Encode: encode });
 };
 
 const countingResolver = (objects: ReadonlyMap<number, PdfDirectObject>) => {
-  const resolved: number[] = [];
+  const resolved: Array<number> = [];
   const resolve = (value: PdfDirectObject): PdfObject => {
     if (value.kind === 'reference') {
       resolved.push(value.objectNumber);

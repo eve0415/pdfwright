@@ -11,7 +11,7 @@ export const escapeNativeString = (value: string, encoding: 'utf8' | 'ascii' = '
     }
   }
   const bytes = encoder.encode(value);
-  const escaped: number[] = [40];
+  const escaped: Array<number> = [40];
   for (const byte of bytes) {
     if (byte < 32 || byte === 127) {
       throw new ValidationError('native strings cannot contain control characters', 'illustrator-model');

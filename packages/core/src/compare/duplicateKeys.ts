@@ -26,7 +26,7 @@ const latin1 = (bytes: Uint8Array): string => {
 // The duplicate keys of every dictionary within a parsed value, by place relative to it.
 const duplicatesIn = (root: SourceNode): Map<string, DuplicateKey> => {
   const found = new Map<string, DuplicateKey>();
-  const pending: { readonly node: SourceNode; readonly where: ValuePath }[] = [{ node: root, where: [] }];
+  const pending: Array<{ readonly node: SourceNode; readonly where: ValuePath }> = [{ node: root, where: [] }];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const { node, where } = next;
     const seen = new Set<string>();
@@ -108,7 +108,7 @@ export const duplicatesOf = (document: DocumentInternals, value: PdfDirectObject
 export const reportDuplicates = (
   where: ValuePath,
   [left, right]: readonly [ReadonlyMap<string, DuplicateKey>, ReadonlyMap<string, DuplicateKey>],
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   for (const [place, duplicate] of left) {
     if (!right.has(place)) {

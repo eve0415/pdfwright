@@ -10,11 +10,11 @@ const MIN_COPY = 4096;
  * Parsing runs inside the segment that holds an offset; an object that crosses into the next segment is parsed again from a copied window.
  */
 export class ByteSource {
-  readonly segments: readonly Uint8Array[];
+  readonly segments: ReadonlyArray<Uint8Array>;
   readonly length: number;
-  private readonly starts: number[];
+  private readonly starts: Array<number>;
 
-  constructor(input: Uint8Array | readonly Uint8Array[]) {
+  constructor(input: Uint8Array | ReadonlyArray<Uint8Array>) {
     const segments = input instanceof Uint8Array ? [input] : input.filter(segment => segment.length > 0);
     this.segments = segments;
     this.starts = [];
@@ -49,8 +49,8 @@ export class ByteSource {
   }
 
   /** Every occurrence of a byte pattern in order, including those crossing segment boundaries. */
-  indexesOf(pattern: readonly number[]): number[] {
-    const found: number[] = [];
+  indexesOf(pattern: ReadonlyArray<number>): Array<number> {
+    const found: Array<number> = [];
     const [first] = pattern;
     if (first === undefined) {
       return found;
@@ -68,7 +68,7 @@ export class ByteSource {
   }
 
   /** Last occurrence of a byte pattern, including one crossing segment boundaries. */
-  lastIndexOf(pattern: readonly number[]): number {
+  lastIndexOf(pattern: ReadonlyArray<number>): number {
     if (pattern.length === 0) {
       return this.length;
     }
@@ -108,8 +108,8 @@ export class ByteSource {
   }
 
   /** Views of the original segments covering `start` to `end`. */
-  views(start: number, end: number): Uint8Array[] {
-    const views: Uint8Array[] = [];
+  views(start: number, end: number): Array<Uint8Array> {
+    const views: Array<Uint8Array> = [];
     if (start >= end || this.segments.length === 0) {
       return views;
     }
@@ -132,7 +132,7 @@ export class ByteSource {
     let window = this.window(offset);
     let size = Math.max(MIN_COPY, 2 * (window.base + window.bytes.length - offset));
     for (;;) {
-      const warnings: LoadWarning[] = [];
+      const warnings: Array<LoadWarning> = [];
       const buffered: LexContext = {
         warn: warning => {
           warnings.push(warning);

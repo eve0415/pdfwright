@@ -28,11 +28,11 @@ const IEC_WHITE = { x: 0.9505, y: 1, z: 1.089 };
 // The Bradford adaptation to the D50 PCS white that calibrated sources use, applied to the IEC matrix, with the standard's decoding function as the tone curve.
 const analytic = calibratedProfile({ kind: 'calRGB', whitePoint: IEC_WHITE, gamma: [1, 1, 1], matrix: IEC_MATRIX });
 const analyticXyz = sourceEvaluator(analytic, 'relativeColorimetric', 'icc');
-const iec = (input: readonly number[]): PcsValue => analyticXyz(input.map(value => decode(value)));
+const iec = (input: ReadonlyArray<number>): PcsValue => analyticXyz(input.map(value => decode(value)));
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
-const rgbCurves = (profile: IccProfile): readonly Curve[] => {
+const rgbCurves = (profile: IccProfile): ReadonlyArray<Curve> => {
   const { trc } = profile;
   if (trc === undefined || !('red' in trc)) {
     throw new Error('the profile has no RGB TRCs');
@@ -40,7 +40,7 @@ const rgbCurves = (profile: IccProfile): readonly Curve[] => {
   return [trc.red, trc.green, trc.blue];
 };
 
-const worstDifference = (reference: (input: readonly number[]) => PcsValue): number => {
+const worstDifference = (reference: (input: ReadonlyArray<number>) => PcsValue): number => {
   const builtIn = sourceEvaluator(srgbColorSource().profile, 'relativeColorimetric', 'icc');
   return Math.max(
     ...samples().map(([red, green, blue]) => {

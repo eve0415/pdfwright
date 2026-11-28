@@ -29,7 +29,7 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 
-const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+const lab = (channels: ReadonlyArray<number> | Float64Array): ReadonlyArray<number> => {
   const pcs = toPcs([...channels]);
   return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
 };
@@ -206,8 +206,8 @@ const formShadingPdf = buildPdf([
 
 interface ConvertedShading {
   readonly space: string;
-  readonly background: readonly number[];
-  readonly evaluate: (value: number) => number[];
+  readonly background: ReadonlyArray<number>;
+  readonly evaluate: (value: number) => Array<number>;
 }
 
 const numberValue = (value: PdfObject): number => {
@@ -220,10 +220,10 @@ const numberValue = (value: PdfObject): number => {
   throw new Error('shading number is invalid');
 };
 
-const closeChannels = (actual: readonly number[], expected: Float64Array): boolean[] =>
+const closeChannels = (actual: ReadonlyArray<number>, expected: Float64Array): Array<boolean> =>
   actual.map((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 0.005);
 
-const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
+const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: ReadonlyArray<number>) => Array<number>) => {
   const shading = document.get(pdfReference(5, 0));
   if (shading.kind !== 'dictionary') {
     throw new Error('shading is missing');
@@ -269,7 +269,7 @@ const shadingGrid = (document: ReturnType<typeof loadDocument>): number => {
   return sampledGrid(document, functionValue);
 };
 
-const stitchedGrids = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const stitchedGrids = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const shading = document.get(pdfReference(5, 0));
   if (shading.kind !== 'dictionary') {
     throw new Error('shading is missing');
@@ -527,7 +527,7 @@ describe('function shading conversion', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, document.save().toBytes());
       const child = spawn('qpdf', ['--check', file]);
-      const events: readonly unknown[] = await once(child, 'close');
+      const events: ReadonlyArray<unknown> = await once(child, 'close');
       const code = events.at(0);
       expect(code).toBe(0);
     } finally {

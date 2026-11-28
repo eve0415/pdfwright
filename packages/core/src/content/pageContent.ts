@@ -11,10 +11,10 @@ const CONTENTS = pdfName('Contents').bytes;
 
 /** A page's decoded content streams, and why any of them could not be read. */
 export interface PageContent {
-  readonly streams: readonly Uint8Array[];
+  readonly streams: ReadonlyArray<Uint8Array>;
   /** The index in the Contents array of each stream read. */
-  readonly indexes: readonly number[];
-  readonly problems: readonly string[];
+  readonly indexes: ReadonlyArray<number>;
+  readonly problems: ReadonlyArray<string>;
 }
 
 const label = (index: number): string => `content stream ${String(index)}`;
@@ -24,9 +24,9 @@ const label = (index: number): string => `content stream ${String(index)}`;
  * A stream that cannot be decoded is left out and reported; together the streams are held under the document's maxDecodedBytes, past which ResourceLimitError is thrown.
  */
 export const pageContent = (document: DocumentInternals, page: PageEntry): PageContent => {
-  const problems: string[] = [];
-  const streams: Uint8Array[] = [];
-  const indexes: number[] = [];
+  const problems: Array<string> = [];
+  const streams: Array<Uint8Array> = [];
+  const indexes: Array<number> = [];
   try {
     const dictionary = document.objects.resolve(page.reference.objectNumber, page.reference.generation);
     const contents = dictionary.kind === 'dictionary' ? document.objects.deref(dictionary.entries.get(CONTENTS)) : undefined;

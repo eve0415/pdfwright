@@ -45,7 +45,7 @@ export const textRenderingMatrix = (state: GraphicsState, textMatrix: Matrix): M
 const transformVector = ([a, b, c, d]: Matrix, x: number, y: number): readonly [number, number] => [a * x + c * y, b * x + d * y];
 
 // The y range of glyph-space corners in text space: transformed by the font's glyph matrix and put in order there, since a FontMatrix may flip the y axis or rotate.
-const textRange = (font: FontModel, corners: readonly (readonly [number, number])[]): readonly [number, number] => {
+const textRange = (font: FontModel, corners: ReadonlyArray<readonly [number, number]>): readonly [number, number] => {
   const ys = corners.map(([x, y]) => transformPoint(font.glyphMatrix, x, y)[1]);
   return [Math.min(...ys), Math.max(...ys)];
 };
@@ -83,14 +83,14 @@ const textExtent = (font: FontModel, glyph: FontGlyph | undefined): TextExtent =
   };
 };
 
-const quadOf = (matrix: Matrix, corners: readonly (readonly [number, number])[]): Quad => {
+const quadOf = (matrix: Matrix, corners: ReadonlyArray<readonly [number, number]>): Quad => {
   const [p0 = [0, 0], p1 = [0, 0], p2 = [0, 0], p3 = [0, 0]] = corners.map(([x, y]) => transformPoint(matrix, x, y));
   return [p0[0], p0[1], p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]];
 };
 
 // The advance box in text space, corners in the order the quad reports them, its core box, and the displacement the glyph moves the text position by.
 interface TextBox {
-  readonly corners: readonly (readonly [number, number])[];
+  readonly corners: ReadonlyArray<readonly [number, number]>;
   readonly core: TextRectangle;
   readonly displacement: readonly [number, number] | undefined;
   readonly estimated: boolean;
@@ -154,7 +154,7 @@ const inset = ([left, bottom, right, top]: TextRectangle): TextRectangle => {
 };
 
 // The corners of a box from left to right and bottom to top, in the order the quad reports them.
-const cornersOf = ([left, bottom, right, top]: TextRectangle): readonly (readonly [number, number])[] => [
+const cornersOf = ([left, bottom, right, top]: TextRectangle): ReadonlyArray<readonly [number, number]> => [
   [left, bottom],
   [right, bottom],
   [right, top],

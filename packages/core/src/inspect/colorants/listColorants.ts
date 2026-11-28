@@ -62,31 +62,31 @@ export interface ColorantUse {
   readonly name: Uint8Array;
   readonly kind: ColorantKind;
   /** Empty when no painting operator reached the colorant. A colorant painted anywhere on the page is painted, whatever else declares it. */
-  readonly painted: readonly PaintedBy[];
-  readonly selected: readonly SelectedBy[];
+  readonly painted: ReadonlyArray<PaintedBy>;
+  readonly selected: ReadonlyArray<SelectedBy>;
   /** Every reason that applies, including for a painted colorant, except `resources`, which is given only for a colorant not painted. */
-  readonly declared: readonly DeclaredOnlyReason[];
+  readonly declared: ReadonlyArray<DeclaredOnlyReason>;
   /** The distinct alternate definitions the colorant appears with, so that one colorant defined two ways can be found. */
-  readonly alternates: readonly AlternateSummary[];
+  readonly alternates: ReadonlyArray<AlternateSummary>;
 }
 
 /** The byte-sorted colorants on a zero-based page with completeness and nonfatal warnings under ISO 32000-1:2008, 8.6.6.4. */
 export interface PageColorants {
   readonly page: number;
   /** Sorted by name bytes. */
-  readonly colorants: readonly ColorantUse[];
+  readonly colorants: ReadonlyArray<ColorantUse>;
   /** False when some content, resource or colour space could not be read or interpreted. */
   readonly complete: boolean;
-  readonly warnings: readonly InspectWarning[];
+  readonly warnings: ReadonlyArray<InspectWarning>;
 }
 
 /** Selects zero-based pages to inspect; omission inspects every page, and an invalid index raises InvalidArgumentError without a reason. */
 export interface ListColorantsOptions {
   /** 0-based indexes of the pages to inspect; all pages when absent. */
-  readonly pages?: readonly number[];
+  readonly pages?: ReadonlyArray<number>;
 }
 
-const PAINTED_ORDER: readonly PaintedBy[] = [
+const PAINTED_ORDER: ReadonlyArray<PaintedBy> = [
   'fill',
   'stroke',
   'text',
@@ -98,8 +98,8 @@ const PAINTED_ORDER: readonly PaintedBy[] = [
   'type3-glyph',
   'annotation',
 ];
-const SELECTED_ORDER: readonly SelectedBy[] = ['colour-space-only', 'invisible-text', 'clip-only'];
-const DECLARED_ORDER: readonly DeclaredOnlyReason[] = [
+const SELECTED_ORDER: ReadonlyArray<SelectedBy> = ['colour-space-only', 'invisible-text', 'clip-only'];
+const DECLARED_ORDER: ReadonlyArray<DeclaredOnlyReason> = [
   'resources',
   'soft-mask',
   'd1-glyph',
@@ -178,8 +178,8 @@ const operationAt = (event: PaintEvent, index: number): PaintedBy => {
   return OPERATION[event.kind];
 };
 
-const contextPainters = ({ sources }: PaintContext): PaintedBy[] => {
-  const painters: PaintedBy[] = [];
+const contextPainters = ({ sources }: PaintContext): Array<PaintedBy> => {
+  const painters: Array<PaintedBy> = [];
   if (sources.some(source => source.kind === 'tiling-pattern')) {
     painters.push('pattern');
   }
@@ -205,8 +205,8 @@ const compareBytes = (left: Uint8Array, right: Uint8Array): number => {
 class PageScan {
   private readonly document: DocumentInternals;
   private readonly uses = new Map<string, Use>();
-  private readonly spaces = new Map<PdfObject, readonly SpaceColorant[]>();
-  readonly warnings: InspectWarning[] = [];
+  private readonly spaces = new Map<PdfObject, ReadonlyArray<SpaceColorant>>();
+  readonly warnings: Array<InspectWarning> = [];
   private readonly reported = new Set<string>();
   complete = true;
 
@@ -238,7 +238,7 @@ class PageScan {
     }
   }
 
-  private colorantsOf(space: PdfObject | undefined): readonly SpaceColorant[] {
+  private colorantsOf(space: PdfObject | undefined): ReadonlyArray<SpaceColorant> {
     if (space === undefined) {
       return [];
     }
@@ -246,7 +246,7 @@ class PageScan {
     if (known !== undefined) {
       return known;
     }
-    let colorants: readonly SpaceColorant[] = [];
+    let colorants: ReadonlyArray<SpaceColorant> = [];
     try {
       const result = colorSpaceColorants(this.document.objects, space);
       for (const warning of result.warnings) {
@@ -337,7 +337,7 @@ class PageScan {
         });
         continue;
       }
-      const by: PaintedBy[] = owner === index ? [operation, ...painters] : [operation, 'pattern', ...painters];
+      const by: Array<PaintedBy> = owner === index ? [operation, ...painters] : [operation, 'pattern', ...painters];
       this.placed(place, this.paintedSpace(space.space, event.resources), use => {
         for (const painter of by) {
           use.painted.add(painter);
@@ -380,7 +380,7 @@ class PageScan {
   // 7.8.3: the colour spaces a resource dictionary names: ColorSpace resources, image XObjects' spaces, shadings' spaces and shading patterns' spaces.
   resources(resources: PdfDictionaryEntries): void {
     // Each entry is read apart, so that one that cannot be read hides no other.
-    const values = (category: Uint8Array): PdfObject[] =>
+    const values = (category: Uint8Array): Array<PdfObject> =>
       [...(dictionaryOf(this.read(resources.get(category)))?.entries() ?? [])].flatMap(([, value]) => {
         const object = this.read(value);
         return object === undefined ? [] : [object];
@@ -430,7 +430,7 @@ class PageScan {
     });
   }
 
-  result(): ColorantUse[] {
+  result(): Array<ColorantUse> {
     return [...this.uses.values()]
       .map(use => {
         const selected = new Set(use.selected);
@@ -520,10 +520,10 @@ const scanPage = (context: Scan, index: number): PageColorants => {
   return { page: index, colorants: scan.result(), complete: scan.complete, warnings: scan.warnings };
 };
 
-const isList = (value: unknown): value is readonly unknown[] => Array.isArray(value);
+const isList = (value: unknown): value is ReadonlyArray<unknown> => Array.isArray(value);
 
 // The pages to scan, all when absent; a value outside the type, as a caller without type checking can pass, is refused rather than iterated.
-const pagesOf = (document: DocumentInternals, pages: unknown): number[] => {
+const pagesOf = (document: DocumentInternals, pages: unknown): Array<number> => {
   if (pages === undefined) {
     return [...document.pages.keys()];
   }
@@ -543,7 +543,7 @@ const pagesOf = (document: DocumentInternals, pages: unknown): number[] => {
  * Lists the colorants of each page: those painting operators reach in content, forms, patterns, Type 3 glyphs, images, shadings and annotation appearances (`painted`), those executed content selects without a visible mark (`selected`), and those named without being executed (`declared`), each with every reason that applies.
  * Tints and geometry are not considered: a colorant painted at tint 0, outside the crop box or wholly clipped away is painted. Damaged content becomes warnings and `complete: false`; a page index that is not a page or a `pages` that is not an array throws InvalidArgumentError, and content past the interpreter's limits ResourceLimitError.
  */
-export const listColorants = (document: LoadedDocument, options: ListColorantsOptions = {}): readonly PageColorants[] => {
+export const listColorants = (document: LoadedDocument, options: ListColorantsOptions = {}): ReadonlyArray<PageColorants> => {
   const parts = internalsOf(document);
   if (parts === undefined) {
     throw new InvalidArgumentError('the document was not loaded by loadDocument');

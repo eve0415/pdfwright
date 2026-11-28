@@ -21,7 +21,7 @@ const internals = (document: LoadedDocument): DocumentInternals => {
   return parts;
 };
 
-const roles = (document: number, components: readonly number[], orphans: readonly number[]): PacketRoles => ({
+const roles = (document: number, components: ReadonlyArray<number>, orphans: ReadonlyArray<number>): PacketRoles => ({
   document,
   components: new Set(components),
   orphans: new Set(orphans),

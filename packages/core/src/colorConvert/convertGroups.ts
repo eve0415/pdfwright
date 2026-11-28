@@ -41,7 +41,7 @@ interface Scan {
   readonly document: LoadedDocument;
   readonly internals: DocumentInternals;
   readonly options: RewriteColorOptions;
-  readonly plans: GroupPlan[];
+  readonly plans: Array<GroupPlan>;
   readonly seenForms: Set<number>;
   readonly seenCarriers: Set<number>;
   readonly luminosityGroups: ReadonlySet<number>;
@@ -97,7 +97,7 @@ const stateFlags = (scan: Scan, entries: PdfDictionaryEntries): Compositing => {
   };
 };
 
-const compositing = (scan: Scan, bytes: Uint8Array | readonly Uint8Array[], resources: PdfDictionaryEntries): Compositing => {
+const compositing = (scan: Scan, bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): Compositing => {
   let blendMode = false;
   let alpha = false;
   let softMask = false;

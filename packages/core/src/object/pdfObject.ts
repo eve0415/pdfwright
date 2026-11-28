@@ -20,7 +20,7 @@ export type PdfDirectObject =
   | { kind: 'real'; value: number | Length }
   | { kind: 'name'; bytes: Uint8Array }
   | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex' }
-  | { kind: 'array'; items: PdfDirectObject[] }
+  | { kind: 'array'; items: Array<PdfDirectObject> }
   | { kind: 'dictionary'; entries: PdfDictionaryEntries }
   | { kind: 'reference'; objectNumber: number; generation: number }
   // A token a parser read but could not interpret; its bytes are one run of regular characters and are written back verbatim.
@@ -114,7 +114,7 @@ export const pdfReal = (value: number | Length): Extract<PdfObject, { kind: 'rea
  * Wraps direct PDF values in an array under ISO 32000-1:2008, 7.3.6.
  * @param items Direct values in order; this wrapper adds no default, validation, or length limit.
  */
-export const pdfArray = (items: PdfDirectObject[]): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
+export const pdfArray = (items: Array<PdfDirectObject>): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
 
 /**
  * Wraps PDF dictionary entries, using an empty dictionary by default, under ISO 32000-1:2008, 7.3.7.

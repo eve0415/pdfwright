@@ -7,7 +7,7 @@ import { iccSignature } from './iccSignature.ts';
 
 /** A colour lookup table with grid dimensions, channel counts, and 8-bit or 16-bit samples; parsing caps it at 16,777,216 entries with ResourceLimitError under ICC.1:2022, 10.10–10.11. */
 export interface Clut {
-  readonly gridPoints: readonly number[];
+  readonly gridPoints: ReadonlyArray<number>;
   readonly inputChannels: number;
   readonly outputChannels: number;
   readonly values: Uint8Array | Uint16Array;
@@ -17,13 +17,13 @@ export interface Clut {
 export interface TableLut {
   readonly kind: 'lut8' | 'lut16';
   readonly matrix: Matrix3;
-  readonly input: readonly Curve[];
+  readonly input: ReadonlyArray<Curve>;
   readonly clut: Clut;
-  readonly output: readonly Curve[];
+  readonly output: ReadonlyArray<Curve>;
 }
 
-const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Curve[] => {
-  const result: Curve[] = [];
+const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Array<Curve> => {
+  const result: Array<Curve> = [];
   for (let channel = 0; channel < config.channels; channel++) {
     const start = config.offset + channel * config.count * config.width;
     const values = config.width === 1 ? new Uint8Array(view.buffer, view.byteOffset + start, config.count) : new Uint16Array(config.count);

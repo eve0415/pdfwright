@@ -40,7 +40,7 @@ export const xmpDateString = (date: PdfDate): string => {
   return `${pad(date.year, 4)}-${pad(date.month, 2)}-${pad(date.day, 2)}T${pad(date.hour, 2)}:${pad(date.minute, 2)}:${pad(date.second, 2)}${zone}`;
 };
 
-const ORDER: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+const ORDER: ReadonlyArray<PdfDatePrecision> = ['year', 'month', 'day', 'hour', 'minute', 'second'];
 
 const reaches = (value: ParsedPdfDate, precision: PdfDatePrecision): boolean => ORDER.indexOf(value.precision) >= ORDER.indexOf(precision);
 

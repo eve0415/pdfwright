@@ -1,5 +1,5 @@
 /** Glyph names by character code: index `code` holds the name the encoding gives code `code`, or undefined where it gives none. */
-export type EncodingTable = readonly (string | undefined)[];
+export type EncodingTable = ReadonlyArray<string | undefined>;
 
 // ISO 32000-1:2008, Annex D, D.2 "Latin Character Set and Encodings", one row per character: its name and its codes in StandardEncoding, MacRomanEncoding, WinAnsiEncoding and PDFDocEncoding, in octal as the table prints them, "-" where the encoding has none.
 const LATIN = `A 101 101 101 101
@@ -780,10 +780,10 @@ a189 374
 a190 375
 a191 376`;
 
-const rows = (table: string): string[][] => table.split('\n').map(row => row.split(' '));
+const rows = (table: string): Array<Array<string>> => table.split('\n').map(row => row.split(' '));
 
-const tableOf = (entries: readonly (readonly [string, string | undefined])[]): EncodingTable => {
-  const names: (string | undefined)[] = Array.from<string | undefined>({ length: 256 });
+const tableOf = (entries: ReadonlyArray<readonly [string, string | undefined]>): EncodingTable => {
+  const names: Array<string | undefined> = Array.from<string | undefined>({ length: 256 });
   for (const [name, octal] of entries) {
     if (octal !== undefined && octal !== '-') {
       names[Number.parseInt(octal, 8)] = name;
@@ -792,7 +792,7 @@ const tableOf = (entries: readonly (readonly [string, string | undefined])[]): E
   return names;
 };
 
-const latinColumn = (column: number): (string | undefined)[] => [...tableOf(rows(LATIN).map(([name = '', ...codes]) => [name, codes[column]]))];
+const latinColumn = (column: number): Array<string | undefined> => [...tableOf(rows(LATIN).map(([name = '', ...codes]) => [name, codes[column]]))];
 
 /** StandardEncoding, the built-in encoding of Adobe's Latin-text Type 1 fonts (D.2). */
 export const STANDARD_ENCODING: EncodingTable = latinColumn(0);

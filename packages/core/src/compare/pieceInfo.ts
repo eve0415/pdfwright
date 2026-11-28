@@ -85,7 +85,7 @@ const directSource = (document: DocumentInternals, reference: PdfReference | und
  * Compares page-piece data (ISO 32000-1:2008, 14.5) three ways: as a value graph, stream by stream by stored bytes, and, where PieceInfo is a direct object, by its source bytes.
  * The LastModified dates of the owner and of each data dictionary compare by bytes, since "modification dates shall be compared only for equality and not for sequential ordering" (14.5).
  */
-export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences: PdfDifference[]): void => {
+export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences: Array<PdfDifference>): void => {
   const pieceA = owner.a?.get(PIECE_INFO);
   const pieceB = owner.b?.get(PIECE_INFO);
   const path: ValuePath = [PIECE_INFO_NAME];

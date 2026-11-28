@@ -6,7 +6,7 @@ import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import { InvalidArgumentError, ParseError, ResourceLimitError, UnsupportedFeatureError, decodeJpeg, parseIccProfile } from '../index.ts';
 
 // The JPEGs below are written by hand: one 8×8 grey data unit whose DC difference and AC end-of-block are one-bit Huffman codes, so every sample is 128.
-const segment = (marker: number, payload: readonly number[]): number[] => [
+const segment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [
   255,
   marker,
   Math.floor((payload.length + 2) / 256),
@@ -14,7 +14,7 @@ const segment = (marker: number, payload: readonly number[]): number[] => [
   ...payload,
 ];
 
-const grayJpeg = (extra: readonly number[] = [], sof = 0xc0): Uint8Array =>
+const grayJpeg = (extra: ReadonlyArray<number> = [], sof = 0xc0): Uint8Array =>
   Uint8Array.from([
     255,
     0xd8,
@@ -29,16 +29,20 @@ const grayJpeg = (extra: readonly number[] = [], sof = 0xc0): Uint8Array =>
     0xd9,
   ]);
 
-const ascii = (text: string): number[] => Array.from(text, character => character.codePointAt(0) ?? 0);
+const ascii = (text: string): Array<number> => Array.from(text, character => character.codePointAt(0) ?? 0);
 
 // ICC.1:2022, Annex B.4: "ICC_PROFILE", a null byte, the 1-based sequence number, the chunk count, then the chunk.
-const iccSegment = (sequence: number, count: number, chunk: Uint8Array): number[] => segment(0xe2, [...ascii('ICC_PROFILE'), 0, sequence, count, ...chunk]);
+const iccSegment = (sequence: number, count: number, chunk: Uint8Array): Array<number> =>
+  segment(0xe2, [...ascii('ICC_PROFILE'), 0, sequence, count, ...chunk]);
 
-const iccChunks = (profile: Uint8Array, size: number): Uint8Array[] =>
+const iccChunks = (profile: Uint8Array, size: number): Array<Uint8Array> =>
   Array.from({ length: Math.ceil(profile.length / size) }, (_, index) => profile.subarray(index * size, (index + 1) * size));
 
 // TIFF 6.0, Section 2: byte order, 42, the IFD0 offset 8, then one 12-byte entry.
-const exifSegment = (order: 'II' | 'MM', entry: { readonly tag: number; readonly type: number; readonly count: number; readonly value: number }): number[] => {
+const exifSegment = (
+  order: 'II' | 'MM',
+  entry: { readonly tag: number; readonly type: number; readonly count: number; readonly value: number },
+): Array<number> => {
   const tiff = new Uint8Array(8 + 2 + 12 + 4);
   const view = new DataView(tiff.buffer);
   const little = order === 'II';
@@ -53,7 +57,7 @@ const exifSegment = (order: 'II' | 'MM', entry: { readonly tag: number; readonly
   return segment(0xe1, [...ascii('Exif'), 0, 0, ...tiff]);
 };
 
-const orientation = (order: 'II' | 'MM', value: number): number[] => exifSegment(order, { tag: 0x0112, type: 3, count: 1, value });
+const orientation = (order: 'II' | 'MM', value: number): Array<number> => exifSegment(order, { tag: 0x0112, type: 3, count: 1, value });
 
 const decodeReason = (jpeg: Uint8Array): ParseReason | undefined => {
   try {
@@ -67,7 +71,7 @@ const decodeReason = (jpeg: Uint8Array): ParseReason | undefined => {
   throw new Error('JPEG was accepted');
 };
 
-const orientationOf = (extra: readonly number[]): ExifOrientation | undefined => decodeJpeg(grayJpeg(extra)).orientation;
+const orientationOf = (extra: ReadonlyArray<number>): ExifOrientation | undefined => decodeJpeg(grayJpeg(extra)).orientation;
 
 const profileOf = (jpeg: Uint8Array): Uint8Array => {
   const profile = decodeJpeg(jpeg).iccProfile;

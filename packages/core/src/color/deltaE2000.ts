@@ -32,7 +32,7 @@ const meanHue = (first: number, second: number, chromaProduct: number): number =
 };
 
 /** CIEDE2000 for two L*a*b* triples, with unit parametric factors. */
-export const deltaE2000 = (first: readonly number[], second: readonly number[]): number => {
+export const deltaE2000 = (first: ReadonlyArray<number>, second: ReadonlyArray<number>): number => {
   const [l1, a1, b1] = first;
   const [l2, a2, b2] = second;
   const c1 = Math.hypot(a1 ?? 0, b1 ?? 0);

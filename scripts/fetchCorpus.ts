@@ -12,7 +12,7 @@ const CACHE = path.join(DIRECTORY, '.cache');
 
 interface Manifest {
   readonly zip: { readonly url: string; readonly sha256: string };
-  readonly files: readonly { readonly name: string; readonly sha256: string }[];
+  readonly files: ReadonlyArray<{ readonly name: string; readonly sha256: string }>;
 }
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -29,7 +29,7 @@ const readManifest = async (): Promise<Manifest> => {
   if (!Array.isArray(files)) {
     throw new TypeError('manifest.json files is not a list');
   }
-  const listed: { name: string; sha256: string }[] = [];
+  const listed: Array<{ name: string; sha256: string }> = [];
   for (const entry of new Set<unknown>(files)) {
     if (
       typeof entry !== 'object' ||
@@ -76,7 +76,7 @@ const main = async (): Promise<void> => {
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   const child = spawn('unzip', ['-q', '-j', '-o', zip, ...manifest.files.map(file => `*/${file.name}`), '-d', output], { stdio: 'inherit' });
-  const closed: unknown[] = await once(child, 'close');
+  const closed: Array<unknown> = await once(child, 'close');
   if (closed[0] !== 0) {
     throw new Error(`unzip exited ${String(closed[0])}`);
   }

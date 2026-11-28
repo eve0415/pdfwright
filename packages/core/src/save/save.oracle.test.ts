@@ -29,12 +29,12 @@ const privateData = { number: 10, body: streamBody('', '%AI private data') };
 const hidden = { number: 11, body: '(an object only a cross-reference stream lists)' };
 
 // The bases the incremental rule has to serve: classic, cross-reference streams with and without object streams (including a page in an object stream), and a hybrid cross-reference section.
-const classicBase: TestSection[] = [{ xref: 'classic', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
-const streamBase: TestSection[] = [{ xref: 'stream', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
-const objectStreamBase: TestSection[] = [
+const classicBase: Array<TestSection> = [{ xref: 'classic', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
+const streamBase: Array<TestSection> = [{ xref: 'stream', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' }];
+const objectStreamBase: Array<TestSection> = [
   { xref: 'stream', objects: [catalog, content, privateData], objectStreams: [{ number: 6, members: [pages, page, piece] }], trailer: '/Root 1 0 R' },
 ];
-const hybridBase: TestSection[] = [
+const hybridBase: Array<TestSection> = [
   { xref: 'classic', objects: [catalog, pages, page, content, piece, privateData], trailer: '/Root 1 0 R' },
   { xref: 'hybrid', objects: [], objectStreams: [{ number: 12, members: [hidden] }], trailer: '/Root 1 0 R' },
 ];
@@ -60,11 +60,11 @@ const addPlate = (document: LoadedDocument): void => {
 };
 
 interface Checked {
-  readonly reports: (string | number | readonly number[] | readonly string[] | undefined)[][];
-  readonly spots: string[];
+  readonly reports: Array<Array<string | number | ReadonlyArray<number> | ReadonlyArray<string> | undefined>>;
+  readonly spots: Array<string>;
 }
 
-const readEdited = async (sections: readonly TestSection[], mode: 'incremental' | 'full'): Promise<Checked> => {
+const readEdited = async (sections: ReadonlyArray<TestSection>, mode: 'incremental' | 'full'): Promise<Checked> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-save-'));
   try {
     const document = loadDocument(buildPdf(sections).bytes);
@@ -80,9 +80,9 @@ const readEdited = async (sections: readonly TestSection[], mode: 'incremental' 
 };
 
 interface Inks {
-  readonly blackBefore: number[];
-  readonly blackAfter: number[];
-  readonly varnish: number[];
+  readonly blackBefore: Array<number>;
+  readonly blackAfter: Array<number>;
+  readonly varnish: Array<number>;
 }
 
 // Pixels at 72 dpi, counted from the top left: inside the source's black square, inside the new varnish square, and outside both.
@@ -143,7 +143,7 @@ const highPage = { number: 10_000, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0
 const highPages = { number: 2, body: '<</Type/Pages/Kids[10000 0 R]/Count 1>>' };
 const padding = (bytes: number): TestObject => ({ number: 5, body: streamBody('', `%${'0'.repeat(bytes)}`) });
 
-const rewrite = async <T>(sections: readonly TestSection[], options: BuildOptions, read: (file: string) => Promise<T>): Promise<T> => {
+const rewrite = async <T>(sections: ReadonlyArray<TestSection>, options: BuildOptions, read: (file: string) => Promise<T>): Promise<T> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-sparse-'));
   try {
     const file = path.join(directory, 'rewritten.pdf');
@@ -154,7 +154,7 @@ const rewrite = async <T>(sections: readonly TestSection[], options: BuildOption
   }
 };
 
-const qpdfFindsHighPage = async (file: string): Promise<[number, readonly string[], number, boolean]> => {
+const qpdfFindsHighPage = async (file: string): Promise<[number, ReadonlyArray<string>, number, boolean]> => {
   const check = await runTool('qpdf', ['--check', file]);
   const shown = await runTool('qpdf', ['--show-object=10000', file]);
   return [check.code, check.output.split('\n').filter(line => line.includes('WARNING')), shown.code, shown.output.includes('/TrimBox [ 10 10 190 180 ]')];
@@ -167,9 +167,11 @@ const readersFindHighPage = async (file: string): Promise<Checked['reports']> =>
 
 // qpdf reads only object numbers below about a third of the file size, so the small file is left to the other readers and a padded one is given to qpdf.
 describe('full rewrites of files with unused object numbers', () => {
-  const streamSource: TestSection[] = [{ xref: 'stream', objects: [catalog, highPages, content, highPage], trailer: '/Root 1 0 R' }];
-  const paddedStreamSource: TestSection[] = [{ xref: 'stream', objects: [catalog, highPages, content, padding(40_000), highPage], trailer: '/Root 1 0 R' }];
-  const classicSource: TestSection[] = [
+  const streamSource: Array<TestSection> = [{ xref: 'stream', objects: [catalog, highPages, content, highPage], trailer: '/Root 1 0 R' }];
+  const paddedStreamSource: Array<TestSection> = [
+    { xref: 'stream', objects: [catalog, highPages, content, padding(40_000), highPage], trailer: '/Root 1 0 R' },
+  ];
+  const classicSource: Array<TestSection> = [
     { xref: 'classic', objects: [catalog, highPages, content], trailer: '/Root 1 0 R' },
     { xref: 'classic', objects: [highPage], trailer: '/Root 1 0 R' },
   ];

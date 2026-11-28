@@ -43,17 +43,17 @@ interface MaskGroup {
   readonly resources?: PdfDictionaryEntries | undefined;
   readonly overprintNames?: OverprintNames;
   readonly overprintAdjustments?: number;
-  readonly newInlineImages?: readonly NamedInlineImage[];
-  readonly grayXObjects?: readonly GrayXObjectPlan[];
-  readonly grayShadings?: readonly GrayShadingPlan[];
+  readonly newInlineImages?: ReadonlyArray<NamedInlineImage>;
+  readonly grayXObjects?: ReadonlyArray<GrayXObjectPlan>;
+  readonly grayShadings?: ReadonlyArray<GrayShadingPlan>;
 }
 
 interface GrayXObjectPlan {
   readonly name: Uint8Array;
   readonly stream: PdfStream;
   readonly resources?: PdfDictionaryEntries | undefined;
-  readonly children: readonly GrayXObjectPlan[];
-  readonly shadings: readonly GrayShadingPlan[];
+  readonly children: ReadonlyArray<GrayXObjectPlan>;
+  readonly shadings: ReadonlyArray<GrayShadingPlan>;
 }
 
 interface GrayShadingPlan {
@@ -84,7 +84,7 @@ interface MaskScan {
   readonly internals: DocumentInternals;
   readonly options: RewriteColorOptions;
   readonly groups: Map<number, MaskGroup>;
-  readonly resources: MaskResource[];
+  readonly resources: Array<MaskResource>;
   readonly kept: Set<number>;
   readonly approximated: Set<number>;
   readonly seenForms: Set<number>;
@@ -130,7 +130,7 @@ const filterName = (value: PdfObject | undefined): string | undefined => {
 
 const compressedRgbFilter = (filter: string | undefined): boolean => filter === 'DCTDecode' || filter === 'DCT' || filter === 'JPXDecode';
 
-const inlineParameter = (parameters: readonly PdfDirectObject[], names: readonly string[]): PdfDirectObject | undefined => {
+const inlineParameter = (parameters: ReadonlyArray<PdfDirectObject>, names: ReadonlyArray<string>): PdfDirectObject | undefined => {
   for (let index = 0; index + 1 < parameters.length; index += 2) {
     const key = nameOf(parameters[index]);
     if (key !== undefined && names.includes(key)) {
@@ -187,7 +187,7 @@ const imageInteger = (scan: MaskScan, image: PdfStream, key: Uint8Array): number
   return value.value;
 };
 
-const imageDecode = (scan: MaskScan, image: PdfStream): number[] => {
+const imageDecode = (scan: MaskScan, image: PdfStream): Array<number> => {
   const value = scan.internals.objects.deref(image.dictionary.get(DECODE));
   if (value === undefined) {
     return [0, 1, 0, 1, 0, 1];
@@ -204,7 +204,7 @@ const imageDecode = (scan: MaskScan, image: PdfStream): number[] => {
   });
 };
 
-const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: readonly number[]) => number): PdfStream => {
+const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): PdfStream => {
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
   const bits = imageInteger(scan, image, BITS);
@@ -255,7 +255,7 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: readonl
   return { kind: 'stream', dictionary, data: deflateZlib(output) };
 };
 
-const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: readonly number[]) => number) => {
+const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: ReadonlyArray<number>) => number) => {
   const profile = source.kind === 'icc' ? source.profile : calibratedProfile(source);
   const toPcs = sourceEvaluator(profile, 'relativeColorimetric', encoding);
   return values => {
@@ -266,11 +266,11 @@ const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values
 
 const planGrayShadings = (
   scan: MaskScan,
-  config: { bytes: Uint8Array; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
-): readonly GrayShadingPlan[] => {
+  config: { bytes: Uint8Array; resources: PdfDictionaryEntries; paintGray: (values: ReadonlyArray<number>) => number },
+): ReadonlyArray<GrayShadingPlan> => {
   const { bytes, resources, paintGray } = config;
   const category = scan.internals.objects.deref(resources.get(SHADING));
-  const plans: GrayShadingPlan[] = [];
+  const plans: Array<GrayShadingPlan> = [];
   const seen = new Set<string>();
   for (const operation of readContent(bytes, scan.internals.maxNesting)) {
     if (operation.operator !== 'sh') {
@@ -312,13 +312,13 @@ const planGrayShadings = (
 interface GrayWalk {
   readonly bytes: Uint8Array;
   readonly resources: PdfDictionaryEntries;
-  readonly paintGray: (values: readonly number[]) => number;
+  readonly paintGray: (values: ReadonlyArray<number>) => number;
   readonly active: ReadonlySet<number>;
 }
 
 const planGrayForm = (
   scan: MaskScan,
-  input: { name: Uint8Array; reference: PdfReference; form: PdfStream; walk: GrayWalk; recurse: (walk: GrayWalk) => readonly GrayXObjectPlan[] },
+  input: { name: Uint8Array; reference: PdfReference; form: PdfStream; walk: GrayWalk; recurse: (walk: GrayWalk) => ReadonlyArray<GrayXObjectPlan> },
 ): GrayXObjectPlan => {
   const { name, reference, form, walk, recurse } = input;
   if (walk.active.size >= scan.internals.maxNesting || walk.active.has(reference.objectNumber)) {
@@ -351,7 +351,7 @@ const planGrayForm = (
 
 const planGrayImage = (
   scan: MaskScan,
-  input: { name: Uint8Array; image: PdfStream; resources: PdfDictionaryEntries; paintGray: (values: readonly number[]) => number },
+  input: { name: Uint8Array; image: PdfStream; resources: PdfDictionaryEntries; paintGray: (values: ReadonlyArray<number>) => number },
 ): GrayXObjectPlan | undefined => {
   const { name, image, resources, paintGray } = input;
   const color = image.dictionary.get(COLOR_SPACE_ENTRY);
@@ -370,10 +370,10 @@ const planGrayImage = (
   return { name, stream: grayImage(scan, image, imageGray), children: [], shadings: [] };
 };
 
-const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): readonly GrayXObjectPlan[] => {
+const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): ReadonlyArray<GrayXObjectPlan> => {
   const { bytes, resources } = walk;
   const category = scan.internals.objects.deref(resources.get(XOBJECT));
-  const plans: GrayXObjectPlan[] = [];
+  const plans: Array<GrayXObjectPlan> = [];
   const seen = new Set<string>();
   for (const operation of readContent(bytes, scan.internals.maxNesting)) {
     if (operation.operator !== 'Do') {
@@ -419,7 +419,7 @@ const numberOf = (value: PdfDirectObject): number => {
   throw new ValidationError('soft-mask backdrop is not numeric', 'color-space');
 };
 
-const convertBackdrop = (mask: PdfDictionaryEntries, rgbToGray: (values: readonly number[]) => number): PdfDictionaryEntries => {
+const convertBackdrop = (mask: PdfDictionaryEntries, rgbToGray: (values: ReadonlyArray<number>) => number): PdfDictionaryEntries => {
   const mapped = new Entries(mask.entries());
   const backdrop = mask.get(BACKDROP);
   if (backdrop === undefined) {
@@ -581,7 +581,10 @@ const planMask = (scan: MaskScan, input: { owner: PdfReference; resources: PdfDi
   planRgbLuminosityMask(scan, { ...input, mask: maskValue.entries, groupForm, groupResources });
 };
 
-const scanContent = (scan: MaskScan, scope: { owner: PdfReference; resources: PdfDictionaryEntries; content: Uint8Array | readonly Uint8Array[] }): void => {
+const scanContent = (
+  scan: MaskScan,
+  scope: { owner: PdfReference; resources: PdfDictionaryEntries; content: Uint8Array | ReadonlyArray<Uint8Array> },
+): void => {
   const { owner, resources, content } = scope;
   const category = scan.internals.objects.deref(resources.get(EXT_G_STATE));
   if (category?.kind !== 'dictionary') {
@@ -751,7 +754,7 @@ const writeGrayFunction = (scan: MaskScan, plan: GrayFunctionPlan): PdfReference
   return scan.document.object(pdfDictionary(dictionary));
 };
 
-const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayShadingPlan[]): PdfDictionaryEntries => {
+const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: ReadonlyArray<GrayShadingPlan>): PdfDictionaryEntries => {
   const original = scan.internals.objects.deref(resources.get(SHADING));
   if (original?.kind !== 'dictionary') {
     throw new ValidationError('luminosity Shading resources are missing', 'color-space');
@@ -770,7 +773,7 @@ const grayShadings = (scan: MaskScan, resources: PdfDictionaryEntries, plans: re
   return mapped;
 };
 
-const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: readonly GrayXObjectPlan[]): PdfDictionaryEntries => {
+const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: ReadonlyArray<GrayXObjectPlan>): PdfDictionaryEntries => {
   const original = scan.internals.objects.deref(resources.get(XOBJECT));
   if (original?.kind !== 'dictionary') {
     throw new ValidationError('luminosity XObjects are missing', 'color-space');
@@ -798,7 +801,7 @@ const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: re
   return mapped;
 };
 
-const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
+const applyGroups = (scan: MaskScan, discarded: Array<PdfReference>): void => {
   for (const plan of scan.groups.values()) {
     const dictionary = new Entries(plan.form.dictionary.entries());
     const group = new Entries(plan.group.entries());
@@ -842,8 +845,8 @@ const applyGroups = (scan: MaskScan, discarded: PdfReference[]): void => {
   }
 };
 
-const applyResources = (scan: MaskScan, discarded: PdfReference[]): void => {
-  const grouped = new Map<number, MaskResource[]>();
+const applyResources = (scan: MaskScan, discarded: Array<PdfReference>): void => {
+  const grouped = new Map<number, Array<MaskResource>>();
   for (const plan of scan.resources) {
     const list = grouped.get(plan.owner.objectNumber) ?? [];
     list.push(plan);
@@ -952,7 +955,7 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
       if (scan.groups.size === 0) {
         return;
       }
-      const discarded: PdfReference[] = [];
+      const discarded: Array<PdfReference> = [];
       applyGroups(scan, discarded);
       applyResources(scan, discarded);
       deleteDiscarded(document, internals, discarded);

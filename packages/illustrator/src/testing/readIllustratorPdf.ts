@@ -12,7 +12,7 @@ export interface ReadResult extends ContainerFacts {
   readonly document: NativeReadResult['document'];
   readonly nativeOrigin: NativeReadResult['nativeOrigin'];
   readonly header: ReadonlyMap<string, string>;
-  readonly unknownBlocks: readonly string[];
+  readonly unknownBlocks: ReadonlyArray<string>;
 }
 
 /** Resolves Illustrator page-piece streams and decompresses their native payload with fzstd, a development dependency. */

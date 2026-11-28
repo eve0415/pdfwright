@@ -13,7 +13,7 @@ import { parseCMap } from './parseCMap.ts';
 
 /** A CMap ready for lookups with the problems its parse and the parses of the CMaps it uses found; a name no provider supplied; or a CMap that cannot be read. */
 export type CMapResult =
-  | { readonly kind: 'cmap'; readonly cmap: CMap; readonly problems: readonly CMapProblem[] }
+  | { readonly kind: 'cmap'; readonly cmap: CMap; readonly problems: ReadonlyArray<CMapProblem> }
   | { readonly kind: 'unavailable'; readonly name: string }
   | { readonly kind: 'unreadable'; readonly reason: string };
 

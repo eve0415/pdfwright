@@ -35,7 +35,7 @@ const createFixture = async (filePath: string): Promise<void> => {
   const file = openSync(filePath, 'w+');
   const encoder = new TextEncoder();
   let length = 0;
-  const offsets: number[] = [0];
+  const offsets: Array<number> = [0];
   const write = (value: string | Uint8Array): void => {
     length += writeAll(file, typeof value === 'string' ? encoder.encode(value) : value);
   };

@@ -30,7 +30,7 @@ import { comparePageContent } from './pageContent.ts';
 import { comparePieceInfo } from './pieceInfo.ts';
 import { ValueGraph, graphContext } from './valueGraph.ts';
 
-const AREAS: readonly DifferenceArea[] = [
+const AREAS: ReadonlyArray<DifferenceArea> = [
   'pages',
   'boxes',
   'content',
@@ -41,7 +41,7 @@ const AREAS: readonly DifferenceArea[] = [
   'pageAttributes',
   'documentAttributes',
 ];
-const BOXES: readonly BoxName[] = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
+const BOXES: ReadonlyArray<BoxName> = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
 const RESOURCES = pdfName('Resources').bytes;
 const INHERITABLE = ['Resources', 'MediaBox', 'CropBox', 'Rotate'];
 
@@ -58,11 +58,11 @@ const internals = (document: LoadedDocument, name: string): DocumentInternals =>
   return parts;
 };
 
-const sameNumbers = (left: readonly number[], right: readonly number[]): boolean =>
+const sameNumbers = (left: ReadonlyArray<number>, right: ReadonlyArray<number>): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
 // ISO 32000-1:2008, 7.7.3.3, Table 30 and 7.7.3.4: the five boxes with inheritance and defaults, and the inheritable Rotate and non-inheritable UserUnit.
-const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, EffectiveBoxes], differences: PdfDifference[]): void => {
+const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, EffectiveBoxes], differences: Array<PdfDifference>): void => {
   for (const box of BOXES) {
     const a = left[box];
     const b = right[box];
@@ -82,7 +82,7 @@ const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, Eff
 const compareFonts = (
   page: number | 'document',
   [left, right]: readonly [ReadonlyMap<string, FontIdentity>, ReadonlyMap<string, FontIdentity>],
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   const added = [...right].filter(([key]) => !left.has(key)).map(([, font]) => font);
   const removed = [...left].filter(([key]) => !right.has(key)).map(([, font]) => font);
@@ -94,8 +94,8 @@ const compareFonts = (
 class Comparison {
   private readonly sides: GraphContext;
   private readonly include: ReadonlySet<DifferenceArea>;
-  readonly differences: PdfDifference[] = [];
-  private readonly pieces: PdfDifference[] = [];
+  readonly differences: Array<PdfDifference> = [];
+  private readonly pieces: Array<PdfDifference> = [];
   private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
   private readonly documentFonts: { readonly a: DocumentFonts; readonly b: DocumentFonts };
   private readonly inheritance = { a: createInheritedCache(), b: createInheritedCache() };

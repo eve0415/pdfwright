@@ -24,7 +24,7 @@ export interface WriteOptions {
 const xrefEntry = (offset: number, generation: number, use: 'n' | 'f'): string =>
   `${String(offset).padStart(10, '0')} ${String(generation).padStart(5, '0')} ${use} \n`;
 
-export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDictionaryEntries, options: WriteOptions): BufferedSavedPdf => {
+export const writeDocument = (objects: ReadonlyArray<IndirectObject>, trailer: PdfDictionaryEntries, options: WriteOptions): BufferedSavedPdf => {
   const ordered = objects.toSorted((left, right) => left.objectNumber - right.objectNumber);
   for (let index = 0; index < ordered.length; index++) {
     const object = ordered[index];
@@ -34,7 +34,7 @@ export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDi
   }
 
   let writer = new ByteWriter();
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   let byteLength = 0;
   const finishChunk = (): void => {
     const chunk = writer.toUint8Array();
@@ -47,7 +47,7 @@ export const writeDocument = (objects: readonly IndirectObject[], trailer: PdfDi
   writer.writeBytes(new Uint8Array([0xe2, 0xe3, 0xcf, 0xd3]));
   writer.writeByte(0x0a);
   finishChunk();
-  const offsets: number[] = [];
+  const offsets: Array<number> = [];
   for (const object of ordered) {
     offsets.push(byteLength);
     writer.writeAscii(`${String(object.objectNumber)} ${String(object.generation)} obj\n`);

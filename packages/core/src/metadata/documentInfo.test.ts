@@ -83,7 +83,7 @@ describe('document information', () => {
   });
 });
 
-const utf16 = (...units: number[]): Uint8Array => Uint8Array.from([0xfe, 0xff, ...units.flatMap(unit => [Math.floor(unit / 256), unit % 256])]);
+const utf16 = (...units: Array<number>): Uint8Array => Uint8Array.from([0xfe, 0xff, ...units.flatMap(unit => [Math.floor(unit / 256), unit % 256])]);
 
 const stringBytes = (value: PdfDirectObject): Uint8Array => (value.kind === 'string' ? value.bytes : new Uint8Array());
 

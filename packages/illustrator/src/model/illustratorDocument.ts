@@ -9,7 +9,7 @@ export type Point = readonly [x: Coordinate, y: Coordinate];
 export interface IllustratorDocument {
   readonly artboard: Artboard;
   /** Paint order, bottom layer first. */
-  readonly layers: readonly Layer[];
+  readonly layers: ReadonlyArray<Layer>;
   readonly lastModified: PdfDate;
   /** ASCII only; defaults to empty. */
   readonly title?: string;
@@ -31,7 +31,7 @@ export interface Layer {
   readonly opacity?: number;
   readonly color?: readonly [red: number, green: number, blue: number];
   /** Paint order, bottom item first. */
-  readonly items: readonly Item[];
+  readonly items: ReadonlyArray<Item>;
 }
 
 /** One object on a layer or in a group. */
@@ -44,7 +44,7 @@ export type Item = PathItem | RasterItem | ClipGroup | Group;
  */
 export interface PathGeometry {
   /** At least one subpath, each closed. */
-  readonly subpaths: readonly Subpath[];
+  readonly subpaths: ReadonlyArray<Subpath>;
   /** How overlapping subpaths and self-intersections enclose area for the fill and the clip; `'nonzero'` by default. The stroke is the same under both rules. */
   readonly fillRule?: FillRule;
 }
@@ -52,7 +52,7 @@ export interface PathGeometry {
 /** A closed subpath. The writer adds a final line to the start when needed. */
 export interface Subpath {
   readonly start: Point;
-  readonly segments: readonly Segment[];
+  readonly segments: ReadonlyArray<Segment>;
 }
 
 /** The nonzero winding number rule or the even-odd rule of ISO 32000-1:2008, 8.5.3.3. */
@@ -123,7 +123,7 @@ export interface ClipGroup {
   readonly kind: 'clipGroup';
   readonly locked?: boolean;
   readonly clip: PathGeometry;
-  readonly items: readonly Item[];
+  readonly items: ReadonlyArray<Item>;
 }
 
 /** Items grouped under one opacity, opaque and non-isolated by default. */
@@ -132,5 +132,5 @@ export interface Group {
   readonly locked?: boolean;
   readonly opacity?: number;
   readonly isolated?: boolean;
-  readonly items: readonly Item[];
+  readonly items: ReadonlyArray<Item>;
 }

@@ -15,9 +15,9 @@ const cmapOf = (text: string, parent?: CMap): CMap => new CMap(parse(text), pare
 const hexBytes = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../gu) ?? [], pair => Number.parseInt(pair, 16));
 
 // The codes a CMap splits a string into, as hex, with a mark on each invalid one.
-const split = (cmap: CMap, hex: string): string[] => {
+const split = (cmap: CMap, hex: string): Array<string> => {
   const bytes = hexBytes(hex);
-  const codes: string[] = [];
+  const codes: Array<string> = [];
   for (let offset = 0; offset < bytes.length;) {
     const { code, valid } = cmap.read(bytes, offset);
     codes.push(`${code.value.toString(16).padStart(code.length * 2, '0')}${valid ? '' : '!'}`);

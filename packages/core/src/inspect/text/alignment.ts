@@ -34,7 +34,7 @@ interface Search {
 const at = (values: Int32Array, index: number): number => values[index] ?? -1;
 
 class Aligner {
-  readonly steps: AlignmentStep[] = [];
+  readonly steps: Array<AlignmentStep> = [];
   private readonly equal: Equal;
   private work = 0;
 
@@ -154,7 +154,7 @@ class Aligner {
       a0++;
       b0++;
     }
-    const suffix: AlignmentStep[] = [];
+    const suffix: Array<AlignmentStep> = [];
     while (a0 < a1 && b0 < b1 && this.compare(a1 - 1, b1 - 1)) {
       a1--;
       b1--;
@@ -176,7 +176,7 @@ class Aligner {
  * Aligns two sequences by Myers' O(ND) difference algorithm ("An O(ND) Difference Algorithm and Its Variations", Algorithmica 1, 1986), searching from both ends at once so that memory stays linear: common prefixes and suffixes are matched first, and the rest is split where the forward and reverse searches meet.
  * The result lists every item of both sequences once, in order.
  */
-export const align = (intendedLength: number, foundLength: number, equal: Equal): readonly AlignmentStep[] => {
+export const align = (intendedLength: number, foundLength: number, equal: Equal): ReadonlyArray<AlignmentStep> => {
   const aligner = new Aligner(equal);
   aligner.diff({ aLow: 0, aHigh: intendedLength, bLow: 0, bHigh: foundLength });
   return aligner.steps;

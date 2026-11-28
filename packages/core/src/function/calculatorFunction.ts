@@ -12,7 +12,7 @@ import {
 
 interface Procedure {
   readonly kind: 'procedure';
-  readonly tokens: readonly Token[];
+  readonly tokens: ReadonlyArray<Token>;
 }
 type Value = number | boolean | Procedure;
 type Token = Value | string;
@@ -29,14 +29,14 @@ const literal = (word: string): Token => {
   return word;
 };
 
-const lex = (data: Uint8Array): Token[] => {
+const lex = (data: Uint8Array): Array<Token> => {
   // ISO 32000-1:2008, 7.10.5.1: calculator code is enclosed in braces; conditional expressions use nested braces.
   const source = new TextDecoder('latin1').decode(data).replaceAll(/%[^\r\n]*/gu, ' ');
   const words = source.match(/\{|\}|[^\s{}]+/gu) ?? [];
   if (words.length > 10_000) {
     throw new ResourceLimitError('calculator function has too many tokens');
   }
-  const frames: Token[][] = [[]];
+  const frames: Array<Array<Token>> = [[]];
   for (const word of words) {
     if (word === '{') {
       if (frames.length > 16) {
@@ -67,7 +67,7 @@ const lex = (data: Uint8Array): Token[] => {
   return [...first.tokens];
 };
 
-const pop = (stack: Value[]): Value => {
+const pop = (stack: Array<Value>): Value => {
   const value = stack.pop();
   if (value === undefined) {
     throw error('stack underflow');
@@ -75,7 +75,7 @@ const pop = (stack: Value[]): Value => {
   return value;
 };
 
-const number = (stack: Value[]): number => {
+const number = (stack: Array<Value>): number => {
   const value = pop(stack);
   if (typeof value !== 'number') {
     throw error('expected number');
@@ -83,7 +83,7 @@ const number = (stack: Value[]): number => {
   return value;
 };
 
-const boolean = (stack: Value[]): boolean => {
+const boolean = (stack: Array<Value>): boolean => {
   const value = pop(stack);
   if (typeof value !== 'boolean') {
     throw error('expected boolean');
@@ -91,7 +91,7 @@ const boolean = (stack: Value[]): boolean => {
   return value;
 };
 
-const procedure = (stack: Value[]): Procedure => {
+const procedure = (stack: Array<Value>): Procedure => {
   const value = pop(stack);
   if (typeof value !== 'object') {
     throw error('expected procedure');
@@ -235,7 +235,7 @@ const logic = (operator: string, left: Value, right: Value): Value => {
   return signed32(result);
 };
 
-const stackOperation = (operator: string, stack: Value[]): boolean => {
+const stackOperation = (operator: string, stack: Array<Value>): boolean => {
   if (operator === 'pop') {
     pop(stack);
     return true;
@@ -285,7 +285,7 @@ const stackOperation = (operator: string, stack: Value[]): boolean => {
   return false;
 };
 
-const controlOperation = (operator: string, stack: Value[], run: (tokens: readonly Token[]) => void): boolean => {
+const controlOperation = (operator: string, stack: Array<Value>, run: (tokens: ReadonlyArray<Token>) => void): boolean => {
   if (operator !== 'if' && operator !== 'ifelse') {
     return false;
   }
@@ -300,7 +300,7 @@ const controlOperation = (operator: string, stack: Value[], run: (tokens: readon
   return true;
 };
 
-const logicalOperation = (operator: string, stack: Value[]): boolean => {
+const logicalOperation = (operator: string, stack: Array<Value>): boolean => {
   if (operator === 'not') {
     const value = pop(stack);
     if (typeof value === 'boolean') {
@@ -331,7 +331,7 @@ const logicalOperation = (operator: string, stack: Value[]): boolean => {
   return false;
 };
 
-const arithmeticOperation = (operator: string, stack: Value[]): boolean => {
+const arithmeticOperation = (operator: string, stack: Array<Value>): boolean => {
   if (['abs', 'ceiling', 'cvi', 'cvr', 'floor', 'neg', 'round', 'sqrt', 'sin', 'cos', 'ln', 'log', 'truncate'].includes(operator)) {
     const result = unary(operator, number(stack));
     if (result === undefined || !Number.isFinite(result)) {
@@ -359,10 +359,10 @@ const arithmeticOperation = (operator: string, stack: Value[]): boolean => {
   return false;
 };
 
-const execute = (tokens: readonly Token[], stack: Value[]): void => {
+const execute = (tokens: ReadonlyArray<Token>, stack: Array<Value>): void => {
   let steps = 0;
   let depth = 0;
-  const run = (body: readonly Token[]): void => {
+  const run = (body: ReadonlyArray<Token>): void => {
     if (++depth > 16) {
       throw new ResourceLimitError('calculator execution nesting exceeds 16');
     }
@@ -389,13 +389,13 @@ const execute = (tokens: readonly Token[], stack: Value[]): void => {
   run(tokens);
 };
 
-export const createCalculatorFunction = (data: Uint8Array, inputs: number, outputs: number): ((values: readonly number[]) => number[]) => {
+export const createCalculatorFunction = (data: Uint8Array, inputs: number, outputs: number): ((values: ReadonlyArray<number>) => Array<number>) => {
   const tokens = lex(data);
   return values => {
     if (values.length !== inputs) {
       throw error('input dimension mismatch');
     }
-    const stack: Value[] = [...values];
+    const stack: Array<Value> = [...values];
     execute(tokens, stack);
     if (stack.length !== outputs || stack.some(value => typeof value !== 'number')) {
       throw error('output dimension mismatch');

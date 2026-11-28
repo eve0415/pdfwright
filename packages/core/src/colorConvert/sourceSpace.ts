@@ -18,7 +18,7 @@ export type SourceSpace =
   | { readonly kind: 'gray'; readonly source: ColorSource }
   | { readonly kind: 'deviceGray' }
   | { readonly kind: 'indexed'; readonly base: SourceSpace; readonly hival: number; readonly lookup: Uint8Array }
-  | { readonly kind: 'separation' | 'deviceN'; readonly names: readonly Uint8Array[]; readonly alternate: SourceSpace; readonly tint: PdfObject }
+  | { readonly kind: 'separation' | 'deviceN'; readonly names: ReadonlyArray<Uint8Array>; readonly alternate: SourceSpace; readonly tint: PdfObject }
   | { readonly kind: 'pattern'; readonly underlying?: SourceSpace }
   | { readonly kind: 'untouched' };
 
@@ -53,7 +53,7 @@ const deref = (context: ResolveContext, value: PdfDirectObject | undefined): Pdf
   return internals.objects.deref(value);
 };
 
-const array = (context: ResolveContext, value: PdfDirectObject | undefined): readonly PdfDirectObject[] | undefined => {
+const array = (context: ResolveContext, value: PdfDirectObject | undefined): ReadonlyArray<PdfDirectObject> | undefined => {
   const found = deref(context, value);
   return found?.kind === 'array' ? found.items : undefined;
 };
@@ -74,7 +74,7 @@ const number = (context: ResolveContext, value: PdfDirectObject | undefined): nu
   return undefined;
 };
 
-const numbers = (context: ResolveContext, value: PdfDirectObject | undefined, length: number): number[] | undefined => {
+const numbers = (context: ResolveContext, value: PdfDirectObject | undefined, length: number): Array<number> | undefined => {
   const items = array(context, value);
   if (items?.length !== length) {
     return undefined;
@@ -195,7 +195,7 @@ const lookupBytes = (context: ResolveContext, value: PdfDirectObject | undefined
   return invalid('Indexed lookup is not a byte string or stream');
 };
 
-const indexed = (context: ResolveContext, items: readonly PdfDirectObject[], visitSpace: Resolver): SourceSpace => {
+const indexed = (context: ResolveContext, items: ReadonlyArray<PdfDirectObject>, visitSpace: Resolver): SourceSpace => {
   // ISO 32000-1:2008, 8.6.6.3: hival is at most 255 and the lookup stores base-space components.
   const base = visitSpace(child(context), items[1]);
   const hival = number(context, items[2]);
@@ -205,7 +205,7 @@ const indexed = (context: ResolveContext, items: readonly PdfDirectObject[], vis
   return { kind: 'indexed', base, hival, lookup: lookupBytes(context, items[3]) };
 };
 
-const colorantNames = (context: ResolveContext, value: PdfDirectObject | undefined, family: 'Separation' | 'DeviceN'): Uint8Array[] => {
+const colorantNames = (context: ResolveContext, value: PdfDirectObject | undefined, family: 'Separation' | 'DeviceN'): Array<Uint8Array> => {
   // ISO 32000-1:2008, 8.6.6.4–8.6.6.5: colorant names are PDF names, so their decoded bytes are kept unchanged.
   const first = deref(context, value);
   if (family === 'Separation') {
@@ -217,7 +217,7 @@ const colorantNames = (context: ResolveContext, value: PdfDirectObject | undefin
   if (first?.kind !== 'array') {
     return invalid('DeviceN colorant names are invalid');
   }
-  const bytes: Uint8Array[] = [];
+  const bytes: Array<Uint8Array> = [];
   for (const item of first.items) {
     const name = deref(context, item);
     if (name?.kind !== 'name') {
@@ -228,7 +228,11 @@ const colorantNames = (context: ResolveContext, value: PdfDirectObject | undefin
   return bytes;
 };
 
-const special = (context: ResolveContext, spec: { items: readonly PdfDirectObject[]; family: 'Separation' | 'DeviceN' }, visitSpace: Resolver): SourceSpace => {
+const special = (
+  context: ResolveContext,
+  spec: { items: ReadonlyArray<PdfDirectObject>; family: 'Separation' | 'DeviceN' },
+  visitSpace: Resolver,
+): SourceSpace => {
   const names = colorantNames(context, spec.items[1], spec.family);
   const alternate = visitSpace(child(context), spec.items[2]);
   const tint = deref(context, spec.items[3]);

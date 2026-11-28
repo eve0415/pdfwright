@@ -22,9 +22,9 @@ const component = (operand: ContentOperand | undefined): number => {
 };
 
 // ISO 32000-1:2008, 10.3.2: DeviceRGB to gray uses 0.3 R + 0.59 G + 0.11 B.
-export const deviceRgbLuminosity = (values: readonly number[]): number => 0.3 * (values[0] ?? 0) + 0.59 * (values[1] ?? 0) + 0.11 * (values[2] ?? 0);
+export const deviceRgbLuminosity = (values: ReadonlyArray<number>): number => 0.3 * (values[0] ?? 0) + 0.59 * (values[1] ?? 0) + 0.11 * (values[2] ?? 0);
 
-const rgb = (operands: readonly ContentOperand[]): number[] => {
+const rgb = (operands: ReadonlyArray<ContentOperand>): Array<number> => {
   if (operands.length !== 3) {
     throw new ValidationError('luminosity RGB paint needs three components', 'color-operator');
   }
@@ -55,7 +55,7 @@ const rewriteNamedSpace = (operation: SpannedContentOperation, state: ColourStat
   throw new UnsupportedFeatureError('luminosity mask contains another colour space');
 };
 
-const rewriteSample = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: readonly number[]) => number): OperationRewrite => {
+const rewriteSample = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: ReadonlyArray<number>) => number): OperationRewrite => {
   const { operator } = operation;
   const selected = operator === operator.toUpperCase() ? state.strokeRgb : state.fillRgb;
   const grayOperator = operator === operator.toUpperCase() ? 'G' : 'g';
@@ -80,7 +80,7 @@ const rewriteInline = (
 const rewriteOperation = (
   operation: SpannedContentOperation,
   state: ColourState,
-  config: { gray: (values: readonly number[]) => number; inline?: ((image: InlineImage) => Uint8Array | null) | undefined },
+  config: { gray: (values: ReadonlyArray<number>) => number; inline?: ((image: InlineImage) => Uint8Array | null) | undefined },
 ): OperationRewrite => {
   const { operator } = operation;
   const rgbToGray = config.gray;
@@ -113,12 +113,12 @@ const rewriteOperation = (
 /** Rewrites a DeviceRGB luminosity group's colour operators to DeviceGray without changing its geometry. */
 export const rewriteDeviceRgbLuminosity = (
   bytes: Uint8Array,
-  rgbToGray: (values: readonly number[]) => number = deviceRgbLuminosity,
+  rgbToGray: (values: ReadonlyArray<number>) => number = deviceRgbLuminosity,
   inline?: (image: InlineImage) => Uint8Array | null,
 ): Uint8Array => {
   let state: ColourState = { fillRgb: false, strokeRgb: false };
-  const stack: ColourState[] = [];
-  const edits: { start: number; end: number; replacement: string | Uint8Array }[] = [];
+  const stack: Array<ColourState> = [];
+  const edits: Array<{ start: number; end: number; replacement: string | Uint8Array }> = [];
   for (const operation of readContentSpans(bytes, 256)) {
     if (operation.operator === 'q') {
       stack.push(state);

@@ -27,7 +27,7 @@ import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 export interface SpotConversionReport {
   readonly separations: number;
   readonly deviceN: number;
-  readonly approximations: readonly { readonly maxDeltaE2000: number }[];
+  readonly approximations: ReadonlyArray<{ readonly maxDeltaE2000: number }>;
 }
 
 interface SpotContext {
@@ -45,14 +45,14 @@ interface SpotPlan {
   readonly original: Extract<PdfDirectObject, { kind: 'array' }>;
   readonly sampled: ConvertedTint;
   readonly kind: 'separation' | 'deviceN';
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface ResourceSpotPlan {
   readonly resources: PdfDictionaryEntries;
   readonly spaces: PdfDictionaryEntries;
-  readonly spots: readonly SpotPlan[];
-  readonly discarded: readonly PdfReference[];
+  readonly spots: ReadonlyArray<SpotPlan>;
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface PagePlan extends ResourceSpotPlan {
@@ -130,7 +130,7 @@ const sampleFunction = (context: SpotContext, space: SourceSpace & { kind: 'sepa
     blackPointCompensation: context.options.blackPointCompensation !== false,
     lut8LabEncoding: context.options.lut8LabEncoding ?? 'icc',
   });
-  const evaluate = (tints: readonly number[]): Float64Array => {
+  const evaluate = (tints: ReadonlyArray<number>): Float64Array => {
     const output = new Float64Array(4);
     transform.convert(Float64Array.from(original(tints)), output);
     return output;
@@ -208,7 +208,7 @@ const planSpace = (context: SpotContext, name: Uint8Array, value: PdfDirectObjec
   if (resolved.kind === 'deviceN') {
     checkNChannel(context, original);
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   if (value.kind === 'reference') {
     discarded.push(value);
   }
@@ -229,7 +229,7 @@ const resourceSpots = (context: SpotContext): ResourceSpotPlan | undefined => {
   if (spaces?.kind !== 'dictionary') {
     return undefined;
   }
-  const spots: SpotPlan[] = [];
+  const spots: Array<SpotPlan> = [];
   for (const [name, value] of spaces.entries.entries()) {
     const plan = planSpace(context, name, value);
     if (plan !== undefined) {
@@ -239,7 +239,7 @@ const resourceSpots = (context: SpotContext): ResourceSpotPlan | undefined => {
   if (spots.length === 0) {
     return undefined;
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   const old = resources.get(COLOR_SPACE);
   if (old?.kind === 'reference') {
     discarded.push(old);
@@ -256,7 +256,7 @@ const pagePlan = (document: LoadedDocument, pageIndex: number, options: RewriteC
   return planned === undefined ? undefined : { ...planned, reference: page.reference };
 };
 
-const scanForms = (context: SpotContext, state: { seen: Set<number>; plans: FormPlan[] }): void => {
+const scanForms = (context: SpotContext, state: { seen: Set<number>; plans: Array<FormPlan> }): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -354,7 +354,7 @@ const convertedArray = (document: LoadedDocument, spot: SpotPlan): PdfDirectObje
   if (family === undefined || colorants === undefined) {
     return invalid('spot colour space is incomplete');
   }
-  const items: PdfDirectObject[] = [family, colorants, pdfName('DeviceCMYK'), functionReference];
+  const items: Array<PdfDirectObject> = [family, colorants, pdfName('DeviceCMYK'), functionReference];
   for (const extra of spot.original.items.slice(4)) {
     items.push(extra);
   }
@@ -371,7 +371,7 @@ const convertedResources = (document: LoadedDocument, plan: ResourceSpotPlan): P
   return resources;
 };
 
-const applyPage = (document: LoadedDocument, plan: PagePlan): PdfReference[] => {
+const applyPage = (document: LoadedDocument, plan: PagePlan): Array<PdfReference> => {
   const page = document.get(plan.reference);
   if (page.kind !== 'dictionary') {
     return invalid('page is not a dictionary');
@@ -386,7 +386,7 @@ const applyPage = (document: LoadedDocument, plan: PagePlan): PdfReference[] => 
   return discarded;
 };
 
-const applyForm = (document: LoadedDocument, plan: FormPlan): PdfReference[] => {
+const applyForm = (document: LoadedDocument, plan: FormPlan): Array<PdfReference> => {
   const dictionary = new PdfDictionaryEntries(plan.form.dictionary.entries());
   const discarded = [...plan.discarded];
   const oldResources = dictionary.get(RESOURCES);
@@ -398,7 +398,7 @@ const applyForm = (document: LoadedDocument, plan: FormPlan): PdfReference[] => 
   return discarded;
 };
 
-const applyImage = (document: LoadedDocument, plan: ImagePlan): PdfReference[] => {
+const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReference> => {
   const dictionary = new PdfDictionaryEntries(plan.image.dictionary.entries());
   dictionary.set(COLOR_SPACE, convertedArray(document, plan.spot));
   document.set(plan.reference, { kind: 'stream', dictionary, data: plan.image.data });
@@ -412,8 +412,8 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const pages: PagePlan[] = [];
-  const forms: FormPlan[] = [];
+  const pages: Array<PagePlan> = [];
+  const forms: Array<FormPlan> = [];
   const images = new Map<number, ImagePlan>();
   const seenForms = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
@@ -441,7 +441,7 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
   if (spots.length === 0) {
     return { separations: 0, deviceN: 0, approximations: [] };
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const plan of pages) {
     discarded.push(...applyPage(document, plan));
   }

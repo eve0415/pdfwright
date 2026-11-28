@@ -73,7 +73,7 @@ export interface ResourceVisit {
   readonly resources: PdfDictionaryEntries;
   /** The dictionary's own reference when it is an indirect object. */
   readonly reference?: PdfReference;
-  readonly origins: readonly ResourceOrigin[];
+  readonly origins: ReadonlyArray<ResourceOrigin>;
 }
 
 /** A font dictionary a walk reached: from a Font resource or a graphics state's Font entry. */
@@ -117,7 +117,7 @@ type Visit =
 interface VisitRecord {
   readonly resources: PdfDictionaryEntries;
   readonly reference: PdfReference | undefined;
-  readonly origins: ResourceOrigin[];
+  readonly origins: Array<ResourceOrigin>;
   readonly originKeys: Set<string>;
 }
 
@@ -161,9 +161,9 @@ class Walk {
   private readonly owners = new Map<string, string | undefined>();
   private readonly records = new Map<string, VisitRecord | undefined>();
   // Origins of resource dictionaries reached again before the walk has read them.
-  private readonly pending = new Map<string, ResourceOrigin[]>();
-  private readonly visits: Visit[] = [];
-  private readonly unreadable: UnreadableObject[] = [];
+  private readonly pending = new Map<string, Array<ResourceOrigin>>();
+  private readonly visits: Array<Visit> = [];
+  private readonly unreadable: Array<UnreadableObject> = [];
   private pageKey = 'page';
   private directOwners = 0;
   private from: WalkEntry = 'Resources';
@@ -264,7 +264,7 @@ class Walk {
     this.visits.push({ kind: 'owner', value, role, from: this.from, owner });
   }
 
-  run(): readonly UnreadableObject[] {
+  run(): ReadonlyArray<UnreadableObject> {
     for (let visit = this.visits.pop(); visit !== undefined; visit = this.visits.pop()) {
       if (visit.kind === 'origin') {
         this.origin(visit.key, visit.origin);
@@ -439,7 +439,7 @@ class Walk {
  * Walks the resources a page reaches through its Resources and its annotations' appearances and reports each resource dictionary once, with every origin it was reached through.
  * Objects that cannot be parsed are returned, never skipped silently.
  */
-export const walkResources = (document: DocumentInternals, page: PageEntry, handlers: ResourceWalk): readonly UnreadableObject[] => {
+export const walkResources = (document: DocumentInternals, page: PageEntry, handlers: ResourceWalk): ReadonlyArray<UnreadableObject> => {
   const walk = new Walk(document, handlers);
   walk.page(handlers.resources);
   walk.annotations(page);
@@ -447,7 +447,7 @@ export const walkResources = (document: DocumentInternals, page: PageEntry, hand
 };
 
 /** Walks AcroForm default resources, which ISO 32000-1:2008, 12.7.2 assigns to variable text field appearances independently of page resources. */
-export const walkAcroFormResources = (document: DocumentInternals, handlers: ResourceWalk): readonly UnreadableObject[] => {
+export const walkAcroFormResources = (document: DocumentInternals, handlers: ResourceWalk): ReadonlyArray<UnreadableObject> => {
   const walk = new Walk(document, handlers);
   walk.acroForm();
   return walk.run();

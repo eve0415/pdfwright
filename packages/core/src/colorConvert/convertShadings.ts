@@ -28,7 +28,7 @@ import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 
 export interface ShadingConversionReport {
   readonly shadings: number;
-  readonly approximations: readonly { readonly maxDeltaE2000: number }[];
+  readonly approximations: ReadonlyArray<{ readonly maxDeltaE2000: number }>;
 }
 
 interface ShadingContext {
@@ -49,7 +49,7 @@ interface ShadingPlan {
   readonly shading: Extract<PdfObject, { kind: 'dictionary' }>;
   readonly sampled: ConvertedCmykFunction;
   readonly background: PdfDirectObject | undefined;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface DirectShadingPlan {
@@ -99,7 +99,7 @@ const rememberIntent = <Key>(values: Map<Key, RenderingIntent>, key: Key, intent
   values.set(key, intent);
 };
 
-const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference; uses: readonly ShadingUse[] }, usage: ShadingUsage): void => {
+const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference; uses: ReadonlyArray<ShadingUse> }, usage: ShadingUsage): void => {
   const { context, scope, uses } = input;
   const internals = internalsOf(context.document);
   if (internals === undefined) {
@@ -219,7 +219,7 @@ const numeric = (value: PdfDirectObject): number => {
   return invalid('shading function has a nonnumeric value');
 };
 
-const arrayNumbers = (value: PdfDirectObject | undefined, expected: number): number[] => {
+const arrayNumbers = (value: PdfDirectObject | undefined, expected: number): Array<number> => {
   if (value?.kind !== 'array' || value.items.length !== expected) {
     return invalid('shading numeric array has the wrong length');
   }
@@ -248,7 +248,7 @@ const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject 
 
 const functionReader = (document: LoadedDocument): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(document, item));
 
-const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
+const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: ReadonlyArray<number>) => Array<number>) => {
   const read = functionReader(document);
   if (value.kind !== 'array') {
     return read(value);
@@ -292,7 +292,7 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
     if (domain.length !== 2) {
       return invalid('stitching subfunction must take one input');
     }
-    const evaluate = (input: readonly number[]): Float64Array => {
+    const evaluate = (input: ReadonlyArray<number>): Float64Array => {
       const output = new Float64Array(4);
       transform.convert(Float64Array.from(fn(input)), output);
       return output;
@@ -307,7 +307,7 @@ const sampledShading = (config: {
   transform: ColorTransform;
   channels: number;
   dimensions: number;
-  domain: readonly number[];
+  domain: ReadonlyArray<number>;
 }): ConvertedCmykFunction => {
   const { context, value, transform, channels, dimensions, domain } = config;
   const sourceFunction = decodedFunction(context.document, value);
@@ -322,7 +322,7 @@ const sampledShading = (config: {
     return stitchedShading(context, sourceFunction, transform);
   }
   const fn = evaluator(context.document, value, channels);
-  const evaluate = (values: readonly number[]): Float64Array => {
+  const evaluate = (values: ReadonlyArray<number>): Float64Array => {
     const output = new Float64Array(4);
     transform.convert(Float64Array.from(fn(values)), output);
     return output;
@@ -330,7 +330,7 @@ const sampledShading = (config: {
   return sampleCmykFunction({ dimensions, domain, evaluate, destination: context.options.outputProfile, grid: 65, minimumGrid: 2, midpointTolerance: 0.5 });
 };
 
-const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): PdfReference[] => {
+const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): Array<PdfReference> => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -456,7 +456,7 @@ const directPatternPlans = (context: ShadingContext, plans: Map<number, PatternS
   }
 };
 
-const directPagePlans = (context: ShadingContext, page: PdfReference, usage: ShadingUsage): DirectShadingPlan[] => {
+const directPagePlans = (context: ShadingContext, page: PdfReference, usage: ShadingUsage): Array<DirectShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -465,7 +465,7 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
   if (category?.kind !== 'dictionary') {
     return [];
   }
-  const plans: DirectShadingPlan[] = [];
+  const plans: Array<DirectShadingPlan> = [];
   for (const [name, value] of category.entries.entries()) {
     if (value.kind !== 'dictionary') {
       continue;
@@ -478,7 +478,7 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
   return plans;
 };
 
-const formShadingResources = (context: ShadingContext, target: { reference: PdfReference; form: PdfStream }, usage: ShadingUsage): FormShadingPlan[] => {
+const formShadingResources = (context: ShadingContext, target: { reference: PdfReference; form: PdfStream }, usage: ShadingUsage): Array<FormShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -487,7 +487,7 @@ const formShadingResources = (context: ShadingContext, target: { reference: PdfR
   if (shadings?.kind !== 'dictionary') {
     return [];
   }
-  const plans: FormShadingPlan[] = [];
+  const plans: Array<FormShadingPlan> = [];
   for (const [name, entry] of shadings.entries.entries()) {
     if (entry.kind !== 'dictionary') {
       continue;
@@ -500,7 +500,7 @@ const formShadingResources = (context: ShadingContext, target: { reference: PdfR
   return plans;
 };
 
-const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; usage: ShadingUsage }): FormShadingPlan[] => {
+const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; usage: ShadingUsage }): Array<FormShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -509,7 +509,7 @@ const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; us
   if (category?.kind !== 'dictionary') {
     return [];
   }
-  const plans: FormShadingPlan[] = [];
+  const plans: Array<FormShadingPlan> = [];
   for (const [, value] of category.entries.entries()) {
     if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
       continue;
@@ -544,18 +544,18 @@ const convertedDictionary = (document: LoadedDocument, plan: ShadingPlan): PdfDi
   return dictionary;
 };
 
-const applyDirectPages = (document: LoadedDocument, plans: readonly DirectShadingPlan[]): PdfReference[] => {
+const applyDirectPages = (document: LoadedDocument, plans: ReadonlyArray<DirectShadingPlan>): Array<PdfReference> => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const grouped = new Map<number, DirectShadingPlan[]>();
+  const grouped = new Map<number, Array<DirectShadingPlan>>();
   for (const plan of plans) {
     const list = grouped.get(plan.page.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.page.objectNumber, list);
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
     const [first] = group;
     if (first === undefined) {
@@ -590,18 +590,18 @@ const applyDirectPages = (document: LoadedDocument, plans: readonly DirectShadin
   return discarded;
 };
 
-const applyDirectForms = (document: LoadedDocument, plans: readonly FormShadingPlan[]): PdfReference[] => {
+const applyDirectForms = (document: LoadedDocument, plans: ReadonlyArray<FormShadingPlan>): Array<PdfReference> => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const grouped = new Map<number, FormShadingPlan[]>();
+  const grouped = new Map<number, Array<FormShadingPlan>>();
   for (const plan of plans) {
     const list = grouped.get(plan.form.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.form.objectNumber, list);
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
     const [first] = group;
     if (first === undefined) {
@@ -643,8 +643,8 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
   const usage = collectUsage(document, options);
   const plans = new Map<number, ShadingPlan>();
   const patternPlans = new Map<number, PatternShadingPlan>();
-  const direct: DirectShadingPlan[] = [];
-  const formDirect: FormShadingPlan[] = [];
+  const direct: Array<DirectShadingPlan> = [];
+  const formDirect: Array<FormShadingPlan> = [];
   const seenForms = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
@@ -666,7 +666,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
       throw new ValidationError('shading resources cannot be read', 'unreadable-resource');
     }
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const plan of plans.values()) {
     if (plan.reference === undefined) {
       return invalid('indirect shading reference is missing');

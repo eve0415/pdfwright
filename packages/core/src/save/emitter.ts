@@ -2,7 +2,7 @@ import { ByteWriter } from '../bytes/byteWriter.ts';
 
 export type EmittedPart = Uint8Array | { readonly length: number; readonly produce: () => Generator<Uint8Array> };
 
-export const emittedChunks = function* (parts: readonly EmittedPart[]): Generator<Uint8Array> {
+export const emittedChunks = function* (parts: ReadonlyArray<EmittedPart>): Generator<Uint8Array> {
   for (const part of parts) {
     if (part instanceof Uint8Array) {
       yield part;
@@ -14,7 +14,7 @@ export const emittedChunks = function* (parts: readonly EmittedPart[]): Generato
 
 /** Collects output as chunks: views of existing bytes, and new bytes written into a buffer; `offset` is the position of the next byte. */
 export class PdfEmitter {
-  private readonly chunks: EmittedPart[] = [];
+  private readonly chunks: Array<EmittedPart> = [];
   private flushed = 0;
   writer: ByteWriter = new ByteWriter();
 
@@ -49,13 +49,13 @@ export class PdfEmitter {
     this.flushed += length;
   }
 
-  finishParts(): readonly EmittedPart[] {
+  finishParts(): ReadonlyArray<EmittedPart> {
     this.flush();
     return this.chunks;
   }
 
   /** The chunks emitted so far, finishing the current buffer. */
-  finish(): Uint8Array[] {
+  finish(): Array<Uint8Array> {
     this.flush();
     if (this.chunks.some(part => !(part instanceof Uint8Array))) {
       throw new Error('produced output requires a streamed save');

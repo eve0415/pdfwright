@@ -3,7 +3,7 @@ import type { Lexer } from '../parse/lexer.ts';
 
 import { isWhitespace } from '../parse/characterClass.ts';
 
-const inlineParameter = (values: readonly PdfDirectObject[], names: readonly string[]): PdfDirectObject | undefined => {
+const inlineParameter = (values: ReadonlyArray<PdfDirectObject>, names: ReadonlyArray<string>): PdfDirectObject | undefined => {
   for (let index = 0; index + 1 < values.length; index += 2) {
     const key = values[index];
     if (key?.kind === 'name' && names.includes(new TextDecoder('latin1').decode(key.bytes))) {
@@ -39,7 +39,7 @@ const imageBits = (mask: PdfDirectObject | undefined, bits: PdfDirectObject | un
 };
 
 // ISO 32000-1:2008, 8.9.3 pads each sample row to a byte boundary; 8.9.7, Table 93 gives inline image width, height, bits, colour space and filter keys.
-const unfilteredImageLength = (parameters: readonly PdfDirectObject[]): number | undefined => {
+const unfilteredImageLength = (parameters: ReadonlyArray<PdfDirectObject>): number | undefined => {
   if (parameters.length % 2 !== 0 || inlineParameter(parameters, ['F', 'Filter']) !== undefined) {
     return undefined;
   }
@@ -79,7 +79,7 @@ const exactInlineEnd = (bytes: Uint8Array, start: number, length: number): numbe
  * Reads the data of an inline image whose parameters the lexer has just read up to and including ID, and leaves the lexer after the EI that ends it.
  * Unfiltered data is measured from width, height, components and bits per component, so that an EI sequence inside the samples does not end it; other data ends at the first EI between white-space characters.
  */
-export const inlineImageData = (lexer: Lexer, parameters: readonly PdfDirectObject[]): Uint8Array => {
+export const inlineImageData = (lexer: Lexer, parameters: ReadonlyArray<PdfDirectObject>): Uint8Array => {
   const { bytes } = lexer;
   const start = lexer.position + (isWhitespace(bytes[lexer.position] ?? 0) ? 1 : 0);
   const length = unfilteredImageLength(parameters);

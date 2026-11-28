@@ -29,7 +29,7 @@ const source = () =>
     },
   ]);
 
-const boxed = (...pages: readonly string[]) =>
+const boxed = (...pages: ReadonlyArray<string>) =>
   loadDocument(
     buildPdf([
       {

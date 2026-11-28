@@ -8,13 +8,13 @@ export interface FseCell {
 
 export interface FseTable {
   readonly accuracy: number;
-  readonly cells: readonly FseCell[];
+  readonly cells: ReadonlyArray<FseCell>;
   initialState: (symbol: number) => number;
   invert: (symbol: number, nextState: number) => { readonly state: number; readonly bits: number; readonly value: number };
 }
 
 /** Builds the RFC 8878, 4.1.1 decoding table and inverts its transitions for encoding. */
-export const buildFseTable = (distribution: readonly number[], accuracy: number): FseTable => {
+export const buildFseTable = (distribution: ReadonlyArray<number>, accuracy: number): FseTable => {
   const size = 2 ** accuracy;
   const symbols = new Int16Array(size).fill(-1);
   const next = new Int16Array(distribution.length);
@@ -41,7 +41,7 @@ export const buildFseTable = (distribution: readonly number[], accuracy: number)
   if (position !== 0) {
     throw new InvalidArgumentError('invalid predefined FSE distribution');
   }
-  const cells: FseCell[] = [];
+  const cells: Array<FseCell> = [];
   for (const symbol of symbols) {
     if (symbol < 0) {
       throw new InvalidArgumentError('incomplete predefined FSE table');

@@ -36,14 +36,14 @@ interface StreamPlan {
   readonly resources: PdfDictionaryEntries;
   readonly names: OverprintNames;
   readonly overprintAdjustments: number;
-  readonly inlineImages: readonly NamedInlineImage[];
+  readonly inlineImages: ReadonlyArray<NamedInlineImage>;
   readonly kind: 'appearance' | 'pattern' | 'glyph';
 }
 
 interface AnnotationPlan {
   readonly reference: PdfReference;
   readonly dictionary: PdfDictionaryEntries;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface Scan {
@@ -51,7 +51,7 @@ interface Scan {
   readonly internals: DocumentInternals;
   readonly options: RewriteColorOptions;
   readonly streams: Map<number, StreamPlan>;
-  readonly annotations: AnnotationPlan[];
+  readonly annotations: Array<AnnotationPlan>;
 }
 
 const RESOURCES = pdfName('Resources').bytes;
@@ -260,7 +260,7 @@ const planAnnotations = (scan: Scan, page: PdfReference, resources: PdfDictionar
     changed = replaceColor(scan, dictionary, pdfName('IC').bytes) || changed;
     const oldMk = dictionary.get(MK);
     const mk = scan.internals.objects.deref(oldMk);
-    const discarded: PdfReference[] = [];
+    const discarded: Array<PdfReference> = [];
     if (mk?.kind === 'dictionary') {
       const mapped = new PdfDictionaryEntries(mk.entries.entries());
       const background = replaceColor(scan, mapped, pdfName('BG').bytes);
@@ -280,7 +280,7 @@ const planAnnotations = (scan: Scan, page: PdfReference, resources: PdfDictionar
 };
 
 const apply = (scan: Scan): OtherCarrierReport => {
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const plan of scan.streams.values()) {
     const dictionary = new PdfDictionaryEntries(plan.stream.dictionary.entries());
     dictionary.set(FILTER, pdfName('FlateDecode'));

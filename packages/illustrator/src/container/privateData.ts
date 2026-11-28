@@ -24,7 +24,7 @@ export interface PrivateDataInput {
 }
 
 export interface PrivateDataLayout {
-  readonly blockLengths: readonly number[];
+  readonly blockLengths: ReadonlyArray<number>;
   readonly frame: { readonly headerDescriptor: number; readonly windowDescriptor: number };
 }
 
@@ -54,7 +54,7 @@ export const attachPrivateData = (document: PdfDocument, page: PdfPage, input: P
   const entries = new PdfDictionaryEntries();
   const metadata = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: native.bytes.slice(0, native.metaDataLength) });
   entries.set(pdfName('AIMetaData').bytes, metadata);
-  const blockLengths: number[] = [];
+  const blockLengths: Array<number> = [];
   for (let index = 1, offset = 0; offset < wrapped.length; offset += CHUNK_SIZE, index++) {
     const block = wrapped.slice(offset, offset + CHUNK_SIZE);
     const reference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: block });

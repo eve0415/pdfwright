@@ -5,7 +5,7 @@ const INTACT_CODES = new Set<LoadWarning['code']>(['dangling-reference', 'resour
 
 /** Collects load warnings and decides whether they make the structure tolerated. */
 export class LoadLog {
-  readonly warnings: LoadWarning[] = [];
+  readonly warnings: Array<LoadWarning> = [];
   tolerated = false;
 
   warn(warning: LoadWarning): void {
@@ -22,7 +22,7 @@ export class LoadLog {
 
   /** Runs `attempt` with its warnings held back; they are kept only if it returns, and warnings given to its callback later go straight to the log. */
   attempt<T>(attempt: (warn: (warning: LoadWarning) => void) => T): T {
-    const held: LoadWarning[] = [];
+    const held: Array<LoadWarning> = [];
     let settled = false;
     const result = attempt(warning => {
       if (settled) {

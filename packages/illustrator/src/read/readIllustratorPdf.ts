@@ -28,9 +28,9 @@ export interface IllustratorPdfContents {
   /** The bytes of the page's and the Illustrator page-piece dictionary's `/LastModified` strings. */
   readonly lastModified: { readonly page: Uint8Array; readonly application: Uint8Array };
   /** The keys of the Illustrator `/Private` dictionary in file order. */
-  readonly privateDataKeys: readonly string[];
+  readonly privateDataKeys: ReadonlyArray<string>;
   /** The length of each `AIPDFPrivateData` block in block order, after any stream filter is removed. */
-  readonly blockLengths: readonly number[];
+  readonly blockLengths: ReadonlyArray<number>;
   /** The payload's compression and, for Zstandard, its frame header bytes. */
   readonly compression: NativePayloadCompression;
 }

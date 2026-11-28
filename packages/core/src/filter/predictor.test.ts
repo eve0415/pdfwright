@@ -32,9 +32,9 @@ const predict = (tag: number, [left, above, upperLeft]: readonly [number, number
 };
 
 // Encodes rows with the PNG filter named by each row's tag (RFC 2083, 6).
-const pngEncode = (rows: number[][], tags: number[], bytesPerPixel: number): Uint8Array => {
-  const output: number[] = [];
-  let previous: number[] = [];
+const pngEncode = (rows: Array<Array<number>>, tags: Array<number>, bytesPerPixel: number): Uint8Array => {
+  const output: Array<number> = [];
+  let previous: Array<number> = [];
   for (const [rowIndex, row] of rows.entries()) {
     const tag = tags[rowIndex] ?? 0;
     output.push(tag);

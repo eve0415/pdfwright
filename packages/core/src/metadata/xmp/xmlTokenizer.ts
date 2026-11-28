@@ -16,7 +16,7 @@ export interface XmlAttribute {
 }
 
 export type XmlToken =
-  | { readonly kind: 'start'; readonly name: string; readonly attributes: readonly XmlAttribute[]; readonly selfClosing: boolean; readonly span: XmlSpan }
+  | { readonly kind: 'start'; readonly name: string; readonly attributes: ReadonlyArray<XmlAttribute>; readonly selfClosing: boolean; readonly span: XmlSpan }
   | { readonly kind: 'end'; readonly name: string; readonly span: XmlSpan }
   | { readonly kind: 'text'; readonly text: string; readonly span: XmlSpan }
   | { readonly kind: 'cdata'; readonly text: string; readonly span: XmlSpan }
@@ -27,7 +27,7 @@ export type XmlToken =
 export type XmlRefusal = 'doctype' | 'undefined-entity' | 'too-deep' | 'too-many-attributes' | 'too-many-tokens' | 'invalid-character' | 'not-well-formed';
 
 export type XmlTokens =
-  | { readonly ok: true; readonly tokens: readonly XmlToken[] }
+  | { readonly ok: true; readonly tokens: ReadonlyArray<XmlToken> }
   | { readonly ok: false; readonly reason: XmlRefusal; readonly offset: number };
 
 export type XmlVisitResult = { readonly ok: true } | { readonly ok: false; readonly reason: XmlRefusal; readonly offset: number };
@@ -106,7 +106,7 @@ class Tokenizer {
   private readonly limits: XmlLimits;
   private readonly visit: (token: XmlToken) => void;
   private tokenCount = 0;
-  private readonly open: string[] = [];
+  private readonly open: Array<string> = [];
   private position = 0;
   private rootClosed = false;
   private rootSeen = false;
@@ -185,7 +185,7 @@ class Tokenizer {
     }
     this.position++;
     const name = this.name();
-    const attributes: XmlAttribute[] = [];
+    const attributes: Array<XmlAttribute> = [];
     for (;;) {
       const space = this.match(SPACE) ?? '';
       if (this.text.startsWith('/>', this.position) || this.text.startsWith('>', this.position)) {
@@ -347,7 +347,7 @@ export const visitXml = (text: string, visit: (token: XmlToken) => void, limits:
 };
 
 export const tokenizeXml = (text: string, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlTokens => {
-  const tokens: XmlToken[] = [];
+  const tokens: Array<XmlToken> = [];
   const result = visitXml(
     text,
     token => {
@@ -363,7 +363,7 @@ export type XmlEncoding = 'utf8' | 'utf-16be' | 'utf-16le' | 'utf-32be' | 'utf-3
 
 export type DecodedXml = { readonly ok: true; readonly text: string; readonly encoding: XmlEncoding } | { readonly ok: false; readonly reason: 'undecodable' };
 
-const startsWith = (bytes: Uint8Array, prefix: readonly number[]): boolean => prefix.every((byte, index) => bytes[index] === byte);
+const startsWith = (bytes: Uint8Array, prefix: ReadonlyArray<number>): boolean => prefix.every((byte, index) => bytes[index] === byte);
 
 // XML 1.0, Appendix F.1: a byte-order mark, or else the bytes of "<" in each encoding, tell the encoding; anything else reads as UTF-8.
 const detectEncoding = (bytes: Uint8Array): XmlEncoding => {

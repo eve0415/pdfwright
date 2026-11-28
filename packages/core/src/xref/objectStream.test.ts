@@ -14,10 +14,10 @@ import { decodeObjectStream, parseMember } from './objectStream.ts';
 
 interface Decoded {
   stream: DecodedObjectStream;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
-const context = (warnings: LoadWarning[], maxObjectStreamMembers = 100): Parameters<typeof decodeObjectStream>[2] => ({
+const context = (warnings: Array<LoadWarning>, maxObjectStreamMembers = 100): Parameters<typeof decodeObjectStream>[2] => ({
   warn: warning => {
     warnings.push(warning);
   },
@@ -27,7 +27,7 @@ const context = (warnings: LoadWarning[], maxObjectStreamMembers = 100): Paramet
   maxObjectStreamMembers,
 });
 
-const objectStream = (header: string, body: string, entries: [string, number][] = []): PdfObject => {
+const objectStream = (header: string, body: string, entries: Array<[string, number]> = []): PdfObject => {
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('ObjStm')],
     [pdfName('N').bytes, pdfInteger(header.trim().split(/\s+/u).length / 2)],
@@ -38,7 +38,7 @@ const objectStream = (header: string, body: string, entries: [string, number][] 
 };
 
 const decode = (stream: PdfObject, maxObjectStreamMembers = 100): Decoded => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   return { stream: decodeObjectStream(12, stream, context(warnings, maxObjectStreamMembers)), warnings };
 };
 

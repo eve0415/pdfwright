@@ -33,7 +33,7 @@ const fixture = buildPdf([
   },
 ]);
 
-const operatorsOf = (bytes: Uint8Array): readonly string[] => {
+const operatorsOf = (bytes: Uint8Array): ReadonlyArray<string> => {
   const document = loadDocument(bytes);
   const internals = internalsOf(document);
   const entry = internals?.pages[0];

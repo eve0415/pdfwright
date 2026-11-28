@@ -12,14 +12,14 @@ import { readClassicSection } from './classicSection.ts';
 const encode = (text: string): Uint8Array => Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
 
 const read = (text: string, offset = 0): ClassicSection => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
   return readClassicSection(new ByteSource(encode(text)), offset, { warn, names: new Map(), maxNesting: 256 });
 };
 
-const entries = (section: ClassicSection): (number | string)[][] =>
+const entries = (section: ClassicSection): Array<Array<number | string>> =>
   section.entries.map(entry => [entry.objectNumber, entry.type, entry.location, entry.generation]);
 
 const size = (section: ClassicSection): number | undefined => {

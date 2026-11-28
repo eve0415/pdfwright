@@ -5,8 +5,8 @@ import { buildCodeLengths, canonicalCodes } from './huffmanEncoder.ts';
 import { CODE_LENGTH_ORDER, DISTANCE_EXTRA, FIXED_DISTANCE_LENGTHS, FIXED_LITERAL_LENGTHS, LENGTH_EXTRA } from './tables.ts';
 
 interface Codebook {
-  lengths: readonly number[];
-  codes: readonly number[];
+  lengths: ReadonlyArray<number>;
+  codes: ReadonlyArray<number>;
 }
 
 interface CodedValue {
@@ -15,13 +15,13 @@ interface CodedValue {
   extraBits: number;
 }
 
-const makeCodebook = (lengths: readonly number[]): Codebook => ({ lengths, codes: canonicalCodes(lengths) });
+const makeCodebook = (lengths: ReadonlyArray<number>): Codebook => ({ lengths, codes: canonicalCodes(lengths) });
 
 const FIXED: [Codebook, Codebook] = [makeCodebook(FIXED_LITERAL_LENGTHS), makeCodebook(FIXED_DISTANCE_LENGTHS)];
 
-const runLengthCodes = (lengths: readonly number[]): CodedValue[] => {
+const runLengthCodes = (lengths: ReadonlyArray<number>): Array<CodedValue> => {
   // RFC 1951, 3.2.7 defines repeat codes 16, 17 and 18 for code-length sequences.
-  const runs: CodedValue[] = [];
+  const runs: Array<CodedValue> = [];
   let position = 0;
   while (position < lengths.length) {
     const value = lengths[position] ?? 0;
@@ -63,7 +63,7 @@ const runLengthCodes = (lengths: readonly number[]): CodedValue[] => {
 };
 
 // Token layout: see matchToken in lz77.ts.
-const frequencies = (tokens: TokenList): [number[], number[]] => {
+const frequencies = (tokens: TokenList): [Array<number>, Array<number>] => {
   const literal = Array.from({ length: 286 }, () => 0);
   const distance = Array.from({ length: 30 }, () => 0);
   literal[256] = 1;

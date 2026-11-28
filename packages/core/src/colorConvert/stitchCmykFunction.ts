@@ -10,7 +10,7 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObjec
 export interface StitchedCmykFunction {
   readonly kind: 'stitched';
   readonly dictionary: PdfDictionaryEntries;
-  readonly functions: readonly SampledCmykFunction[];
+  readonly functions: ReadonlyArray<SampledCmykFunction>;
 }
 
 export type ConvertedCmykFunction = SampledCmykFunction | StitchedCmykFunction;
@@ -28,7 +28,7 @@ export const stitchCmykFunction = (document: LoadedDocument, source: PdfObject, 
   if (children?.kind !== 'array' || children.items.length === 0) {
     throw new ValidationError('stitching function has no subfunctions', 'color-space');
   }
-  const functions: SampledCmykFunction[] = [];
+  const functions: Array<SampledCmykFunction> = [];
   for (const item of children.items) {
     const child = internals.objects.deref(item);
     if (child === undefined || child.kind === 'null') {

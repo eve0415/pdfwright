@@ -21,7 +21,7 @@ const EXIF_IDENTIFIER = [0x45, 0x78, 0x69, 0x66, 0, 0];
 const ORIENTATION_TAG = 0x0112;
 const SHORT_TYPE = 3;
 
-const startsWith = (data: Uint8Array, bounds: Bounds, prefix: readonly number[]): boolean =>
+const startsWith = (data: Uint8Array, bounds: Bounds, prefix: ReadonlyArray<number>): boolean =>
   bounds.end - bounds.start >= prefix.length && prefix.every((value, index) => data[bounds.start + index] === value);
 
 /** Whether an APP2 segment carries an ICC profile chunk. */
@@ -60,7 +60,7 @@ export const assembleIccProfile = (chunks: IccChunks, offset: number): Uint8Arra
   if (chunks.count === 0) {
     return undefined;
   }
-  const parts: Uint8Array[] = [];
+  const parts: Array<Uint8Array> = [];
   let length = 0;
   for (let sequence = 1; sequence <= chunks.count; sequence++) {
     const part = chunks.chunks.get(sequence) ?? invalidIcc(offset, `chunk ${String(sequence)} of ${String(chunks.count)} is missing`);

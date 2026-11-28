@@ -14,7 +14,7 @@ import { deflateZlib } from './deflate.ts';
 import { canonicalCodes } from './huffmanEncoder.ts';
 import { inflateChunks, inflateRaw, inflateZlib } from './inflate.ts';
 
-const dataSet = (): Uint8Array[] => {
+const dataSet = (): Array<Uint8Array> => {
   const random = new Uint8Array(1024 * 1024);
   let state = 0x12345678;
   for (let index = 0; index < random.length; index++) {
@@ -38,10 +38,10 @@ const largeData = (): Uint8Array => {
 
 const CODE_LENGTH_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-const lengths = (count: number, used: Record<number, number>): number[] => Array.from({ length: count }, (_, symbol) => used[symbol] ?? 0);
+const lengths = (count: number, used: Record<number, number>): Array<number> => Array.from({ length: count }, (_, symbol) => used[symbol] ?? 0);
 
 // One final dynamic block whose code lengths use four-bit codes for lengths 0-15, followed by the given literal/length symbols.
-const dynamicBlock = (literal: number[], distance: number[], symbols: number[]): Uint8Array => {
+const dynamicBlock = (literal: Array<number>, distance: Array<number>, symbols: Array<number>): Uint8Array => {
   const writer = new BitWriter();
   writer.writeBits(0b101, 3);
   writer.writeBits(literal.length - 257, 5);
@@ -174,7 +174,7 @@ describe('chunked zlib inflate', () => {
       { data: corrupted, code: 'checksum-mismatch' },
       { data: Uint8Array.from([...compressed, 0]), code: 'trailing-data' },
     ]) {
-      const warnings: FlateWarning[] = [];
+      const warnings: Array<FlateWarning> = [];
       const chunks = [
         ...inflateChunks(data, {
           onWarning: warning => {

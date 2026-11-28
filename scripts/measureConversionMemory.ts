@@ -34,7 +34,7 @@ const createFixture = async (filePath: string, pageCount: number): Promise<void>
   const file = openSync(filePath, 'w+');
   const encoder = new TextEncoder();
   let length = 0;
-  const offsets: number[] = [0];
+  const offsets: Array<number> = [0];
   const write = (value: string | Uint8Array): void => {
     length += writeAll(file, typeof value === 'string' ? encoder.encode(value) : value);
   };
@@ -102,7 +102,7 @@ const measure = async (filePath: string): Promise<void> => {
   let stage = 'start';
   let peakBytes = 0;
   let allocationPeakBytes = 0;
-  const retained: number[] = [];
+  const retained: Array<number> = [];
   const sample = (): void => {
     const usage = process.memoryUsage();
     const bytes = usage.heapUsed + usage.external;

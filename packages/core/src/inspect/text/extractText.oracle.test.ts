@@ -44,7 +44,7 @@ const PROGRAM = syntheticTrueType({
 
 const SIMPLE_WIDTHS = [250, ...Array.from({ length: 32 }, () => 0), 1000, 500, 1000].join(' ');
 
-const FONTS: readonly TestObject[] = [
+const FONTS: ReadonlyArray<TestObject> = [
   { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
   { number: 108, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-V/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
   { number: 109, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-V/DescendantFonts[110 0 R]/ToUnicode 107 0 R>>' },
@@ -131,7 +131,7 @@ const unescapeXml = (text: string): string =>
   });
 
 // mutool draw -F stext: one char element per glyph, with its origin as x and y and its quad; chars MuPDF adds between words carry flag 4 and are skipped.
-const mupdfChars = (xml: string, page: number): Char[] => {
+const mupdfChars = (xml: string, page: number): Array<Char> => {
   const pages = xml.split('<page ').slice(1);
   return [...(pages[page] ?? '').matchAll(/<char [^>]*\/>/gu)]
     .map(([element]) => element)
@@ -158,7 +158,7 @@ interface Word {
 }
 
 // pdftotext -bbox: one word element per word with its box.
-const popplerWords = (html: string, page: number): Word[] => {
+const popplerWords = (html: string, page: number): Array<Word> => {
   const pages = html.split('<page ').slice(1);
   return [...(pages[page] ?? '').matchAll(/<word ([^>]*)>([^<]*)<\/word>/gu)].map(([, attributes = '', text = '']) => ({
     xMin: Number(attribute(` ${attributes}`, 'xMin')),
@@ -169,13 +169,13 @@ const popplerWords = (html: string, page: number): Word[] => {
   }));
 };
 
-const xs = (glyph: PageGlyph): number[] => [glyph.quad[0], glyph.quad[2], glyph.quad[4], glyph.quad[6]];
-const ys = (glyph: PageGlyph): number[] => [glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]].map(y => PAGE_HEIGHT - y);
+const xs = (glyph: PageGlyph): Array<number> => [glyph.quad[0], glyph.quad[2], glyph.quad[4], glyph.quad[6]];
+const ys = (glyph: PageGlyph): Array<number> => [glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]].map(y => PAGE_HEIGHT - y);
 
 const near = (a: number, b: number, tolerance: number): boolean => Math.abs(a - b) <= tolerance;
 
 // Each glyph against the MuPDF char at the same position in content order: its origin, its text, and, for upright text, its box's left and right edges.
-const mupdfDifferences = (glyphs: readonly PageGlyph[], chars: readonly Char[], edges: boolean): string[] => {
+const mupdfDifferences = (glyphs: ReadonlyArray<PageGlyph>, chars: ReadonlyArray<Char>, edges: boolean): Array<string> => {
   if (glyphs.length !== chars.length) {
     return [`${String(glyphs.length)} glyphs against ${String(chars.length)} MuPDF chars`];
   }
@@ -199,11 +199,11 @@ const mupdfDifferences = (glyphs: readonly PageGlyph[], chars: readonly Char[], 
 };
 
 // Each poppler word against the glyphs whose text makes it up, in order: its left and right edges closely, its top and bottom within a quarter of the font size.
-const popplerDifferences = (glyphs: readonly PageGlyph[], words: readonly Word[]): string[] => {
+const popplerDifferences = (glyphs: ReadonlyArray<PageGlyph>, words: ReadonlyArray<Word>): Array<string> => {
   const shown = glyphs.filter(glyph => glyph.text !== null && glyph.text.trim() !== '');
   let next = 0;
   return words.flatMap(word => {
-    const part: PageGlyph[] = [];
+    const part: Array<PageGlyph> = [];
     while (part.map(glyph => glyph.text).join('').length < word.text.length && next < shown.length) {
       const glyph = shown[next++];
       if (glyph !== undefined) {
@@ -238,7 +238,7 @@ const withFile = async <T>(bytes: Uint8Array, use: (file: string) => Promise<T>)
 };
 
 // Ghostscript's bbox device: the bounds of the page's ink in default user space.
-const inkBounds = async (file: string): Promise<readonly number[]> => {
+const inkBounds = async (file: string): Promise<ReadonlyArray<number>> => {
   const { output } = await runTool('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-dSAFER', '-sDEVICE=bbox', file]);
   return (/%%HiResBoundingBox: (\S+) (\S+) (\S+) (\S+)/u.exec(output)?.slice(1) ?? []).map(Number);
 };
@@ -246,7 +246,9 @@ const inkBounds = async (file: string): Promise<readonly number[]> => {
 const INK_TOLERANCE = 0.01;
 
 // Whether the ink of a page showing one glyph lies inside that glyph's box, with both for the report.
-const inkInsideBox = async (content: string): Promise<{ readonly inside: boolean; readonly ink: readonly number[]; readonly box: readonly number[] }> => {
+const inkInsideBox = async (
+  content: string,
+): Promise<{ readonly inside: boolean; readonly ink: ReadonlyArray<number>; readonly box: ReadonlyArray<number> }> => {
   const bytes = textPdfBytes({ pages: [{ resources: RESOURCES, content }], objects: FONTS });
   const [glyph] = extractText(loadDocument(bytes), 0).glyphs;
   if (glyph === undefined) {
@@ -363,15 +365,15 @@ const extractionFailure = async (file: string): Promise<string | undefined> => {
 };
 
 // Extracts the text of every page of every file of a corpus set that loads, one file after another, and lists the files where extraction throws.
-const extractionFailures = async (set: string, directory: string): Promise<string[]> => {
+const extractionFailures = async (set: string, directory: string): Promise<Array<string>> => {
   const failing = await expectedErrors();
-  const names = await readdir(directory).catch((): string[] => []);
+  const names = await readdir(directory).catch((): Array<string> => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
   if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
     throw new Error('govdocs1 corpus is missing');
   }
-  const thrown: string[] = [];
-  const next = async (index: number): Promise<string[]> => {
+  const thrown: Array<string> = [];
+  const next = async (index: number): Promise<Array<string>> => {
     const name = files[index];
     if (name === undefined) {
       return thrown;

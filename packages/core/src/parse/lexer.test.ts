@@ -17,19 +17,19 @@ const ignore = (): void => {
 const lexer = (text: string, final = true): Lexer => new Lexer({ bytes: encode(text), base: 0, final }, 0, { warn: ignore, names: new Map() });
 
 interface Lexed {
-  tokens: Token[];
-  warnings: LoadWarning[];
+  tokens: Array<Token>;
+  warnings: Array<LoadWarning>;
 }
 
 const lex = (text: string): Lexed => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const source = new Lexer({ bytes: encode(text), base: 0, final: true }, 0, {
     warn: warning => {
       warnings.push(warning);
     },
     names: new Map(),
   });
-  const tokens: Token[] = [];
+  const tokens: Array<Token> = [];
   for (let token = source.next(); token.kind !== 'eof'; token = source.next()) {
     tokens.push(token);
   }
@@ -55,10 +55,10 @@ const summary = (token: Token): number | string => {
   return token.kind;
 };
 
-const summaries = (text: string): (number | string)[] => lex(text).tokens.map(token => summary(token));
+const summaries = (text: string): Array<number | string> => lex(text).tokens.map(token => summary(token));
 
-const stringBytes = (text: string): number[][] => {
-  const strings: number[][] = [];
+const stringBytes = (text: string): Array<Array<number>> => {
+  const strings: Array<Array<number>> = [];
   for (const token of lex(text).tokens) {
     if (token.kind === 'string') {
       strings.push([...token.bytes]);
@@ -67,7 +67,7 @@ const stringBytes = (text: string): number[][] => {
   return strings;
 };
 
-const nameLengths = (text: string): number[] => lex(text).tokens.map(token => (token.kind === 'name' ? token.bytes.length : -1));
+const nameLengths = (text: string): Array<number> => lex(text).tokens.map(token => (token.kind === 'name' ? token.bytes.length : -1));
 
 const sameNameArray = (left: Token, right: Token): boolean => left.kind === 'name' && right.kind === 'name' && left.bytes === right.bytes;
 

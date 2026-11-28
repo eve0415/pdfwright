@@ -29,7 +29,7 @@ export interface SaveInput {
   readonly changes: ReadonlyMap<number, ObjectChange>;
   readonly produced: ReadonlyMap<number, MeasuredStream>;
   /** Trailer entries set or removed since loading, applied over the entries copied from the source trailer. */
-  readonly trailerChanges: readonly TrailerChange[];
+  readonly trailerChanges: ReadonlyArray<TrailerChange>;
   /** One above the highest object number in use or assigned. */
   readonly size: number;
   readonly structure: DocumentStructure;
@@ -42,7 +42,7 @@ export interface SaveInput {
   readonly maxGeneratedXrefEntries: number;
   readonly fileIdentifier: 'derive' | readonly [Uint8Array, Uint8Array];
   /** Warnings found before serialization, such as a raised version. */
-  readonly warnings: readonly SaveWarning[];
+  readonly warnings: ReadonlyArray<SaveWarning>;
 }
 
 const quiet = (): LexContext => ({
@@ -53,13 +53,13 @@ const quiet = (): LexContext => ({
 });
 
 // ISO 32000-1:2008, 7.5.4: a deleted object's entry is added to the linked list of free entries, and "The entry's generation number shall be incremented by 1"; at 65,535 "it shall never be reused".
-const freeEntries = (store: ObjectStore, freed: readonly { objectNumber: number; generation: number }[]): Entry[] => {
+const freeEntries = (store: ObjectStore, freed: ReadonlyArray<{ objectNumber: number; generation: number }>): Array<Entry> => {
   if (freed.length === 0) {
     return [];
   }
   const head = store.index.get(0);
   const previousHead = head.type === FREE ? head.location : 0;
-  const entries: Entry[] = [{ objectNumber: 0, type: 0, field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
+  const entries: Array<Entry> = [{ objectNumber: 0, type: 0, field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
   for (const [index, object] of freed.entries()) {
     entries.push({
       objectNumber: object.objectNumber,
@@ -89,8 +89,8 @@ const identifiers = (trailer: PdfDictionaryEntries): readonly [Uint8Array, Uint8
 };
 
 interface Written {
-  readonly entries: Entry[];
-  readonly freed: { objectNumber: number; generation: number }[];
+  readonly entries: Array<Entry>;
+  readonly freed: Array<{ objectNumber: number; generation: number }>;
 }
 
 // Writes each changed and new object once, in ascending number, against its parsed original.
@@ -129,7 +129,7 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
 interface SectionRequest {
   readonly appendStart: number;
   readonly previousSection: number;
-  readonly entries: readonly Entry[];
+  readonly entries: ReadonlyArray<Entry>;
   readonly warn: (warning: SaveWarning) => void;
 }
 
@@ -244,7 +244,7 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
       'the cross-reference data of this file was reconstructed; an incremental update would inherit sections that pdfwright could not verify',
     );
   }
-  const warnings: SaveWarning[] = [...input.warnings];
+  const warnings: Array<SaveWarning> = [...input.warnings];
   const warn = (warning: SaveWarning): void => {
     warnings.push(warning);
   };

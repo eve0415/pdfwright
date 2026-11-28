@@ -10,17 +10,17 @@ const PERCEPTUAL_BLACK: Xyz = { x: 0.00336, y: 0.0034731, z: 0.00287 };
 const ZERO: Xyz = { x: 0, y: 0, z: 0 };
 
 interface BlackPointAdjustment {
-  readonly values: number[];
+  readonly values: Array<number>;
   readonly magnitude: number;
 }
 
-const xyzArray = (point: Xyz): number[] => [point.x, point.y, point.z];
-const xyzPoint = (values: readonly number[]): Xyz => ({ x: values[0] ?? 0, y: values[1] ?? 0, z: values[2] ?? 0 });
-const toXyz = (value: PcsValue): number[] => (value.space === 'XYZ' ? [...value.values] : labToXyz(value.values));
-const toLab = (value: PcsValue): number[] => (value.space === 'Lab' ? [...value.values] : xyzToLab(value.values));
+const xyzArray = (point: Xyz): Array<number> => [point.x, point.y, point.z];
+const xyzPoint = (values: ReadonlyArray<number>): Xyz => ({ x: values[0] ?? 0, y: values[1] ?? 0, z: values[2] ?? 0 });
+const toXyz = (value: PcsValue): Array<number> => (value.space === 'XYZ' ? [...value.values] : labToXyz(value.values));
+const toLab = (value: PcsValue): Array<number> => (value.space === 'Lab' ? [...value.values] : xyzToLab(value.values));
 const neutral = (lightness: number): Xyz => xyzPoint(labToXyz([lightness, 0, 0]));
 
-const scale = (input: readonly number[], blackIn: Xyz, blackOut: Xyz): BlackPointAdjustment => {
+const scale = (input: ReadonlyArray<number>, blackIn: Xyz, blackOut: Xyz): BlackPointAdjustment => {
   // LittleCMS 2.16 cmscnvrt.c:169–199: scale each XYZ axis so the source black maps to destination black while D50 stays fixed.
   const source = xyzArray(blackIn);
   const destination = xyzArray(blackOut);
@@ -51,7 +51,7 @@ const usesMatrixTrc = (profile: IccProfile): boolean => {
 const forcedV4 = (profile: IccProfile, intent: RenderingIntent): boolean =>
   profile.header.version.major >= 4 && (intent === 'perceptual' || intent === 'saturation');
 
-const roundtrip = (profile: IccProfile, config: { intent: RenderingIntent; option: 'icc' | 'adobe' }): ((inputLab: readonly number[]) => number[]) => {
+const roundtrip = (profile: IccProfile, config: { intent: RenderingIntent; option: 'icc' | 'adobe' }): ((inputLab: ReadonlyArray<number>) => Array<number>) => {
   const { intent, option } = config;
   const toDevice = destinationEvaluator(profile, intent, option);
   const fromDevice = sourceEvaluator(profile, 'relativeColorimetric', option);
@@ -88,7 +88,7 @@ const sourceBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc'
   return darkerColorant(profile, forcedV4(profile, intent) ? 'relativeColorimetric' : intent, option);
 };
 
-const quadraticMoments = (points: readonly (readonly [number, number])[]): number[][] => {
+const quadraticMoments = (points: ReadonlyArray<readonly [number, number]>): Array<Array<number>> => {
   let x1 = 0,
     x2 = 0,
     x3 = 0,
@@ -113,7 +113,7 @@ const quadraticMoments = (points: readonly (readonly [number, number])[]): numbe
   ];
 };
 
-const pivotRow = (rows: number[][], column: number): number[] | undefined => {
+const pivotRow = (rows: Array<Array<number>>, column: number): Array<number> | undefined => {
   let pivot = column;
   for (let row = column + 1; row < 3; row++) {
     if (Math.abs(rows[row]?.[column] ?? 0) > Math.abs(rows[pivot]?.[column] ?? 0)) {
@@ -137,7 +137,7 @@ const pivotRow = (rows: number[][], column: number): number[] | undefined => {
   return selected;
 };
 
-const eliminateColumn = (rows: number[][], column: number, selected: number[]): boolean => {
+const eliminateColumn = (rows: Array<Array<number>>, column: number, selected: Array<number>): boolean => {
   for (let row = 0; row < 3; row++) {
     if (row === column) {
       continue;
@@ -154,7 +154,7 @@ const eliminateColumn = (rows: number[][], column: number, selected: number[]): 
   return true;
 };
 
-const quadraticCoefficients = (rows: number[][]): readonly [number, number, number] | undefined => {
+const quadraticCoefficients = (rows: Array<Array<number>>): readonly [number, number, number] | undefined => {
   for (let column = 0; column < 3; column++) {
     const selected = pivotRow(rows, column);
     if (selected === undefined || !eliminateColumn(rows, column, selected)) {
@@ -164,7 +164,7 @@ const quadraticCoefficients = (rows: number[][]): readonly [number, number, numb
   return [rows[0]?.[3] ?? 0, rows[1]?.[3] ?? 0, rows[2]?.[3] ?? 0];
 };
 
-const solveQuadratic = (points: readonly (readonly [number, number])[]): number => {
+const solveQuadratic = (points: ReadonlyArray<readonly [number, number]>): number => {
   if (points.length < 4) {
     return 0;
   }
@@ -184,16 +184,16 @@ const solveQuadratic = (points: readonly (readonly [number, number])[]): number 
 };
 
 interface LightnessRamp {
-  readonly input: number[];
-  readonly output: number[];
+  readonly input: Array<number>;
+  readonly output: Array<number>;
   readonly minimum: number;
   readonly maximum: number;
 }
 
-const sampleRamp = (profile: IccProfile, config: { intent: RenderingIntent; option: 'icc' | 'adobe'; initialLab: readonly number[] }): LightnessRamp => {
+const sampleRamp = (profile: IccProfile, config: { intent: RenderingIntent; option: 'icc' | 'adobe'; initialLab: ReadonlyArray<number> }): LightnessRamp => {
   const { intent, option, initialLab } = config;
-  const inputRamp: number[] = [];
-  const outputRamp: number[] = [];
+  const inputRamp: Array<number> = [];
+  const outputRamp: Array<number> = [];
   const chromaA = Math.max(-50, Math.min(50, initialLab[1] ?? 0));
   const chromaB = Math.max(-50, Math.min(50, initialLab[2] ?? 0));
   const evaluate = roundtrip(profile, { intent, option });
@@ -209,10 +209,10 @@ const sampleRamp = (profile: IccProfile, config: { intent: RenderingIntent; opti
   return { input: inputRamp, output: outputRamp, minimum: outputRamp[0] ?? 0, maximum: outputRamp[255] ?? 0 };
 };
 
-const shadowPoints = (ramp: LightnessRamp, intent: RenderingIntent): [number, number][] => {
+const shadowPoints = (ramp: LightnessRamp, intent: RenderingIntent): Array<[number, number]> => {
   const lower = intent === 'relativeColorimetric' ? 0.1 : 0.03;
   const upper = intent === 'relativeColorimetric' ? 0.5 : 0.25;
-  const points: [number, number][] = [];
+  const points: Array<[number, number]> = [];
   for (let index = 0; index < 256; index++) {
     const normalized = ((ramp.output[index] ?? 0) - ramp.minimum) / (ramp.maximum - ramp.minimum);
     if (normalized >= lower && normalized < upper) {

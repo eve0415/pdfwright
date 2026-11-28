@@ -10,11 +10,11 @@ import { readCurve } from './iccTags.ts';
 /** An ICC lutAtoB or lutBtoA pipeline of curves, optional matrix and CLUT stages under ICC.1:2022, 10.12–10.13; malformed offsets raise InvalidProfileError reason `bad-tag-data`. */
 export interface MultiLut {
   readonly kind: 'lutAtoB' | 'lutBtoA';
-  readonly b: readonly Curve[];
+  readonly b: ReadonlyArray<Curve>;
   readonly matrix?: { readonly m: Matrix3; readonly offset: readonly [number, number, number] } | undefined;
-  readonly m?: readonly Curve[] | undefined;
+  readonly m?: ReadonlyArray<Curve> | undefined;
   readonly clut?: Clut | undefined;
-  readonly a?: readonly Curve[] | undefined;
+  readonly a?: ReadonlyArray<Curve> | undefined;
 }
 
 interface Parts {
@@ -58,11 +58,11 @@ const partLimit = (parts: Parts, current: number, tagEnd: number): number => {
   return end;
 };
 
-const curves = (bytes: Uint8Array, config: { start: number; relative: number; count: number; end: number }): Curve[] | undefined => {
+const curves = (bytes: Uint8Array, config: { start: number; relative: number; count: number; end: number }): Array<Curve> | undefined => {
   if (config.relative === 0) {
     return undefined;
   }
-  const result: Curve[] = [];
+  const result: Array<Curve> = [];
   let cursor = config.start + config.relative;
   for (let index = 0; index < config.count; index++) {
     const item = readCurve(bytes, cursor, config.end);
@@ -106,7 +106,7 @@ const clutPart = (
   if (config.end - at < 20) {
     fail(at);
   }
-  const gridPoints: number[] = [];
+  const gridPoints: Array<number> = [];
   let count = config.outputChannels;
   for (let index = 0; index < config.inputChannels; index++) {
     const grid = view.getUint8(at + index);

@@ -29,8 +29,8 @@ export interface SimpleFontInput {
 /** A simple font's glyph names by code, the Differences names in the order given, and the damage found reading its Encoding. */
 export interface SimpleGlyphNames {
   readonly names: EncodingTable;
-  readonly differences: readonly string[];
-  readonly problems: readonly string[];
+  readonly differences: ReadonlyArray<string>;
+  readonly problems: ReadonlyArray<string>;
 }
 
 /**
@@ -54,14 +54,14 @@ const builtInEncoding = (subtype: FontSubtype, baseFont: string | undefined, des
 
 // ISO 32000-1:2008, 9.6.6.1: "Each code shall be the first index in a sequence of character codes to be changed. The first character name after the code becomes the name corresponding to that code. Subsequent names replace consecutive code indices until the next code appears in the array or the array ends."
 interface AppliedDifferences {
-  readonly listed: string[];
-  readonly problems: string[];
+  readonly listed: Array<string>;
+  readonly problems: Array<string>;
 }
 
-const applyDifferences = (source: FontSource, value: PdfDictionaryEntries, names: (string | undefined)[]): AppliedDifferences => {
+const applyDifferences = (source: FontSource, value: PdfDictionaryEntries, names: Array<string | undefined>): AppliedDifferences => {
   const differences = source.objects.deref(value.get(DIFFERENCES));
-  const problems: string[] = [];
-  const listed: string[] = [];
+  const problems: Array<string> = [];
+  const listed: Array<string> = [];
   if (differences === undefined) {
     return { listed, problems };
   }
@@ -92,13 +92,13 @@ const applyDifferences = (source: FontSource, value: PdfDictionaryEntries, names
  * A Type 3 font's names come from its Encoding alone (9.6.6.3). A nonsymbolic TrueType font's undefined entries are filled from StandardEncoding (9.6.6.4).
  */
 export const simpleGlyphNames = ({ source, font, subtype, descriptor }: SimpleFontInput): SimpleGlyphNames => {
-  const problems: string[] = [];
+  const problems: Array<string> = [];
   const baseFont = nameOf(source.objects.deref(font.get(BASE_FONT)));
   const builtIn = builtInEncoding(subtype, baseFont, descriptor);
   const encoding = source.objects.deref(font.get(ENCODING));
   let base: EncodingTable | undefined = builtIn;
-  let differences: string[] = [];
-  const names: (string | undefined)[] = Array.from<string | undefined>({ length: 256 });
+  let differences: Array<string> = [];
+  const names: Array<string | undefined> = Array.from<string | undefined>({ length: 256 });
   if (encoding?.kind === 'name') {
     const name = latin1(encoding.bytes);
     base = namedEncoding(name) ?? builtIn;

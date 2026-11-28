@@ -25,9 +25,9 @@ interface Size {
   readonly interlaced?: boolean;
 }
 
-const pattern = (count: number, limit: number): number[] => Array.from({ length: count }, (_, index) => (index * 7919 + 13) % limit);
+const pattern = (count: number, limit: number): Array<number> => Array.from({ length: count }, (_, index) => (index * 7919 + 13) % limit);
 
-const palette = (entries: number): number[] => Array.from({ length: entries * 3 }, (_, index) => (index * 37) % 256);
+const palette = (entries: number): Array<number> => Array.from({ length: entries * 3 }, (_, index) => (index * 37) % 256);
 
 const image = (colorType: number, bitDepth: number, size: Size): TestPng => {
   const count = size.width * size.height * (CHANNELS.get(colorType) ?? 1);
@@ -66,9 +66,9 @@ const flipped = (png: Uint8Array, index: number): Uint8Array => {
   return copy;
 };
 
-const rgba = (source: TestPng): number[] => [...pngToRgba8(decodePng(encodeTestPng(source)))];
+const rgba = (source: TestPng): Array<number> => [...pngToRgba8(decodePng(encodeTestPng(source)))];
 
-const SIZES: readonly Size[] = [
+const SIZES: ReadonlyArray<Size> = [
   { width: 1, height: 1 },
   { width: 3, height: 2 },
   { width: 5, height: 5 },

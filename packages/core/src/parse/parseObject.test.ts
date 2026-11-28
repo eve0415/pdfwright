@@ -20,12 +20,12 @@ const ignore = (): void => {
 
 interface Parsed {
   value: PdfDirectObject;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
   end: number;
 }
 
 const parse = (text: string, maxNesting = 256): Parsed => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -43,7 +43,7 @@ const entry = (value: PdfDirectObject, key: string): PdfDirectObject | undefined
 
 const entryText = (value: PdfDirectObject, key: string): string => text(entry(value, key) ?? { kind: 'null' });
 
-const keyLengths = (value: PdfDirectObject): number[] => (value.kind === 'dictionary' ? [...value.entries.entries()].map(([key]) => key.length) : []);
+const keyLengths = (value: PdfDirectObject): Array<number> => (value.kind === 'dictionary' ? [...value.entries.entries()].map(([key]) => key.length) : []);
 
 describe('direct object parser', () => {
   it('parses scalars, arrays and dictionaries', () => {
@@ -126,7 +126,7 @@ const annotated = (source: string): SourceNode => {
   return parseAnnotated(lexer, 256);
 };
 
-const spans = (node: SourceNode | undefined, source: string): string[] => [
+const spans = (node: SourceNode | undefined, source: string): Array<string> => [
   source.slice(node?.start, node?.end),
   ...(node?.items ?? []).map(item => source.slice(item.start, item.end)),
   ...(node?.entries ?? []).map(child => `${source.slice(child.keyStart, child.keyEnd)}=${source.slice(child.node.start, child.node.end)}`),

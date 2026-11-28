@@ -4,24 +4,26 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeXml, tokenizeXml, visitXml } from './xmlTokenizer.ts';
 
-const tokensOf = (text: string): readonly XmlToken[] => {
+const tokensOf = (text: string): ReadonlyArray<XmlToken> => {
   const result = tokenizeXml(text);
   return result.ok ? result.tokens : [];
 };
 
-const characterData = (tokens: readonly XmlToken[]): string[] => tokens.flatMap(token => (token.kind === 'text' || token.kind === 'cdata' ? [token.text] : []));
+const characterData = (tokens: ReadonlyArray<XmlToken>): Array<string> =>
+  tokens.flatMap(token => (token.kind === 'text' || token.kind === 'cdata' ? [token.text] : []));
 
-const attributeValues = (tokens: readonly XmlToken[]): (readonly XmlAttribute[])[] =>
+const attributeValues = (tokens: ReadonlyArray<XmlToken>): Array<ReadonlyArray<XmlAttribute>> =>
   tokens.flatMap(token => (token.kind === 'start' ? [token.attributes] : []));
 
-const instructions = (tokens: readonly XmlToken[]): string[][] => tokens.flatMap(token => (token.kind === 'pi' ? [[token.target, token.content]] : []));
+const instructions = (tokens: ReadonlyArray<XmlToken>): Array<Array<string>> =>
+  tokens.flatMap(token => (token.kind === 'pi' ? [[token.target, token.content]] : []));
 
 const refusal = (text: string): string | undefined => {
   const result = tokenizeXml(text);
   return result.ok ? undefined : result.reason;
 };
 
-const kinds = (text: string): readonly string[] => {
+const kinds = (text: string): ReadonlyArray<string> => {
   const result = tokenizeXml(text);
   return result.ok ? result.tokens.map(token => token.kind) : [result.reason];
 };
@@ -31,7 +33,7 @@ const nested = (depth: number): string => `${'<a>'.repeat(depth)}${'</a>'.repeat
 const attributes = (count: number): string => `<a ${Array.from({ length: count }, (_, index) => `b${String(index)}="1"`).join(' ')}/>`;
 
 const encodeUnits = (text: string, bigEndian: boolean, width: 2 | 4): Uint8Array => {
-  const bytes: number[] = [];
+  const bytes: Array<number> = [];
   for (const character of `\u{FEFF}${text}`) {
     const code = character.codePointAt(0) ?? 0;
     const units = width === 4 || code < 0x10000 ? [code] : [0xd800 + Math.floor((code - 0x10000) / 1024), 0xdc00 + ((code - 0x10000) % 1024)];
@@ -50,7 +52,7 @@ const decodedText = (bytes: Uint8Array): string => {
 
 describe('the XML tokenizer', () => {
   it('visits tokens in order with the same limit and refusal semantics', () => {
-    const visitedKinds: string[] = [];
+    const visitedKinds: Array<string> = [];
     const result = visitXml(
       '<a><b/>text</a>',
       token => {
@@ -58,7 +60,7 @@ describe('the XML tokenizer', () => {
       },
       { maxDepth: 64, maxAttributes: 256, maxTokens: 4 },
     );
-    const refusedKinds: string[] = [];
+    const refusedKinds: Array<string> = [];
     const refused = visitXml(
       '<a><b/>text</a>',
       token => {

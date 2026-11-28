@@ -22,7 +22,7 @@ const LITERAL_TABLE = buildFseTable(LITERAL_DISTRIBUTION, 6);
 const MATCH_TABLE = buildFseTable(MATCH_DISTRIBUTION, 6);
 const OFFSET_TABLE = buildFseTable(OFFSET_DISTRIBUTION, 5);
 
-const lengthCode = (length: number, bases: readonly number[], bits: readonly number[]): Code => {
+const lengthCode = (length: number, bases: ReadonlyArray<number>, bits: ReadonlyArray<number>): Code => {
   for (let symbol = 0; symbol < bases.length; symbol++) {
     const base = bases[symbol] ?? 0;
     const extraBits = bits[symbol] ?? 0;
@@ -33,7 +33,7 @@ const lengthCode = (length: number, bases: readonly number[], bits: readonly num
   throw new InvalidArgumentError('sequence length exceeds predefined code range');
 };
 
-const sequenceCodes = (parse: MatchParse): SequenceCodes[] =>
+const sequenceCodes = (parse: MatchParse): Array<SequenceCodes> =>
   parse.sequences.map(sequence => {
     // RFC 8878, 3.1.1.3.2.1.1: new offsets use Offset_Value = offset + 3, above the repeat-code range.
     const offsetValue = sequence.offset + 3;
@@ -45,7 +45,7 @@ const sequenceCodes = (parse: MatchParse): SequenceCodes[] =>
     };
   });
 
-const sequenceBits = (codes: readonly SequenceCodes[]): Uint8Array => {
+const sequenceBits = (codes: ReadonlyArray<SequenceCodes>): Uint8Array => {
   const last = codes.at(-1);
   if (last === undefined) {
     return new Uint8Array();

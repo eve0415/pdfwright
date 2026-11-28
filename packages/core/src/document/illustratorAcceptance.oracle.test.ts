@@ -51,7 +51,7 @@ const pieceBytes = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   return original.bytes.slice(node.start, node.end);
 };
 
-const pieceReferences = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const pieceReferences = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const page = document.get(document.page(0).reference);
   if (page.kind !== 'dictionary') {
     throw new Error('page is not a dictionary');
@@ -80,7 +80,7 @@ const pieceReferences = (document: ReturnType<typeof loadDocument>): readonly nu
   return [illustrator.objectNumber, privateRef.objectNumber, ...streams];
 };
 
-const privateStreams = async (document: ReturnType<typeof loadDocument>): Promise<readonly Uint8Array[]> => {
+const privateStreams = async (document: ReturnType<typeof loadDocument>): Promise<ReadonlyArray<Uint8Array>> => {
   const [, reference] = pieceReferences(document);
   if (reference === undefined) {
     throw new Error('missing Private reference');
@@ -212,7 +212,7 @@ const assertFixtureStructure = async (document: ReturnType<typeof loadDocument>,
   expect(decoded.length).toBeGreaterThan(2_097_152);
 };
 
-const processDifferenceOutsideMark = async (beforeFiles: readonly PlateFile[], afterFiles: readonly PlateFile[]): Promise<number> => {
+const processDifferenceOutsideMark = async (beforeFiles: ReadonlyArray<PlateFile>, afterFiles: ReadonlyArray<PlateFile>): Promise<number> => {
   const colors = ['Cyan', 'Magenta', 'Yellow', 'Black'];
   const pairs = await Promise.all(
     colors.map(async color => {

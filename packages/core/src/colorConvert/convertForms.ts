@@ -38,7 +38,7 @@ interface Scope {
   readonly resources: PdfDictionaryEntries;
   readonly assignments: Map<string, Assignment>;
   readonly sourceBytes: Uint8Array;
-  readonly nameEdits: NameEdit[];
+  readonly nameEdits: Array<NameEdit>;
 }
 
 interface NameEdit {
@@ -63,7 +63,7 @@ interface FormPlan extends Scope {
   readonly entry: ColorEntryState;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
-  readonly newInlineImages: readonly NamedInlineImage[];
+  readonly newInlineImages: ReadonlyArray<NamedInlineImage>;
   readonly clone: boolean;
   output?: PdfReference;
 }
@@ -172,7 +172,7 @@ const assign = (scope: Scope, use: FormUse, plan: FormPlan): void => {
   scope.assignments.set(key, { name: Uint8Array.from(use.name), plan });
 };
 
-const applyNameEdits = (bytes: Uint8Array, edits: readonly NameEdit[]): Uint8Array => {
+const applyNameEdits = (bytes: Uint8Array, edits: ReadonlyArray<NameEdit>): Uint8Array => {
   if (edits.length === 0) {
     return bytes;
   }
@@ -191,7 +191,7 @@ const applyNameEdits = (bytes: Uint8Array, edits: readonly NameEdit[]): Uint8Arr
 };
 
 class FormPlanner {
-  readonly plans: FormPlan[] = [];
+  readonly plans: Array<FormPlan> = [];
   private readonly variants = new Map<string, Map<string, FormPlan>>();
   private readonly active = new Set<string>();
   private readonly document: LoadedDocument;
@@ -265,7 +265,7 @@ class FormPlanner {
     return plan;
   }
 
-  private scanUses(scope: Scope, uses: readonly FormUse[]): void {
+  private scanUses(scope: Scope, uses: ReadonlyArray<FormUse>): void {
     for (const use of uses) {
       const found = this.form(scope.resources, use.name);
       if (found === undefined) {
@@ -300,8 +300,8 @@ class FormPlanner {
     }
   }
 
-  pageScopes(): PageScope[] {
-    const scopes: PageScope[] = [];
+  pageScopes(): Array<PageScope> {
+    const scopes: Array<PageScope> = [];
     for (let page = 0; page < this.document.pageCount; page++) {
       const entry = this.internals.pages[page];
       if (entry === undefined) {
@@ -325,7 +325,7 @@ class FormPlanner {
     return scopes;
   }
 
-  private carrier(reference: PdfReference, inherited: PdfDictionaryEntries, scopes: CarrierScope[]): void {
+  private carrier(reference: PdfReference, inherited: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
     if (this.seenCarriers.has(reference.objectNumber)) {
       return;
     }
@@ -350,7 +350,7 @@ class FormPlanner {
     scopes.push(scope);
   }
 
-  private patterns(resources: PdfDictionaryEntries, scopes: CarrierScope[]): void {
+  private patterns(resources: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
     const category = this.internals.objects.deref(resources.get(PATTERN));
     if (category?.kind !== 'dictionary') {
       return;
@@ -371,7 +371,7 @@ class FormPlanner {
     }
   }
 
-  private appearances(page: PdfReference, resources: PdfDictionaryEntries, scopes: CarrierScope[]): void {
+  private appearances(page: PdfReference, resources: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
     const owner = this.internals.objects.deref(page);
     if (owner?.kind !== 'dictionary') {
       return;
@@ -407,8 +407,8 @@ class FormPlanner {
     }
   }
 
-  carrierScopes(): CarrierScope[] {
-    const scopes: CarrierScope[] = [];
+  carrierScopes(): Array<CarrierScope> {
+    const scopes: Array<CarrierScope> = [];
     for (let page = 0; page < this.document.pageCount; page++) {
       const entry = this.internals.pages[page];
       if (entry === undefined) {
@@ -494,7 +494,7 @@ class FormPlanner {
     return discarded;
   }
 
-  private writePage(scope: PageScope, renamed: Uint8Array | undefined): PdfReference[] {
+  private writePage(scope: PageScope, renamed: Uint8Array | undefined): Array<PdfReference> {
     const resources = this.mappedResources(scope);
     if (resources === undefined && renamed === undefined) {
       return [];
@@ -503,7 +503,7 @@ class FormPlanner {
     if (page.kind !== 'dictionary') {
       throw new ValidationError('page is not a dictionary', 'color-operator');
     }
-    const discarded: PdfReference[] = [];
+    const discarded: Array<PdfReference> = [];
     if (resources !== undefined) {
       const oldResources = page.entries.get(RESOURCES);
       if (oldResources?.kind === 'reference') {
@@ -534,7 +534,7 @@ class FormPlanner {
     return discarded;
   }
 
-  private writeCarrier(scope: CarrierScope): PdfReference[] {
+  private writeCarrier(scope: CarrierScope): Array<PdfReference> {
     if (this.plans.some(plan => plan.original.objectNumber === scope.reference.objectNumber)) {
       return [];
     }
@@ -543,7 +543,7 @@ class FormPlanner {
       return [];
     }
     const dictionary = new PdfDictionaryEntries(scope.stream.dictionary.entries());
-    const discarded: PdfReference[] = [];
+    const discarded: Array<PdfReference> = [];
     if (resources !== undefined) {
       const old = dictionary.get(RESOURCES);
       if (old?.kind === 'reference') {
@@ -566,7 +566,7 @@ class FormPlanner {
     return discarded;
   }
 
-  write(pages: readonly PageScope[], carriers: readonly CarrierScope[]): FormConversionReport {
+  write(pages: ReadonlyArray<PageScope>, carriers: ReadonlyArray<CarrierScope>): FormConversionReport {
     const formData = new Map(this.plans.map(plan => [plan, this.finalFormData(plan)] as const));
     const pageData = new Map<PageScope, Uint8Array>();
     for (const page of pages) {
@@ -582,7 +582,7 @@ class FormPlanner {
     for (const plan of this.plans) {
       plan.output = plan.clone ? this.document.object({ kind: 'null' }) : plan.original;
     }
-    const discarded: PdfReference[] = [];
+    const discarded: Array<PdfReference> = [];
     for (const plan of this.plans) {
       const data = formData.get(plan);
       if (data === undefined) {

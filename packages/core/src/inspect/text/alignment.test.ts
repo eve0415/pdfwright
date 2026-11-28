@@ -8,7 +8,7 @@ import { align } from './alignment.ts';
 
 // The length of a longest common subsequence, by the quadratic dynamic programme.
 const lcsLength = (a: string, b: string): number => {
-  let previous: number[] = Array.from({ length: b.length + 1 }, () => 0);
+  let previous: Array<number> = Array.from({ length: b.length + 1 }, () => 0);
   for (const left of a) {
     const row = [0];
     for (let index = 0; index < b.length; index++) {
@@ -20,7 +20,7 @@ const lcsLength = (a: string, b: string): number => {
 };
 
 // A deterministic sequence of pseudo-random strings over a small alphabet.
-const strings = (count: number): string[] => {
+const strings = (count: number): Array<string> => {
   let seed = 12_345;
   const next = (): number => {
     seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
@@ -29,12 +29,12 @@ const strings = (count: number): string[] => {
   return Array.from({ length: count }, () => Array.from({ length: next() % 12 }, () => 'abc'.charAt(next() % 3)).join(''));
 };
 
-const run = (a: string, b: string): readonly AlignmentStep[] => align(a.length, b.length, (i, j) => a[i] === b[j]);
+const run = (a: string, b: string): ReadonlyArray<AlignmentStep> => align(a.length, b.length, (i, j) => a[i] === b[j]);
 
-const positions = (length: number): number[] => Array.from({ length }, (_, index) => index);
+const positions = (length: number): Array<number> => Array.from({ length }, (_, index) => index);
 
 // What an alignment of two strings covers: the intended and found positions in the order listed, the number of matches, and whether every match pairs equal items.
-const coverage = (a: string, b: string): unknown[] => {
+const coverage = (a: string, b: string): Array<unknown> => {
   const steps = run(a, b);
   const intended = steps.flatMap(step => (step.kind === 'extra' ? [] : [step.intended]));
   const found = steps.flatMap(step => (step.kind === 'missing' ? [] : [step.found]));

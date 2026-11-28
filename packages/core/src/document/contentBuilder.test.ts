@@ -95,7 +95,7 @@ describe('content builder', () => {
   it('hands draw callbacks only drawing operations and refuses use after the callback', () => {
     const document = createDocument();
     const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
-    const retained: ContentBuilder[] = [];
+    const retained: Array<ContentBuilder> = [];
     page.draw(content => {
       retained.push(content);
       expect(['finish' in content, 'inheritedWhitePaint' in content, Object.isFrozen(content)]).toStrictEqual([false, false, true]);

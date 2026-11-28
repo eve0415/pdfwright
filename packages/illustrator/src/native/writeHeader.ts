@@ -18,8 +18,8 @@ export interface HeaderOptions {
 }
 
 export interface DocumentColors {
-  readonly spots: readonly SpotColor[];
-  readonly process: readonly string[];
+  readonly spots: ReadonlyArray<SpotColor>;
+  readonly process: ReadonlyArray<string>;
 }
 
 const encoder = new TextEncoder();
@@ -59,7 +59,7 @@ export const documentColors = (document: IllustratorDocument): DocumentColors =>
       }
     }
   };
-  const visit = (items: readonly Item[], visible: boolean): void => {
+  const visit = (items: ReadonlyArray<Item>, visible: boolean): void => {
     for (const item of items) {
       switch (item.kind) {
         case 'path': {
@@ -102,7 +102,7 @@ const postScriptComment = (writer: NativeWriter, prefix: string, value: string):
   writer.line();
 };
 
-const writeSpotComments = (writer: NativeWriter, spots: readonly SpotColor[]): void => {
+const writeSpotComments = (writer: NativeWriter, spots: ReadonlyArray<SpotColor>): void => {
   for (const [index, spot] of spots.entries()) {
     postScriptComment(writer, index === 0 ? '%%DocumentCustomColors: ' : '%%+ ', spot.name);
   }

@@ -4,7 +4,7 @@ import { glyphNameText } from './glyphNames.ts';
 import { LATIN_PDF_DOC_CODES, MAC_EXPERT_ENCODING, SYMBOL_ENCODING, ZAPF_DINGBATS_ENCODING } from './simpleEncodings.ts';
 
 // The names in a list that map to no text.
-const unmapped = (names: readonly (string | undefined)[], font?: string): (string | undefined)[] =>
+const unmapped = (names: ReadonlyArray<string | undefined>, font?: string): Array<string | undefined> =>
   names.filter(name => name !== undefined && glyphNameText(name, font) === undefined);
 
 describe('glyph names', () => {

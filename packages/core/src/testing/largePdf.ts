@@ -4,8 +4,8 @@ const encoder = new TextEncoder();
 
 // A print-like file: pages that each place a large uncompressed image, written with a classic cross-reference table.
 export const largeFile = (pages: number, imageBytes: number): Uint8Array => {
-  const parts: Uint8Array[] = [encoder.encode('%PDF-1.7\n')];
-  const offsets: number[] = [];
+  const parts: Array<Uint8Array> = [encoder.encode('%PDF-1.7\n')];
+  const offsets: Array<number> = [];
   let length = parts[0]?.length ?? 0;
   const add = (number: number, head: string, data?: Uint8Array): void => {
     offsets[number] = length;

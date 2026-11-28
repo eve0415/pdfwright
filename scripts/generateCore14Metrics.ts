@@ -28,14 +28,14 @@ const FONTS = {
 } as const;
 
 interface Metrics {
-  readonly names: readonly string[];
-  readonly widths: readonly number[];
-  readonly bbox: readonly number[];
+  readonly names: ReadonlyArray<string>;
+  readonly widths: ReadonlyArray<number>;
+  readonly bbox: ReadonlyArray<number>;
   readonly copyright: string;
   readonly notice: string;
 }
 
-const lineValue = (lines: readonly string[], key: string): string => {
+const lineValue = (lines: ReadonlyArray<string>, key: string): string => {
   const line = lines.find(candidate => candidate.startsWith(`${key} `));
   if (line === undefined) {
     throw new Error(`the AFM file has no ${key} line`);
@@ -46,8 +46,8 @@ const lineValue = (lines: readonly string[], key: string): string => {
 // Each character metrics line reads `C code ; WX width ; N name ; B llx lly urx ury ; …` (Adobe Font Metrics File Format Specification).
 const readMetrics = (text: string): Metrics => {
   const lines = text.split(/\r?\n/u);
-  const names: string[] = [];
-  const widths: number[] = [];
+  const names: Array<string> = [];
+  const widths: Array<number> = [];
   for (const line of lines) {
     if (!line.startsWith('C ')) {
       continue;
@@ -77,7 +77,7 @@ const stringProperty = (indent: string, key: string, value: string): string => {
 
 const propertyKey = (name: string): string => (/^[A-Za-z_$][\w$]*$/u.test(name) ? name : `'${name}'`);
 
-const sameNames = (left: readonly string[], right: readonly string[]): boolean =>
+const sameNames = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean =>
   left.length === right.length && left.every((name, index) => name === right[index]);
 
 const main = async (): Promise<void> => {

@@ -21,8 +21,8 @@ const withoutLiteralStrings = (line: string): string => {
 };
 
 /** Reports exponent-form numeric tokens outside native strings and binary or ASCII85 data. */
-export const findExponentTokens = (native: Uint8Array): string[] => {
-  const found: string[] = [];
+export const findExponentTokens = (native: Uint8Array): Array<string> => {
+  const found: Array<string> = [];
   let ascii85 = false;
   let hexPayload = false;
   for (const record of tokenizeNative(native)) {

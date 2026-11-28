@@ -33,9 +33,9 @@ const localSource = async (file: string): Promise<Uint8Array> => {
   }
   return readFile(path.join(exportsDirectory, file));
 };
-const textLines = (records: readonly NativeRecord[]): string[] => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
-const stableKeys = (facts: ContainerFacts): string[] => facts.privateKeys.filter(name => !/^AIPDFPrivateData\d+$/u.test(name));
-const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: number): number => {
+const textLines = (records: ReadonlyArray<NativeRecord>): Array<string> => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
+const stableKeys = (facts: ContainerFacts): Array<string> => facts.privateKeys.filter(name => !/^AIPDFPrivateData\d+$/u.test(name));
+const cropDeviation = (lines: ReadonlyArray<string>, widthMm: number, heightMm: number): number => {
   const crop = lines
     .find(line => line.startsWith('%AI3_Cropmarks: '))
     ?.slice('%AI3_Cropmarks: '.length)
@@ -47,8 +47,8 @@ const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: numb
   return Math.max(...expected.map((value, index) => Math.abs(value - (crop?.[index] ?? Number.POSITIVE_INFINITY))));
 };
 
-const lockFields = (lines: readonly string[]): Map<string, { readonly layer: string; readonly state: readonly string[] }> => {
-  const fields = new Map<string, { readonly layer: string; readonly state: readonly string[] }>();
+const lockFields = (lines: ReadonlyArray<string>): Map<string, { readonly layer: string; readonly state: ReadonlyArray<string> }> => {
+  const fields = new Map<string, { readonly layer: string; readonly state: ReadonlyArray<string> }>();
   const starts = lines.flatMap((line, index) => (line === '%AI5_BeginLayer' ? [index] : []));
   for (const start of starts) {
     const end = lines.findIndex((line, index) => index > start && (line === '%AI5_BeginLayer' || line === '%AI5_EndLayer--'));

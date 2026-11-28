@@ -28,11 +28,11 @@ import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 
 export interface MeshConversionReport {
   readonly meshes: number;
-  readonly approximations: readonly {
+  readonly approximations: ReadonlyArray<{
     readonly shading: PdfReference;
     readonly kind: 'mesh-interpolation' | 'function-sampling';
     readonly cappedTriangles?: number;
-  }[];
+  }>;
 }
 
 interface MeshScan {
@@ -47,7 +47,7 @@ interface MeshPlan {
   readonly data: Uint8Array;
   readonly decode: PdfDirectObject;
   readonly background: PdfDirectObject | undefined;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
   readonly function: ConvertedCmykFunction | undefined;
   readonly outputComponentBits: number | undefined;
   readonly outputCoordinateBits: number | undefined;
@@ -102,7 +102,7 @@ const numeric = (value: PdfDirectObject): number => {
   return invalid('mesh Decode has a nonnumeric entry');
 };
 
-const arrayNumbers = (value: PdfDirectObject | undefined, length: number): number[] => {
+const arrayNumbers = (value: PdfDirectObject | undefined, length: number): Array<number> => {
   if (value?.kind !== 'array' || value.items.length !== length) {
     return invalid('mesh array has the wrong length');
   }
@@ -183,7 +183,7 @@ const outputDecode = (shading: PdfStream): PdfDirectObject => {
   if (source?.kind !== 'array') {
     return invalid('mesh Decode is missing');
   }
-  const ranges: PdfDirectObject[] = source.items.slice(0, 4);
+  const ranges: Array<PdfDirectObject> = source.items.slice(0, 4);
   for (let channel = 0; channel < 4; channel++) {
     ranges.push({ kind: 'integer', value: 0 }, { kind: 'integer', value: 1 });
   }
@@ -211,7 +211,7 @@ const decodedFunction = (scan: MeshScan, value: PdfObject): PdfObject => {
 
 const functionReader = (scan: MeshScan): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(scan, item));
 
-const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
+const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): ((input: ReadonlyArray<number>) => Array<number>) => {
   const read = functionReader(scan);
   if (value.kind !== 'array') {
     return read(value);
@@ -225,7 +225,7 @@ const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: num
 
 const convertedMeshFunction = (
   scan: MeshScan,
-  config: { value: PdfDirectObject; channels: number; transform: ColorTransform; domain: readonly number[] },
+  config: { value: PdfDirectObject; channels: number; transform: ColorTransform; domain: ReadonlyArray<number> },
 ): ConvertedCmykFunction => {
   const { value, channels, transform, domain } = config;
   const original = decodedFunction(scan, value);
@@ -243,7 +243,7 @@ const convertedMeshFunction = (
         if (childDomain.length !== 2) {
           return invalid('mesh stitching subfunction must take one input');
         }
-        const evaluate = (input: readonly number[]): Float64Array => {
+        const evaluate = (input: ReadonlyArray<number>): Float64Array => {
           const output = new Float64Array(4);
           transform.convert(Float64Array.from(fn(input)), output);
           return output;
@@ -253,7 +253,7 @@ const convertedMeshFunction = (
     }
   }
   const fn = functionEvaluator(scan, value, channels);
-  const evaluate = (values: readonly number[]): Float64Array => {
+  const evaluate = (values: ReadonlyArray<number>): Float64Array => {
     const output = new Float64Array(4);
     transform.convert(Float64Array.from(fn(values)), output);
     return output;
@@ -279,7 +279,7 @@ const functionMesh = (
   }
   const decode = arrayNumbers(shading.dictionary.get(DECODE), 6);
   const sampled = convertedMeshFunction(scan, { value: functionValue, channels, transform, domain: decode.slice(4, 6) });
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   if (color.kind === 'reference') {
     discarded.push(color);
   }
@@ -464,7 +464,7 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
       throw new ValidationError('mesh shading resources cannot be read', 'unreadable-resource');
     }
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const plan of scan.plans.values()) {
     const dictionary = new PdfDictionaryEntries(plan.shading.dictionary.entries());
     dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
@@ -496,7 +496,7 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
     deleteDiscarded(document, internals, discarded);
     internals.objects.requireFullRewrite('color-conversion');
   }
-  const approximations: { shading: PdfReference; kind: 'mesh-interpolation' | 'function-sampling'; cappedTriangles?: number }[] = [];
+  const approximations: Array<{ shading: PdfReference; kind: 'mesh-interpolation' | 'function-sampling'; cappedTriangles?: number }> = [];
   for (const plan of scan.plans.values()) {
     const capped = plan.cappedTriangles;
     if (plan.function === undefined && capped !== undefined && capped > 0) {

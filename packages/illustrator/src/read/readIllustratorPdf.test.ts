@@ -151,7 +151,7 @@ describe('reading package output', () => {
   });
 
   it('passes the caller decoder the Zstandard frame after the wrapper', () => {
-    const frames: Uint8Array[] = [];
+    const frames: Array<Uint8Array> = [];
     const recording: ReadIllustratorPdfOptions = {
       zstandard: frame => {
         frames.push(frame);

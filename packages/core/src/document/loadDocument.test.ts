@@ -28,7 +28,7 @@ const shiftStartxref = (text: string, delta: number): string =>
 
 const offsetOf = (objectNumber: number): number => base.offsets.get(objectNumber) ?? 0;
 
-const summary = (document: LoadedDocument): (string | string[])[] => [document.structure.status, document.warnings.map(warning => warning.code)];
+const summary = (document: LoadedDocument): Array<string | Array<string>> => [document.structure.status, document.warnings.map(warning => warning.code)];
 
 describe('loading documents', () => {
   it('reads an intact file lazily and returns fresh values', () => {

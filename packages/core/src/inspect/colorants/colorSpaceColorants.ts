@@ -38,8 +38,8 @@ export interface SpaceColorant {
 }
 
 export interface SpaceColorants {
-  readonly colorants: readonly SpaceColorant[];
-  readonly warnings: readonly InspectWarning[];
+  readonly colorants: ReadonlyArray<SpaceColorant>;
+  readonly warnings: ReadonlyArray<InspectWarning>;
 }
 
 // 8.6.6.4 describes a Separation space for "individual colour components of a device colour space for a subtractive device" without reserving names; these are taken as process colorants, the names 8.6.6.5 reserves for NChannel spaces.
@@ -86,8 +86,8 @@ const latin1Bytes = (text: string): Uint8Array => Uint8Array.from(text, characte
 
 class Reader {
   private readonly resolver: ObjectResolver;
-  readonly colorants: SpaceColorant[] = [];
-  readonly warnings: InspectWarning[] = [];
+  readonly colorants: Array<SpaceColorant> = [];
+  readonly warnings: Array<InspectWarning> = [];
 
   constructor(resolver: ObjectResolver) {
     this.resolver = resolver;

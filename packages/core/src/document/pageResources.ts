@@ -22,7 +22,7 @@ export interface ResourceObjects extends ObjectResolver {
 export interface ResourceContext {
   readonly objects: ResourceObjects;
   /** Every page of the document, for telling whether a resource object is shared. */
-  readonly pages: readonly PageEntry[];
+  readonly pages: ReadonlyArray<PageEntry>;
 }
 
 const RESOURCES = pdfName('Resources').bytes;
@@ -167,7 +167,7 @@ export interface ResourceAddition {
 }
 
 /** Adds named resources to a page; only the page, its own resources, or copies of shared ones change. */
-export const addPageResources = (context: ResourceContext, page: PageEntry, additions: readonly ResourceAddition[]): void => {
+export const addPageResources = (context: ResourceContext, page: PageEntry, additions: ReadonlyArray<ResourceAddition>): void => {
   if (additions.length === 0) {
     return;
   }

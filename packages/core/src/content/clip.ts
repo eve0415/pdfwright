@@ -29,7 +29,7 @@ interface Bounds {
 }
 
 interface ClipPath {
-  readonly polygons: readonly (readonly Point[])[];
+  readonly polygons: ReadonlyArray<ReadonlyArray<Point>>;
   readonly rule: FillRule;
   readonly bounds: Bounds;
 }
@@ -58,7 +58,7 @@ const onSegment = (a: Point, b: Point, p: Point): boolean => {
 };
 
 // Every edge of the polygons, each closed implicitly: 8.5.3.3.1, "Any subpaths that are open shall be implicitly closed before being filled".
-const edgesOf = function* (polygons: readonly (readonly Point[])[]): Generator<readonly [Point, Point]> {
+const edgesOf = function* (polygons: ReadonlyArray<ReadonlyArray<Point>>): Generator<readonly [Point, Point]> {
   for (const polygon of polygons) {
     for (const [index, point] of polygon.entries()) {
       const next = polygon[(index + 1) % polygon.length];
@@ -98,12 +98,12 @@ const crosses = ([a, b]: readonly [Point, Point], [c, d]: readonly [Point, Point
 };
 
 // Whether a point lies strictly inside a convex quadrilateral.
-const strictlyInsideQuad = (corners: readonly Point[], p: Point): boolean => {
+const strictlyInsideQuad = (corners: ReadonlyArray<Point>, p: Point): boolean => {
   const signs = corners.map((corner, index) => Math.sign(cross(corner, corners[(index + 1) % corners.length] ?? corner, p)));
   return signs.every(sign => sign > 0) || signs.every(sign => sign < 0);
 };
 
-const classifyAgainst = (path: ClipPath, corners: readonly Point[], quadBounds: Bounds): 'inside' | 'outside' | 'partial' => {
+const classifyAgainst = (path: ClipPath, corners: ReadonlyArray<Point>, quadBounds: Bounds): 'inside' | 'outside' | 'partial' => {
   if (!overlaps(path.bounds, quadBounds)) {
     return 'outside';
   }
@@ -130,9 +130,9 @@ const classifyAgainst = (path: ClipPath, corners: readonly Point[], quadBounds: 
 const GRID = 9;
 
 // Points spread evenly over a quadrilateral, corners and edges included.
-const gridPoints = (corners: readonly Point[]): Point[] => {
+const gridPoints = (corners: ReadonlyArray<Point>): Array<Point> => {
   const [[x0, y0] = [0, 0], [x1, y1] = [0, 0], [x2, y2] = [0, 0], [x3, y3] = [0, 0]] = corners;
-  const points: Point[] = [];
+  const points: Array<Point> = [];
   for (let row = 0; row < GRID; row++) {
     for (let column = 0; column < GRID; column++) {
       const [u, v] = [column / (GRID - 1), row / (GRID - 1)];
@@ -212,7 +212,7 @@ export class Clip {
       return 'unknown';
     }
     const [x0, y0, x1, y1, x2, y2, x3, y3] = quad;
-    const corners: Point[] = [
+    const corners: Array<Point> = [
       [x0, y0],
       [x1, y1],
       [x2, y2],

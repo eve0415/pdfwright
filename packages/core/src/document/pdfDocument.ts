@@ -86,13 +86,13 @@ interface PageBuildContext {
 
 interface PageRecord extends ResourceRecord {
   options: PageOptions;
-  contents: Uint8Array[];
+  contents: Array<Uint8Array>;
   pieceInfo?: PieceInfoRecord;
 }
 
 const normalize = (box: PdfRect): PdfRect => rect(...box);
 
-const rounded = (box: PdfRect, fractionDigits: number): number[] => box.map(length => Number(formatLength(length, fractionDigits)));
+const rounded = (box: PdfRect, fractionDigits: number): Array<number> => box.map(length => Number(formatLength(length, fractionDigits)));
 
 const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): void => {
   const [left, bottom, right, top] = rounded(box, fractionDigits);
@@ -126,10 +126,10 @@ export const isolateContent = (data: Uint8Array): Uint8Array => {
   return isolated;
 };
 
-const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: number) => {
+const allocateImageNumbers = (images: ReadonlyArray<ImageRecord>, firstNumber: number) => {
   let nextNumber = firstNumber;
   const numbersByImage = new Map<ImageRecord, ImageObjectNumbers>();
-  const masks = new Map<string, { readonly width: number; readonly height: number; readonly samples: Uint8Array; readonly number: number }[]>();
+  const masks = new Map<string, Array<{ readonly width: number; readonly height: number; readonly samples: Uint8Array; readonly number: number }>>();
   for (const image of images) {
     const numbers: ImageObjectNumbers = { parent: nextNumber };
     if (image.softMask !== undefined) {
@@ -158,7 +158,7 @@ const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: numbe
   return { numbers: numbersByImage, nextNumber };
 };
 
-const appendImageObjects = (objects: IndirectObject[], images: readonly ImageRecord[], numbersByImage: Map<ImageRecord, ImageObjectNumbers>): void => {
+const appendImageObjects = (objects: Array<IndirectObject>, images: ReadonlyArray<ImageRecord>, numbersByImage: Map<ImageRecord, ImageObjectNumbers>): void => {
   const emittedMasks = new Set<number>();
   for (const image of images) {
     const numbers = numbersByImage.get(image);
@@ -178,7 +178,7 @@ const appendImageObjects = (objects: IndirectObject[], images: readonly ImageRec
   }
 };
 
-const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<GroupRecord, number> => {
+const allocateGroupNumbers = (groups: ReadonlyArray<GroupRecord>, firstNumber: number): Map<GroupRecord, number> => {
   let nextNumber = firstNumber;
   const numbers = new Map<GroupRecord, number>();
   for (const group of groups) {
@@ -240,8 +240,8 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   if (metadata?.xmp === true) {
     validateCreatedMetadata(options.info, metadata);
   }
-  const pages: PageRecord[] = [];
-  const callerObjects: PdfObject[] = [];
+  const pages: Array<PageRecord> = [];
+  const callerObjects: Array<PdfObject> = [];
   let documentPieceInfo: PieceInfoRecord | undefined;
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
   const handles = createDocumentHandles({ fractionDigits, asciiOnlyColorants: options.colorantPolicy?.asciiOnly === true });
@@ -317,7 +317,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         [pdfName('Count').bytes, pdfInteger(pages.length)],
         [pdfName('Resources').bytes, pdfDictionary()],
       ]);
-      const objects: IndirectObject[] = [
+      const objects: Array<IndirectObject> = [
         { objectNumber: 1, generation: 0, value: pdfDictionary(catalog) },
         { objectNumber: 2, generation: 0, value: pdfDictionary(pageTree) },
       ];

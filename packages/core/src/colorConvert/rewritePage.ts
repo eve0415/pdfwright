@@ -25,7 +25,7 @@ interface PreparedPage {
   readonly resources: PdfDictionaryEntries;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
-  readonly newInlineImages: readonly NamedInlineImage[];
+  readonly newInlineImages: ReadonlyArray<NamedInlineImage>;
 }
 
 export interface PageRewriteReport {
@@ -41,8 +41,8 @@ const LENGTH = pdfName('Length').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const RESOURCES = pdfName('Resources').bytes;
 
-const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | undefined): PdfReference[] => {
-  const result: PdfReference[] = [];
+const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | undefined): Array<PdfReference> => {
+  const result: Array<PdfReference> = [];
   if (contents?.kind === 'reference') {
     result.push(contents);
     const value = document.get(contents);
@@ -63,12 +63,12 @@ const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | und
   return result;
 };
 
-const applyPreparedPages = (document: LoadedDocument, prepared: readonly PreparedPage[]): void => {
+const applyPreparedPages = (document: LoadedDocument, prepared: ReadonlyArray<PreparedPage>): void => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     throw new ValidationError('document internals are unavailable');
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const item of prepared) {
     const page = document.get(item.reference);
     if (page.kind !== 'dictionary') {
@@ -110,7 +110,7 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
   if (internals === undefined) {
     throw new ValidationError('document internals are unavailable');
   }
-  const prepared: PreparedPage[] = [];
+  const prepared: Array<PreparedPage> = [];
   let operators = 0;
   let kOnly = 0;
   let overprintAdjustments = 0;

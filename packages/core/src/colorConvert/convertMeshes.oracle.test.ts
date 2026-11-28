@@ -32,12 +32,12 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 
-const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+const lab = (channels: ReadonlyArray<number> | Float64Array): ReadonlyArray<number> => {
   const pcs = toPcs([...channels]);
   return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
 };
 
-const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => {
+const lowDepthMesh = (bits: 1 | 2 | 4, color: ReadonlyArray<number>): Uint8Array => {
   const writer = new MeshBitWriter();
   for (const [x, y] of [
     [0, 0],
@@ -74,7 +74,7 @@ const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => 
   ]).bytes;
 };
 
-const transicc = async (rgb: readonly number[]): Promise<number[]> => {
+const transicc = async (rgb: ReadonlyArray<number>): Promise<Array<number>> => {
   const sourcePath = fileURLToPath(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url));
   const destinationPath = fileURLToPath(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url));
   const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
@@ -368,9 +368,9 @@ const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
   };
 };
 
-const triangleVertices = (data: Uint8Array): readonly { readonly x: number; readonly y: number; readonly color: readonly number[] }[] => {
+const triangleVertices = (data: Uint8Array): ReadonlyArray<{ readonly x: number; readonly y: number; readonly color: ReadonlyArray<number> }> => {
   const reader = new MeshBitReader(data);
-  const vertices: { x: number; y: number; color: number[] }[] = [];
+  const vertices: Array<{ x: number; y: number; color: Array<number> }> = [];
   while (reader.remainingBits > 0) {
     const flag = reader.read(8);
     const x = reader.read(16);
@@ -384,7 +384,7 @@ const triangleVertices = (data: Uint8Array): readonly { readonly x: number; read
   return vertices;
 };
 
-const sourceCorner = (data: Uint8Array): readonly number[] => {
+const sourceCorner = (data: Uint8Array): ReadonlyArray<number> => {
   const corner = triangleVertices(data).find(vertex => vertex.x === 0 && vertex.y === 0);
   if (corner === undefined) {
     throw new Error('source corner is missing');
@@ -392,7 +392,7 @@ const sourceCorner = (data: Uint8Array): readonly number[] => {
   return corner.color;
 };
 
-const cornerCoordinates = (vertices: readonly { readonly x: number; readonly y: number }[]): ReadonlySet<string> =>
+const cornerCoordinates = (vertices: ReadonlyArray<{ readonly x: number; readonly y: number }>): ReadonlySet<string> =>
   new Set(
     vertices
       .filter(vertex => (vertex.x === 0 || vertex.x === 25_700) && (vertex.y === 0 || vertex.y === 25_700))
@@ -401,7 +401,7 @@ const cornerCoordinates = (vertices: readonly { readonly x: number; readonly y: 
 
 const decodeCoordinate = (raw: number): number => (raw / 65535) * 100;
 
-const interpolatedAt = (data: Uint8Array, x: number, y: number): readonly number[] => {
+const interpolatedAt = (data: Uint8Array, x: number, y: number): ReadonlyArray<number> => {
   const vertices = triangleVertices(data);
   for (let index = 0; index < vertices.length; index += 3) {
     const a = vertices[index];
@@ -431,7 +431,7 @@ const interpolatedAt = (data: Uint8Array, x: number, y: number): readonly number
   throw new Error('sample point is outside the converted patch');
 };
 
-const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
+const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: ReadonlyArray<number>) => Array<number>) => {
   const shading = document.get(pdfReference(5, 0));
   const internals = internalsOf(document);
   if (shading.kind !== 'stream' || internals === undefined) {
@@ -452,7 +452,7 @@ const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: reado
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data });
 };
 
-const closeChannels = (actual: readonly number[], expected: Float64Array): boolean[] =>
+const closeChannels = (actual: ReadonlyArray<number>, expected: Float64Array): Array<boolean> =>
   actual.map((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 0.005);
 
 const meshStop = (document: ReturnType<typeof loadDocument>): number => {
@@ -628,7 +628,7 @@ describe('mesh shading conversion', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, document.save().toBytes());
       const child = spawn('qpdf', ['--check', file]);
-      const events: readonly unknown[] = await once(child, 'close');
+      const events: ReadonlyArray<unknown> = await once(child, 'close');
       expect(events.at(0)).toBe(0);
     } finally {
       await rm(directory, { recursive: true, force: true });

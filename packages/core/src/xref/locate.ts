@@ -42,10 +42,10 @@ const quiet = (): LexContext => ({
   names: new Map(),
 });
 
-const matchesAt = (bytes: Uint8Array, position: number, pattern: readonly number[]): boolean =>
+const matchesAt = (bytes: Uint8Array, position: number, pattern: ReadonlyArray<number>): boolean =>
   position >= 0 && pattern.every((byte, index) => bytes[position + index] === byte);
 
-const indexOf = (bytes: Uint8Array, pattern: readonly number[], from: number): number => {
+const indexOf = (bytes: Uint8Array, pattern: ReadonlyArray<number>, from: number): number => {
   for (let position = bytes.indexOf(pattern[0] ?? 0, from); position >= 0; position = bytes.indexOf(pattern[0] ?? 0, position + 1)) {
     if (matchesAt(bytes, position, pattern)) {
       return position;
@@ -54,7 +54,7 @@ const indexOf = (bytes: Uint8Array, pattern: readonly number[], from: number): n
   return -1;
 };
 
-const lastIndexOf = (bytes: Uint8Array, pattern: readonly number[]): number => {
+const lastIndexOf = (bytes: Uint8Array, pattern: ReadonlyArray<number>): number => {
   for (let position = bytes.lastIndexOf(pattern[0] ?? 0); position >= 0; position = position === 0 ? -1 : bytes.lastIndexOf(pattern[0] ?? 0, position - 1)) {
     if (matchesAt(bytes, position, pattern)) {
       return position;

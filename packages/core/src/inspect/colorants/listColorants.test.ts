@@ -16,7 +16,7 @@ const separation = (name: string, alternate = '/DeviceCMYK'): string => `[/Separ
 const FONT = '/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>';
 const SPACES = `/ColorSpace<</CS1 ${separation('Gold')}/CS2 ${separation('Silver')}>>`;
 
-const pagesOf = (pages: readonly TestPage[], objects: readonly TestObject[] = []): readonly PageColorants[] =>
+const pagesOf = (pages: ReadonlyArray<TestPage>, objects: ReadonlyArray<TestObject> = []): ReadonlyArray<PageColorants> =>
   listColorants(loadDocument(textPdfBytes({ pages, objects })));
 
 const describeUse = ({ name, kind, painted, selected, declared }: ColorantUse): string =>
@@ -27,13 +27,13 @@ interface Fixture {
   readonly resources?: string;
   /** Extra ColorSpace resources beside CS1 (Gold) and CS2 (Silver). */
   readonly spaces?: string;
-  readonly objects?: readonly TestObject[];
+  readonly objects?: ReadonlyArray<TestObject>;
   /** Further page dictionary entries. */
   readonly entries?: string;
 }
 
 // Each colorant of the first page, as `name kind p=painted s=selected d=declared`.
-const colorants = (content: string, { resources = '', spaces = '', objects = [], entries = '' }: Fixture = {}): string[] => {
+const colorants = (content: string, { resources = '', spaces = '', objects = [], entries = '' }: Fixture = {}): Array<string> => {
   const [page] = pagesOf(
     [{ content, resources: `/ColorSpace<</CS1 ${separation('Gold')}/CS2 ${separation('Silver')}${spaces}>>${FONT}${resources}`, entries }],
     objects,
@@ -78,7 +78,7 @@ describe('painted colorants', () => {
   });
 
   it('reports images, image masks, inline images and shadings', () => {
-    const objects: TestObject[] = [
+    const objects: Array<TestObject> = [
       { number: 120, body: imageObject(separation('Image')) },
       { number: 121, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/ImageMask true', 'a') },
       { number: 122, body: `<</ShadingType 2/ColorSpace ${separation('Shade')}/Coords[0 0 1 0]/Function ${TINT}>>` },
@@ -100,7 +100,7 @@ describe('painted colorants', () => {
   });
 
   it('reports the spaces patterns paint in: a shading pattern, an uncoloured pattern base and a coloured pattern cell', () => {
-    const objects: TestObject[] = [
+    const objects: Array<TestObject> = [
       { number: 130, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Shade')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
       { number: 131, body: streamBody(`/PatternType 1/PaintType 2/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1/Resources<<${SPACES}>>`, '/CS2 cs 0 0 1 1 re f') },
       {
@@ -121,11 +121,11 @@ describe('painted colorants', () => {
   });
 
   it('counts colours a d0 glyph sets, and the current colour a d1 glyph paints with, while colours set in a d1 glyph are declared', () => {
-    const d0: TestObject[] = [
+    const d0: Array<TestObject> = [
       { number: 110, body: type3Font(SPACES) },
       { number: 111, body: streamBody('', '1000 0 d0 /CS2 cs 1 scn 0 0 750 750 re f') },
     ];
-    const d1: TestObject[] = [
+    const d1: Array<TestObject> = [
       { number: 110, body: type3Font(SPACES) },
       { number: 111, body: streamBody('', '1000 0 0 0 750 750 d1 /CS2 cs 1 scn 0 0 750 750 re f') },
     ];
@@ -150,7 +150,7 @@ describe('painted colorants', () => {
 });
 
 describe('colorants in patterns', () => {
-  const SHADINGS: TestObject[] = [
+  const SHADINGS: Array<TestObject> = [
     { number: 160, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Red')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
     { number: 161, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Green')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
     { number: 162, body: streamBody('/PatternType 1/PaintType 2/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1/Resources<<>>', '0 0 1 1 re f') },
@@ -171,7 +171,7 @@ describe('colorants in patterns', () => {
   });
 
   it('reports text at alpha 0 as invisible, in a pattern colour and in the procedures of Type 3 glyphs', () => {
-    const glyphs: TestObject[] = [
+    const glyphs: Array<TestObject> = [
       { number: 110, body: type3Font(SPACES) },
       { number: 111, body: streamBody('', '1000 0 d0 /CS2 cs 1 scn 0 0 750 750 re f') },
     ];
@@ -211,7 +211,7 @@ describe('selected colorants', () => {
 
 describe('declared colorants', () => {
   it('reports colorants painted only inside a soft mask', () => {
-    const objects: TestObject[] = [
+    const objects: Array<TestObject> = [
       {
         number: 150,
         body: streamBody(
@@ -237,7 +237,7 @@ describe('declared colorants', () => {
   });
 
   it('keeps every declared reason of a painted colorant', () => {
-    const d1: TestObject[] = [
+    const d1: Array<TestObject> = [
       { number: 110, body: type3Font(SPACES) },
       { number: 111, body: streamBody('', '1000 0 0 0 750 750 d1 /CS1 cs 0 0 750 750 re f') },
     ];
@@ -280,7 +280,7 @@ describe('damaged colour spaces', () => {
   });
 
   it('goes on interpreting after a pattern that cannot be read is chosen where colours are ignored', () => {
-    const glyph: TestObject[] = [
+    const glyph: Array<TestObject> = [
       { number: 110, body: type3Font(`${SPACES}/Pattern<</P 151 0 R>>`) },
       { number: 111, body: streamBody('', '1000 0 0 0 750 750 d1 /Pattern cs /P scn 0 0 750 750 re f') },
       { number: 151, body: '<</PatternType 150 0 R/Shading<<>>>>' },

@@ -10,7 +10,7 @@ import { decodePng, pngToRgba8 } from './decodePng.ts';
 
 // The PNGs here are written by ImageMagick 7 from raw 16-bit samples computed below, with png:color-type and png:bit-depth selecting the colour type and bit depth and -interlace PNG selecting Adam7.
 // The reference decode is ImageMagick's own reading of the same file as 16-bit RGBA; each test first checks that the file's IHDR is the one requested.
-const magick = async (args: readonly string[], input: Uint8Array): Promise<Uint8Array> => {
+const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => {
   const child = spawn('magick', args);
   child.stdin.end(input);
   const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
@@ -85,7 +85,7 @@ const COMBINATIONS = [
   ['rgba', 6, 8],
   ['rgba', 6, 16],
 ] as const;
-const CASES: readonly OracleCase[] = COMBINATIONS.flatMap(([format, colorType, depth]) =>
+const CASES: ReadonlyArray<OracleCase> = COMBINATIONS.flatMap(([format, colorType, depth]) =>
   (['None', 'PNG'] as const).map(interlace => ({ format, colorType, depth, interlace })),
 );
 const COLOR_TYPES = { 0: 'gray', 2: 'rgb', 3: 'indexed', 4: 'gray-alpha', 6: 'rgba' } as const;

@@ -26,7 +26,7 @@ const point = (value: Point): Point => [number(value[0]), number(value[1])];
 
 const subpath = (value: Subpath): Subpath => {
   const start = point(value.start);
-  const segments: Segment[] = cubicSegments(value).map(segment => {
+  const segments: Array<Segment> = cubicSegments(value).map(segment => {
     if (segment.kind === 'line') {
       return { kind: 'line', to: point(segment.to), anchor: segment.anchor ?? 'corner' };
     }

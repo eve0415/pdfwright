@@ -92,7 +92,7 @@ const artboardSpan = (bytes: Buffer): Buffer => {
 const nativeData = (bytes: Buffer): NativeData => ({ bytes, metaDataLength: requireIndex(bytes, '%%EndComments\r') + Buffer.byteLength('%%EndComments\r') });
 
 /** Writes the Illustrator open-test candidates and their checklist to an external directory. */
-export const writeManualCheckSet = async (directory: string): Promise<readonly string[]> => {
+export const writeManualCheckSet = async (directory: string): Promise<ReadonlyArray<string>> => {
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
   if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) {
@@ -164,7 +164,7 @@ const diagnosticNames = [
 ] as const;
 
 /** Writes cumulative local-only transplants from a supplied Illustrator export. */
-export const writeDiagnosticLadder = async (directory: string, relativeExport: string): Promise<readonly string[]> => {
+export const writeDiagnosticLadder = async (directory: string, relativeExport: string): Promise<ReadonlyArray<string>> => {
   const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
   if (exportsDirectory === undefined) {
     throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is required for diagnostic transplants');
@@ -183,14 +183,14 @@ export const writeDiagnosticLadder = async (directory: string, relativeExport: s
   const model = manualCheckModel();
   const base = Buffer.from(writeNative(model).bytes);
   const source = Buffer.from(readIllustratorContainer(await readFile(sourcePath)).native);
-  const nonPrinting: Buffer[] = [];
+  const nonPrinting: Array<Buffer> = [];
   let search = requireIndex(source, '%%BeginSetup\r');
   for (let index = 0; index < 4; index++) {
     const block = blockThrough(source, ['%AI5_Begin_NonPrinting\r', '%AI5_End_NonPrinting--\r'], search);
     nonPrinting.push(block);
     search = source.indexOf(block, search) + block.length;
   }
-  const outputs: Uint8Array[] = [];
+  const outputs: Array<Uint8Array> = [];
   let current: Buffer = base;
   const add = (next: Buffer): void => {
     current = next;

@@ -28,7 +28,7 @@ const elapsed = (work: () => void): number => {
 };
 
 // Shows `count` one-point glyphs in a line from (10, 700), then paints `after`.
-const extractLine = (count: number, after: string): readonly boolean[] => {
+const extractLine = (count: number, after: string): ReadonlyArray<boolean> => {
   const content = [`BT /T 1 Tf 10 700 Td <${'0001'.repeat(count)}> Tj ET`, after];
   const bytes = textPdfBytes({ pages: [{ content, resources: '/Font<</T 105 0 R>>' }], objects: OBJECTS });
   return extractText(loadDocument(bytes), 0).glyphs.map(glyph => glyph.covered);
@@ -42,7 +42,7 @@ describe('text extraction cost', () => {
       const unfilled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re n`).join('\n');
       const filled = Array.from({ length: count }, (_, index) => `${String(10 + index)} 699 1 2 re f`).join('\n');
       const apart = '500 10 1 1 re f\n'.repeat(count);
-      let results: (readonly boolean[])[] = [];
+      let results: Array<ReadonlyArray<boolean>> = [];
       const base = elapsed(() => {
         results.push(extractLine(count, unfilled));
       });

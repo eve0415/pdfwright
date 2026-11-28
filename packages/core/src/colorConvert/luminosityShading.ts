@@ -34,7 +34,7 @@ export interface GrayFunctionShading {
 
 export type GrayFunctionPlan =
   | { readonly kind: 'sampled'; readonly stream: PdfStream }
-  | { readonly kind: 'stitched'; readonly dictionary: PdfDictionaryEntries; readonly children: readonly GrayFunctionPlan[] };
+  | { readonly kind: 'stitched'; readonly dictionary: PdfDictionaryEntries; readonly children: ReadonlyArray<GrayFunctionPlan> };
 
 const numeric = (value: PdfDirectObject): number => {
   if (value.kind === 'integer') {
@@ -54,7 +54,7 @@ const integer = (dictionary: PdfDictionaryEntries, key: Uint8Array): number => {
   return value.value;
 };
 
-const decodeArray = (dictionary: PdfDictionaryEntries, count: number): number[] => {
+const decodeArray = (dictionary: PdfDictionaryEntries, count: number): Array<number> => {
   const value = dictionary.get(DECODE);
   if (value?.kind !== 'array' || value.items.length !== count) {
     throw new ValidationError('luminosity mesh Decode is invalid', 'color-space');
@@ -62,7 +62,7 @@ const decodeArray = (dictionary: PdfDictionaryEntries, count: number): number[] 
   return value.items.map(item => numeric(item));
 };
 
-const domain = (dictionary: PdfDictionaryEntries, dimensions: number): number[] => {
+const domain = (dictionary: PdfDictionaryEntries, dimensions: number): Array<number> => {
   const value = dictionary.get(DOMAIN);
   if (value === undefined) {
     return Array.from({ length: dimensions }, () => [0, 1]).flat();
@@ -98,7 +98,7 @@ const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefin
   return undefined;
 };
 
-const evaluator = (internals: DocumentInternals, value: PdfDirectObject): ((input: readonly number[]) => number[]) => {
+const evaluator = (internals: DocumentInternals, value: PdfDirectObject): ((input: ReadonlyArray<number>) => Array<number>) => {
   const read = createPdfFunctionReader(item => resolvedFunction(internals, item));
   if (value.kind !== 'array') {
     return read(value);
@@ -113,9 +113,9 @@ const evaluator = (internals: DocumentInternals, value: PdfDirectObject): ((inpu
 const sampleGray = (config: {
   internals: DocumentInternals;
   functionValue: PdfDirectObject;
-  domain: readonly number[];
+  domain: ReadonlyArray<number>;
   dimensions: number;
-  gray: (values: readonly number[]) => number;
+  gray: (values: ReadonlyArray<number>) => number;
 }): PdfStream => {
   const { internals, functionValue, dimensions, gray } = config;
   const grid = dimensions === 1 ? 256 : 65;
@@ -152,7 +152,7 @@ const sampleGray = (config: {
 
 const grayFunction = (
   internals: DocumentInternals,
-  config: { value: PdfDirectObject; domain: readonly number[]; dimensions: number; gray: (values: readonly number[]) => number; depth: number },
+  config: { value: PdfDirectObject; domain: ReadonlyArray<number>; dimensions: number; gray: (values: ReadonlyArray<number>) => number; depth: number },
 ): GrayFunctionPlan => {
   if (config.depth > internals.maxNesting) {
     throw new ResourceLimitError('luminosity function nesting exceeds maxNesting');
@@ -186,7 +186,7 @@ const grayFunction = (
 
 const grayMesh = (
   internals: DocumentInternals,
-  config: { shading: PdfStream; dictionary: PdfDictionaryEntries; gray: (values: readonly number[]) => number; type: 4 | 5 | 6 | 7 },
+  config: { shading: PdfStream; dictionary: PdfDictionaryEntries; gray: (values: ReadonlyArray<number>) => number; type: 4 | 5 | 6 | 7 },
 ): GrayFunctionShading => {
   const { shading, dictionary, gray, type } = config;
   const functionValue = dictionary.get(FUNCTION);
@@ -249,7 +249,7 @@ const meshKind = (value: number): 4 | 5 | 6 | 7 => {
   return 7;
 };
 
-export const grayFunctionShading = (internals: DocumentInternals, shading: PdfObject, gray: (values: readonly number[]) => number): GrayFunctionShading => {
+export const grayFunctionShading = (internals: DocumentInternals, shading: PdfObject, gray: (values: ReadonlyArray<number>) => number): GrayFunctionShading => {
   const entries = entriesOf(shading);
   if (entries === undefined) {
     throw new ValidationError('luminosity shading is invalid', 'color-space');

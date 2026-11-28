@@ -50,7 +50,7 @@ const isRgb = (entries: ReadonlyMap<string, PdfDirectObject>): boolean => {
   throw new UnsupportedFeatureError('luminosity inline image colour space is unsupported');
 };
 
-const decodeValues = (value: PdfDirectObject | undefined): readonly number[] => {
+const decodeValues = (value: PdfDirectObject | undefined): ReadonlyArray<number> => {
   if (value === undefined) {
     return [0, 1, 0, 1, 0, 1];
   }
@@ -71,8 +71,8 @@ const graySamples = (config: {
   height: number;
   bits: number;
   outputBits: number;
-  decode: readonly number[];
-  gray: (values: readonly number[]) => number;
+  decode: ReadonlyArray<number>;
+  gray: (values: ReadonlyArray<number>) => number;
 }): Uint8Array => {
   const { data, width, height, bits, outputBits, decode, gray } = config;
   const inputRowBytes = Math.ceil((width * 3 * bits) / 8);
@@ -104,7 +104,7 @@ const graySamples = (config: {
 };
 
 /** ISO 32000-1:2008, 8.9.7 Table 93 gives inline image entries the same meanings as image dictionary entries. */
-export const grayInlineImage = (image: InlineImage, gray: (values: readonly number[]) => number, maxDecodedBytes: number): Uint8Array | null => {
+export const grayInlineImage = (image: InlineImage, gray: (values: ReadonlyArray<number>) => number, maxDecodedBytes: number): Uint8Array | null => {
   const entries = parameters(image);
   if (!isRgb(entries)) {
     return null;

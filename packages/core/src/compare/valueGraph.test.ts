@@ -9,10 +9,10 @@ import { compareDocuments } from './compareDocuments.ts';
 
 const catalog = (extra: string): TestObject => ({ number: 1, body: `<</Type/Catalog/Pages 2 0 R${extra}>>` });
 
-const pdf = (objects: readonly TestObject[]): Uint8Array => buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes;
+const pdf = (objects: ReadonlyArray<TestObject>): Uint8Array => buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes;
 
 const outline = (items: number, lastTitle: string): Uint8Array => {
-  const objects: TestObject[] = [
+  const objects: Array<TestObject> = [
     catalog('/Outlines 4 0 R'),
     { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 10 10]/Resources<<>>>>' },
     { number: 3, body: '<</Type/Page/Parent 2 0 R>>' },

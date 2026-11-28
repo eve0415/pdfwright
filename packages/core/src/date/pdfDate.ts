@@ -99,7 +99,7 @@ export interface ParsedPdfDate {
   readonly zone: 'explicit' | 'absent';
 }
 
-const PRECISIONS: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+const PRECISIONS: ReadonlyArray<PdfDatePrecision> = ['year', 'month', 'day', 'hour', 'minute', 'second'];
 
 // ISO 32000-1:2008, 7.9.4: "The prefix D: shall be present, the year field (YYYY) shall be present and all other fields may be present but only if all of their preceding fields are also present."
 // The offset is O, then HH, then an apostrophe and mm; an apostrophe after mm, which many writers add, is tolerated.

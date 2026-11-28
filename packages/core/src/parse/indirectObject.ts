@@ -41,7 +41,7 @@ const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d];
 
 const isKeyword = (token: Token, keyword: string): boolean => token.kind === 'keyword' && token.keyword === keyword;
 
-const matchesAt = (lexer: Lexer, position: number, pattern: readonly number[]): boolean => {
+const matchesAt = (lexer: Lexer, position: number, pattern: ReadonlyArray<number>): boolean => {
   for (let index = 0; index < pattern.length; index++) {
     if (lexer.atEnd(position + index) || lexer.bytes[position + index] !== pattern[index]) {
       return false;
@@ -145,7 +145,7 @@ const searchEndstream = (lexer: Lexer, dataStart: number, context: IndirectObjec
   if (lastEndstream !== undefined && lexer.base + dataStart > lastEndstream) {
     throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
   }
-  const found: number[] = [];
+  const found: Array<number> = [];
   for (let position = bytes.indexOf(ENDSTREAM[0] ?? 0, dataStart); found.length < 2; position = bytes.indexOf(ENDSTREAM[0] ?? 0, position + 1)) {
     if (position < 0) {
       lexer.atEnd(bytes.length);

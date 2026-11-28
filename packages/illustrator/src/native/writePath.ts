@@ -22,7 +22,7 @@ interface NativeGeometryOptions {
   /** Writes the state lines that follow the first path object's anchor count. */
   readonly writeState: () => void;
   /** The lines that end every path object. */
-  readonly ending: readonly string[];
+  readonly ending: ReadonlyArray<string>;
 }
 
 const number = coordinateNumber;

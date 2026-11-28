@@ -6,7 +6,7 @@ export type DeviceColor =
   | { readonly kind: 'DeviceRGB'; readonly components: readonly [number, number, number] }
   | { readonly kind: 'DeviceGray'; readonly components: readonly [number] };
 
-const validate = (components: readonly number[]): void => {
+const validate = (components: ReadonlyArray<number>): void => {
   // ISO 32000-1:2008, 8.6.8, Table 74 bounds DeviceGray, DeviceRGB, and DeviceCMYK operands to 0.0 through 1.0.
   for (const component of components) {
     if (!Number.isFinite(component) || component < 0 || component > 1) {

@@ -17,7 +17,7 @@ import { writeGtsPdfxOutputIntent } from './writeOutputIntent.ts';
 
 const profile = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
-const source = (page = '/Resources<<>>', extra: readonly TestObject[] = []) =>
+const source = (page = '/Resources<<>>', extra: ReadonlyArray<TestObject> = []) =>
   buildPdf([
     {
       xref: 'classic',
@@ -31,7 +31,7 @@ const source = (page = '/Resources<<>>', extra: readonly TestObject[] = []) =>
     },
   ]);
 
-const prepared = (page?: string, extra?: readonly TestObject[]) => {
+const prepared = (page?: string, extra?: ReadonlyArray<TestObject>) => {
   const document = loadDocument(source(page, extra).bytes);
   writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
   writePdfX4Metadata(document, { metadataDate: date, trapped: 'False' });

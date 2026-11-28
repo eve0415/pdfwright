@@ -22,7 +22,7 @@ const info = (entries: Record<string, InfoValue>): ReadonlyMap<string, InfoValue
 const agreements = (mapping: MetadataMapping): Record<string, string> =>
   Object.fromEntries(mapping.properties.map(property => [property.key, property.agreement]));
 
-const codes = (mapping: MetadataMapping): readonly string[] => mapping.findings.map(finding => finding.code);
+const codes = (mapping: MetadataMapping): ReadonlyArray<string> => mapping.findings.map(finding => finding.code);
 
 const alt = (value: string): string => `<rdf:Alt><rdf:li xml:lang="x-default">${value}</rdf:li></rdf:Alt>`;
 

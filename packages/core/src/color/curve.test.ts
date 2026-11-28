@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { evaluateCurve, invertCurve } from './curve.ts';
 
-const table = (samples: readonly number[]): Curve => ({ kind: 'table', values: Uint16Array.from(samples) });
+const table = (samples: ReadonlyArray<number>): Curve => ({ kind: 'table', values: Uint16Array.from(samples) });
 
 describe('icc curve domains', () => {
   it('clips gamma and parametric inputs before exponentiation', () => {

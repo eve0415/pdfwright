@@ -140,7 +140,7 @@ export const encodeRawFrame = (input: Uint8Array): Uint8Array => {
 /** Encodes one frame using predefined-table compressed blocks when smaller, raw blocks otherwise. */
 export const encodeZstandardFrame = (input: Uint8Array): Uint8Array => {
   const finder = createMatchFinder(input);
-  const parts: Uint8Array[] = [Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0, 0x58)];
+  const parts: Array<Uint8Array> = [Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0, 0x58)];
   const blocks = Math.max(1, Math.ceil(input.length / BLOCK_SIZE));
   for (let index = 0; index < blocks; index++) {
     const start = index * BLOCK_SIZE;

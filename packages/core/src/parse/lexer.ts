@@ -278,7 +278,7 @@ export class Lexer {
   private readName(start: number): Token {
     const end = this.regularEnd(start + 1);
     const { bytes } = this;
-    const decoded: number[] = [];
+    const decoded: Array<number> = [];
     for (let index = start + 1; index < end; index++) {
       const byte = bytes[index] ?? 0;
       const high = byte === 0x23 && index + 1 < end ? hexValue(bytes[index + 1]) : -1;

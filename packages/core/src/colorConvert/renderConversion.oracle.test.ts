@@ -44,7 +44,7 @@ const source = parseIccProfile(Uint8Array.from(await readFile(sourcePath)));
 const destination = parseIccProfile(Uint8Array.from(await readFile(destinationPath)));
 const metadataDate = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
-const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+const lab = (channels: ReadonlyArray<number> | Float64Array): ReadonlyArray<number> => {
   const pcs = toPcs([...channels]);
   return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
 };
@@ -66,7 +66,7 @@ const transparency = (groupColor: string) =>
     },
   ]);
 
-const mesh = (colors: readonly (readonly number[])[]): Uint8Array => {
+const mesh = (colors: ReadonlyArray<ReadonlyArray<number>>): Uint8Array => {
   const writer = new MeshBitWriter();
   for (const [index, [x, y]] of [
     [0, 0],
@@ -148,7 +148,7 @@ const rgbVertices = [
   [0, 0, 255],
 ];
 
-const transiccVertices = async (vertices: readonly (readonly number[])[]): Promise<readonly number[][]> => {
+const transiccVertices = async (vertices: ReadonlyArray<ReadonlyArray<number>>): Promise<ReadonlyArray<Array<number>>> => {
   const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
   child.stdin.end(`${vertices.map(vertex => vertex.join(' ')).join('\n')}\n`);
   const [output, closed] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
@@ -190,14 +190,14 @@ const convertedMeshBytes = (pdf: Uint8Array): MeshBytes => {
 interface MeshVertex {
   readonly x: number;
   readonly y: number;
-  readonly color: readonly number[];
+  readonly color: ReadonlyArray<number>;
 }
 
-const verticesOf = (data: Uint8Array): readonly MeshVertex[] => {
+const verticesOf = (data: Uint8Array): ReadonlyArray<MeshVertex> => {
   if (data.length % 9 !== 0) {
     throw new Error('converted mesh record size is invalid');
   }
-  const vertices: MeshVertex[] = [];
+  const vertices: Array<MeshVertex> = [];
   for (let offset = 0; offset < data.length; offset += 9) {
     const x = (((data[offset + 1] ?? 0) * 256 + (data[offset + 2] ?? 0)) / 65535) * 100;
     const y = (((data[offset + 3] ?? 0) * 256 + (data[offset + 4] ?? 0)) / 65535) * 100;
@@ -207,7 +207,7 @@ const verticesOf = (data: Uint8Array): readonly MeshVertex[] => {
   return vertices;
 };
 
-const rgbAt = (x: number, y: number): readonly number[] => {
+const rgbAt = (x: number, y: number): ReadonlyArray<number> => {
   const extent = (100 * 100) / 255;
   return [Math.max(0, 1 - x / extent - y / extent), Math.min(1, x / extent), Math.min(1, y / extent)];
 };
@@ -292,7 +292,7 @@ const render = async (directory: string, config: { name: string; bytes: Uint8Arr
     `-sOutputFile=${output}`,
     input,
   ]);
-  const result: readonly unknown[] = await once(child, 'close');
+  const result: ReadonlyArray<unknown> = await once(child, 'close');
   expect(result[0]).toBe(0);
   const data = Uint8Array.from(await readFile(output));
   const header = new TextDecoder('ascii').decode(data.subarray(0, Math.min(data.length, 512)));
@@ -309,7 +309,7 @@ const measure = (before: Raster, after: Raster, interior = false) => {
   expect([before.width, before.height]).toStrictEqual([after.width, after.height]);
   expect(before.samples).toHaveLength(before.width * before.height * 4);
   expect(after.samples).toHaveLength(after.width * after.height * 4);
-  const differences: number[] = [];
+  const differences: Array<number> = [];
   let sourcePixels = 0;
   let convertedPixels = 0;
   for (let offset = 0; offset < before.samples.length; offset += 4) {
@@ -458,7 +458,7 @@ describe('converted rendering', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, output);
       const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: readonly unknown[] = await once(qpdf, 'close');
+      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
       expect(closed[0]).toBe(0);
       expect(checkPublicPdfX4(loadDocument(output)).summary).toBe('no-violation-found-by-these-rules');
       const before = await render(directory, { name: 'mixed-before', bytes: input });
@@ -487,7 +487,7 @@ describe('converted rendering', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, pdfxConverted);
       const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: readonly unknown[] = await once(qpdf, 'close');
+      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
       expect(closed[0]).toBe(0);
       const reloaded = loadDocument(pdfxConverted);
       expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
@@ -528,7 +528,7 @@ describe('converted rendering', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, meshConverted);
       const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: readonly unknown[] = await once(qpdf, 'close');
+      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
       expect(closed[0]).toBe(0);
       const reloaded = loadDocument(meshConverted);
       expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');

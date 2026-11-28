@@ -15,11 +15,11 @@ const keyOf = (length: number, value: number): number => length * 0x100000000 + 
  */
 export class MappingTable<T extends CodeRange> {
   private readonly singles = new Map<number, T>();
-  private readonly ranges: T[];
-  private readonly reach: number[];
+  private readonly ranges: Array<T>;
+  private readonly reach: Array<number>;
 
-  constructor(mappings: readonly T[]) {
-    const ranges: T[] = [];
+  constructor(mappings: ReadonlyArray<T>) {
+    const ranges: Array<T> = [];
     for (const mapping of mappings) {
       if (mapping.low === mapping.high) {
         this.singles.set(keyOf(mapping.length, mapping.low), mapping);

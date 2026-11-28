@@ -6,7 +6,7 @@ export class ChunkedInflateOutput {
   private chunk = new Uint8Array(65536);
   private used = 0;
   private total = 0;
-  private readonly ready: Uint8Array[] = [];
+  private readonly ready: Array<Uint8Array> = [];
   private readonly limit: number;
 
   constructor(limit: number) {

@@ -21,7 +21,7 @@ const tableLine = (entry: Omit<Entry, 'objectNumber'>): string => `${pad(entry.f
 const UNUSED = { type: 0, field: 0, generation: 65_535 } as const;
 const UNUSED_LINE = tableLine(UNUSED);
 
-export const writeTable = (writer: ByteWriter, entries: readonly Entry[]): void => {
+export const writeTable = (writer: ByteWriter, entries: ReadonlyArray<Entry>): void => {
   writer.writeAscii('xref\n');
   // "Following this line shall be one or more cross-reference subsections"; an update that changes no object has one without entries.
   if (entries.length === 0) {
@@ -66,7 +66,7 @@ export const byteWidth = (value: number): number => {
 };
 
 /** The field widths a cross-reference stream needs for these entries: the second field and the third. */
-export const fieldWidths = (entries: readonly Entry[]): readonly [number, number] => {
+export const fieldWidths = (entries: ReadonlyArray<Entry>): readonly [number, number] => {
   let field = 0;
   let generation = 0;
   for (const entry of entries) {
@@ -99,7 +99,7 @@ class RowWriter {
   }
 }
 
-export const streamData = (entries: readonly Entry[], widths: readonly [number, number]): Uint8Array => {
+export const streamData = (entries: ReadonlyArray<Entry>, widths: readonly [number, number]): Uint8Array => {
   const rows = new RowWriter(new Uint8Array(entries.length * (1 + widths[0] + widths[1])), widths);
   for (const entry of entries) {
     rows.put(entry);
@@ -129,8 +129,8 @@ export const coveringStreamData = (entries: ReadonlyMap<number, Entry>, size: nu
   return deflater.finish();
 };
 
-export const indexRuns = (entries: readonly Entry[]): PdfDirectObject => {
-  const pairs: number[] = [];
+export const indexRuns = (entries: ReadonlyArray<Entry>): PdfDirectObject => {
+  const pairs: Array<number> = [];
   for (const entry of entries) {
     const last = pairs.length - 2;
     if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === entry.objectNumber) {

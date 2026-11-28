@@ -57,7 +57,7 @@ export class CMap {
   readonly name: string | undefined;
   readonly writingMode: 0 | 1;
   readonly cidSystemInfo: CidSystemInfo | undefined;
-  private readonly codespaceChain: readonly (readonly CodespaceRange[])[];
+  private readonly codespaceChain: ReadonlyArray<ReadonlyArray<CodespaceRange>>;
   private readonly codespaceKeys: ReadonlySet<string>;
   private readonly codespaceCount: number;
   private readonly entryCount: number;

@@ -16,7 +16,7 @@ export interface ActualTextSpan {
   /** The language of the first language escape in the text, as `ja` or `ja-JP`, else the property list's Lang entry; undefined when neither gives one. */
   readonly language: string | undefined;
   /** The indexes of the glyphs shown inside the span, in content order. A span inside which no glyph is shown is not listed. */
-  readonly glyphs: readonly number[];
+  readonly glyphs: ReadonlyArray<number>;
 }
 
 /** A decoded text string and the language its first language escape names. */
@@ -40,7 +40,7 @@ const languageOf = (codes: Uint8Array): string | undefined => {
 // 7.9.2.2: in a Unicode text string, "An escape sequence may appear anywhere … to indicate the language in which subsequent text shall be written": U+001B, "A 2- byte ISO 639 language code", "(Optional) A 2-byte ISO 3166 country code" and U+001B, the codes "encoded as ASCII characters".
 const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
   const decoder = new TextDecoder('utf-16be');
-  const parts: string[] = [];
+  const parts: Array<string> = [];
   let language: string | undefined;
   let start = 2;
   for (let offset = 2; offset + 1 < bytes.length; offset += 2) {
@@ -79,7 +79,7 @@ export const decodeTextString = (bytes: Uint8Array): DecodedText => {
  * A glyph inside nested spans belongs to each of them; the outermost is the one whose text replaces it.
  */
 export class ActualTextSpans {
-  readonly spans: { text: string; language: string | undefined; glyphs: number[] }[] = [];
+  readonly spans: Array<{ text: string; language: string | undefined; glyphs: Array<number> }> = [];
   private readonly document: DocumentInternals;
   // The span index of each marked-content sequence by its id, or null for a sequence that is not an ActualText span.
   private readonly sequences = new Map<number, number | null>();
@@ -116,7 +116,7 @@ export class ActualTextSpans {
   }
 
   /** Records a glyph shown inside the open sequences, outermost first, and returns the outermost ActualText span it lies in. */
-  add(glyph: number, markedContent: readonly MarkedContent[]): number | undefined {
+  add(glyph: number, markedContent: ReadonlyArray<MarkedContent>): number | undefined {
     let outermost: number | undefined;
     for (const sequence of markedContent) {
       const index = this.spanOf(sequence);

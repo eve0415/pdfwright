@@ -34,9 +34,9 @@ const randomData = (): Uint8Array => {
   return random;
 };
 
-const corpus = (includeLarge: boolean): [string, Uint8Array][] => {
+const corpus = (includeLarge: boolean): Array<[string, Uint8Array]> => {
   const text = new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
-  const items: [string, Uint8Array][] = [
+  const items: Array<[string, Uint8Array]> = [
     ['empty', new Uint8Array()],
     ['one-byte', new Uint8Array([123])],
     ['text', text],
@@ -85,8 +85,8 @@ describe('deterministic deflate encoding', () => {
 
   it('compresses data given in pieces as it compresses the pieces joined', () => {
     const data = largeData().subarray(0, 2 * 1024 * 1024 + 5);
-    const pieced: string[] = [];
-    const joined: string[] = [];
+    const pieced: Array<string> = [];
+    const joined: Array<string> = [];
     for (const level of [0, 6] as const) {
       const whole = digest(deflateZlib(data, { level }));
       for (const piece of [1000, 1024 * 1024, 3 * 1024 * 1024]) {
@@ -150,7 +150,7 @@ describe('incremental deflate output', () => {
     const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 73 + (index >>> 8)) & 255);
     for (const level of [0, 6, 9] as const) {
       const stream = createDeflateStream({ level });
-      const parts: Uint8Array[] = [];
+      const parts: Array<Uint8Array> = [];
       for (let offset = 0; offset < input.length; offset += 19_871) {
         parts.push(...stream.push(input.subarray(offset, offset + 19_871)));
       }

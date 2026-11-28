@@ -37,7 +37,7 @@ const cubic = ([p0, p1, p2, p3]: readonly [number, number, number, number], t: n
 
 // Solves the derivative 3a t² + 2b t + c = 0 in the form that never subtracts nearly equal terms: q = −(b + sgn(b) √(b² − 3ac)), with roots q / 3a and c / q.
 // A raised quadratic has a = 0 in exact arithmetic but a rounding residual in floating point that grows with the coordinates, so no fixed threshold on a can tell the cases apart; with this form the residual sends q / 3a far outside (0, 1) and c / q stays the quadratic's own extremum.
-const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): number[] => {
+const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): Array<number> => {
   const a = -p0 + 3 * p1 - 3 * p2 + p3;
   const b = 3 * p0 - 6 * p1 + 3 * p2;
   const c = -3 * p0 + 3 * p1;
@@ -99,7 +99,7 @@ const direction = (from: Vector, to: Vector): Vector | undefined => {
   return length === 0 ? undefined : [dx / length, dy / length];
 };
 
-const firstDirection = (from: Vector, points: readonly Vector[]): Vector | undefined => {
+const firstDirection = (from: Vector, points: ReadonlyArray<Vector>): Vector | undefined => {
   for (const point of points) {
     const tangent = direction(from, point);
     if (tangent !== undefined) {
@@ -109,10 +109,10 @@ const firstDirection = (from: Vector, points: readonly Vector[]): Vector | undef
   return undefined;
 };
 
-const segmentTangents = (subpath: Subpath): SegmentTangents[] => {
+const segmentTangents = (subpath: Subpath): Array<SegmentTangents> => {
   const start = xy(subpath.start);
   let current = start;
-  const segments: SegmentTangents[] = [];
+  const segments: Array<SegmentTangents> = [];
   for (const segment of cubicSegments(subpath)) {
     const end = xy(segment.to);
     const control1 = segment.kind === 'curve' ? xy(segment.control1) : end;

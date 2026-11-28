@@ -11,7 +11,7 @@ import { D50, decodePcs, encodePcs, labToXyz, xyzToLab } from './pcs.ts';
 
 export interface PcsValue {
   readonly space: 'XYZ' | 'Lab';
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
 }
 
 const missing = (message: string): never => {
@@ -80,7 +80,7 @@ export const sourceEvaluator = (
   profile: IccProfile,
   intent: RenderingIntent,
   option: 'icc' | 'adobe',
-): ((input: readonly number[] | Float64Array) => PcsValue) => {
+): ((input: ReadonlyArray<number> | Float64Array) => PcsValue) => {
   const tag = selected(profile, 'deviceToPcs', intent);
   if (tag !== undefined) {
     const space = pcs(profile);
@@ -111,14 +111,14 @@ export const sourceEvaluator = (
   return missing('ICC device-to-PCS direction is missing');
 };
 
-const inPcs = (input: PcsValue, space: 'XYZ' | 'Lab'): readonly number[] => {
+const inPcs = (input: PcsValue, space: 'XYZ' | 'Lab'): ReadonlyArray<number> => {
   if (input.space === space) {
     return input.values;
   }
   return space === 'Lab' ? xyzToLab(input.values) : labToXyz(input.values);
 };
 
-export const destinationEvaluator = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): ((pcsValue: PcsValue) => number[]) => {
+export const destinationEvaluator = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): ((pcsValue: PcsValue) => Array<number>) => {
   const tag = selected(profile, 'pcsToDevice', intent);
   if (tag !== undefined) {
     const space = pcs(profile);

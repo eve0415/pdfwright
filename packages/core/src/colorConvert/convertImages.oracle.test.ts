@@ -52,7 +52,7 @@ const jpegFixture = async (): Promise<Uint8Array> => {
   }
 };
 
-const jpegSegment = (marker: number, payload: readonly number[]): number[] => [
+const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [
   255,
   marker,
   Math.floor((payload.length + 2) / 256),
@@ -61,7 +61,7 @@ const jpegSegment = (marker: number, payload: readonly number[]): number[] => [
 ];
 
 const largeZeroJpeg = (): Uint8Array => {
-  const huffman = (selector: number): number[] => jpegSegment(0xc4, [selector, 1, ...Array.from({ length: 15 }, () => 0), 0]);
+  const huffman = (selector: number): Array<number> => jpegSegment(0xc4, [selector, 1, ...Array.from({ length: 15 }, () => 0), 0]);
   const entropy = new Uint8Array(49_152);
   return Uint8Array.from([
     255,
@@ -84,7 +84,7 @@ const streamed = (saved: SavedPdf): StreamedSavedPdf => {
   return saved;
 };
 
-const qpdfCheck = async (chunks: readonly Uint8Array[]): Promise<void> => {
+const qpdfCheck = async (chunks: ReadonlyArray<Uint8Array>): Promise<void> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-image-'));
   try {
     const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
@@ -193,8 +193,13 @@ const jp2Color = (enumeration: number): Uint8Array =>
     enumeration,
   );
 
-const be32 = (value: number): number[] => [Math.floor(value / 16777216) % 256, Math.floor(value / 65536) % 256, Math.floor(value / 256) % 256, value % 256];
-const joined = (parts: readonly Uint8Array[]): Uint8Array => {
+const be32 = (value: number): Array<number> => [
+  Math.floor(value / 16777216) % 256,
+  Math.floor(value / 65536) % 256,
+  Math.floor(value / 256) % 256,
+  value % 256,
+];
+const joined = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let offset = 0;
   for (const part of parts) {
@@ -320,7 +325,7 @@ describe('image colour conversion', () => {
     const document = loadDocument(imagePdf('FlateDecode', compressed, { width: 1024, height: 1024 }));
     expect(convertImages(document, { sourceRgbProfile: source, outputProfile: destination }).converted).toBe(1);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
+    const chunks: Array<Uint8Array> = [];
     for await (const chunk of saved.toStream()) {
       chunks.push(chunk);
     }
@@ -478,7 +483,7 @@ describe('image colour conversion', () => {
     });
     expect([report.images.converted, report.images.keptRgbImages.length]).toStrictEqual([1, 0]);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
+    const chunks: Array<Uint8Array> = [];
     for await (const chunk of saved.toStream()) {
       chunks.push(chunk);
     }
@@ -501,7 +506,7 @@ describe('image colour conversion', () => {
     document.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
     expect(rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' }).inlineImages).toBe(1);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
+    const chunks: Array<Uint8Array> = [];
     for await (const chunk of saved.toStream()) {
       chunks.push(chunk);
     }
@@ -600,7 +605,7 @@ interface SoftMaskedImage {
   readonly data: Uint8Array;
 }
 
-const softMaskedPdf = (images: readonly SoftMaskedImage[], mask: SoftMaskedImage): Uint8Array => {
+const softMaskedPdf = (images: ReadonlyArray<SoftMaskedImage>, mask: SoftMaskedImage): Uint8Array => {
   const maskNumber = 5 + images.length;
   const names = images.map((_, index) => `/Im${String(index)} ${String(5 + index)} 0 R`).join('');
   return buildPdf([

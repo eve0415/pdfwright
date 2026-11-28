@@ -36,7 +36,7 @@ export interface PdfX4Finding {
 
 /** Structural PDF/X-4 findings and a summary of violations found by those checks; it does not assert full conformance under ISO 15930-7:2010, clause 6. */
 export interface PdfX4Report {
-  readonly findings: readonly PdfX4Finding[];
+  readonly findings: ReadonlyArray<PdfX4Finding>;
   readonly summary: 'no-violation-found-by-these-rules' | 'violations-found';
 }
 
@@ -165,7 +165,7 @@ const checkProfile: Check = context => {
   }
 };
 
-const within = (inner: readonly number[], outer: readonly number[]): boolean =>
+const within = (inner: ReadonlyArray<number>, outer: ReadonlyArray<number>): boolean =>
   (inner[0] ?? 0) >= (outer[0] ?? 0) && (inner[1] ?? 0) >= (outer[1] ?? 0) && (inner[2] ?? 0) <= (outer[2] ?? 0) && (inner[3] ?? 0) <= (outer[3] ?? 0);
 
 const checkBoxes: Check = context => {
@@ -189,7 +189,7 @@ const checkBoxes: Check = context => {
 };
 
 const visitAll = (context: Context, predicate: (value: PdfObject) => boolean): boolean => {
-  const work: PdfObject[] = [];
+  const work: Array<PdfObject> = [];
   for (const [number, generation] of context.reachable) {
     work.push(context.internals.objects.resolve(number, generation));
   }
@@ -228,7 +228,7 @@ const hasName = (context: Context, value: PdfDirectObject | undefined, expected:
   return nameOf(resolved) === expected;
 };
 
-const inlineLzw = (context: Context, bytes: Uint8Array | readonly Uint8Array[]): boolean => {
+const inlineLzw = (context: Context, bytes: Uint8Array | ReadonlyArray<Uint8Array>): boolean => {
   for (const operation of readContent(bytes, context.internals.maxNesting)) {
     if (operation.inlineImage === undefined) {
       continue;
@@ -392,7 +392,7 @@ const xmpVersion: Check = context =>
     : violation('XMP lacks a single pdfxid:GTS_PDFXVersion value of PDF/X-4');
 
 const xmpMm: Check = context => {
-  const missing: string[] = [];
+  const missing: Array<string> = [];
   for (const name of ['DocumentID', 'VersionID', 'RenditionClass']) {
     if (xmpText(context.metadata, XMP_MM_NAMESPACE, name) === undefined) {
       missing.push(`xmpMM:${name}`);
@@ -470,7 +470,7 @@ export const checkPdfX4 = (document: LoadedDocument): PdfX4Report => {
     reachable: reachable.objects,
     unreadable: reachable.unreadable.length,
   };
-  const findings: PdfX4Finding[] = pdfX4Rules.map(rule => {
+  const findings: Array<PdfX4Finding> = pdfX4Rules.map(rule => {
     const outcome = checks[rule.id](context);
     return { rule: rule.id, source: rule.source, authority: rule.authority, status: outcome.status, detail: outcome.detail, location: outcome.location };
   });

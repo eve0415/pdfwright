@@ -28,7 +28,7 @@ interface IndexedContext {
 interface PageUpdate {
   readonly reference: PdfReference;
   readonly resources: PdfDictionaryEntries;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface PageResult {
@@ -38,7 +38,7 @@ interface PageResult {
 
 interface ResourceResult {
   readonly resources: PdfDictionaryEntries | undefined;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
   readonly count: number;
 }
 
@@ -46,7 +46,7 @@ interface FormUpdate {
   readonly reference: PdfReference;
   readonly form: PdfStream;
   readonly resources: PdfDictionaryEntries;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface ImageUpdate {
@@ -114,7 +114,7 @@ const convertedResources = (context: IndexedContext): ResourceResult => {
     return { resources: undefined, discarded: [], count: 0 };
   }
   const mapped = new PdfDictionaryEntries(colors.entries.entries());
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   let count = 0;
   for (const [name, value] of colors.entries.entries()) {
     const replacement = convertIndexedColorSpace({ document, resources, options }, value);
@@ -234,7 +234,7 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const updates: PageUpdate[] = [];
+  const updates: Array<PageUpdate> = [];
   const imageUpdates = new Map<number, ImageUpdate>();
   const formUpdates = new Map<number, FormUpdate>();
   const seenForms = new Set<number>();
@@ -261,7 +261,7 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
   if (updates.length === 0 && imageUpdates.size === 0 && formUpdates.size === 0) {
     return { indexed };
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const update of updates) {
     const page = document.get(update.reference);
     if (page.kind !== 'dictionary') {

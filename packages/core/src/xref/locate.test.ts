@@ -9,7 +9,7 @@ const source = (text: string, chunk = 0): ByteSource => {
   if (chunk === 0) {
     return new ByteSource(bytes);
   }
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   for (let offset = 0; offset < bytes.length; offset += chunk) {
     chunks.push(bytes.subarray(offset, offset + chunk));
   }

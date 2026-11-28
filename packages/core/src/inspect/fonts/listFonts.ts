@@ -102,18 +102,18 @@ export interface FontEntry {
   /** What a Type 3 font's glyph procedures paint; undefined for other fonts. */
   readonly type3: Type3Summary | undefined;
   /** 0-based indexes of the pages whose resources reach the font: through forms, patterns, Type 3 fonts, graphics states, soft masks and annotation appearances. */
-  readonly pages: readonly number[];
+  readonly pages: ReadonlyArray<number>;
   /** 0-based indexes of the pages whose content shows at least one string with the font: page content, printable annotation appearances, and Type 3 glyph procedures of fonts the page shows. Empty when `shownOn` is false in the options. */
-  readonly shownOn: readonly number[];
-  readonly problems: readonly FontProblem[];
+  readonly shownOn: ReadonlyArray<number>;
+  readonly problems: ReadonlyArray<FontProblem>;
 }
 
 /** Fonts ordered by first reachable page and unreadable paths, with page indexes zero-based under ISO 32000-1:2008, 7.8 and 9.6. */
 export interface FontInventory {
   /** Ordered by the first page that reaches or shows each font, then by object number, with direct fonts after indirect ones. */
-  readonly fonts: readonly FontEntry[];
+  readonly fonts: ReadonlyArray<FontEntry>;
   /** Objects on the way to fonts that could not be read, by page. */
-  readonly unreadable: readonly { readonly page: number; readonly reason: string }[];
+  readonly unreadable: ReadonlyArray<{ readonly page: number; readonly reason: string }>;
 }
 
 /** Controls font inventory: `shownOn` defaults true, and `cmapProvider` supplies non-Identity predefined CMaps when available under ISO 32000-1:2008, 9.7.5. */
@@ -133,7 +133,7 @@ interface Reached {
 }
 
 // ISO 32000-1:2008, ISO 32000-1:2008, Table 126: the programs each font type's descriptor may hold.
-const ACCEPTED: ReadonlyMap<string, readonly string[]> = new Map([
+const ACCEPTED: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
   ['Type1', ['FontFile', 'FontFile3/Type1C', 'FontFile3/OpenType']],
   ['MMType1', ['FontFile', 'FontFile3/Type1C']],
   ['TrueType', ['FontFile2', 'FontFile3/OpenType']],
@@ -164,7 +164,7 @@ const UNREAD = Symbol('unread');
 /** Reads the objects of one font entry; an object that cannot be read is reported as a problem of the entry, which is kept. */
 class EntryReader {
   private readonly document: DocumentInternals;
-  readonly problems: FontProblem[] = [];
+  readonly problems: Array<FontProblem> = [];
 
   constructor(document: DocumentInternals) {
     this.document = document;
@@ -259,8 +259,8 @@ interface Described {
   readonly glyphs: Type3Reading | undefined;
 }
 
-const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described, damage: readonly FontProblem[]): FontProblem[] => {
-  const problems: FontProblem[] = [...damage];
+const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described, damage: ReadonlyArray<FontProblem>): Array<FontProblem> => {
+  const problems: Array<FontProblem> = [...damage];
   if (program.embedding.state === 'embedded' && !program.embedding.matchesFontType) {
     problems.push({
       code: 'embedding-type-mismatch',
@@ -294,7 +294,7 @@ interface Built {
   readonly identity: string | undefined;
 }
 
-const sorted = (pages: ReadonlySet<number>): number[] => [...pages].toSorted((a, b) => a - b);
+const sorted = (pages: ReadonlySet<number>): Array<number> => [...pages].toSorted((a, b) => a - b);
 
 const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageResources }: Reached): Built => {
   const reader = new EntryReader(document);
@@ -330,7 +330,7 @@ const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageRe
 };
 
 // 9.6.4: "different subsets in the same PDF file shall have different tags".
-const reusedTags = (built: readonly Built[]): FontEntry[] => {
+const reusedTags = (built: ReadonlyArray<Built>): Array<FontEntry> => {
   const programs = new Map<string, Set<string>>();
   for (const { entry, identity } of built) {
     if (entry.subset.state !== 'subset' || identity === undefined) {
@@ -384,8 +384,8 @@ interface Listing {
   readonly cache: InheritedCache;
   readonly found: Map<string, Reached>;
   /** Each page's resource dictionary, by page index. */
-  readonly pageResources: (PdfDictionaryEntries | undefined)[];
-  readonly problems: { page: number; reason: string }[];
+  readonly pageResources: Array<PdfDictionaryEntries | undefined>;
+  readonly problems: Array<{ page: number; reason: string }>;
 }
 
 // The interpretation warnings that leave pages whose text was not all seen.
@@ -508,7 +508,7 @@ export const listFonts = (document: LoadedDocument, options: ListFontsOptions = 
       showPage(listing, index);
     }
   }
-  const built: Built[] = [];
+  const built: Array<Built> = [];
   for (const font of listing.found.values()) {
     try {
       built.push(buildEntry(parts, font));

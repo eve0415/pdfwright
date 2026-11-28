@@ -14,7 +14,7 @@ const OUTPUT = path.join(import.meta.dirname, '../packages/core/src/inspect/text
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
 // Each data line is `XXXX ; V # name` or `XXXX..XXXX ; V # names`: a code point or range and its Vertical_Orientation value, U, R, Tu or Tr. Only Tu and Tr are kept.
-const transformed = (text: string): string[] => {
+const transformed = (text: string): Array<string> => {
   const lines = text.split('\n').filter(line => line.trim() !== '' && !line.startsWith('#'));
   return lines.flatMap(line => {
     const match = /^([0-9A-F]{4,6})(?:\.\.([0-9A-F]{4,6}))?\s*;\s*(U|R|Tu|Tr)\s*#/u.exec(line);

@@ -13,7 +13,7 @@ export interface NamedInlineImage extends ConvertedInlineImage {
 
 const XOBJECT = pdfName('XObject').bytes;
 
-export const addInlineXObjects = (document: LoadedDocument, resources: PdfDictionaryEntries, images: readonly NamedInlineImage[]): void => {
+export const addInlineXObjects = (document: LoadedDocument, resources: PdfDictionaryEntries, images: ReadonlyArray<NamedInlineImage>): void => {
   if (images.length === 0) {
     return;
   }

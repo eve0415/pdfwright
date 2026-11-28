@@ -25,8 +25,8 @@ const isDirectory = async (relative: string): Promise<boolean> => {
   }
 };
 
-const targetFiles = async (): Promise<string[]> => {
-  const entries = await readdir(path.join(REPO, 'packages'), { withFileTypes: true }).catch((): Dirent[] => []);
+const targetFiles = async (): Promise<Array<string>> => {
+  const entries = await readdir(path.join(REPO, 'packages'), { withFileTypes: true }).catch((): Array<Dirent> => []);
   const packages = entries.filter(entry => entry.isDirectory()).map(entry => path.join('packages', entry.name));
   const candidates = [...packages.map(dir => path.join(dir, 'src')), ...FLAT_DIRS];
   const checked = await Promise.all(candidates.map(async dir => ((await isDirectory(dir)) ? path.join(dir, 'coverageCanary.ts') : null)));
@@ -47,7 +47,7 @@ const targetFiles = async (): Promise<string[]> => {
   ];
 };
 
-const lintReport = async (files: readonly string[]): Promise<string> => {
+const lintReport = async (files: ReadonlyArray<string>): Promise<string> => {
   const child = spawn(OXLINT, [...files, '--format', 'unix'], { cwd: REPO });
   try {
     const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);

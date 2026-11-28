@@ -12,7 +12,7 @@ import { DEFAULT_XML_LIMITS } from './xmlTokenizer.ts';
 export interface SplicedPacket {
   readonly bytes: Uint8Array;
   /** The legacy properties removed, as their conventional prefix and name. */
-  readonly removedLegacy: readonly string[];
+  readonly removedLegacy: ReadonlyArray<string>;
   /** Whether the packet was in an encoding other than UTF-8 and was re-encoded. */
   readonly transcoded: boolean;
 }
@@ -95,7 +95,7 @@ const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | u
     return false;
   }
   // Each occurrence is appended in place, so that a packet repeating one name many times is still checked in linear time.
-  const found = new Map<string, XmpValue[]>();
+  const found = new Map<string, Array<XmpValue>>();
   for (const property of read.packet.properties) {
     const name = key(property.namespace, property.localName);
     const occurrences = found.get(name);

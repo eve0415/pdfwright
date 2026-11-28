@@ -54,7 +54,7 @@ export type CidMetric<T> = CodeRange & { readonly metric: T };
 /** How a W or W2 array is read: `size` numbers per metric, made into a value by `make`. */
 export interface MetricFormat<T> {
   readonly size: number;
-  readonly make: (numbers: readonly number[]) => T;
+  readonly make: (numbers: ReadonlyArray<number>) => T;
 }
 
 /**
@@ -64,7 +64,7 @@ export interface MetricFormat<T> {
 export const cidMetrics = <T>(source: FontSource, value: PdfDirectObject | undefined, { size, make }: MetricFormat<T>): MappingTable<CidMetric<T>> => {
   const array = source.objects.deref(value);
   const items = array?.kind === 'array' ? array.items.map(item => source.objects.deref(item)) : [];
-  const metrics: CidMetric<T>[] = [];
+  const metrics: Array<CidMetric<T>> = [];
   let index = 0;
   while (index < items.length) {
     const first = numberOf(items[index]);

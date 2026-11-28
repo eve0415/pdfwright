@@ -13,8 +13,8 @@ import { createDocument } from './pdfDocument.ts';
 import { rect } from './rect.ts';
 
 interface PageReport {
-  pages: unknown[];
-  boxes: string[][];
+  pages: Array<unknown>;
+  boxes: Array<Array<string>>;
 }
 
 interface OracleReport extends PageReport {
@@ -25,10 +25,10 @@ interface OracleReport extends PageReport {
 
 interface PageBoxEntries {
   page: unknown;
-  entries: [string, unknown][];
+  entries: Array<[string, unknown]>;
 }
 
-const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+const runQpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
   const child = spawn('qpdf', args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
   if (closed[0] !== 0) {
@@ -37,7 +37,7 @@ const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string
   return { stdout, stderr };
 };
 
-const qpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+const qpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
   try {
     return await runQpdf(args);
   } catch (error: unknown) {
@@ -48,7 +48,7 @@ const qpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }>
   }
 };
 
-const boxForPage = (entries: readonly [string, unknown][], page: unknown, boxName = '/MediaBox'): string[] => {
+const boxForPage = (entries: ReadonlyArray<[string, unknown]>, page: unknown, boxName = '/MediaBox'): Array<string> => {
   if (typeof page !== 'object' || page === null || !('object' in page) || typeof page.object !== 'string') {
     throw new Error('qpdf omitted a page reference');
   }
@@ -65,7 +65,7 @@ const boxForPage = (entries: readonly [string, unknown][], page: unknown, boxNam
   if (!Array.isArray(box)) {
     throw new TypeError(`qpdf omitted a page ${boxName}`);
   }
-  const mediaBox: unknown[] = box;
+  const mediaBox: Array<unknown> = box;
   return mediaBox.map(number => {
     if (typeof number !== 'number') {
       throw new TypeError('qpdf returned a nonnumeric MediaBox');
@@ -78,13 +78,13 @@ const pageBoxes = (json: unknown): PageReport => {
   if (typeof json !== 'object' || json === null || !('pages' in json) || !Array.isArray(json.pages) || !('qpdf' in json) || !Array.isArray(json.qpdf)) {
     throw new Error('qpdf returned unexpected JSON');
   }
-  const pages: unknown[] = json.pages;
-  const sections: unknown[] = json.qpdf;
+  const pages: Array<unknown> = json.pages;
+  const sections: Array<unknown> = json.qpdf;
   const [, section] = sections;
   if (typeof section !== 'object' || section === null) {
     throw new Error('qpdf omitted indirect objects');
   }
-  const entries: [string, unknown][] = Object.entries(section);
+  const entries: Array<[string, unknown]> = Object.entries(section);
   return { pages, boxes: pages.map(page => boxForPage(entries, page)) };
 };
 

@@ -4,7 +4,7 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { validateMeshBits } from './meshBits.ts';
 
 export class MeshBitWriter {
-  private readonly bytes: number[] = [];
+  private readonly bytes: Array<number> = [];
   private position = 0;
 
   write(bits: number, value: number): void {

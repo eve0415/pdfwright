@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { isFullWidthOrWide } from './fullWidth.ts';
 
-const wide = (text: string): boolean[] => Array.from(text, character => isFullWidthOrWide(character.codePointAt(0) ?? 0));
+const wide = (text: string): Array<boolean> => Array.from(text, character => isFullWidthOrWide(character.codePointAt(0) ?? 0));
 
 describe('full-width and wide characters', () => {
   it('lists the characters Unicode 18.0.0 marks F or W, and no others', () => {

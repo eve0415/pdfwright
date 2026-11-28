@@ -127,7 +127,7 @@ const spotName = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   return name.bytes;
 };
 
-const addedOverprintStates = (document: ReturnType<typeof loadDocument>): readonly boolean[] => {
+const addedOverprintStates = (document: ReturnType<typeof loadDocument>): ReadonlyArray<boolean> => {
   const resources = document.page(0).resources();
   const states = resources.get(pdfName('ExtGState').bytes);
   if (states?.kind !== 'dictionary') {

@@ -156,7 +156,7 @@ export const inherited = (
   const own = dictionaryOf(resolver, entry.reference).get(key);
   let found: Found | undefined = present(resolver, own) ? { value: own } : undefined;
   if (found === undefined) {
-    const visited: TreeNode[] = [];
+    const visited: Array<TreeNode> = [];
     for (let node = entry.parent; node !== undefined; node = node.parent) {
       const inheritedValue = cache?.ancestors.get(node);
       if (inheritedValue?.has(name) === true) {
@@ -246,7 +246,7 @@ const pageDictionary = (objects: PageObjects, reference: PdfReference): PdfDicti
 };
 
 // ISO 32000-1:2008, 7.7.3.3, Table 30 defines the page boundaries; writer policy requires non-zero area and containment within MediaBox, as for created pages.
-export const checkPageBox = (name: BoxName, corners: readonly number[], mediaBox: EffectiveBox['rect']): void => {
+export const checkPageBox = (name: BoxName, corners: ReadonlyArray<number>, mediaBox: EffectiveBox['rect']): void => {
   const [left = 0, bottom = 0, right = 0, top = 0] = corners;
   if (left >= right || bottom >= top) {
     throw new ValidationError(`the ${name} has zero area after rounding; pdfwright requires page boxes with non-zero area`);

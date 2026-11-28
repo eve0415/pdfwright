@@ -20,8 +20,8 @@ export interface PageEntry {
 }
 
 /** The page tree nodes above a page, nearest first. */
-export const ancestorsOf = (entry: PageEntry): PdfReference[] => {
-  const ancestors: PdfReference[] = [];
+export const ancestorsOf = (entry: PageEntry): Array<PdfReference> => {
+  const ancestors: Array<PdfReference> = [];
   for (let node = entry.parent; node !== undefined; node = node.parent) {
     ancestors.push(node.reference);
   }
@@ -84,7 +84,7 @@ const checkCount = (declared: PdfObject | undefined, leaves: number, options: Pa
  * A kid that is missing or not a page or page tree node throws ParseError instead of being skipped, as does a cycle.
  * ISO 32000-1:2008, 7.7.3.1: "Conforming products shall be prepared to handle any form of tree structure built of such nodes."
  */
-export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undefined, options: PageTreeOptions): PageEntry[] => {
+export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undefined, options: PageTreeOptions): Array<PageEntry> => {
   if (root?.kind !== 'reference') {
     throw new ParseError('the document catalog has no Pages reference', 0);
   }
@@ -92,9 +92,9 @@ export const enumeratePages = (store: ObjectStore, root: PdfDirectObject | undef
   if (typeOf(rootNode) !== 'Pages') {
     throw new ParseError(`the page tree root ${label(root)} is not a page tree node`, 0);
   }
-  const pages: PageEntry[] = [];
+  const pages: Array<PageEntry> = [];
   const visited = new Set<number>();
-  const stack: PendingNode[] = [{ reference: root, parent: undefined, depth: 1 }];
+  const stack: Array<PendingNode> = [{ reference: root, parent: undefined, depth: 1 }];
   while (stack.length > 0) {
     const { reference, parent, depth } = stack.pop() ?? { reference: root, parent: undefined, depth: 1 };
     if (depth > options.maxPageTreeDepth) {

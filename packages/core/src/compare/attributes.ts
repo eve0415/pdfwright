@@ -75,7 +75,7 @@ interface Summaries {
 }
 
 interface GraphOutput {
-  readonly differences: PdfDifference[];
+  readonly differences: Array<PdfDifference>;
   /** Where the compared values are, which undecodable differences start with. */
   readonly within: ValuePath;
   readonly push: (path: ValuePath, summaries: Summaries) => void;
@@ -98,7 +98,7 @@ const graph = (sides: GraphContext, { differences, within, push }: GraphOutput):
 export const comparePageAttributes = (
   sides: GraphContext,
   pages: { readonly page: number; readonly a: PageEntry; readonly b: PageEntry },
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   const left = pageDictionary(sides.a, pages.a);
   const right = pageDictionary(sides.b, pages.b);
@@ -112,7 +112,7 @@ export const comparePageAttributes = (
 };
 
 /** Compares the catalog, apart from the page tree and page-piece data, and the document information dictionary (ISO 32000-1:2008, 7.7.2 and 14.3.3). */
-export const compareDocumentAttributes = (sides: GraphContext, differences: PdfDifference[]): void => {
+export const compareDocumentAttributes = (sides: GraphContext, differences: Array<PdfDifference>): void => {
   const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'document-attribute', path, a, b });
   };
@@ -132,7 +132,7 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
 export const compareDuplicateKeys = (
   sides: Sides,
   objects: { readonly where: ValuePath; readonly a: PdfReference | undefined; readonly b: PdfReference | undefined },
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   const left = objects.a === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.a, objects.a.objectNumber);
   const right = objects.b === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.b, objects.b.objectNumber);
@@ -149,8 +149,8 @@ export const formOwners = (
   sides: Sides,
   start: { readonly page: number; readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined },
   unreadable: Unreadable,
-): Owner[] => {
-  const owners: Owner[] = [];
+): Array<Owner> => {
+  const owners: Array<Owner> = [];
   const visited = new Set<string>();
   const read = (side: Side, value: PdfDirectObject | undefined, where: ValuePath): PdfObject | undefined => {
     try {
@@ -172,7 +172,7 @@ export const formOwners = (
     const subtype = resolved?.kind === 'stream' ? resolved.dictionary.get(SUBTYPE) : undefined;
     return resolved?.kind === 'stream' && subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form' ? resolved.dictionary : undefined;
   };
-  const pending: { readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined; readonly path: ValuePath }[] = [
+  const pending: Array<{ readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined; readonly path: ValuePath }> = [
     { a: start.a, b: start.b, path: ['Resources'] },
   ];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {

@@ -80,7 +80,7 @@ export interface LoadedDocument {
   /** A copy of the structure, so that changing it cannot change what a save writes. */
   readonly structure: DocumentStructure;
   /** The warnings so far; objects read after loading can add more. */
-  readonly warnings: readonly LoadWarning[];
+  readonly warnings: ReadonlyArray<LoadWarning>;
   readonly pageCount: number;
   /** The page at a 0-based index; InvalidArgumentError when out of range. */
   page: (index: number) => LoadedPage;
@@ -130,8 +130,8 @@ const sessionOptions = (options: LoadOptions): LoadSession['options'] => ({
   recovery: options.recovery ?? 'refuse-ambiguous',
 });
 
-const recoverySaveWarnings = (warnings: readonly LoadWarning[]): SaveWarning[] => {
-  const dropped: SaveWarning[] = [];
+const recoverySaveWarnings = (warnings: ReadonlyArray<LoadWarning>): Array<SaveWarning> => {
+  const dropped: Array<SaveWarning> = [];
   for (const warning of warnings) {
     if (warning.code === 'recovery-unreadable-object' && warning.objectNumber !== undefined) {
       dropped.push({
@@ -146,8 +146,8 @@ const recoverySaveWarnings = (warnings: readonly LoadWarning[]): SaveWarning[] =
 
 interface LoadedParts {
   readonly read: ReadStructure;
-  readonly warnings: readonly LoadWarning[];
-  readonly pages: readonly PageEntry[];
+  readonly warnings: ReadonlyArray<LoadWarning>;
+  readonly pages: ReadonlyArray<PageEntry>;
   readonly maxNesting: number;
   readonly maxDecodedBytes: number;
   readonly asciiOnlyColorants: boolean;
@@ -157,9 +157,9 @@ const VERSION = pdfName('Version').bytes;
 
 class LoadedPdf implements LoadedDocument {
   private readonly read: DocumentStructure;
-  private readonly log: readonly LoadWarning[];
+  private readonly log: ReadonlyArray<LoadWarning>;
   private readonly objects: EditedObjects;
-  private readonly pages: readonly PageEntry[];
+  private readonly pages: ReadonlyArray<PageEntry>;
   private readonly handles: ReturnType<typeof createDocumentHandles>;
   private readonly placed: ResourceNumbers = { imageNumbers: new Map(), groupNumbers: new Map() };
   private readonly features = { transparency: false };
@@ -205,7 +205,7 @@ class LoadedPdf implements LoadedDocument {
     };
   }
 
-  get warnings(): readonly LoadWarning[] {
+  get warnings(): ReadonlyArray<LoadWarning> {
     return [...this.log];
   }
 
@@ -280,7 +280,7 @@ class LoadedPdf implements LoadedDocument {
   }
 
   // ISO 32000-1:2008, 7.5.2: the catalog Version, "if present, shall be used instead of the version specified in the Header"; a transparency group or soft mask needs PDF 1.4 (11.1).
-  private versionChange(changes: Map<number, ObjectChange>, warnings: SaveWarning[]): void {
+  private versionChange(changes: Map<number, ObjectChange>, warnings: Array<SaveWarning>): void {
     const needsTransparency =
       this.features.transparency || this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
     const root = this.read.trailer.get(ROOT);
@@ -317,7 +317,7 @@ class LoadedPdf implements LoadedDocument {
       throw new InvalidArgumentError('a full rewrite would invalidate signatures; set invalidateSignatures to true to allow it', 'signed-document');
     }
     const changes = new Map(this.objects.changes);
-    const warnings: SaveWarning[] = recoverySaveWarnings(this.log);
+    const warnings: Array<SaveWarning> = recoverySaveWarnings(this.log);
     const lowerVersion = this.pdfx4Version && versionNumber(this.read.headerVersion) > 16;
     if (lowerVersion || this.pdfx4CatalogLowered) {
       warnings.push({ code: 'version-lowered', detail: 'the PDF version was lowered to 1.6 for PDF/X-4 output' });
@@ -361,7 +361,7 @@ class LoadedPdf implements LoadedDocument {
  * Reconstruction skips unreadable objects, object streams and members, reports load warnings, and reads references to absent objects as null; resource limits still throw ResourceLimitError.
  * Encrypted documents throw EncryptedDocumentError.
  */
-export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options: LoadOptions = {}): LoadedDocument => {
+export const loadDocument = (input: Uint8Array | ReadonlyArray<Uint8Array>, options: LoadOptions = {}): LoadedDocument => {
   const session: LoadSession = { source: new ByteSource(input), log: new LoadLog(), options: sessionOptions(options), names: new Map() };
   const { log } = session;
   const header = locateHeader(session.source);

@@ -48,7 +48,7 @@ interface Component {
 interface Frame {
   readonly width: number;
   readonly height: number;
-  readonly components: readonly Component[];
+  readonly components: ReadonlyArray<Component>;
   readonly maxHorizontal: number;
   readonly maxVertical: number;
 }
@@ -72,7 +72,7 @@ interface Scan {
   readonly start: number;
   readonly end: number;
   readonly frame: Frame;
-  readonly components: readonly ScanComponent[];
+  readonly components: ReadonlyArray<ScanComponent>;
   readonly restartInterval: number;
   readonly colorTransform: number;
 }
@@ -93,9 +93,9 @@ interface DecodedBlock {
 }
 
 interface ParserState {
-  readonly quantization: (Uint16Array | undefined)[];
-  readonly dc: (HuffmanTable | undefined)[];
-  readonly ac: (HuffmanTable | undefined)[];
+  readonly quantization: Array<Uint16Array | undefined>;
+  readonly dc: Array<HuffmanTable | undefined>;
+  readonly ac: Array<HuffmanTable | undefined>;
   frame: Frame | undefined;
   restartInterval: number;
   adobeColorTransform: number | undefined;
@@ -177,7 +177,7 @@ const frameComponent = (data: Uint8Array, position: number): Component => {
   return { id, horizontal, vertical, quantization };
 };
 
-const checkSampling = (components: readonly Component[], maxHorizontal: number, maxVertical: number): void => {
+const checkSampling = (components: ReadonlyArray<Component>, maxHorizontal: number, maxVertical: number): void => {
   if (components.length === 1) {
     if (maxHorizontal !== 1 || maxVertical !== 1) {
       unsupported('jpeg-sampling');
@@ -223,7 +223,7 @@ const frameHeader = (data: Uint8Array, bounds: SegmentBounds): Frame => {
   if (height === 0 || width === 0 || end - start !== 6 + count * 3) {
     return invalid(start, 'frame geometry is invalid');
   }
-  const components: Component[] = [];
+  const components: Array<Component> = [];
   for (let index = 0; index < count; index++) {
     const position = start + 6 + index * 3;
     const component = frameComponent(data, position);
@@ -239,7 +239,7 @@ const frameHeader = (data: Uint8Array, bounds: SegmentBounds): Frame => {
 };
 
 // ITU-T T.81 (1992), B.2.4.1 and Figure B.6 specify DQT element precision and zigzag ordering.
-const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: (Uint16Array | undefined)[]): void => {
+const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: Array<Uint16Array | undefined>): void => {
   const { start, end } = bounds;
   let position = start;
   while (position < end) {
@@ -272,7 +272,7 @@ const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: (Ui
 const huffmanTables = (
   data: Uint8Array,
   bounds: SegmentBounds,
-  tables: { readonly dc: (HuffmanTable | undefined)[]; readonly ac: (HuffmanTable | undefined)[] },
+  tables: { readonly dc: Array<HuffmanTable | undefined>; readonly ac: Array<HuffmanTable | undefined> },
 ): void => {
   const { start, end } = bounds;
   let position = start;
@@ -325,11 +325,11 @@ const scanHeader = (
   bounds: SegmentBounds,
   setup: {
     readonly frame: Frame;
-    readonly quantization: readonly (Uint16Array | undefined)[];
-    readonly dc: readonly (HuffmanTable | undefined)[];
-    readonly ac: readonly (HuffmanTable | undefined)[];
+    readonly quantization: ReadonlyArray<Uint16Array | undefined>;
+    readonly dc: ReadonlyArray<HuffmanTable | undefined>;
+    readonly ac: ReadonlyArray<HuffmanTable | undefined>;
   },
-): ScanComponent[] => {
+): Array<ScanComponent> => {
   const { start, end } = bounds;
   const { frame, quantization, dc, ac } = setup;
   // ITU-T T.81 (1992), B.2.3: one SOS with every frame component is an interleaved sequential scan.
@@ -340,7 +340,7 @@ const scanHeader = (
   if (end - start !== 1 + count * 2 + 3) {
     return invalid(start, 'scan header length is invalid');
   }
-  const components: ScanComponent[] = [];
+  const components: Array<ScanComponent> = [];
   for (let index = 0; index < count; index++) {
     const position = start + 1 + index * 2;
     const id = byte(data, position);
@@ -579,7 +579,7 @@ const decodeMcu = (input: {
   }
 };
 
-const componentSamples = (frame: Frame, planes: ReadonlyMap<number, Plane>, point: { readonly x: number; readonly localY: number }): number[] =>
+const componentSamples = (frame: Frame, planes: ReadonlyMap<number, Plane>, point: { readonly x: number; readonly localY: number }): Array<number> =>
   frame.components.map(component => {
     const plane = planes.get(component.id);
     if (plane === undefined) {

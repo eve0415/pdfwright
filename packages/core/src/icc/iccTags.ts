@@ -12,7 +12,7 @@ export type Curve =
   | { readonly kind: 'identity' }
   | { readonly kind: 'gamma'; readonly gamma: number }
   | { readonly kind: 'table'; readonly values: Uint8Array | Uint16Array }
-  | { readonly kind: 'parametric'; readonly functionType: 0 | 1 | 2 | 3 | 4; readonly params: readonly number[] };
+  | { readonly kind: 'parametric'; readonly functionType: 0 | 1 | 2 | 3 | 4; readonly params: ReadonlyArray<number> };
 
 export interface ReadCurve {
   readonly curve: Curve;

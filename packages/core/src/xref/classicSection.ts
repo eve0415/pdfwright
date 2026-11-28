@@ -12,7 +12,7 @@ import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
 export interface ClassicSection extends XrefSection {
   readonly kind: 'classic';
   /** The distinct entry lengths found, end-of-line included; ISO 32000-1:2008, 7.5.4 requires 20. */
-  readonly entryLengths: readonly number[];
+  readonly entryLengths: ReadonlyArray<number>;
 }
 
 const isKeyword = (token: Token, keyword: string): boolean => token.kind === 'keyword' && token.keyword === keyword;
@@ -36,7 +36,7 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   if (!isKeyword(lexer.next(), 'xref')) {
     throw new ParseError('expected the keyword xref', offset);
   }
-  const entries: XrefEntry[] = [];
+  const entries: Array<XrefEntry> = [];
   const lengths = new Set<number>();
   let previousStart: number | undefined;
   for (let token = lexer.next(); !isKeyword(token, 'trailer'); token = lexer.next()) {

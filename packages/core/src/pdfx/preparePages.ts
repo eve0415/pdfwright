@@ -22,9 +22,9 @@ export interface PdfX4PageOptions {
 /** Zero-based page indexes where TrimBoxes or isolated DeviceCMYK transparency groups were added under ISO 32000-1:2008, 14.11.2 and 11.6.6. */
 export interface PdfX4PageChange {
   /** Zero-based page indices. */
-  readonly addedTrimBoxes: readonly number[];
+  readonly addedTrimBoxes: ReadonlyArray<number>;
   /** Zero-based page indices. */
-  readonly addedPageGroups: readonly number[];
+  readonly addedPageGroups: ReadonlyArray<number>;
 }
 
 const key = (name: string): Uint8Array => pdfName(name).bytes;
@@ -164,7 +164,7 @@ class TransparencyScan {
     return false;
   }
 
-  operations(bytes: Uint8Array | readonly Uint8Array[], resources: PdfDictionaryEntries): boolean {
+  operations(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
     const states = entriesOf(this.internals, resources.get(key('ExtGState')));
     const xobjects = entriesOf(this.internals, resources.get(key('XObject')));
     const patterns = entriesOf(this.internals, resources.get(key('Pattern')));
@@ -253,7 +253,7 @@ export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOp
     throw new ValidationError('document internals are unavailable', 'unreadable-resource');
   }
   const trim = new Map<number, readonly [number, number, number, number]>();
-  const groups: number[] = [];
+  const groups: Array<number> = [];
   for (let index = 0; index < document.pageCount; index++) {
     const page = document.page(index);
     const boxes = page.boxes();

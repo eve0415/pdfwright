@@ -12,7 +12,7 @@ import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 
 import { decodeJpeg } from './decodeJpeg.ts';
 
-const magick = async (args: readonly string[], input: Uint8Array): Promise<Uint8Array> => {
+const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => {
   const child = spawn('magick', args);
   child.stdin.end(input);
   const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
@@ -87,7 +87,7 @@ const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {
   return output;
 };
 
-const jpegSegment = (marker: number, payload: readonly number[]): number[] => [255, marker, 0, payload.length + 2, ...payload];
+const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [255, marker, 0, payload.length + 2, ...payload];
 
 const zrlJpeg = (nonzeroAc = 47, finalSymbol = 0xf0): Uint8Array => {
   const bits = `0${'001'.repeat(nonzeroAc)}01${finalSymbol === 0xf1 ? '1' : ''}`;

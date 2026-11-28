@@ -29,15 +29,15 @@ interface PlateCase {
   readonly name: string;
   readonly pdf: TextPdf;
   /** Spot colorants pdfwright reports as painted for which Ghostscript makes no plate. */
-  readonly unplated?: readonly string[];
+  readonly unplated?: ReadonlyArray<string>;
   /** Plates Ghostscript makes for colorants pdfwright reports as neither painted nor selected. */
-  readonly plated?: readonly string[];
+  readonly plated?: ReadonlyArray<string>;
 }
 
 const page = (content: string, resources: string, entries = ''): TextPdf['pages'] => [{ content, resources, entries }];
 
 // A page with a painted spot, spots only in resources, All and None, a form, an NChannel image, a shading and an annotation appearance.
-const SPOT_OBJECTS: readonly TestObject[] = [
+const SPOT_OBJECTS: ReadonlyArray<TestObject> = [
   { number: 100, body: form(`/ColorSpace<</CSf ${separation('InForm', '1 0 0 0')}>>`, '/CSf cs 0.5 scn 70 10 30 30 re f') },
   { number: 101, body: form(`/ColorSpace<</CSa ${separation('InAnnot')}>>`, '/CSa cs 1 scn 0 0 20 20 re f', '[0 0 20 20]') },
   {
@@ -53,7 +53,7 @@ const SPOT_OBJECTS: readonly TestObject[] = [
 const SPOT_RESOURCES = `/ColorSpace<</CSused ${separation('Used')}/CSunused ${separation('DeclaredOnly')}/CSall ${separation('All')}/CSnone ${separation('None')}/CSproc ${separation('Cyan')}>>/XObject<</Fm1 100 0 R/Im1 102 0 R>>/Shading<</Sh1 104 0 R>>`;
 const annotation = (flags: string): string => `/Annots[<</Type/Annot/Subtype/Square${flags}/Rect[150 150 170 170]/AP<</N 101 0 R>>>>]`;
 
-const type3Font = (procedure: string): readonly TestObject[] => [
+const type3Font = (procedure: string): ReadonlyArray<TestObject> => [
   {
     number: 110,
     body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]/Resources<</ColorSpace<</CSg 112 0 R>>>>>>',
@@ -61,7 +61,7 @@ const type3Font = (procedure: string): readonly TestObject[] => [
   { number: 111, body: streamBody('', `${procedure} /CSg cs 1 scn 0 0 1000 1000 re f`) },
 ];
 
-const CASES: readonly PlateCase[] = [
+const CASES: ReadonlyArray<PlateCase> = [
   { name: 'spots', pdf: { pages: page('/CSused cs 1 scn 10 10 50 50 re f /Fm1 Do /Im1 Do /Sh1 sh', SPOT_RESOURCES, annotation('')), objects: SPOT_OBJECTS } },
   {
     name: 'spots-print',
@@ -244,13 +244,13 @@ const CASES: readonly PlateCase[] = [
 
 interface Relation {
   /** Spot colorants painted on the page without a plate. */
-  readonly unplated: readonly string[];
+  readonly unplated: ReadonlyArray<string>;
   /** Plates of colorants neither painted nor selected on the page. */
-  readonly plated: readonly string[];
+  readonly plated: ReadonlyArray<string>;
 }
 
 // Ghostscript's tiffsep makes a plate when executed content selects a colorant's space, painting or not (the cs-only cases), so for spot colorants painted ⊆ plates ⊆ painted ∪ selected; the four process plates, All and None have no plates of their own.
-const relation = (colorants: PageColorants, plates: readonly Uint8Array[]): Relation => {
+const relation = (colorants: PageColorants, plates: ReadonlyArray<Uint8Array>): Relation => {
   const spots = colorants.colorants.filter(use => use.kind === 'spot');
   const painted = new Set(spots.filter(use => use.painted.length > 0).map(use => latin1Text(use.name)));
   const selected = new Set(spots.filter(use => use.selected.length > 0).map(use => latin1Text(use.name)));
@@ -297,15 +297,15 @@ const caseRelation = async (pdf: TextPdf): Promise<Relation | undefined> => {
 };
 
 // Each page of each file of a set that has spot colorants, against the plates of the pages Ghostscript draws.
-const corpusDifferences = async (set: string, directory = path.join(CORPUS, set)): Promise<string[]> => {
+const corpusDifferences = async (set: string, directory = path.join(CORPUS, set)): Promise<Array<string>> => {
   const failing = await failingFiles();
-  const names = await readdir(directory).catch((): string[] => []);
+  const names = await readdir(directory).catch((): Array<string> => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
   if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
     throw new Error('govdocs1 corpus is missing');
   }
-  const differences: string[] = [];
-  const next = async (index: number): Promise<string[]> => {
+  const differences: Array<string> = [];
+  const next = async (index: number): Promise<Array<string>> => {
     const name = files[index];
     if (name === undefined) {
       return differences;

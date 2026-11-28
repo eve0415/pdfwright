@@ -32,7 +32,7 @@ export interface DocumentStructure {
   readonly headerOffset: number;
   readonly headerVersion: string;
   /** Cross-reference sections, newest first; empty when reconstructed. */
-  readonly sections: readonly { readonly kind: 'classic' | 'stream'; readonly offset: number; readonly hybridStream?: number }[];
+  readonly sections: ReadonlyArray<{ readonly kind: 'classic' | 'stream'; readonly offset: number; readonly hybridStream?: number }>;
   /** Format of the section startxref names; undefined when reconstructed. */
   readonly lastSectionKind: 'classic' | 'stream' | undefined;
   readonly linearized: boolean;

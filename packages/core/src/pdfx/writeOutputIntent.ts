@@ -38,7 +38,7 @@ export interface OutputIntentOptions {
 /** Reports whether an output intent was added, updated, or replaced, the removed subtypes, and the embedded profile reference under ISO 32000-1:2008, 14.11.5, Table 365. */
 export interface OutputIntentChange {
   readonly action: 'added' | 'updated' | 'replaced';
-  readonly removedSubtypes: readonly string[];
+  readonly removedSubtypes: ReadonlyArray<string>;
   readonly profile: PdfReference;
 }
 
@@ -62,13 +62,13 @@ interface ReadExistingInput {
   readonly replacement: boolean;
 }
 
-const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): ExistingIntent[] => {
+const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): Array<ExistingIntent> => {
   const { objects } = internals;
   const intents = objects.deref(catalog.get(key('OutputIntents')));
   if (intents !== undefined && intents.kind !== 'array') {
     throw new ValidationError('OutputIntents is not an array', 'output-intent-conflict');
   }
-  const existing: ExistingIntent[] = [];
+  const existing: Array<ExistingIntent> = [];
   for (const item of intents?.kind === 'array' ? intents.items : []) {
     const value = objects.deref(item);
     if (value?.kind !== 'dictionary') {
@@ -102,7 +102,7 @@ interface Prepared {
   readonly root: PdfReference;
   readonly catalog: PdfDictionaryEntries;
   readonly condition: PrintingCondition | undefined;
-  readonly existing: readonly ExistingIntent[];
+  readonly existing: ReadonlyArray<ExistingIntent>;
 }
 
 const prepare = (document: LoadedDocument, options: OutputIntentOptions): Prepared => {
@@ -183,7 +183,7 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   if (intentReference !== undefined) {
     document.set(intentReference, pdfDictionary(entries));
   }
-  const items: PdfDirectObject[] = [updated];
+  const items: Array<PdfDirectObject> = [updated];
   for (const intent of existing) {
     // ISO 32000-1:2008, Table 28 and 7.3.10: OutputIntents holds output intent dictionaries, each written directly or as an indirect reference.
     if (intent.matches && intent !== sameGts) {

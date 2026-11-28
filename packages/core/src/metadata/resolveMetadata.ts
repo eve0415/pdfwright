@@ -59,9 +59,9 @@ export type ResolvedKey = Exclude<MappedKey, 'ModDate'>;
 
 export interface ResolvedInput {
   readonly plans: Readonly<Record<ResolvedKey, KeyPlan>>;
-  readonly reconciled: readonly ReconciledValue[];
+  readonly reconciled: ReadonlyArray<ReconciledValue>;
   /** Values left as they were stored because the mapping cannot read them. */
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
   /** The keys whose packet property is left as it is. */
   readonly kept: ReadonlySet<MappedKey>;
 }
@@ -148,13 +148,13 @@ const dateToInfo = (value: ParsedPdfDate): InfoAction => ({ kind: 'set', value: 
 const dateToXmp = (value: ParsedPdfDate): XmpAction => ({ kind: 'write', value: xmpDateText(value) });
 
 class Resolver {
-  readonly reconciled: ReconciledValue[] = [];
-  readonly findings: MetadataFinding[] = [];
+  readonly reconciled: Array<ReconciledValue> = [];
+  readonly findings: Array<MetadataFinding> = [];
   readonly kept = new Set<MappedKey>();
   private readonly mapping: MetadataMapping;
   private readonly packetText: string;
   private readonly stored: StoredInfo;
-  private readonly occurrences: ReadonlyMap<MappedKey, readonly ReadProperty[]>;
+  private readonly occurrences: ReadonlyMap<MappedKey, ReadonlyArray<ReadProperty>>;
 
   constructor(state: MetadataState) {
     this.mapping = state.mapping;
@@ -162,7 +162,7 @@ class Resolver {
     const packet = state.xmp !== undefined && 'packet' in state.xmp ? state.xmp.packet : undefined;
     const properties = packet?.properties ?? [];
     this.packetText = packet?.text ?? '';
-    const found = new Map<MappedKey, readonly ReadProperty[]>();
+    const found = new Map<MappedKey, ReadonlyArray<ReadProperty>>();
     for (const row of MAPPED_ROWS) {
       found.set(
         row.key,

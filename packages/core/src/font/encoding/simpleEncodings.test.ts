@@ -19,14 +19,14 @@ const defined = (table: EncodingTable): number => table.filter(name => name !== 
 
 // The codes from 0x20 to 0xFF at which the encoding's glyph name gives text other than the decoder's, and the codes the encoding leaves undefined.
 interface Comparison {
-  readonly differ: number[];
-  readonly undefinedCodes: number[];
+  readonly differ: Array<number>;
+  readonly undefinedCodes: Array<number>;
 }
 
 const against = (table: EncodingTable, label: string): Comparison => {
   const decoder = new TextDecoder(label);
-  const differ: number[] = [];
-  const undefinedCodes: number[] = [];
+  const differ: Array<number> = [];
+  const undefinedCodes: Array<number> = [];
   for (let code = 0x20; code <= 0xff; code++) {
     const name = table[code];
     if (name === undefined) {

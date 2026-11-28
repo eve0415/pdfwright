@@ -44,7 +44,7 @@ const stream = (bytes: Uint8Array, filtered: boolean): string => {
   return streamBody(filtered ? '/Filter/FlateDecode' : '', latin1Text(stored));
 };
 
-const objects = (filtered: boolean, pageTopLevel: boolean): TestObject[] => [
+const objects = (filtered: boolean, pageTopLevel: boolean): Array<TestObject> => [
   { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
   { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
   ...(pageTopLevel ? [{ number: 3, body: page }] : []),

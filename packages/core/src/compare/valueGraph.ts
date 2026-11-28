@@ -170,7 +170,7 @@ interface PathLink {
 type Where = ValuePath | PathLink;
 
 const pathOf = (where: Where): ValuePath => {
-  const keys: (string | number)[] = [];
+  const keys: Array<string | number> = [];
   let at = where;
   while ('key' in at) {
     keys.push(at.key);
@@ -214,8 +214,8 @@ export class ValueGraph {
   private readonly report: GraphReport;
   private readonly raw: boolean;
   private readonly settled: Set<string>;
-  private readonly tasks: Task[] = [];
-  private readonly open: Frame[] = [];
+  private readonly tasks: Array<Task> = [];
+  private readonly open: Array<Frame> = [];
   private readonly openAt = new Map<string, number>();
   /** Pairs finished in this walk, with whether they were found equal. */
   private readonly done = new Map<string, boolean>();
@@ -274,7 +274,7 @@ export class ValueGraph {
     for (const [key] of right.entries()) {
       keys.set(latin1(key), key);
     }
-    const tasks: Task[] = [];
+    const tasks: Array<Task> = [];
     for (const [name, key] of keys) {
       if (!skip.has(name)) {
         tasks.push({ kind: 'compare', left: left.get(key), right: right.get(key), path: { parent: path, key: name } });
@@ -427,7 +427,7 @@ export class ValueGraph {
     }
   }
 
-  private items([left, right]: readonly [readonly PdfDirectObject[], readonly PdfDirectObject[]], path: Where): void {
+  private items([left, right]: readonly [ReadonlyArray<PdfDirectObject>, ReadonlyArray<PdfDirectObject>], path: Where): void {
     if (left.length !== right.length) {
       this.mismatch({
         path: pathOf(path),

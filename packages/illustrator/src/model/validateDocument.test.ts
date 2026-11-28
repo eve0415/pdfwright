@@ -96,7 +96,7 @@ describe('illustrator document validation', () => {
   });
 
   it('gives caller validation failures a typed reason', () => {
-    const invalid: IllustratorDocument[] = [
+    const invalid: Array<IllustratorDocument> = [
       { ...document, layers: [layer, layer] },
       { ...document, layers: [{ ...layer, opacity: 2 }] },
       { ...document, layers: [{ ...layer, items: [{ ...raster, alpha: new Uint8Array(1) }] }] },
@@ -166,7 +166,7 @@ describe('illustrator document validation', () => {
   });
 
   it('reports malformed bleed and non-boolean flags as validation errors', () => {
-    const malformed: IllustratorDocument[] = [
+    const malformed: Array<IllustratorDocument> = [
       corrupt(document, 'artboard', { width: 100, height: 100, bleed: { top: 1 } }),
       corrupt(document, 'layers', [{ ...layer, visible: 'false' }]),
       corrupt(document, 'layers', [{ ...layer, locked: 'true' }]),

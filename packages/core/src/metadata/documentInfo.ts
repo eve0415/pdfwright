@@ -26,7 +26,7 @@ const selfMapped = (code: number): boolean => (code >= 0x20 && code <= 0x7e) || 
 
 // ISO 32000-1:2008, 7.9.2.2 encodes text strings as PDFDocEncoding or UTF-16BE with a FE FF byte-order marker.
 export const pdfTextString = (value: string): PdfDirectObject => {
-  const units: number[] = [];
+  const units: Array<number> = [];
   let ascii = true;
   for (let index = 0; index < value.length; index++) {
     const code = value.codePointAt(index);
@@ -94,7 +94,7 @@ export interface TextString {
   readonly text: string;
   readonly encoding: 'pdfdoc' | 'utf-16be';
   /** The language escapes removed from UTF-16BE text, in order, as the ISO 639 code with the ISO 3166 country code after a hyphen when one is given. */
-  readonly languages: readonly string[];
+  readonly languages: ReadonlyArray<string>;
   /** How many undecodable bytes or code units were read as U+FFFD: undefined PDFDocEncoding codes, unpaired surrogates, an odd final byte. */
   readonly replaced: number;
 }
@@ -128,7 +128,7 @@ const languageEscape = (bytes: Uint8Array, start: number): { readonly code: stri
 const readUtf16 = (bytes: Uint8Array): TextString => {
   let text = '';
   let replaced = 0;
-  const languages: string[] = [];
+  const languages: Array<string> = [];
   let index = 2;
   while (index + 1 < bytes.length) {
     const escape = languageEscape(bytes, index);

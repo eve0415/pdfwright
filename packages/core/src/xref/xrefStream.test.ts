@@ -21,13 +21,13 @@ const encode = (text: string): Uint8Array => Uint8Array.from(text, character => 
 
 interface Read {
   section: StreamSection;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
   text: string;
 }
 
 // Writes "prefix n 0 obj <<dictionary /Length …>> stream … endstream endobj" and reads the section at the object header.
 const read = (dictionary: string, data: Uint8Array, prefix = ''): Read => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -37,9 +37,9 @@ const read = (dictionary: string, data: Uint8Array, prefix = ''): Read => {
 };
 
 // PNG Up filtering (RFC 2083, 6.3): each byte minus the byte above it, after a tag byte of 2.
-const upRows = (rows: readonly number[][]): number[] => {
-  const encoded: number[] = [];
-  let previous: readonly number[] = [];
+const upRows = (rows: ReadonlyArray<Array<number>>): Array<number> => {
+  const encoded: Array<number> = [];
+  let previous: ReadonlyArray<number> = [];
   for (const row of rows) {
     encoded.push(2);
     for (const [index, byte] of row.entries()) {
@@ -50,7 +50,7 @@ const upRows = (rows: readonly number[][]): number[] => {
   return encoded;
 };
 
-const entries = (section: StreamSection): (number | string)[][] =>
+const entries = (section: StreamSection): Array<Array<number | string>> =>
   section.entries.map(entry => [entry.objectNumber, entry.type, entry.location, entry.generation]);
 
 describe('cross-reference streams', () => {

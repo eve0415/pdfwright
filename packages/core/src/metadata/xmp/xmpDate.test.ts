@@ -6,7 +6,7 @@ import { parsePdfDate, pdfDate, pdfDateString } from '../../date/pdfDate.ts';
 
 import { compareDates, instant, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmpDate.ts';
 
-const described = (text: string): readonly unknown[] | undefined => {
+const described = (text: string): ReadonlyArray<unknown> | undefined => {
   const parsed = parseXmpDate(text);
   return parsed === undefined ? undefined : [pdfDateString(parsed.date), parsed.precision, parsed.zone];
 };
@@ -18,7 +18,7 @@ const agreement = (pdf: string, xmp: string): string => {
 };
 
 // A date written as a PDF date and as an XMP date.
-const both = (value: ParsedPdfDate | undefined): readonly string[] => (value === undefined ? [] : [pdfDateText(value), xmpDateText(value)]);
+const both = (value: ParsedPdfDate | undefined): ReadonlyArray<string> => (value === undefined ? [] : [pdfDateText(value), xmpDateText(value)]);
 
 describe('dates in XMP', () => {
   it('reads every form of XMP Part 1 8.2.1.2', () => {

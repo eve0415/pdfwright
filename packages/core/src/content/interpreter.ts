@@ -85,7 +85,7 @@ export type ColourUse = 'used' | 'd1-glyph' | 'uncoloured-pattern';
 /** Where a paint or text-show event happened. */
 export interface PaintContext {
   /** The content streams being interpreted, outermost first: the page or an annotation appearance, then any forms, patterns, glyph procedures and soft-mask groups inside it. */
-  readonly sources: readonly ContentSource[];
+  readonly sources: ReadonlyArray<ContentSource>;
   readonly colour: ColourUse;
 }
 
@@ -107,7 +107,7 @@ export interface ColorSpaceUse {
   /** The ColorSpace resource name the operand used; undefined for a family name. */
   readonly resourceName: Uint8Array | undefined;
   /** The colour's components as last set; empty until a colour is set after the space is selected. */
-  readonly components: readonly number[];
+  readonly components: ReadonlyArray<number>;
   /** In a Pattern space, the pattern scn or SCN selected. */
   readonly pattern: PatternUse | undefined;
 }
@@ -181,16 +181,16 @@ export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'i
  */
 export interface PaintEvent {
   readonly kind: PaintKind;
-  readonly colorSpaces: readonly ColorSpaceUse[];
+  readonly colorSpaces: ReadonlyArray<ColorSpaceUse>;
   /** Resources active in the content stream, including Default* device-colour replacements. */
   readonly resources: PdfDictionaryEntries | undefined;
   /** For each of `colorSpaces`, the index of the operation's own space it belongs to: its own index for the fill, stroke, image or shading space, the index of the Pattern space for a space a pattern paints in. */
-  readonly spaceOf: readonly number[];
+  readonly spaceOf: ReadonlyArray<number>;
   /** The graphics state the paint happened in. */
   readonly state: GraphicsState;
   readonly context: PaintContext;
   /** The open marked-content sequences, outermost first. */
-  readonly markedContent: readonly MarkedContent[];
+  readonly markedContent: ReadonlyArray<MarkedContent>;
   /** The event's position among every event of the interpretation. */
   readonly sequence: number;
 }
@@ -220,13 +220,13 @@ export interface TextShowEvent {
   /** The text matrix where the string begins, after the TJ numbers before it, and whether that position is known; the first glyph has the same, and a string that could not be split has no glyphs to carry it. */
   readonly textMatrix: Matrix;
   readonly positionKnown: boolean;
-  readonly glyphs: readonly ShownGlyph[];
+  readonly glyphs: ReadonlyArray<ShownGlyph>;
   /** Why the string could not be split into glyphs, when it could not. */
   readonly unsplit: Exclude<FontString, { readonly kind: 'glyphs' }> | undefined;
   readonly state: GraphicsState;
   readonly context: PaintContext;
   /** The open marked-content sequences, outermost first. */
-  readonly markedContent: readonly MarkedContent[];
+  readonly markedContent: ReadonlyArray<MarkedContent>;
   readonly sequence: number;
 }
 
@@ -268,12 +268,12 @@ export interface InterpretOptions extends InterpretHandlers {
   readonly maxGlyphs?: number;
 }
 
-const ANNOTATION_MODES: readonly NonNullable<InterpretOptions['annotations']>[] = ['printable', 'none', 'all'];
+const ANNOTATION_MODES: ReadonlyArray<NonNullable<InterpretOptions['annotations']>> = ['printable', 'none', 'all'];
 
 export interface InterpretResult {
   /** False when some content could not be read or interpreted: undecodable streams, bad operands, missing resources. */
   readonly complete: boolean;
-  readonly warnings: readonly InspectWarning[];
+  readonly warnings: ReadonlyArray<InspectWarning>;
   /** The operations executed. */
   readonly operations: number;
 }
@@ -379,7 +379,7 @@ const referenceKey = (reference: PdfReference): string => `${String(reference.ob
 
 const translation = (x: number, y: number): Matrix => [1, 0, 0, 1, x, y];
 
-const number = (values: readonly PdfDirectObject[], index: number): number => numberOf(values[index]) ?? 0;
+const number = (values: ReadonlyArray<PdfDirectObject>, index: number): number => numberOf(values[index]) ?? 0;
 
 const nameBytes = (value: PdfDirectObject | undefined): Uint8Array => (value?.kind === 'name' ? value.bytes : new Uint8Array());
 
@@ -445,7 +445,7 @@ interface Nested {
 interface FormDrawing {
   readonly source: ContentSource;
   readonly base: GraphicsState;
-  readonly parent: readonly ContentSource[];
+  readonly parent: ReadonlyArray<ContentSource>;
   readonly colour: ColourUse;
   readonly markedContent: 'inherit' | 'fresh';
 }
@@ -460,7 +460,7 @@ class Interpreter {
   private readonly document: DocumentInternals;
   private readonly handlers: InterpretHandlers;
   private readonly fonts: FontCache;
-  private readonly warnings: InspectWarning[] = [];
+  private readonly warnings: Array<InspectWarning> = [];
   private readonly reportedFonts = new Set<string>();
   private readonly maxOperations: number;
   private readonly maxContentBytes: number;
@@ -471,7 +471,7 @@ class Interpreter {
   private readonly active = new Set<string>();
   private depth = 0;
   private page: Pick<Scope, 'resources' | 'owner'> = { resources: undefined, owner: '' };
-  private stack: GraphicsState[] = [];
+  private stack: Array<GraphicsState> = [];
   private state: GraphicsState = INITIAL_STATE;
   private textMatrix: Matrix = IDENTITY;
   private lineMatrix: Matrix = IDENTITY;
@@ -482,7 +482,7 @@ class Interpreter {
   private pendingClip: FillRule | undefined = undefined;
   private compatibility = 0;
   // Kept apart from the graphics state: 14.6 requires marked-content pairs to nest properly with BT and ET, not with q and Q.
-  private markedContent: readonly MarkedContent[] = [];
+  private markedContent: ReadonlyArray<MarkedContent> = [];
   private markedContentIds = 0;
   // The marked-content sequences of the streams drawing the current one, which its EMC cannot close.
   private markedFloor = 0;
@@ -563,7 +563,7 @@ class Interpreter {
     }
   }
 
-  run(streams: readonly Uint8Array[], scope: Scope): void {
+  run(streams: ReadonlyArray<Uint8Array>, scope: Scope): void {
     // Bytes that produce no operations, such as comments, are invisible to maxOperations, so the bytes lexed are bounded apart.
     this.contentBytes += streams.reduce((sum, stream) => sum + stream.length, 0);
     if (this.contentBytes > this.maxContentBytes) {
@@ -623,7 +623,7 @@ class Interpreter {
     this.painting(operation, values, step);
   }
 
-  private emitPaint(kind: PaintKind, colorSpaces: readonly ColorSpaceUse[], scope: Scope): void {
+  private emitPaint(kind: PaintKind, colorSpaces: ReadonlyArray<ColorSpaceUse>, scope: Scope): void {
     this.emitSpaces(kind, { colorSpaces, spaceOf: colorSpaces.map((_, index) => index) }, scope);
   }
 
@@ -641,10 +641,10 @@ class Interpreter {
   }
 
   // A paint in colours that may be patterns: the event lists the spaces patterns paint in, and each tiling pattern's cell is drawn after it.
-  private paintWith(kind: PaintKind, uses: readonly ColorSpaceUse[], step: Step): void {
-    const spaces: ColorSpaceUse[] = [...uses];
+  private paintWith(kind: PaintKind, uses: ReadonlyArray<ColorSpaceUse>, step: Step): void {
+    const spaces: Array<ColorSpaceUse> = [...uses];
     const spaceOf = uses.map((_, index) => index);
-    const cells: (() => void)[] = [];
+    const cells: Array<() => void> = [];
     for (const [index, use] of uses.entries()) {
       const painted = isPatternSpace(use) ? this.pattern(step, { use, cells }) : undefined;
       if (painted !== undefined) {
@@ -659,7 +659,7 @@ class Interpreter {
   }
 
   // The space a pattern paints in, when it has one of its own; a tiling pattern's cell is queued to be drawn after the paint.
-  private pattern(step: Step, { use, cells }: { use: ColorSpaceUse; cells: (() => void)[] }): ColorSpaceUse | undefined {
+  private pattern(step: Step, { use, cells }: { use: ColorSpaceUse; cells: Array<() => void> }): ColorSpaceUse | undefined {
     const value = use.pattern?.value;
     const dictionary = dictionaryOf(value);
     const type = numberOf(this.deref(dictionary?.get(PATTERN_TYPE)));
@@ -702,7 +702,7 @@ class Interpreter {
     }
   }
 
-  private numbers(value: PdfDirectObject | undefined): number[] | undefined {
+  private numbers(value: PdfDirectObject | undefined): Array<number> | undefined {
     try {
       return numbersOf(this.document, value);
     } catch (error: unknown) {
@@ -880,7 +880,7 @@ class Interpreter {
     }
   }
 
-  private graphics(operator: string, values: readonly PdfDirectObject[]): boolean {
+  private graphics(operator: string, values: ReadonlyArray<PdfDirectObject>): boolean {
     if (operator === 'q') {
       if (this.stack.length >= MAX_STATE_DEPTH) {
         throw new ResourceLimitError(`graphics states nest deeper than ${String(MAX_STATE_DEPTH)}`);
@@ -904,7 +904,7 @@ class Interpreter {
     return true;
   }
 
-  private textState(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private textState(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     const value = number(values, 0);
     if (operator === 'Tc') {
       this.state = { ...this.state, characterSpacing: value };
@@ -1055,7 +1055,7 @@ class Interpreter {
     this.drawForm(step.where, { value, stream, parentScope: step.scope, drawing });
   }
 
-  private textShow(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private textShow(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     if (operator === 'Tj') {
       this.show(step, values[0]);
     } else if (operator === "'") {
@@ -1125,7 +1125,7 @@ class Interpreter {
     const start = { textMatrix: this.textMatrix, positionKnown: this.positionKnown };
     const remaining = this.glyphBudget(scope.pageText);
     const split: FontString = this.font(font.key, () => font.glyphs(string, remaining)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
-    const glyphs: ShownGlyph[] = [];
+    const glyphs: Array<ShownGlyph> = [];
     if (split.kind === 'glyphs') {
       this.claimGlyphs(split.glyphs.length, scope.pageText);
       for (const glyph of split.glyphs) {
@@ -1225,7 +1225,7 @@ class Interpreter {
     this.handlers.select?.({ target, use, context: scope.context, sequence: this.sequence++ });
   }
 
-  private device(target: 'fill' | 'stroke', family: string, step: Step & { readonly values: readonly PdfDirectObject[] }): void {
+  private device(target: 'fill' | 'stroke', family: string, step: Step & { readonly values: ReadonlyArray<PdfDirectObject> }): void {
     const { values } = step;
     this.select(
       target,
@@ -1235,7 +1235,7 @@ class Interpreter {
   }
 
   // 8.6.8, Table 74: SC and sc take numbers; SCN and scn also take a final pattern name in a Pattern space.
-  private setColor(target: 'fill' | 'stroke', values: readonly PdfDirectObject[], step: Step): void {
+  private setColor(target: 'fill' | 'stroke', values: ReadonlyArray<PdfDirectObject>, step: Step): void {
     const { where } = step;
     const last = values.at(-1);
     const named = last?.kind === 'name';
@@ -1270,7 +1270,7 @@ class Interpreter {
     }
   }
 
-  private color(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private color(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     if (operator === 'CS' || operator === 'cs') {
       this.select(operator === 'cs' ? 'fill' : 'stroke', this.colorSpace(step, nameBytes(values[0])), step);
     } else if (operator === 'SC' || operator === 'SCN') {
@@ -1290,7 +1290,7 @@ class Interpreter {
   }
 
   // 14.6, Table 320: BMC and BDC begin a sequence "terminated by a balancing EMC operator"; BDC's properties are "either an inline dictionary containing the property list or a name object associated with it in the Properties subdictionary".
-  private marked(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private marked(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     if (operator === 'BMC' || operator === 'BDC') {
       if (this.markedContent.length >= MAX_STATE_DEPTH) {
         throw new ResourceLimitError(`marked content nests deeper than ${String(MAX_STATE_DEPTH)}`);
@@ -1311,7 +1311,7 @@ class Interpreter {
   }
 
   // 8.5.2, Table 59: path construction, with the points in user space transformed by the CTM as they are given.
-  private construction(operator: string, values: readonly PdfDirectObject[]): boolean {
+  private construction(operator: string, values: ReadonlyArray<PdfDirectObject>): boolean {
     if (!CONSTRUCTION.has(operator)) {
       return false;
     }
@@ -1439,7 +1439,7 @@ class Interpreter {
     }
   }
 
-  private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {
+  private painting(operation: ContentOperation, values: ReadonlyArray<PdfDirectObject>, step: Step): void {
     const { scope } = step;
     const { operator } = operation;
     const paint = PATH_PAINTS.get(operator);
@@ -1510,7 +1510,7 @@ class Interpreter {
 
   private inlineImage(step: Step, image: InlineImage): void {
     const { scope } = step;
-    const parameter = (keys: readonly string[]): ContentOperand | undefined => {
+    const parameter = (keys: ReadonlyArray<string>): ContentOperand | undefined => {
       for (let index = 0; index + 1 < image.parameters.length; index += 2) {
         const key = image.parameters[index];
         if (key?.kind === 'name' && keys.includes(latin1(key.bytes))) {

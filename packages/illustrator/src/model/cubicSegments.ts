@@ -24,7 +24,7 @@ const raise = (from: Point, control: Point, to: Point): readonly [Point, Point] 
 ];
 
 /** Returns a subpath's segments with each quadratic raised to the cubic with control points P0 + 2/3 (Q − P0) and P2 + 2/3 (Q − P2), which traces the same curve. */
-export const cubicSegments = (subpath: Subpath): readonly CubicSegment[] => {
+export const cubicSegments = (subpath: Subpath): ReadonlyArray<CubicSegment> => {
   let current = subpath.start;
   return subpath.segments.map(segment => {
     const from = current;

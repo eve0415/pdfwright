@@ -10,12 +10,12 @@ export interface TestPng {
   readonly colorType: number;
   readonly bitDepth: number;
   readonly interlaced?: boolean;
-  readonly samples: readonly number[];
-  readonly before?: readonly Uint8Array[];
+  readonly samples: ReadonlyArray<number>;
+  readonly before?: ReadonlyArray<Uint8Array>;
   /** How many IDAT chunks the zlib datastream is split across; 1 by default. */
   readonly idatChunks?: number;
   /** Chunks written between consecutive IDAT chunks, which PNG forbids. */
-  readonly betweenIdat?: readonly Uint8Array[];
+  readonly betweenIdat?: ReadonlyArray<Uint8Array>;
   /** Replaces the zlib datastream that the samples would produce. */
   readonly stream?: Uint8Array;
 }
@@ -38,24 +38,24 @@ const ADAM7 = [
 ] as const;
 
 /** A big-endian four-byte unsigned integer, as PNG writes lengths, CRCs and header fields. */
-export const uint32Bytes = (value: number): number[] => {
+export const uint32Bytes = (value: number): Array<number> => {
   const bytes = new Uint8Array(4);
   new DataView(bytes.buffer).setUint32(0, value);
   return [...bytes];
 };
 
 /** The bytes of an ASCII string. */
-export const asciiBytes = (text: string): number[] => Array.from(text, character => character.codePointAt(0) ?? 0);
+export const asciiBytes = (text: string): Array<number> => Array.from(text, character => character.codePointAt(0) ?? 0);
 
 /** Writes one chunk with its length and CRC. */
-export const pngChunk = (type: string, data: readonly number[] | Uint8Array = []): Uint8Array => {
+export const pngChunk = (type: string, data: ReadonlyArray<number> | Uint8Array = []): Uint8Array => {
   const body = Uint8Array.from([...asciiBytes(type), ...data]);
   return Uint8Array.from([...uint32Bytes(body.length - 4), ...body, ...uint32Bytes(crc32(body))]);
 };
 
 const POWERS_OF_TWO = [1, 2, 4, 8, 16, 32, 64, 128] as const;
 
-const packRow = (values: readonly number[], depth: number): Uint8Array => {
+const packRow = (values: ReadonlyArray<number>, depth: number): Uint8Array => {
   const row = new Uint8Array(Math.ceil((values.length * depth) / 8));
   for (const [index, value] of values.entries()) {
     if (depth === 16) {
@@ -80,8 +80,8 @@ const paeth = (left: number, above: number, upperLeft: number): number => {
 };
 
 // Each row uses the next of the five filter types in turn, so every filter is exercised.
-const filterRows = (rows: readonly Uint8Array[], bytesPerPixel: number, firstType: number): number[] => {
-  const output: number[] = [];
+const filterRows = (rows: ReadonlyArray<Uint8Array>, bytesPerPixel: number, firstType: number): Array<number> => {
+  const output: Array<number> = [];
   let previous: Uint8Array = new Uint8Array(rows[0]?.length ?? 0);
   for (const [rowIndex, row] of rows.entries()) {
     const type = (firstType + rowIndex) % 5;
@@ -103,11 +103,11 @@ export const filteredImageData = (image: TestPng): Uint8Array => {
   const channels = CHANNELS.get(image.colorType) ?? 1;
   const bytesPerPixel = Math.max(1, Math.ceil((channels * image.bitDepth) / 8));
   const layout = image.interlaced === true ? ADAM7 : ([[0, 0, 1, 1]] as const);
-  const output: number[] = [];
+  const output: Array<number> = [];
   for (const [passIndex, [x0, y0, stepX, stepY]] of layout.entries()) {
-    const rows: Uint8Array[] = [];
+    const rows: Array<Uint8Array> = [];
     for (let y = y0; y < image.height; y += stepY) {
-      const values: number[] = [];
+      const values: Array<number> = [];
       for (let x = x0; x < image.width; x += stepX) {
         for (let channel = 0; channel < channels; channel++) {
           values.push(image.samples[(y * image.width + x) * channels + channel] ?? 0);

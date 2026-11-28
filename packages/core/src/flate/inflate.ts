@@ -36,7 +36,7 @@ interface DecodedRaw {
 
 interface InflatedZlib {
   data: Uint8Array;
-  warnings: FlateWarning[];
+  warnings: Array<FlateWarning>;
 }
 
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
@@ -111,7 +111,7 @@ const dynamicTrees = (reader: BitReader): [Huffman, Huffman] => {
     codeLengths[CODE_LENGTH_ORDER[index] ?? 0] = reader.readBits(3);
   }
   const codeTree = new Huffman(codeLengths, Math.ceil(reader.bitPosition / 8));
-  const lengths: number[] = [];
+  const lengths: Array<number> = [];
   const total = literalCount + distanceCount;
   while (lengths.length < total) {
     const symbol = codeTree.read(reader);
@@ -218,7 +218,7 @@ export const inflateZlib = (data: Uint8Array, options?: InflateOptions): Inflate
   }
   const decoded = decodeRaw(data.subarray(2), limit);
   const trailerOffset = decoded.bytesConsumed + 2;
-  const warnings: FlateWarning[] = [];
+  const warnings: Array<FlateWarning> = [];
   // RFC 1950, 2.2 ends the stream with a four-byte ADLER32 field; without all four bytes there is no checksum to compare.
   if (data.length - trailerOffset < 4) {
     warnings.push({ code: 'truncated-trailer', offset: trailerOffset });
@@ -272,7 +272,7 @@ const decodeCompressedChunks = function* (reader: BitReader, output: ChunkedInfl
   }
 };
 
-const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; checksum: number; warnings: FlateWarning[] | undefined }): void => {
+const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; checksum: number; warnings: Array<FlateWarning> | undefined }): void => {
   // RFC 1950, 2.2: the four-byte Adler-32 trailer follows the deflate blocks.
   const { data, trailerOffset, checksum, warnings } = config;
   if (data.length - trailerOffset < 4) {
@@ -288,7 +288,7 @@ const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; ch
   }
 };
 
-const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: FlateWarning[]): Generator<Uint8Array> {
+const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Array<FlateWarning>): Generator<Uint8Array> {
   if (data.length < 2) {
     throw new ParseError('truncated zlib header', data.length);
   }
@@ -345,7 +345,7 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
 export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> {
   const limit = maxOutputBytes(options);
   const copy = options?.copyInput === false ? data : Uint8Array.from(data);
-  const warnings: FlateWarning[] = [];
+  const warnings: Array<FlateWarning> = [];
   const scan = decodeChunks(copy, limit, warnings);
   let complete = false;
   while (!complete) {

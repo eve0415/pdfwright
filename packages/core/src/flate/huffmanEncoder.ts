@@ -9,13 +9,13 @@ interface TreeNode {
 }
 
 interface TreeLengths {
-  lengths: number[];
-  leaves: TreeNode[];
+  lengths: Array<number>;
+  leaves: Array<TreeNode>;
 }
 
-const treeCodeLengths = (frequencies: readonly number[]): TreeLengths => {
+const treeCodeLengths = (frequencies: ReadonlyArray<number>): TreeLengths => {
   const lengths = Array.from({ length: frequencies.length }, () => 0);
-  const leaves: TreeNode[] = [];
+  const leaves: Array<TreeNode> = [];
   for (let symbol = 0; symbol < frequencies.length; symbol++) {
     const weight = frequencies[symbol] ?? 0;
     if (weight > 0) {
@@ -63,7 +63,7 @@ const treeCodeLengths = (frequencies: readonly number[]): TreeLengths => {
   return { lengths, leaves };
 };
 
-const limitCodeLengths = (lengths: number[], leaves: TreeNode[], maxBits: number): number[] => {
+const limitCodeLengths = (lengths: Array<number>, leaves: Array<TreeNode>, maxBits: number): Array<number> => {
   const counts = Array.from({ length: maxBits + 1 }, () => 0);
   for (const leaf of leaves) {
     const depth = lengths[leaf.symbol] ?? 0;
@@ -95,7 +95,7 @@ const limitCodeLengths = (lengths: number[], leaves: TreeNode[], maxBits: number
   return lengths;
 };
 
-export const buildCodeLengths = (frequencies: readonly number[], maxBits: number): number[] => {
+export const buildCodeLengths = (frequencies: ReadonlyArray<number>, maxBits: number): Array<number> => {
   const tree = treeCodeLengths(frequencies);
   if (tree.leaves.length < 2) {
     return tree.lengths;
@@ -103,7 +103,7 @@ export const buildCodeLengths = (frequencies: readonly number[], maxBits: number
   return limitCodeLengths(tree.lengths, tree.leaves, maxBits);
 };
 
-export const canonicalCodes = (lengths: readonly number[]): number[] => {
+export const canonicalCodes = (lengths: ReadonlyArray<number>): Array<number> => {
   const maximum = Math.max(0, ...lengths);
   const counts = Array.from({ length: maximum + 1 }, () => 0);
   for (const length of lengths) {

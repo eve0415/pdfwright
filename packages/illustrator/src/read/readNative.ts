@@ -31,7 +31,7 @@ export interface NativeReadResult {
   readonly document: IllustratorDocument;
   readonly nativeOrigin: NativeOrigin;
   readonly header: ReadonlyMap<string, string>;
-  readonly unknownBlocks: readonly string[];
+  readonly unknownBlocks: ReadonlyArray<string>;
 }
 
 interface LineRecord {
@@ -54,7 +54,7 @@ interface Cursor {
 
 const unsupported = (message: string, offset: number): UnsupportedFeatureError => new UnsupportedFeatureError(`${message} at native byte ${String(offset)}`);
 
-const cursorFrom = (records: readonly NativeRecord[], modelY: Cursor['modelY']): Cursor => {
+const cursorFrom = (records: ReadonlyArray<NativeRecord>, modelY: Cursor['modelY']): Cursor => {
   let index = 0;
   const at = (): number => records[index]?.offset ?? records.at(-1)?.offset ?? 0;
   const takeRecord = (): LineRecord => {
@@ -104,9 +104,9 @@ const real = (token: string | undefined, offset: number): number => {
   return value;
 };
 
-const numbers = (tokens: readonly string[], offset: number): number[] => tokens.map(token => real(token, offset));
+const numbers = (tokens: ReadonlyArray<string>, offset: number): Array<number> => tokens.map(token => real(token, offset));
 
-const modelPoint = (cursor: Cursor, values: readonly number[], offset: number): Point => {
+const modelPoint = (cursor: Cursor, values: ReadonlyArray<number>, offset: number): Point => {
   const [x, y] = values;
   if (x === undefined || y === undefined) {
     throw new ParseError('native point is missing coordinates', offset);
@@ -121,7 +121,7 @@ const parseSubpath = (cursor: Cursor): Subpath => {
     throw unsupported(`native path must start with m, got ${first.text}`, first.offset);
   }
   const start = modelPoint(cursor, numbers(firstTokens.slice(0, 2), first.offset), first.offset);
-  const segments: Segment[] = [];
+  const segments: Array<Segment> = [];
   while (!cursor.done()) {
     const line = peekLine(cursor);
     if (line === undefined) {
@@ -273,7 +273,7 @@ const parsePath = (cursor: Cursor, state: PaintState): PathItem => {
 
 // Follows 0 Ae and *u; every member of the compound path ends with the same paint operator.
 const parseCompoundPath = (cursor: Cursor, state: PaintState): PathItem => {
-  const objects: PathObject[] = [];
+  const objects: Array<PathObject> = [];
   while (peekLine(cursor) !== '*U') {
     objects.push(parsePathObject(cursor, state));
   }
@@ -411,7 +411,7 @@ const parseClipObject = (cursor: Cursor, state: PaintState): Subpath => {
 
 // Reads the clipping path that follows a clip group's items, through the group's closing Q and XW.
 const finishClip = (cursor: Cursor, state: PaintState): PathGeometry => {
-  const subpaths: Subpath[] = [];
+  const subpaths: Array<Subpath> = [];
   if (peekLine(cursor) === '0 Ae') {
     expectLine(cursor, '0 Ae');
     expectLine(cursor, '*u');
@@ -427,7 +427,7 @@ const finishClip = (cursor: Cursor, state: PaintState): PathGeometry => {
   return { subpaths, fillRule: state.fillRuleState.value };
 };
 
-const finishGroup = (cursor: Cursor, items: readonly Item[], locked: boolean): Group => {
+const finishGroup = (cursor: Cursor, items: ReadonlyArray<Item>, locked: boolean): Group => {
   expectLine(cursor, 'U');
   let opacity = 1;
   let isolated = false;
@@ -475,11 +475,11 @@ const endsScope = (cursor: Cursor, ending: ItemScope['ending'], line: string): b
   return isClipPath(cursor);
 };
 
-const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintState): Item[] => {
+const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintState): Array<Item> => {
   if (depth > GROUP_NESTING_LIMIT) {
     throw new ResourceLimitError(`native group nesting exceeds ${String(GROUP_NESTING_LIMIT)} levels at native byte ${String(cursor.at())}`);
   }
-  const items: Item[] = [];
+  const items: Array<Item> = [];
   while (!cursor.done()) {
     const line = peekLine(cursor);
     const offset = cursor.at();
@@ -521,7 +521,7 @@ const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintSt
   return items;
 };
 
-const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']): Layer => {
+const parseLayer = (records: ReadonlyArray<NativeRecord>, modelY: Cursor['modelY']): Layer => {
   const cursor = cursorFrom(records, modelY);
   expectLine(cursor, '%AI5_BeginLayer');
   const lbLine = cursor.takeRecord();
@@ -584,7 +584,7 @@ const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
   return { name, visible: lb[0] === '1', locked: lb[2] === '0', opacity, color, items };
 };
 
-const parseHeader = (records: readonly NativeRecord[]): Map<string, LineRecord> => {
+const parseHeader = (records: ReadonlyArray<NativeRecord>): Map<string, LineRecord> => {
   const header = new Map<string, LineRecord>();
   for (const record of records) {
     if (record.kind !== 'line') {
@@ -641,7 +641,7 @@ const nativeFrame = (header: ReadonlyMap<string, LineRecord>): NativeFrame => {
   return { width: right, height, origin: 'artboard-top-left', modelY };
 };
 
-const parseArtboard = (records: readonly NativeRecord[], frame: NativeFrame): Artboard => {
+const parseArtboard = (records: ReadonlyArray<NativeRecord>, frame: NativeFrame): Artboard => {
   const lines = records.flatMap(record => (record.kind === 'line' ? [record] : []));
   const nameLine = lines.find(line => line.text.endsWith('/UnicodeString (Name) ,'));
   const nameMatch = /^%_(\(.*\)) \/UnicodeString \(Name\) ,$/u.exec(nameLine?.text ?? '');
@@ -656,7 +656,7 @@ const parseArtboard = (records: readonly NativeRecord[], frame: NativeFrame): Ar
   return name === undefined ? artboard : { ...artboard, name };
 };
 
-const unknownSetupBlocks = (records: readonly NativeRecord[]): string[] => {
+const unknownSetupBlocks = (records: ReadonlyArray<NativeRecord>): Array<string> => {
   const blocks = new Set<string>();
   let inSetup = false;
   for (const record of records) {
@@ -686,7 +686,7 @@ export const readNative = (native: Uint8Array, lastModified: PdfDate): NativeRea
   const records = tokenizeNative(native);
   const header = parseHeader(records);
   const frame = nativeFrame(header);
-  const layers: Layer[] = [];
+  const layers: Array<Layer> = [];
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
     if (record?.kind !== 'line' || record.text !== '%AI5_BeginLayer') {

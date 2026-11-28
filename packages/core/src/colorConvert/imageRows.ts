@@ -2,7 +2,7 @@ import type { ColorTransform } from '../color/createColorTransform.ts';
 
 /** The matte a row was preblended with and the decoded soft-mask alpha of each of its pixels. */
 export interface RowMatte {
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
   readonly alpha: Float64Array;
 }
 
@@ -11,7 +11,7 @@ export interface RowParameters {
   readonly channels: number;
   readonly bits: number;
   readonly transform: ColorTransform;
-  readonly decode: readonly number[] | undefined;
+  readonly decode: ReadonlyArray<number> | undefined;
   readonly matte?: RowMatte | undefined;
 }
 
@@ -28,7 +28,7 @@ export const readImageSample = (row: Uint8Array, index: number, bits: number): n
 };
 
 // ISO 32000-1:2008, 11.6.5.3: a preblended component is c' = m + alpha * (c - m), so c = m + (c' - m) / alpha. A pixel with alpha 0 is fully transparent and keeps its stored components.
-const unblendPixel = (components: Float64Array, matte: readonly number[], alpha: number): void => {
+const unblendPixel = (components: Float64Array, matte: ReadonlyArray<number>, alpha: number): void => {
   if (alpha <= 0) {
     return;
   }

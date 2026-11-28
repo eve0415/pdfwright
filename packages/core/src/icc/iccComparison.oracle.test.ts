@@ -35,7 +35,7 @@ const intentName = (value: number): 'perceptual' | 'relativeColorimetric' | 'sat
   return 'absoluteColorimetric';
 };
 
-const execute = async (file: string, args: readonly string[], input = ''): Promise<string> => {
+const execute = async (file: string, args: ReadonlyArray<string>, input = ''): Promise<string> => {
   const child = spawn(file, [...args]);
   child.stdin.end(input);
   const [stdout, stderr, close] = await Promise.all([streamText(child.stdout), streamText(child.stderr), once(child, 'close')]);
@@ -50,9 +50,9 @@ const runOracle = async (config: {
   destination: string;
   intent: number;
   bpc: number;
-  rows: readonly string[];
+  rows: ReadonlyArray<string>;
   reference?: 'input';
-}): Promise<number[]> => {
+}): Promise<Array<number>> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-lcms-'));
   try {
     const executable = path.join(directory, 'lcmsOracle');
@@ -70,7 +70,7 @@ const runOracle = async (config: {
   }
 };
 
-const argyllRows = (output: string): number[][] =>
+const argyllRows = (output: string): Array<Array<number>> =>
   output
     .trim()
     .split(/\r?\n/u)
@@ -82,7 +82,7 @@ const argyllRows = (output: string): number[][] =>
       return values;
     });
 
-const referenceAt = (rows: readonly number[][], index: number): readonly number[] => {
+const referenceAt = (rows: ReadonlyArray<Array<number>>, index: number): ReadonlyArray<number> => {
   const row = rows[index];
   if (row === undefined) {
     throw new Error('ArgyllCMS returned fewer colours than requested');

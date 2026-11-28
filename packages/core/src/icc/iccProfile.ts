@@ -28,7 +28,7 @@ export interface IccProfile {
   readonly pcsToDevice: Readonly<Partial<Record<0 | 1 | 2, LutTag>>>;
   readonly identity: Uint8Array;
   readonly bytes: Uint8Array;
-  readonly warnings: readonly IccWarning[];
+  readonly warnings: ReadonlyArray<IccWarning>;
 }
 
 /** A parsed table or multi-process lookup tag in an ICC conversion pipeline under ICC.1:2022, 10.10–10.13. */

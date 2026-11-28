@@ -184,7 +184,7 @@ describe('incremental save', () => {
     const document = loadDocument(source);
     addProduced(document);
     const saved = document.save({ mode: 'incremental' });
-    const parts: Uint8Array[] = [];
+    const parts: Array<Uint8Array> = [];
     for await (const part of saved.toStream()) {
       parts.push(part);
     }

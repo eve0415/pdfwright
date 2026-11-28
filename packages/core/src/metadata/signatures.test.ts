@@ -8,7 +8,7 @@ import { buildPdf } from '../testing/pdfBuilder.ts';
 
 import { signatureProtection } from './signatures.ts';
 
-const protection = (catalog: string, objects: readonly TestObject[] = []): string | undefined => {
+const protection = (catalog: string, objects: ReadonlyArray<TestObject> = []): string | undefined => {
   const document = loadDocument(
     buildPdf([
       {

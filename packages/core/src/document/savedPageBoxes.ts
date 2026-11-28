@@ -97,7 +97,7 @@ const unchangedBox = (store: ObjectStore, edited: ObjectResolver, entry: BoxEntr
 };
 
 /** Validates changed page boundaries against their written coordinates, preserving unchanged input boxes. */
-export const validateSavedPageBoxes = (store: ObjectStore, pages: readonly PageEntry[], context: SavedBoxContext): void => {
+export const validateSavedPageBoxes = (store: ObjectStore, pages: ReadonlyArray<PageEntry>, context: SavedBoxContext): void => {
   const edited = editedResolver(store, context.changes);
   const resolver = savedResolver(store, context);
   const cache = createInheritedCache();

@@ -31,12 +31,12 @@ const parse = (text: string): Parsed => {
 
 interface Merged {
   text: string;
-  warnings: SaveWarning[];
+  warnings: Array<SaveWarning>;
 }
 
 const merge = (value: PdfObject, original?: Parsed): Merged => {
   const writer = new ByteWriter();
-  const warnings: SaveWarning[] = [];
+  const warnings: Array<SaveWarning> = [];
   const warn = (warning: SaveWarning): void => {
     warnings.push(warning);
   };
@@ -44,7 +44,7 @@ const merge = (value: PdfObject, original?: Parsed): Merged => {
   return { text: latin1Text(writer.toUint8Array()), warnings };
 };
 
-const box = (values: readonly (Length | number)[]): PdfDirectObject =>
+const box = (values: ReadonlyArray<Length | number>): PdfDirectObject =>
   pdfArray(values.map(value => (typeof value === 'number' ? pdfInteger(value) : pdfReal(value))));
 
 const entriesOf = (parsed: Parsed): PdfDictionaryEntries => {

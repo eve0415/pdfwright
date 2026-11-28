@@ -9,9 +9,9 @@ import { deterministicExp } from './deterministicMath.ts';
 
 /** Evaluates a parsed PDF function from components in its Domain to output components constrained by its Range; malformed functions raise ParseError under ISO 32000-1:2008, 7.10. */
 export interface PdfFunction {
-  (input: readonly number[]): number[];
+  (input: ReadonlyArray<number>): Array<number>;
   /** The function's Domain, a minimum and a maximum for each input. */
-  readonly domain: readonly number[];
+  readonly domain: ReadonlyArray<number>;
 }
 /** Turns an indirect reference in a function graph into the object it names, with a stream's data decoded; a function reader applies it to every reference it meets. */
 export type FunctionResolver = (value: PdfDirectObject) => PdfObject;
@@ -42,14 +42,14 @@ const numeric = (value: PdfObject | undefined, name: string): number => {
   throw new ParseError(`function ${name} must be a number`, 0);
 };
 
-const numberArray = (value: PdfObject | undefined, name: string, resolve: FunctionResolver): number[] => {
+const numberArray = (value: PdfObject | undefined, name: string, resolve: FunctionResolver): Array<number> => {
   if (value?.kind !== 'array') {
     throw new ParseError(`function ${name} must be an array`, 0);
   }
   return value.items.map(item => numeric(direct(item, resolve), name));
 };
 
-const pairs = (values: readonly number[], name: string): void => {
+const pairs = (values: ReadonlyArray<number>, name: string): void => {
   if (values.length === 0 || values.length % 2 !== 0) {
     throw new ParseError(`function ${name} needs pairs`, 0);
   }
@@ -64,15 +64,15 @@ const clip = (value: number, low: number, high: number): number => Math.min(high
 const interpolate = (value: number, source: readonly [number, number], target: readonly [number, number]): number =>
   source[0] === source[1] ? target[0] : target[0] + ((value - source[0]) * (target[1] - target[0])) / (source[1] - source[0]);
 
-type Evaluate = (input: readonly number[]) => number[];
+type Evaluate = (input: ReadonlyArray<number>) => Array<number>;
 
 interface FunctionEntries {
   readonly entry: EntryReader;
-  readonly array: (name: string) => number[];
-  readonly optionalArray: (name: string, fallback: number[]) => number[];
+  readonly array: (name: string) => Array<number>;
+  readonly optionalArray: (name: string, fallback: Array<number>) => Array<number>;
 }
 
-const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { domain: number[]; range: number[] }): Evaluate => {
+const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { domain: Array<number>; range: Array<number> }): Evaluate => {
   // ISO 32000-1:2008, 7.10.2 and Table 39: samples are a high-bit-first continuous stream, with the first input varying fastest.
   const { entry, array, optionalArray } = entries;
   const sizes = array('Size');
@@ -118,7 +118,7 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
       const target: [number, number] = [encode[base] ?? 0, encode[base + 1] ?? 0];
       return clip(interpolate(clip(input[axis] ?? 0, source[0], source[1]), source, target), 0, size - 1);
     });
-    const result: number[] = [];
+    const result: Array<number> = [];
     for (let channel = 0; channel < outputs; channel++) {
       let weighted = 0;
       for (let corner = 0; corner < 2 ** sizes.length; corner++) {
@@ -143,7 +143,7 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   };
 };
 
-const evaluateExponential = (entries: FunctionEntries, domain: number[]): Evaluate => {
+const evaluateExponential = (entries: FunctionEntries, domain: Array<number>): Evaluate => {
   // ISO 32000-1:2008, 7.10.3 and Table 40.
   if (domain.length !== 2) {
     throw new ParseError('exponential function needs one input', 0);
@@ -158,7 +158,7 @@ const evaluateExponential = (entries: FunctionEntries, domain: number[]): Evalua
     c0.map((start, index) => start + deterministicExp(clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0), exponent) * ((c1[index] ?? 0) - start));
 };
 
-const evaluateStitched = (entries: FunctionEntries, domain: number[], recurse: (item: PdfDirectObject) => PdfFunction): Evaluate => {
+const evaluateStitched = (entries: FunctionEntries, domain: Array<number>, recurse: (item: PdfDirectObject) => PdfFunction): Evaluate => {
   // ISO 32000-1:2008, 7.10.4 and Table 41: intervals are half-open except the last.
   const functions = entries.entry('Functions');
   if (domain.length !== 2 || functions?.kind !== 'array' || functions.items.length === 0) {
@@ -186,7 +186,7 @@ const buildFunction = (object: PdfObject, resolve: FunctionResolver, recurse: (i
     throw new ParseError('PDF function must be a dictionary or stream', 0);
   }
   const entry = entryReader(object.kind === 'stream' ? object.dictionary : object.entries, resolve);
-  const array = (name: string): number[] => numberArray(entry(name), name, resolve);
+  const array = (name: string): Array<number> => numberArray(entry(name), name, resolve);
   const entries: FunctionEntries = {
     entry,
     array,
@@ -236,9 +236,9 @@ const referenceKey = (reference: PdfReference): string => `${String(reference.ob
  * Lists each indirect object a function graph is made of once: its function objects, indirect Functions arrays and indirect entry values.
  * The resolver is applied to every reference the graph reaches, as a reader would apply it, so the list is what replacing the function leaves unused.
  */
-export const pdfFunctionReferences = (value: PdfDirectObject, resolve: FunctionResolver): PdfReference[] => {
+export const pdfFunctionReferences = (value: PdfDirectObject, resolve: FunctionResolver): Array<PdfReference> => {
   const found = new Map<string, PdfReference>();
-  const pending: PdfObject[] = [value];
+  const pending: Array<PdfObject> = [value];
   for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
     if (item.kind === 'reference') {
       // ISO 32000-1:2008, 7.3.10: references to one object name the same object, so it is listed and walked once.

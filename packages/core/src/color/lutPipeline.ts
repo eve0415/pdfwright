@@ -6,16 +6,16 @@ import { evaluateCurve } from './curve.ts';
 
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
-export const applyMatrix = (values: readonly number[] | Float64Array, matrix: Matrix3, offset: readonly number[] = [0, 0, 0]): number[] => [
+export const applyMatrix = (values: ReadonlyArray<number> | Float64Array, matrix: Matrix3, offset: ReadonlyArray<number> = [0, 0, 0]): Array<number> => [
   matrix[0] * (values[0] ?? 0) + matrix[1] * (values[1] ?? 0) + matrix[2] * (values[2] ?? 0) + (offset[0] ?? 0),
   matrix[3] * (values[0] ?? 0) + matrix[4] * (values[1] ?? 0) + matrix[5] * (values[2] ?? 0) + (offset[1] ?? 0),
   matrix[6] * (values[0] ?? 0) + matrix[7] * (values[1] ?? 0) + matrix[8] * (values[2] ?? 0) + (offset[2] ?? 0),
 ];
 
-const curves = (values: readonly number[] | Float64Array, stages: readonly Curve[] | undefined): number[] =>
+const curves = (values: ReadonlyArray<number> | Float64Array, stages: ReadonlyArray<Curve> | undefined): Array<number> =>
   stages === undefined ? [...values] : stages.map((curve, index) => evaluateCurve(curve, values[index] ?? 0));
 
-export const evaluateLut = (tag: LutTag, input: readonly number[] | Float64Array, mode: 'trilinear' | 'tetrahedral'): number[] => {
+export const evaluateLut = (tag: LutTag, input: ReadonlyArray<number> | Float64Array, mode: 'trilinear' | 'tetrahedral'): Array<number> => {
   if ('input' in tag) {
     // ICC.1:2022, 10.10 and 10.11: matrix → input tables → CLUT → output tables.
     const matrixInput = input.length === 3 ? applyMatrix(input, tag.matrix) : [...input];

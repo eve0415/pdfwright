@@ -14,7 +14,7 @@ const OUTPUT = path.join(import.meta.dirname, '../packages/core/src/inspect/text
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
 // Each data line is `XXXX ; YYYY # name` or `XXXX..XXXX ; YYYY # names`: a code point or range and its equivalent unified ideograph, 4 to 6 hexadecimal digits each.
-const mappings = (text: string): string[] => {
+const mappings = (text: string): Array<string> => {
   const lines = text.split('\n').filter(line => line.trim() !== '' && !line.startsWith('#'));
   return lines.flatMap(line => {
     const match = /^([0-9A-F]{4,6})(?:\.\.([0-9A-F]{4,6}))?\s*;\s*([0-9A-F]{4,6})\s*#/u.exec(line);

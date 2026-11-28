@@ -16,10 +16,10 @@ import { cmyk } from './color.ts';
 import { loadDocument } from './loadDocument.ts';
 import { rect } from './rect.ts';
 
-const load = (objects: readonly TestObject[]): LoadedDocument =>
+const load = (objects: ReadonlyArray<TestObject>): LoadedDocument =>
   loadDocument(buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...objects], trailer: '/Root 1 0 R' }]).bytes);
 
-const page = (extra: string): TestObject[] => [
+const page = (extra: string): Array<TestObject> => [
   { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
   { number: 3, body: `<</Type/Page/Parent 2 0 R${extra}>>` },
   { number: 4, body: streamBody('', '0 0 m 10 10 l S') },

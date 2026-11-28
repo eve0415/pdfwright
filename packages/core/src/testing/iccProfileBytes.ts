@@ -32,7 +32,7 @@ export const gammaCurveTag = (gamma: number): Uint8Array => {
 };
 
 /** A curveType with two or more 16-bit samples under ICC.1:2022, 10.6. */
-export const sampledCurveTag = (samples: readonly number[]): Uint8Array => {
+export const sampledCurveTag = (samples: ReadonlyArray<number>): Uint8Array => {
   const bytes = new Uint8Array(12 + samples.length * 2);
   const view = new DataView(bytes.buffer);
   bytes.set(ascii('curv'));
@@ -44,7 +44,7 @@ export const sampledCurveTag = (samples: readonly number[]): Uint8Array => {
 };
 
 /** A three-channel lutAToBType or lutBToAType that holds only identity curves and a matrix e1..e12, under ICC.1:2022, 10.12 and 10.13. */
-export const matrixLutTag = (type: 'mAB ' | 'mBA ', elements: readonly number[]): Uint8Array => {
+export const matrixLutTag = (type: 'mAB ' | 'mBA ', elements: ReadonlyArray<number>): Uint8Array => {
   const curve = gammaCurveTag(1);
   const bOffset = 32;
   const matrixOffset = bOffset + 3 * curve.length;
@@ -91,12 +91,12 @@ export interface IccProfileInput {
   readonly colorSpace: string;
   readonly pcs: 'XYZ ' | 'Lab ';
   /** Tag signatures with their tag data; the description, copyright and D50 media white point tags are added. */
-  readonly tags: readonly (readonly [string, Uint8Array])[];
+  readonly tags: ReadonlyArray<readonly [string, Uint8Array]>;
 }
 
 /** A version 4.4 ICC profile under ICC.1:2022, 7.2 and 7.3, with tag data 4-byte aligned. */
 export const iccProfileBytes = (input: IccProfileInput): Uint8Array => {
-  const tags: readonly (readonly [string, Uint8Array])[] = [
+  const tags: ReadonlyArray<readonly [string, Uint8Array]> = [
     ['desc', textTag('Test profile')],
     ['cprt', textTag('No copyright, use freely')],
     ['wtpt', xyzTag(D50)],

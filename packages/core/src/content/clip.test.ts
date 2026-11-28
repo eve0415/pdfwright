@@ -33,15 +33,15 @@ const roundedRectangle = (): PathBuilder => {
   return path;
 };
 
-const cubic = (points: readonly number[], t: number): readonly [number, number] => {
+const cubic = (points: ReadonlyArray<number>, t: number): readonly [number, number] => {
   const [x0 = 0, y0 = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0, x3 = 0, y3 = 0] = points;
   const u = 1 - t;
   return [u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3];
 };
 
 // Chord midpoints against the curve at the midpoint parameter, since the vertices are at equal parameter steps.
-const chordDeviations = (points: readonly (readonly [number, number])[], controls: readonly number[]): number[] => {
-  const deviations: number[] = [];
+const chordDeviations = (points: ReadonlyArray<readonly [number, number]>, controls: ReadonlyArray<number>): Array<number> => {
+  const deviations: Array<number> = [];
   for (let index = 1; index < points.length; index++) {
     const [x0, y0] = points[index - 1] ?? [0, 0];
     const [x1, y1] = points[index] ?? [0, 0];

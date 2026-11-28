@@ -30,7 +30,7 @@ const isName = (value: PdfDirectObject | undefined, name: Uint8Array): boolean =
   value?.kind === 'name' && value.bytes.length === name.length && value.bytes.every((byte, index) => byte === name[index]);
 
 // ISO 32000-1:2008, 7.5.8.2: "The values of all entries shown in Table 17 shall be direct objects; indirect references shall not be permitted. For arrays (the Index and W entries), all of their elements shall be direct objects as well."
-const integers = (value: PdfDirectObject | undefined, key: string, offset: number): number[] => {
+const integers = (value: PdfDirectObject | undefined, key: string, offset: number): Array<number> => {
   if (value?.kind !== 'array') {
     throw new ParseError(`the cross-reference stream ${key} entry is not an array`, offset);
   }
@@ -53,7 +53,7 @@ const readField = (data: Uint8Array, start: number, width: number): number => {
 
 interface Layout {
   readonly widths: readonly [number, number, number];
-  readonly index: readonly number[];
+  readonly index: ReadonlyArray<number>;
   readonly total: number;
 }
 
@@ -110,7 +110,7 @@ const readEntry = (reader: EntryReader, position: number, objectNumber: number):
   return { objectNumber, type: 'free', location: 0, generation: 0 };
 };
 
-const readEntries = (reader: EntryReader, { index, total }: Layout): XrefEntry[] => {
+const readEntries = (reader: EntryReader, { index, total }: Layout): Array<XrefEntry> => {
   const [typeWidth, secondWidth, thirdWidth] = reader.widths;
   const entryWidth = typeWidth + secondWidth + thirdWidth;
   const { data, at } = reader;
@@ -120,7 +120,7 @@ const readEntries = (reader: EntryReader, { index, total }: Layout): XrefEntry[]
   if (data.length > entryWidth * total) {
     reader.warn({ code: 'xref-stream-trailing-data', detail: 'the cross-reference stream holds bytes after its last entry', offset: at });
   }
-  const entries: XrefEntry[] = [];
+  const entries: Array<XrefEntry> = [];
   let position = 0;
   let previousEnd = 0;
   for (let pair = 0; pair < index.length; pair += 2) {

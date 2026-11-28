@@ -6,7 +6,7 @@ import { createMatchFinder } from './matchFinder.ts';
 
 const reconstruct = (parse: MatchParse, history: Uint8Array = new Uint8Array()): Uint8Array => {
   const { literals, sequences, trailingLiterals } = parse;
-  const output: number[] = [...history];
+  const output: Array<number> = [...history];
   let literalPosition = 0;
   for (const sequence of sequences) {
     for (let index = 0; index < sequence.literalLength; index++) {
