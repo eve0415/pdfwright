@@ -134,10 +134,13 @@ describe('illustrator private-data container', () => {
     expect(streamData(loaded, privateData(loaded).entries, 'AIMetaData')).toStrictEqual(bytes.slice(0, metaDataLength));
   });
 
-  // A raw frame of n bytes is 9 + n bytes long, so the wrapped data is 29 + n bytes.
+  // A raw frame of n bytes up to 131,072 is 9 + n bytes long, so the wrapped data is 29 + n bytes; each further raw block adds a three-byte header.
   it.each([
     { nativeLength: 65_507, blockLengths: [65_536], numBlock: undefined },
     { nativeLength: 65_508, blockLengths: [65_536, 1], numBlock: { kind: 'integer', value: 2 } },
+    { nativeLength: 131_043, blockLengths: [65_536, 65_536], numBlock: { kind: 'integer', value: 2 } },
+    { nativeLength: 131_044, blockLengths: [65_536, 65_536, 1], numBlock: { kind: 'integer', value: 3 } },
+    { nativeLength: 131_073, blockLengths: [65_536, 65_536, 33], numBlock: { kind: 'integer', value: 3 } },
   ])('splits $nativeLength native bytes into blocks of $blockLengths', ({ nativeLength, blockLengths, numBlock }) => {
     const bytes = new Uint8Array(nativeLength).fill(7);
     const document = createDocument();
@@ -177,8 +180,8 @@ describe('illustrator private-data container', () => {
 });
 
 describe('properties', () => {
-  // Lengths cluster where the wrapped data crosses one and two 65,536-byte blocks and where the raw frame gains a second block header.
-  const nativeLength = fc.oneof(fc.integer({ min: 0, max: 300 }), fc.integer({ min: 65_490, max: 65_530 }), fc.integer({ min: 131_030, max: 131_120 }));
+  // Lengths stay inside one 65,536-byte block, whose boundaries the tests above cover.
+  const nativeLength = fc.integer({ min: 0, max: 1024 });
 
   it('reads back the native bytes and metadata prefix it packages', () => {
     fc.assert(
