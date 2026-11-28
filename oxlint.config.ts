@@ -29,6 +29,8 @@ export default defineConfig({
     // At its default this rule's fix rewrites `void f();` to `undefined;`, deleting the call, so the three rules have no fixed point and the fixer destroys code.
     // `void` as an expression stays rejected.
     'no-void': ['error', { allowAsStatement: true }],
+    // A variable a closure reads before its one assignment cannot be const: declared at the assignment, a call to the closure before it would throw a ReferenceError.
+    'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
     'sort-imports': ['error', { allowSeparatedGroups: true, ignoreDeclarationSort: true }],
     'unicorn/filename-case': ['error', { case: 'camelCase' }],
     'unicorn/numeric-separators-style': ['error', { onlyIfContainsSeparator: true }],
@@ -37,6 +39,9 @@ export default defineConfig({
 
     'no-undef': 'off',
     'no-undefined': 'off',
+    // It requires `let value: T | undefined = undefined`, which unicorn/no-useless-undefined rejects, so the two rules have no fixed point.
+    // TypeScript already reports a read of a variable that is declared without a value and whose type excludes undefined.
+    'init-declarations': 'off',
     'unicorn/no-null': 'off',
     'no-ternary': 'off',
     'oxc/no-async-await': 'off',
