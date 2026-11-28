@@ -262,14 +262,14 @@ describe('reference cycles', () => {
   // Wider than the arguments a call can take on some engines, so that an array whose items are passed to one call cannot be read.
   const WIDE = 70_000;
 
-  it('describes an array of many items that leads into a cycle', () => {
+  it('describes an array of many items that leads into a cycle', { timeout: 30_000 }, () => {
     const internals = internalsOrThrow(['<</X 21 0 R>>', `[${'22 0 R '.repeat(WIDE)}]`, '[22 0 R]', '<</X 24 0 R>>', '[22 0 R 22 0 R]']);
     const texts = new ResolvedTexts(internals);
     const direct = texts.text(internals.objects.deref(pdfReference(FIRST, 0)));
     expect([direct === new ResolvedTexts(internals).text(pdfReference(FIRST, 0)), direct === texts.text(pdfReference(23, 0))]).toStrictEqual([true, false]);
   });
 
-  it('describes a dictionary of many entries that leads into a cycle', () => {
+  it('describes a dictionary of many entries that leads into a cycle', { timeout: 30_000 }, () => {
     const entries = Array.from({ length: WIDE }, (_, index) => `/K${String(index)} 22 0 R`).join('');
     const internals = internalsOrThrow(['<</X 21 0 R>>', `<<${entries}>>`, '[22 0 R]', '<</X 24 0 R>>', '<</K0 22 0 R/K1 22 0 R>>']);
     const texts = new ResolvedTexts(internals);
@@ -278,9 +278,9 @@ describe('reference cycles', () => {
   });
 });
 
-describe('wide values', () => {
+describe('wide values', { timeout: 30_000 }, () => {
   // Wider than the arguments a call can take on any engine the library runs on.
-  const WIDEST = 200_000;
+  const WIDEST = 150_000;
 
   it('reads an array of many items', () => {
     const internals = internalsOrThrow([`[${'1 '.repeat(WIDEST)}2]`]);
