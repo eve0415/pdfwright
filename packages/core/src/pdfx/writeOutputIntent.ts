@@ -2,11 +2,14 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { PrintingCondition } from './printingConditions.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { versionNumber } from '../document/readStructure.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { ParseError } from '../error/parseError.ts';
+import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -17,7 +20,7 @@ import { reachableObjects } from '../resourceGraph/reachableObjects.ts';
 
 import { registeredPrintingConditions } from './printingConditions.ts';
 
-/** Embeds a CMYK output profile and printing-condition identifier; conflicting intents are refused and PDF/X version handling defaults on, with ValidationError reasons `output-intent-conflict`, `color-space`, or `pdf-extensions` under ISO 32000-1:2008, 14.11.5, Table 365. */
+/** Embeds a CMYK output profile and printing-condition identifier; conflicting intents are refused and PDF/X version handling defaults on, with ValidationError reasons `output-intent-conflict`, `color-space`, or, when lowering the version for PDF/X, `pdf-extensions` under ISO 32000-1:2008, 14.11.5, Table 365. */
 export interface OutputIntentOptions {
   /** Output-class CMYK ICC profile embedded in the intent. */
   readonly outputProfile: Uint8Array;
@@ -31,7 +34,7 @@ export interface OutputIntentOptions {
   readonly registryName?: string;
   /** Whether to refuse or replace a conflicting intent; defaults to refuse. */
   readonly existing?: 'refuse' | 'replace';
-  /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4; defaults to true. */
+  /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4, refusing a catalog with Extensions; defaults to true. */
   readonly pdfx?: boolean;
 }
 
@@ -52,7 +55,7 @@ interface ExistingIntent {
 }
 
 const key = (name: string): Uint8Array => pdfName(name).bytes;
-const nameOf = (value: PdfDirectObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
+const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 const sameIdentity = (a: IccProfile, b: IccProfile): boolean => a.identity.every((byte, index) => byte === b.identity[index]);
 
 interface ReadExistingInput {
@@ -61,6 +64,39 @@ interface ReadExistingInput {
   readonly destination: IccProfile;
   readonly replacement: boolean;
 }
+
+// A profile whose object cannot be read, or that cannot be decoded within the limits or parsed, differs from the destination, so under `replace` it is removed rather than read.
+const sameProfile = (internals: DocumentInternals, value: PdfDirectObject | undefined, destination: IccProfile, replacement: boolean): boolean => {
+  try {
+    const stream = internals.objects.deref(value);
+    if (stream?.kind !== 'stream') {
+      return false;
+    }
+    const bytes = decodedData(internals, stream);
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
+    }
+    return sameIdentity(parseIccProfile(bytes), destination);
+  } catch (error: unknown) {
+    if (replacement && error instanceof PdfwrightError) {
+      return false;
+    }
+    throw error;
+  }
+};
+
+// ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name, and a reference that names no object, such as one to another generation, is the null object, so a reference the loader refuses gives no name.
+// The subtype of an intent about to be removed is only reported, so one that cannot be read within the limits reads as other too; a kept intent's subtype decides what is written, so there the limit error stands.
+const subtypeOf = (internals: DocumentInternals, value: PdfDirectObject | undefined, removed: boolean): string => {
+  try {
+    return nameOf(internals.objects.deref(value)) ?? 'other';
+  } catch (error: unknown) {
+    if (error instanceof ParseError || (removed && error instanceof PdfwrightError)) {
+      return 'other';
+    }
+    throw error;
+  }
+};
 
 const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): Array<ExistingIntent> => {
   const { objects } = internals;
@@ -77,20 +113,13 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     const reference = item.kind === 'reference' ? item : undefined;
     const profileValue = value.entries.get(key('DestOutputProfile'));
     const profile = profileValue?.kind === 'reference' ? profileValue : undefined;
-    const stream = objects.deref(profileValue);
-    let matches = false;
-    if (stream?.kind === 'stream') {
-      const bytes = decodedData(internals, stream);
-      if (typeof bytes === 'string') {
-        throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
-      }
-      matches = sameIdentity(parseIccProfile(bytes), destination);
-    }
+    const matches = sameProfile(internals, profileValue, destination, replacement);
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
-    const subtype = nameOf(value.entries.get(key('S'))) ?? 'other';
-    const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
+    const subtype = subtypeOf(internals, value.entries.get(key('S')), !matches);
+    // Only a kept intent's identifier is compared with the new one, so the identifier of an intent about to be removed is not read.
+    const identifierValue = matches ? objects.deref(value.entries.get(key('OutputConditionIdentifier'))) : undefined;
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
     existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
   }
@@ -126,7 +155,7 @@ const prepare = (document: LoadedDocument, options: OutputIntentOptions): Prepar
   if (catalog.kind !== 'dictionary') {
     throw new ValidationError('the document catalog is not a dictionary', 'unreadable-resource');
   }
-  if (catalog.entries.has(key('Extensions'))) {
+  if (options.pdfx !== false && catalog.entries.has(key('Extensions'))) {
     throw new ValidationError('PDF extensions prevent PDF/X-4 version lowering', 'pdf-extensions');
   }
   const existing = readExisting({ internals, catalog: catalog.entries, destination, replacement: options.existing === 'replace' });
@@ -197,21 +226,31 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
     catalog.set(key('Version'), pdfName('1.6'));
   }
   document.set(root, pdfDictionary(catalog));
+  // Intents may list one intent twice or share a profile, and a reference to a free object or another generation names no object (ISO 32000-1:2008, 7.3.10); delete refuses those, and an object stream that holds objects in use (7.5.7), which those objects still need, so each of them is kept.
+  const remove = (reference: PdfReference): void => {
+    try {
+      document.delete(reference);
+    } catch (error: unknown) {
+      if (!(error instanceof InvalidArgumentError)) {
+        throw error;
+      }
+    }
+  };
   for (const intent of existing) {
     if (!intent.matches && intent.reference !== undefined) {
-      document.delete(intent.reference);
+      remove(intent.reference);
     }
   }
   const reachable = reachableObjects(internals).objects;
   for (const intent of existing) {
     if (!intent.matches && intent.profile !== undefined && !reachable.has(intent.profile.objectNumber)) {
-      document.delete(intent.profile);
+      remove(intent.profile);
     }
   }
   return catalogLowered;
 };
 
-/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict` unless `existing` is `replace`. */
+/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict`, and one whose profile cannot be read throws, unless `existing` is `replace`, which removes both, keeping a profile object that other content uses or that is an object stream holding objects in use. */
 export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: OutputIntentOptions): OutputIntentChange => {
   const prepared = prepare(document, options);
   const { existing, internals } = prepared;

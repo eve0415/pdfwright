@@ -1,5 +1,6 @@
-import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { LoadedDocument, LoadOptions } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { OutputIntentOptions } from './writeOutputIntent.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -8,12 +9,17 @@ import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgb from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
+import { InvalidProfileError } from '../error/invalidProfileError.ts';
+import { ParseError } from '../error/parseError.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
-import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { iccProfileBytes } from '../testing/iccProfileBytes.ts';
-import { buildPdf } from '../testing/pdfBuilder.ts';
+import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { checkPdfX4 } from './checkPdfX4.ts';
 import { registeredPrintingConditions } from './printingConditions.ts';
@@ -88,12 +94,102 @@ const subtypesOf = (document: LoadedDocument): Array<string | undefined> => {
   }
   return intents.items.map(item => {
     const intent = item.kind === 'reference' ? document.get(item) : item;
-    const subtype = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    const stored = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    const subtype = stored?.kind === 'reference' ? document.get(stored) : stored;
     return subtype?.kind === 'name' ? new TextDecoder().decode(subtype.bytes) : undefined;
   });
 };
 
 const versionLowered = (document: LoadedDocument): boolean => document.save().warnings.some(warning => warning.code === 'version-lowered');
+
+const compressedIntent = (maxDecodedBytes: number) => {
+  const document = loadDocument(base().bytes, { maxDecodedBytes });
+  const profileReference = document.object({
+    kind: 'stream',
+    dictionary: new PdfDictionaryEntries([[pdfName('Filter').bytes, pdfName('FlateDecode')]]),
+    data: deflateZlib(profile),
+  });
+  const intentReference = document.object(
+    pdfDictionary(
+      new PdfDictionaryEntries([
+        [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+        [pdfName('DestOutputProfile').bytes, profileReference],
+      ]),
+    ),
+  );
+  setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
+  return { document, intentReference, profileReference };
+};
+
+const withIntents = (intents: string, objects: ReadonlyArray<TestObject>) =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: `<</Type/Catalog/Pages 2 0 R/OutputIntents${intents}>>` },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+          ...objects,
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+
+const unreadable = { number: 5, body: streamBody('', 'x'.repeat(200)) };
+
+const objectStreamProfile = () =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R/OutputIntents[4 0 R]>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources 21 0 R>>' },
+          { number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 20 0 R>>' },
+        ],
+        objectStreams: [{ number: 20, members: [{ number: 21, body: '<</ProcSet[/PDF]>>' }] }],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+
+/** An intent, object 4, whose S is object 21, the name GTS_PDFA1 in object stream 20 beside a 300 000-byte string, and whose profile holds the given bytes. */
+const objectStreamSubtype = (bytes: Uint8Array, options: LoadOptions) => {
+  const document = loadDocument(
+    buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R/OutputIntents[4 0 R]>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+          { number: 4, body: '<</S 21 0 R>>' },
+        ],
+        objectStreams: [
+          {
+            number: 20,
+            members: [
+              { number: 21, body: '/GTS_PDFA1' },
+              { number: 22, body: `(${'x'.repeat(300_000)})` },
+            ],
+          },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+    options,
+  );
+  const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: bytes });
+  const entries = new PdfDictionaryEntries([
+    [pdfName('S').bytes, pdfReference(21, 0)],
+    [pdfName('DestOutputProfile').bytes, profileReference],
+  ]);
+  document.set(pdfReference(4, 0), pdfDictionary(entries));
+  return document;
+};
 
 describe('gts pdfx output intent', () => {
   it('writes registry defaults', () => {
@@ -239,6 +335,111 @@ describe('gts pdfx output intent', () => {
     expect(write).toThrow(expect.objectContaining({ reason: 'unreadable-resource' }));
   });
 
+  it.each<[string, Array<[string, PdfDirectObject]>, string]>([
+    ['is not an ICC profile', [], 'x'.repeat(200)],
+    ['does not decode', [['Filter', pdfName('FlateDecode')]], 'garbage'],
+  ])('replaces an existing intent whose profile %s when asked', (_, fields, data) => {
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries(fields.map(([name, value]) => [pdfName(name).bytes, value])),
+      data: new TextEncoder().encode(data),
+    });
+    const intentReference = document.object(
+      pdfDictionary(
+        new PdfDictionaryEntries([
+          [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+          [pdfName('DestOutputProfile').bytes, profileReference],
+        ]),
+      ),
+    );
+    setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes]).toStrictEqual(['replaced', ['GTS_PDFA1']]);
+    expect([document.get(intentReference), document.get(profileReference)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+    expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX']);
+  });
+
+  it('keeps an intent with the same profile while replacing one whose profile is not an ICC profile', () => {
+    const document = loadDocument(base().bytes);
+    const kept = outputIntent(document, 'GTS_PDFA1', profile);
+    const corrupt = outputIntent(document, 'ISO_PDFE1', new TextEncoder().encode('x'.repeat(200)));
+    setCatalogEntry(document, 'OutputIntents', pdfArray([kept.intentReference, corrupt.intentReference]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, result.profile]).toStrictEqual(['replaced', ['ISO_PDFE1'], kept.profileReference]);
+    expect([document.get(corrupt.intentReference), document.get(corrupt.profileReference)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+    expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
+  });
+
+  it.each<[string, number, string, Array<string>, Array<string>]>([
+    ['at the decode limit', 0, 'added', [], ['GTS_PDFX', 'GTS_PDFA1']],
+    ['one byte past the decode limit', 1, 'replaced', ['GTS_PDFA1'], ['GTS_PDFX']],
+  ])('replaces an existing intent whose profile decodes %s only when it cannot be read', (_, over, action, removed, subtypes) => {
+    const { document } = compressedIntent(profile.length - over);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual([action, removed, subtypes]);
+  });
+
+  it.each<[string, string, ReadonlyArray<TestObject>, Array<string>, Array<number>]>([
+    [
+      'two intents that share one unreadable profile',
+      '[4 0 R 6 0 R]',
+      [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable, { number: 6, body: '<</S/ISO_PDFE1/DestOutputProfile 5 0 R>>' }],
+      ['GTS_PDFA1', 'ISO_PDFE1'],
+      [4, 5, 6],
+    ],
+    [
+      'one intent listed twice',
+      '[4 0 R 4 0 R]',
+      [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable],
+      ['GTS_PDFA1', 'GTS_PDFA1'],
+      [4, 5],
+    ],
+    ['an intent whose profile reference names no object', '[4 0 R]', [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 9 0 R>>' }], ['GTS_PDFA1'], [4]],
+  ])('replaces %s, removing each object once', (_, intents, objects, removed, deleted) => {
+    const document = withIntents(intents, objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', removed, ['GTS_PDFX']]);
+    expect(deleted.map(number => document.get(pdfReference(number, 0)))).toStrictEqual(deleted.map(() => ({ kind: 'null' })));
+    expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
+  });
+
+  it.each<[string, string, string, string]>([
+    ['an object that cannot be parsed', '5 0 R', '<</Broken (unterminated', 'null'],
+    // ISO 32000-1:2008, 7.3.10: a reference to another generation names no object, so object 5 0 is kept.
+    ['another generation of the profile object', '5 1 R', streamBody('', 'x'), 'stream'],
+  ])('replaces an intent whose profile reference names %s and refuses it by default', (_, reference, body, kept) => {
+    const objects = [
+      { number: 4, body: `<</S/GTS_PDFA1/DestOutputProfile ${reference}>>` },
+      { number: 5, body },
+    ];
+    const refused = withIntents('[4 0 R]', objects);
+    expect(() => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(ParseError);
+    const document = withIntents('[4 0 R]', objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect([document.get(pdfReference(4, 0)).kind, document.get(pdfReference(5, 0)).kind]).toStrictEqual(['null', kept]);
+    expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
+  });
+
+  it('replaces an intent whose profile reference names an object stream, keeping the stream its objects need', () => {
+    const refused = objectStreamProfile();
+    const refuse = () => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect(refuse).toThrow(InvalidProfileError);
+    expect(refuse).toThrow(expect.objectContaining({ reason: 'truncated' }));
+    expect([subtypesOf(refused), refused.get(pdfReference(4, 0)).kind]).toStrictEqual([['GTS_PDFA1'], 'dictionary']);
+    const document = objectStreamProfile();
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect([document.get(pdfReference(4, 0)).kind, document.get(pdfReference(20, 0)).kind]).toStrictEqual(['null', 'stream']);
+    expect(loadDocument(document.save().toBytes()).page(0).resources().get(pdfName('ProcSet').bytes)).toStrictEqual(pdfArray([pdfName('PDF')]));
+  });
+
+  it('refuses an existing intent whose profile decodes past the limit by default', () => {
+    const { document } = compressedIntent(profile.length - 1);
+    expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(ResourceLimitError);
+  });
+
   it('reuses an identical indirect profile and refuses a conflicting one by default', () => {
     const { document, profileReference } = withIntent(profile);
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
@@ -247,6 +448,92 @@ describe('gts pdfx output intent', () => {
     expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: other, outputConditionIdentifier: 'FOGRA28' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'output-intent-conflict' }),
     );
+  });
+
+  it.each<[string, Array<string>]>([
+    ['GTS_PDFX', ['GTS_PDFX']],
+    ['GTS_PDFA1', ['GTS_PDFX', 'GTS_PDFA1']],
+  ])('reads an existing intent whose S is an indirect %s', (subtype, subtypes) => {
+    // ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name.
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const entries = new PdfDictionaryEntries([
+      [pdfName('S').bytes, document.object(pdfName(subtype))],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    setCatalogEntry(document, 'OutputIntents', pdfArray([document.object(pdfDictionary(entries))]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect([result.action, subtypesOf(document)]).toStrictEqual([subtype === 'GTS_PDFX' ? 'updated' : 'added', subtypes]);
+  });
+
+  it.each<[string, number, string]>([
+    ['another generation of an object', 1, '/GTS_PDFA1'],
+    ['an object that cannot be parsed', 0, '<</Broken (unterminated'],
+  ])('reads an existing intent whose S names %s as another subtype', (_, generation, body) => {
+    // ISO 32000-1:2008, 7.3.10: a reference that names no object is the null object, so S gives no name.
+    const objects = [
+      { number: 4, body: `<</S 9 ${String(generation)} R>>` },
+      { number: 9, body },
+    ];
+    const kept = withIntents('[4 0 R]', objects);
+    const profileReference = kept.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const sameProfile = new PdfDictionaryEntries([
+      [pdfName('S').bytes, pdfReference(9, generation)],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    kept.set(pdfReference(4, 0), pdfDictionary(sameProfile));
+    const added = writeGtsPdfxOutputIntent(kept, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect([added.action, added.removedSubtypes, kept.catalog().get(pdfName('OutputIntents').bytes)]).toStrictEqual([
+      'added',
+      [],
+      { kind: 'array', items: [expect.objectContaining({ kind: 'reference' }), pdfReference(4, 0)] },
+    ]);
+    const document = withIntents('[4 0 R]', objects);
+    const replaced = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([replaced.action, replaced.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['other'], ['GTS_PDFX']]);
+  });
+
+  it('replaces an intent whose OutputConditionIdentifier names another generation, and refuses an intent it keeps with that identifier', () => {
+    const objects = [
+      { number: 4, body: '<</S/GTS_PDFA1/OutputConditionIdentifier 9 1 R/DestOutputProfile 5 0 R>>' },
+      { number: 5, body: streamBody('', 'x') },
+      { number: 9, body: '(x)' },
+    ];
+    const document = withIntents('[4 0 R]', objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect(document.get(pdfReference(4, 0)).kind).toBe('null');
+    // The identifier of a kept GTS_PDFX intent decides whether its descriptions are kept, so there the reference the loader refuses stands.
+    const kept = withIntents('[4 0 R]', objects);
+    const profileReference = kept.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const sameProfile = new PdfDictionaryEntries([
+      [pdfName('S').bytes, pdfName('GTS_PDFX')],
+      [pdfName('OutputConditionIdentifier').bytes, pdfReference(9, 1)],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    kept.set(pdfReference(4, 0), pdfDictionary(sameProfile));
+    const write = () => writeGtsPdfxOutputIntent(kept, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect(write).toThrow(GenerationMismatchError);
+    expect(write).toThrow(/9 1 R/u);
+  });
+
+  it.each<[string, LoadOptions, string]>([
+    ['as many members as maxObjectStreamMembers', { maxObjectStreamMembers: 2 }, 'GTS_PDFA1'],
+    ['more members than maxObjectStreamMembers', { maxObjectStreamMembers: 1 }, 'other'],
+    ['a decoded length within maxDecodedBytes', { maxDecodedBytes: 400_000 }, 'GTS_PDFA1'],
+    ['a decoded length past maxDecodedBytes', { maxDecodedBytes: 250_000 }, 'other'],
+  ])('replaces an intent whose S is in an object stream of %s', (_, options, subtype) => {
+    const document = objectStreamSubtype(other, options);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', [subtype], ['GTS_PDFX']]);
+  });
+
+  it('refuses an intent it keeps whose S is in an object stream past the limits', () => {
+    // A kept intent stays in the document, so an S the loader refuses to read refuses the call rather than being written out unread.
+    const document = objectStreamSubtype(profile, { maxObjectStreamMembers: 1 });
+    const write = () => writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect(write).toThrow(ResourceLimitError);
+    expect(write).toThrow(/maxObjectStreamMembers/u);
   });
 
   it('writes N 4 on a reused profile that lacks it', () => {
@@ -312,6 +599,15 @@ describe('gts pdfx output intent', () => {
     expect(write).toThrow(ValidationError);
     expect(write).toThrow(expect.objectContaining({ reason: 'pdf-extensions' }));
     expect([extended.catalog().has(pdfName('OutputIntents').bytes), extended.save().mode]).toStrictEqual([false, 'incremental']);
+  });
+
+  it('writes an intent beside Extensions with pdfx false, leaving the version alone', () => {
+    const extended = loadDocument(base().bytes);
+    setCatalogEntry(extended, 'Extensions', pdfDictionary());
+    setCatalogEntry(extended, 'Version', pdfName('1.7'));
+    const result = writeGtsPdfxOutputIntent(extended, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', pdfx: false });
+    expect([result.action, extended.catalog().get(pdfName('Version').bytes), subtypesOf(extended)]).toStrictEqual(['added', pdfName('1.7'), ['GTS_PDFX']]);
+    expect([new TextDecoder().decode(extended.save().toBytes().subarray(0, 8)), versionLowered(extended)]).toStrictEqual(['%PDF-1.7', false]);
   });
 
   it.each(registeredPrintingConditions.map(condition => condition.identifier))(

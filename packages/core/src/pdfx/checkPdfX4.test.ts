@@ -123,12 +123,23 @@ const version = (value: string) => `<pdfxid:GTS_PDFXVersion>${value}</pdfxid:GTS
 const trappedXmp = (value: string) => `<pdf:Trapped>${value}</pdf:Trapped>`;
 
 // ISO 32000-1:2008, 12.6.4.16 and 12.6.4.7: a JavaScript action carries JS, and a URI action carries URI.
-const action = (document: LoadedDocument, subtype: 'JavaScript' | 'URI') =>
+// 7.3.10: S may be an indirect reference to the name.
+const action = (document: LoadedDocument, subtype: 'JavaScript' | 'URI', indirect = false) =>
   document.object(
     pdfDictionary(
       entries([
-        ['S', pdfName(subtype)],
+        ['S', indirect ? document.object(pdfName(subtype)) : pdfName(subtype)],
         [subtype === 'JavaScript' ? 'JS' : 'URI', pdfLiteralString('x')],
+      ]),
+    ),
+  );
+
+const annotation = (document: LoadedDocument, subtype: PdfDirectObject) =>
+  document.object(
+    pdfDictionary(
+      entries([
+        ['Type', pdfName('Annot')],
+        ['Subtype', subtype],
       ]),
     ),
   );
@@ -429,12 +440,36 @@ describe('pdfx structural checker', () => {
       ['a JavaScript name tree', 'Names', document => pdfDictionary(entries([['JavaScript', document.object(pdfDictionary())]])), 'violation'],
       ['a reachable JavaScript action', 'OpenAction', document => action(document, 'JavaScript'), 'violation'],
       ['a reachable URI action', 'OpenAction', document => action(document, 'URI'), 'passed'],
+      ['a JavaScript action whose S is indirect', 'OpenAction', document => action(document, 'JavaScript', true), 'violation'],
+      ['a URI action whose S is indirect', 'OpenAction', document => action(document, 'URI', true), 'passed'],
       ['an additional action that runs JavaScript', 'AA', document => pdfDictionary(entries([['O', action(document, 'JavaScript')]])), 'violation'],
       ['an additional action that opens a URI', 'AA', document => pdfDictionary(entries([['O', action(document, 'URI')]])), 'not-checked'],
     ])('checks a document with %s', (_, name, value, status) => {
       const document = prepared();
       setCatalogEntry(document, name, value(document));
       expect(statusOf(document, 'X4-JS')).toBe(status);
+    });
+
+    const stale = { number: 9, body: '/JavaScript' };
+    it.each<[string, ReadonlyArray<TestObject>, LoadOptions, 'violation' | 'passed' | 'not-checked']>([
+      ['alone', [{ number: 4, body: '<</S 9 1 R/JS(x)>>' }, stale], {}, 'not-checked'],
+      [
+        'followed by a JavaScript action',
+        [{ number: 4, body: '<</S 9 1 R/JS(x)/Next 5 0 R>>' }, { number: 5, body: '<</S/JavaScript/JS(x)>>' }, stale],
+        {},
+        'violation',
+      ],
+      [
+        'after a JavaScript action',
+        [{ number: 4, body: '<</S/JavaScript/JS(x)/Next 5 0 R>>' }, { number: 5, body: '<</S 9 1 R/JS(x)>>' }, stale],
+        {},
+        'violation',
+      ],
+      ['alone, loaded to read it as null', [{ number: 4, body: '<</S 9 1 R/JS(x)>>' }, stale], { generationMismatch: 'null' }, 'passed'],
+    ])('checks an action whose S names another generation of an object, %s', (_, extra, options, status) => {
+      const report = checkPdfX4(raw({ catalog: '/OpenAction 4 0 R', extra }, options));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-JS')?.status).toBe(status);
     });
 
     it.each<[string, (document: LoadedDocument) => Fields, 'violation' | 'passed' | 'not-checked']>([
@@ -475,6 +510,41 @@ describe('pdfx structural checker', () => {
       const filters = document.object(pdfArray([pdfName('ASCII85Decode'), filter]));
       setCatalogEntry(document, 'Extra', stream(document, Uint8Array.of(0), [['Filter', filters]]));
       expect(statusOf(document, 'X4-LZW')).toBe('violation');
+    });
+
+    it.each<[string, string]>([
+      ['after', '[9 1 R/LZWDecode]'],
+      ['before', '[/LZWDecode 9 1 R]'],
+    ])('finds an LZW filter %s a filter that names another generation of an object', (_, filters) => {
+      const report = checkPdfX4(
+        raw({
+          catalog: '/X 5 0 R',
+          extra: [
+            { number: 5, body: streamBody(`/Filter${filters}`, 'x') },
+            { number: 9, body: '/x' },
+          ],
+        }),
+      );
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-LZW')?.status).toBe('violation');
+    });
+
+    it.each<[string, string, 'violation' | 'not-checked']>([
+      ['alone', '', 'not-checked'],
+      ['beside another stream with an LZW filter', '/Y 6 0 R', 'violation'],
+    ])('checks a stream whose Filter names another generation of an object, %s', (_, other, status) => {
+      const report = checkPdfX4(
+        raw({
+          catalog: `/X 5 0 R${other}`,
+          extra: [
+            { number: 5, body: streamBody('/Filter 9 1 R', 'x') },
+            { number: 6, body: streamBody('/Filter/LZWDecode', 'x') },
+            { number: 9, body: '/LZWDecode' },
+          ],
+        }),
+      );
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-LZW')?.status).toBe(status);
     });
 
     it.each<[string, 'violation' | 'passed']>([
@@ -593,10 +663,50 @@ describe('pdfx structural checker', () => {
           ),
         'violation',
       ],
+      // ISO 32000-1:2008, 7.3.10: Subtype and Type may be indirect references to the name.
+      ['a FileAttachment annotation whose Subtype is indirect', document => annotation(document, document.object(pdfName('FileAttachment'))), 'violation'],
+      ['a Text annotation whose Subtype is indirect', document => annotation(document, document.object(pdfName('Text'))), 'passed'],
+      [
+        'a stream whose Type EmbeddedFile is indirect',
+        document => stream(document, Uint8Array.of(1), [['Type', document.object(pdfName('EmbeddedFile'))]]),
+        'violation',
+      ],
+      ['a stream whose Type XObject is indirect', document => stream(document, Uint8Array.of(1), [['Type', document.object(pdfName('XObject'))]]), 'passed'],
     ])('checks a catalog that references %s', (_, value, status) => {
       const document = raw();
       setCatalogEntry(document, 'Extra', value(document));
       expect(statusOf(document, 'X4-EMBEDDED')).toBe(status);
+    });
+
+    it.each<[string, TestObject, LoadOptions, 'passed' | 'not-checked']>([
+      ['an annotation whose Subtype', { number: 4, body: '<</Type/Annot/Subtype 9 1 R>>' }, {}, 'not-checked'],
+      ['a stream whose Type', { number: 4, body: streamBody('/Type 9 1 R', 'x') }, {}, 'not-checked'],
+      [
+        'an annotation whose Subtype, loaded to read it as null,',
+        { number: 4, body: '<</Type/Annot/Subtype 9 1 R>>' },
+        { generationMismatch: 'null' },
+        'passed',
+      ],
+    ])('checks a catalog that references %s names another generation of an object', (_, object, options, status) => {
+      const report = checkPdfX4(raw({ catalog: '/Extra 4 0 R', extra: [object, { number: 9, body: '/FileAttachment' }] }, options));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe(status);
+    });
+
+    it.each<[string, ReadonlyArray<TestObject>]>([
+      ['a direct Type EmbeddedFile', [{ number: 5, body: '<</Type/EmbeddedFile/Subtype 9 1 R>>' }]],
+      [
+        'an indirect Type EmbeddedFile',
+        [
+          { number: 5, body: '<</Type 7 0 R/Subtype 9 1 R>>' },
+          { number: 7, body: '/EmbeddedFile' },
+        ],
+      ],
+      ['a direct Subtype FileAttachment', [{ number: 5, body: '<</Type 9 1 R/Subtype/FileAttachment>>' }]],
+    ])('finds %s beside an entry that names another generation of an object', (_, objects) => {
+      const report = checkPdfX4(raw({ catalog: '/X 5 0 R', extra: [...objects, { number: 9, body: '/x' }] }));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe('violation');
     });
 
     it.each<[string, (document: LoadedDocument) => PdfDirectObject, 'violation' | 'passed']>([

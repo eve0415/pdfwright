@@ -8,6 +8,7 @@ import type { PdfX4RuleId, RuleAuthority } from './pdfX4Rules.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ParseError } from '../error/parseError.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -77,6 +78,8 @@ const entriesOf = (context: Context, value: PdfDirectObject | undefined): PdfDic
   }
   return resolved?.kind === 'stream' ? resolved.dictionary : undefined;
 };
+// ISO 32000-1:2008, 7.3.10: an indirect reference may stand wherever a direct object may appear.
+const resolvedName = (context: Context, value: PdfDirectObject | undefined): string | undefined => nameOf(context.internals.objects.deref(value));
 const resolvedText = (context: Context, entries: PdfDictionaryEntries, name: string): string | undefined => {
   const stored = entries.get(key(name));
   return textOf(context.internals.objects.deref(stored));
@@ -211,19 +214,46 @@ const visitAll = (context: Context, predicate: (value: PdfObject) => boolean): b
   return false;
 };
 
-const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean, what: string): Outcome => {
+// Reads a name that may be an indirect reference; a reference the loader refuses reads as undefined, and the caller learns it was unresolved.
+type NameReader = (value: PdfDirectObject | undefined) => string | undefined;
+
+const globalCheck = (context: Context, forbidden: (value: PdfObject, name: NameReader) => boolean, what: string): Outcome => {
   if (context.unreadable > 0) {
     return unchecked(
       `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(context.unreadable)} reachable objects could not be read`,
     );
   }
-  return visitAll(context, forbidden) ? violation(`${what} was found`) : passed(`no ${what} was found in reachable objects`);
+  // A reference the loader refuses, such as one naming another generation, leaves its value unknown; a forbidden value found elsewhere, in the same dictionary too, is still reported.
+  const unresolved: Array<string> = [];
+  const guarded = <T>(read: () => T, otherwise: T): T => {
+    try {
+      return read();
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
+      unresolved.push(error.message);
+      return otherwise;
+    }
+  };
+  const name: NameReader = value => guarded(() => resolvedName(context, value), undefined);
+  const found = visitAll(context, value => guarded(() => forbidden(value, name), false));
+  if (found) {
+    return violation(`${what} was found`);
+  }
+  if (unresolved.length > 0) {
+    return unchecked(
+      `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(unresolved.length)} references could not be resolved`,
+    );
+  }
+  return passed(`no ${what} was found in reachable objects`);
 };
 
-const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string): boolean => {
+const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string, name: NameReader = item => resolvedName(context, item)): boolean => {
   const resolved = context.internals.objects.deref(value);
   if (resolved?.kind === 'array') {
-    return resolved.items.some(item => nameOf(context.internals.objects.deref(item)) === expected);
+    // Each item is read by itself, so that one the loader refuses does not hide the expected name after it.
+    return resolved.items.some(item => name(item) === expected);
   }
   return nameOf(resolved) === expected;
 };
@@ -304,7 +334,7 @@ const contentStreams = (context: Context): Set<Extract<PdfObject, { kind: 'strea
 const lzw: Check = context => {
   const streams = globalCheck(
     context,
-    value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'),
+    (value, name) => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode', name),
     'LZWDecode filter',
   );
   if (streams.status !== 'passed') {
@@ -345,7 +375,7 @@ const javascript: Check = context => {
   if (names?.has(key('JavaScript')) === true) {
     return violation('the JavaScript name tree is present');
   }
-  const script = globalCheck(context, value => value.kind === 'dictionary' && nameOf(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
+  const script = globalCheck(context, (value, name) => value.kind === 'dictionary' && name(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
   if (script.status !== 'passed') {
     return script;
   }
@@ -425,7 +455,7 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-EMBEDDED': context =>
     globalCheck(
       context,
-      value => {
+      (value, name) => {
         if (value.kind !== 'dictionary' && value.kind !== 'stream') {
           return false;
         }
@@ -433,8 +463,8 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
         return (
           entries.has(key('EmbeddedFiles')) ||
           entries.has(key('EF')) ||
-          nameOf(entries.get(key('Subtype'))) === 'FileAttachment' ||
-          nameOf(entries.get(key('Type'))) === 'EmbeddedFile'
+          name(entries.get(key('Subtype'))) === 'FileAttachment' ||
+          name(entries.get(key('Type'))) === 'EmbeddedFile'
         );
       },
       'embedded file or FileAttachment annotation',
