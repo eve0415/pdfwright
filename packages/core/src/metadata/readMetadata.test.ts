@@ -98,7 +98,7 @@ describe('reading document metadata', () => {
     const metadata = read(
       '',
       [
-        { number: 4, body: '<</A<</Metadata 9 0 R>>/B<</Metadata 8 0 R>>/C<</Metadata 7 0 R>>>>' },
+        { number: 4, body: '<</A<</Metadata 7 0 R>>/B<</Metadata 8 0 R>>/C<</Metadata 9 0 R>>>>' },
         ...COMPONENTS,
         { number: 9, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
       ],
