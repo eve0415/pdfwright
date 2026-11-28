@@ -363,6 +363,7 @@ describe('exponential functions', () => {
     ['a negative N on a Domain that starts at 0', [0, 1], pdfInteger(-1), /negative N/],
     ['a negative N on a Domain that ends at 0', [-1, 0], pdfInteger(-1), /negative N/],
     ['a negative N on a Domain of only 0', [0, 0], pdfInteger(-2), /negative N/],
+    ['a negative N on a Domain with 0 inside it', [-1, 1], pdfInteger(-1), /negative N/],
   ])('rejects %s', (_, domain, exponent, pattern) => {
     const build = () => createPdfFunction(functionObject(2, { Domain: numbers(domain), N: exponent }));
     expect(build).toThrow(ParseError);
