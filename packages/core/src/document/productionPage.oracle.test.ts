@@ -3,11 +3,11 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { text } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
 
 import { readPlate, renderPlates } from '../../../../scripts/plateOracle.ts';
+import { runQpdf } from '../../../../scripts/readerOracle.ts';
 import { pdfDate } from '../date/pdfDate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { formatLength, mm, pt } from '../length/length.ts';
@@ -25,15 +25,6 @@ const key = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(
 interface QpdfField {
   value: unknown;
 }
-
-const runQpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
-  const child = spawn('qpdf', args);
-  const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-  if (closed[0] !== 0) {
-    throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
-  }
-  return { stdout, stderr };
-};
 
 const entry = (dictionary: unknown, name: string): QpdfField => {
   if (typeof dictionary !== 'object' || dictionary === null) {
