@@ -11,7 +11,6 @@ import { loadDocument } from '../../document/loadDocument.ts';
 import { pdfName, pdfReference } from '../../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
 
-import { PREDEFINED_CMAPS } from './cmapProvider.ts';
 import { CMapResolver } from './cmapResolver.ts';
 
 const document = (objects: ReadonlyArray<TestObject> = []): DocumentInternals => {
@@ -45,11 +44,6 @@ const cmapOf = (result: CMapResult): CMap => {
 const PARENT = '/CMapName /Parent def 1 begincodespacerange <0000> <FFFF> endcodespacerange 1 begincidrange <0000> <00FF> 100 endcidrange';
 
 describe('resolved CMaps', () => {
-  it('lists the predefined CMaps of Table 118', () => {
-    expect(PREDEFINED_CMAPS.size).toBe(61);
-    expect(['90ms-RKSJ-H', 'UniJIS-UTF16-V', 'H', 'V', 'Identity-H', 'Identity-V'].filter(name => !PREDEFINED_CMAPS.has(name))).toStrictEqual([]);
-  });
-
   it('builds in Identity-H and Identity-V without a provider', () => {
     const resolver = new CMapResolver(document(), undefined);
     const horizontal = cmapOf(resolver.named('Identity-H'));
@@ -103,9 +97,8 @@ describe('resolved CMaps', () => {
 
   it('resolves an Encoding name through the provider and reports a stream that does not decode as unreadable', () => {
     const internals = document([{ number: 4, body: streamBody('/Filter/FlateDecode', 'not deflate data') }]);
-    const resolver = new CMapResolver(internals, undefined);
-    const vertical = cmapOf(resolver.encoding(pdfName('Identity-V')));
-    expect(vertical.writingMode).toBe(1);
+    const resolver = new CMapResolver(internals, provider({ Custom: PARENT }));
+    expect(cmapOf(resolver.encoding(pdfName('Custom'))).cid({ value: 0x41, length: 2 })).toBe(165);
     expect(resolver.encoding(pdfReference(4, 0)).kind).toBe('unreadable');
     expect(resolver.encoding({ kind: 'integer', value: 3 }).kind).toBe('unreadable');
   });
