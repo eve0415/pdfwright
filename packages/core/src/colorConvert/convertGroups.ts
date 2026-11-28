@@ -1,5 +1,6 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
@@ -311,10 +312,20 @@ const applyGroup = (scan: Scan, plan: GroupPlan): void => {
   }
 };
 
-/** Converts explicit RGB transparency group spaces after checking their compositing effects. */
-export const convertTransparencyGroups = (document: LoadedDocument, options: RewriteColorOptions): GroupConversionReport => {
+/** Converts explicit RGB transparency group spaces after checking their compositing effects. A refusal that `refusals` receives is the caller's to raise after its later passes; without it, the refusal is thrown here. */
+export const convertTransparencyGroups = (
+  document: LoadedDocument,
+  options: RewriteColorOptions,
+  refusals?: Array<UnsupportedFeatureError>,
+): GroupConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const masks = prepareLuminosityMasks(document, options);
+  if (masks.refusal !== undefined) {
+    if (refusals === undefined) {
+      throw masks.refusal;
+    }
+    refusals.push(masks.refusal);
+  }
   const internals = internalsOf(document);
   if (internals === undefined) {
     throw new ValidationError('document internals are unavailable');

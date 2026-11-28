@@ -84,6 +84,8 @@ export interface LuminosityPreparation {
   readonly changed: number;
   readonly kept: number;
   readonly approximated: number;
+  /** The refusal of calibrated gray paint in a gray mask group, which the caller raises once the passes that check that paint have run. */
+  readonly refusal: UnsupportedFeatureError | undefined;
   apply: () => void;
 }
 
@@ -97,6 +99,7 @@ interface MaskScan {
   readonly approximated: Set<number>;
   readonly seenForms: Set<number>;
   readonly seenCarriers: Set<number>;
+  readonly grayPaint: Array<'image' | 'shading'>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -359,10 +362,10 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
   };
 };
 
-// The image, shading and mesh passes convert calibrated gray to CMYK unless the caller keeps it, and inside a DeviceGray mask group that CMYK paint would change the mask values. A renderer converts calibrated gray into a device blending space in its own way, so no DeviceGray value reproduces the source mask, and that paint is refused.
+// The image, shading and mesh passes convert calibrated gray to CMYK unless the caller keeps it, and inside a DeviceGray mask group that CMYK paint would change the mask values. A renderer converts calibrated gray into a device blending space in its own way, so no DeviceGray value reproduces the source mask, and that paint is refused. The refusal waits for those passes, so that malformed paint is still rejected as invalid.
 const checkGrayPaint = (scan: MaskScan, paint: 'image' | 'shading'): void => {
-  if ((scan.options.iccGray ?? 'convert') === 'convert') {
-    throw new UnsupportedFeatureError(`luminosity ${paint} has calibrated gray paint that would become CMYK`);
+  if ((scan.options.iccGray ?? 'convert') === 'convert' && scan.grayPaint.length === 0) {
+    scan.grayPaint.push(paint);
   }
 };
 
@@ -1070,6 +1073,7 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
     approximated: new Set(),
     seenForms: new Set(),
     seenCarriers: new Set(),
+    grayPaint: [],
   };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
@@ -1099,11 +1103,13 @@ export const prepareLuminosityMasks = (document: LoadedDocument, options: Rewrit
     }
   }
   const shared = new Set([...scan.groups.keys()].filter(number => scan.seenForms.has(number) || scan.seenCarriers.has(number)));
+  const [grayPaint] = scan.grayPaint;
   return {
     groupNumbers: new Set([...[...scan.groups.keys()].filter(number => !shared.has(number)), ...scan.kept]),
     changed: scan.groups.size,
     kept: scan.kept.size,
     approximated: scan.approximated.size,
+    refusal: grayPaint === undefined ? undefined : new UnsupportedFeatureError(`luminosity ${grayPaint} has calibrated gray paint that would become CMYK`),
     apply() {
       if (scan.groups.size === 0) {
         return;
