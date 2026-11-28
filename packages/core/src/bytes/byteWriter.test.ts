@@ -85,22 +85,33 @@ describe('properties', () => {
     | { readonly kind: 'byte'; readonly byte: number }
     | { readonly kind: 'bytes'; readonly bytes: Uint8Array }
     | { readonly kind: 'ascii'; readonly codes: ReadonlyArray<number> }
-    | { readonly kind: 'copy'; readonly distance: number; readonly length: number }
+    | {
+        readonly kind: 'copy';
+        readonly reach: number;
+        readonly length: { readonly from: 'distance'; readonly delta: number } | { readonly from: 'free'; readonly count: number };
+      }
     | { readonly kind: 'drain' };
 
   const step: fc.Arbitrary<Step> = fc.oneof(
     fc.integer({ min: 0, max: 255 }).map(byte => ({ kind: 'byte', byte }) as const),
-    fc.uint8Array({ maxLength: 600 }).map(bytes => ({ kind: 'bytes', bytes }) as const),
-    fc.array(fc.integer({ min: 0, max: 127 }), { maxLength: 40 }).map(codes => ({ kind: 'ascii', codes }) as const),
+    fc.uint8Array({ maxLength: 600, size: 'medium' }).map(bytes => ({ kind: 'bytes', bytes }) as const),
+    fc.array(fc.integer({ min: 0, max: 127 }), { maxLength: 40, size: 'medium' }).map(codes => ({ kind: 'ascii', codes }) as const),
+    // The distance is drawn onto the last 300 bytes written, and the length either around the distance, where a copy starts or stops overlapping, or freely.
     fc
-      .record({ distance: fc.integer({ min: 1, max: 300 }), length: fc.integer({ min: 1, max: 300 }) })
-      .map(({ distance, length }) => ({ kind: 'copy', distance, length }) as const),
+      .record({
+        reach: fc.nat(),
+        length: fc.oneof(
+          fc.integer({ min: -1, max: 1 }).map(delta => ({ from: 'distance', delta }) as const),
+          fc.integer({ min: 1, max: 300 }).map(count => ({ from: 'free', count }) as const),
+        ),
+      })
+      .map(({ reach, length }) => ({ kind: 'copy', reach, length }) as const),
     fc.constant({ kind: 'drain' } as const),
   );
 
   it('holds the same bytes as a plain array model after every step', () => {
     fc.assert(
-      fc.property(fc.array(step, { maxLength: 40 }), steps => {
+      fc.property(fc.array(step, { maxLength: 40, size: 'medium' }), steps => {
         const writer = new ByteWriter();
         let model: Array<number> = [];
         const states: Array<{ readonly written: Uint8Array; readonly expected: Uint8Array }> = [];
@@ -116,10 +127,12 @@ describe('properties', () => {
             model.push(...next.codes);
           } else if (next.kind === 'copy') {
             // A back-reference may only reach bytes already written.
-            if (next.distance <= model.length) {
-              writer.copyBack(next.distance, next.length);
-              const source = model.length - next.distance;
-              for (let index = 0; index < next.length; index++) {
+            if (model.length > 0) {
+              const distance = 1 + (next.reach % Math.min(model.length, 300));
+              const length = next.length.from === 'distance' ? Math.max(1, distance + next.length.delta) : next.length.count;
+              writer.copyBack(distance, length);
+              const source = model.length - distance;
+              for (let index = 0; index < length; index++) {
                 model.push(model[source + index] ?? 0);
               }
             }
