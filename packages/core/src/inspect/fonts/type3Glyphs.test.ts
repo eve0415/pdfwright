@@ -108,9 +108,12 @@ describe('glyph procedures of Type 3 fonts', () => {
     expect(type3([streamBody('', '1000 0 d0 /F1 1 Tf')], '/Resources<<>>').problems).toStrictEqual([]);
   });
 
-  // ISO 32000-1:2008, 7.3.7: a null value is the same as an absent entry.
-  it('takes the page resources for a font whose Resources is null', () => {
-    const font = type3([IMAGE_DO], '/Resources null', '/XObject<</Im0 120 0 R>>');
+  // ISO 32000-1:2008, 7.3.7: a null value is the same as an absent entry; 7.3.10: a reference to an object that does not exist is a reference to null.
+  it.each([
+    ['null', '/Resources null'],
+    ['a reference to an object that does not exist', '/Resources 999 0 R'],
+  ])('takes the page resources for a font whose Resources is %s', (_, resources) => {
+    const font = type3([IMAGE_DO], resources, '/XObject<</Im0 120 0 R>>');
     expect([font.type3?.glyphs, font.problems.map(problem => problem.code)]).toStrictEqual(['image', ['type3-resources-inherited']]);
   });
 
