@@ -113,24 +113,42 @@ describe('properties', () => {
     );
   });
 
-  it('digests differently when an included object gains another number, generation or value', () => {
-    const edit = fc.constantFrom('number', 'generation', 'value');
+  // Generated object numbers stop at 40, so 41 is never taken.
+  const freeNumber = 41;
+
+  const editChange = (kind: 'number' | 'generation' | 'value' | 'deletion', objectNumber: number, original: ObjectChange): [number, ObjectChange] => {
+    switch (kind) {
+      case 'number': {
+        return [freeNumber, original];
+      }
+      case 'generation': {
+        return [objectNumber, { ...original, generation: original.generation + 1 }];
+      }
+      case 'value': {
+        return 'deleted' in original
+          ? [objectNumber, original]
+          : [objectNumber, { generation: original.generation, value: pdfInteger(original.value.kind === 'integer' ? original.value.value + 1 : 0) }];
+      }
+      case 'deletion': {
+        return [
+          objectNumber,
+          'deleted' in original ? { generation: original.generation, value: pdfInteger(0) } : { generation: original.generation, deleted: true },
+        ];
+      }
+    }
+  };
+
+  it('digests differently when an included object gains another number, generation or value, or is deleted or restored', () => {
     fc.assert(
       fc.property(
-        changes.filter(entries => entries.some(([objectNumber]) => objectNumber !== 9)),
+        changes.filter(entries => entries.some(([objectNumber, change]) => objectNumber !== 9 && !('deleted' in change))),
         fc.nat(),
-        edit,
+        fc.constantFrom('number', 'generation', 'value', 'deletion'),
         (entries, pick, kind) => {
-          const included = entries.filter(([objectNumber]) => objectNumber !== 9);
-          const [objectNumber, original] = included[pick % included.length] ?? [1, set(0)];
-          // Generated object numbers stop at 40, so 41 is never taken.
-          const freeNumber = 41;
-          const replacement: [number, ObjectChange] =
-            kind === 'number'
-              ? [freeNumber, original]
-              : kind === 'generation'
-                ? [objectNumber, { ...original, generation: original.generation + 1 }]
-                : [objectNumber, 'deleted' in original ? set(0) : { generation: original.generation, deleted: true }];
+          // A deleted object has no value to change, so the edit picks among the included objects that have one when it changes a value.
+          const candidates = entries.filter(([objectNumber, change]) => objectNumber !== 9 && (kind !== 'value' || !('deleted' in change)));
+          const [objectNumber, original] = candidates[pick % candidates.length] ?? [1, set(0)];
+          const replacement = editChange(kind, objectNumber, original);
           const edited = entries.map((entry): [number, ObjectChange] => (entry[0] === objectNumber ? replacement : entry));
           expect(digestOf(edited)).not.toBe(digestOf(entries));
         },
