@@ -22,6 +22,13 @@ const BOUNDS = { left: 0, bottom: 0, right: 100, top: 100 };
 // Queries a point repeatedly; the index refuses more than 4,000,000 comparisons over its life.
 const queries = (index: CoverIndex, [x, y]: readonly [number, number], count: number): Array<boolean> => Array.from({ length: count }, () => index.hides(x, y));
 
+// Whether one fill added to an index over BOUNDS hides the point.
+const hiddenByOne = (rectangle: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean => {
+  const index = new CoverIndex(BOUNDS, 1);
+  index.add(fill(rectangle));
+  return index.hides(x, y);
+};
+
 describe('cover index', () => {
   it('does not repeat comparisons for identical fills', () => {
     const index = new CoverIndex(BOUNDS, 4000);
@@ -98,16 +105,11 @@ describe('cover index', () => {
   });
 
   it('keeps a fill that starts exactly 10⁻⁶ outside the bounds on any side, for a point on that edge of the bounds', () => {
-    const hides = (rectangle: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean => {
-      const index = new CoverIndex(BOUNDS, 1);
-      index.add(fill(rectangle));
-      return index.hides(x, y);
-    };
     expect([
-      hides([100 + 1e-6, 10, 120, 20], [100, 15]),
-      hides([-20, 10, -1e-6, 20], [0, 15]),
-      hides([10, 100 + 1e-6, 20, 120], [15, 100]),
-      hides([10, -20, 20, -1e-6], [15, 0]),
+      hiddenByOne([100 + 1e-6, 10, 120, 20], [100, 15]),
+      hiddenByOne([-20, 10, -1e-6, 20], [0, 15]),
+      hiddenByOne([10, 100 + 1e-6, 20, 120], [15, 100]),
+      hiddenByOne([10, -20, 20, -1e-6], [15, 0]),
     ]).toStrictEqual([true, true, true, true]);
   });
 
