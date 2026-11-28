@@ -18,9 +18,28 @@ interface Line {
 }
 
 // PostScript Language Reference, 3.2.2: inside a literal string, a backslash before an end-of-line marker (CR, LF or CR LF) is dropped with it, so a string may run on past the CR that would end a native line.
-// An octal escape codes one byte, so a byte above 127 that an escape codes is written as itself here and decodes as UTF-8 together with the raw bytes beside it; a lower byte keeps its escape, since it may be a parenthesis or a backslash.
+// Bytes above 127 next to each other inside a string may be one UTF-8 character written partly raw and partly as escapes, which the line cannot decode, so such a run is written wholly as octal escapes for the literal parser to join; a run that is all raw or all octal stays as written.
 const continuedLine = (bytes: Uint8Array, start: number): Line => {
   const kept: Array<number> = [];
+  const run: Array<number> = [];
+  const written: Array<number> = [];
+  let raw = 0;
+  let octal = 0;
+  const flush = (): void => {
+    if (raw === run.length || octal === run.length) {
+      for (const value of raw === run.length ? run : written) {
+        kept.push(value);
+      }
+    } else {
+      for (const value of run) {
+        kept.push(92, 48 + (value >> 6), 48 + ((value >> 3) & 7), 48 + (value & 7));
+      }
+    }
+    run.length = 0;
+    written.length = 0;
+    raw = 0;
+    octal = 0;
+  };
   let depth = 0;
   let position = start;
   let byte = bytes[position];
@@ -38,13 +57,17 @@ const continuedLine = (bytes: Uint8Array, start: number): Line => {
       if (next === 13 || next === 10) {
         position += next === 13 && bytes[position + 2] === 10 ? 3 : 2;
       } else if (code % 256 > 127) {
-        kept.push(code % 256);
+        run.push(code % 256);
+        written.push(...bytes.subarray(position, position + 1 + digits));
+        octal++;
         position += 1 + digits;
       } else if (next !== undefined && next > 127) {
         // A backslash before a character without an escape is dropped.
-        kept.push(next);
+        run.push(next);
+        written.push(byte, next);
         position += 2;
       } else {
+        flush();
         // An escape is kept whole, so an escaped parenthesis or backslash neither opens nor closes the string.
         kept.push(byte);
         if (next !== undefined) {
@@ -52,7 +75,13 @@ const continuedLine = (bytes: Uint8Array, start: number): Line => {
         }
         position += 2;
       }
+    } else if (depth > 0 && byte > 127) {
+      run.push(byte);
+      written.push(byte);
+      raw++;
+      position++;
     } else {
+      flush();
       if (byte === 40) {
         depth++;
       } else if (byte === 41 && depth > 0) {
@@ -66,6 +95,7 @@ const continuedLine = (bytes: Uint8Array, start: number): Line => {
   if (byte === undefined) {
     throw new ParseError('native line is missing its closing CR', start);
   }
+  flush();
   return { text: decoder.decode(Uint8Array.from(kept)), end: position };
 };
 
