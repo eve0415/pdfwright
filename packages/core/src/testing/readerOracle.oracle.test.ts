@@ -50,6 +50,29 @@ describe('reader reports', () => {
       ['poppler', 0, [10, 20, 90, 80], []],
     ]);
   });
+
+  // pdfinfo reports the CropBox, here the MediaBox, as the TrimBox of a page that has none.
+  it('give no TrimBox when page 1 has none, though page 2 has one', async () => {
+    const pdf = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]>>' },
+          page(4, '1 1 9 9'),
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes;
+    const reports = await withFile(pdf, readerReports);
+    expect(reports.map(report => [report.tool, report.code, report.trimBox, report.notices])).toStrictEqual([
+      ['qpdf', 0, undefined, []],
+      ['mutool', 0, undefined, []],
+      ['gs', 0, undefined, []],
+      ['poppler', 0, [0, 0, 100, 100], []],
+    ]);
+  });
 });
 
 describe('checked tool runs', () => {

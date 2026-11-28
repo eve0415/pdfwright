@@ -157,19 +157,36 @@ const mutool = async (file: string): Promise<ReaderReport> => {
   return { tool: 'mutool', code: run.code, trimBox, notices: notices(run.output), output: run.output };
 };
 
+/** The TrimBox of page 1 in the output of Ghostscript's -dPDFINFO, or undefined when page 1 has none or Ghostscript reports no page. */
+export const ghostscriptTrimBox = (output: string): ReadonlyArray<number> | undefined => {
+  const lines = output.split('\n');
+  const line = lines.find(text => text.startsWith('Page 1 '));
+  // Ghostscript reports each page it reads on a line that starts "Page N ", so boxes reported on no such line are in a form this oracle cannot read.
+  if (line === undefined && !lines.some(text => /^Page \d+ /u.test(text)) && /MediaBox|TrimBox/u.test(output)) {
+    throw new Error(`Ghostscript reports page boxes in a form this oracle cannot read: ${output}`);
+  }
+  return boxFromText('Ghostscript', line ?? '', /TrimBox: \[([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)\]/u);
+};
+
+/** The TrimBox in the output of `pdfinfo -box`, which describes page 1, or undefined when pdfinfo exits nonzero without one. */
+export const popplerTrimBox = (code: number, output: string): ReadonlyArray<number> | undefined => {
+  const line = output.split('\n').find(text => text.startsWith('TrimBox:'));
+  // pdfinfo prints a TrimBox line for a page it reads, the CropBox when the page has none, and exits nonzero when it cannot read the file.
+  if (line === undefined && code === 0) {
+    throw new Error(`poppler reports page boxes in a form this oracle cannot read: ${output}`);
+  }
+  return boxFromText('poppler', line ?? '', /TrimBox:\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/u);
+};
+
 // Ghostscript runs without -q, because -q hides its notice that it repaired the cross-reference table.
 const ghostscript = async (file: string): Promise<ReaderReport> => {
   const run = await runTool('gs', ['-dNODISPLAY', '-dNOSAFER', '-dBATCH', '-dNOPAUSE', '-dPDFINFO', file]);
-  const line = run.output.split('\n').find(text => text.startsWith('Page 1 ')) ?? '';
-  const trimBox = boxFromText('Ghostscript', line, /TrimBox: \[([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)\]/u);
-  return { tool: 'gs', code: run.code, trimBox, notices: notices(run.output), output: run.output };
+  return { tool: 'gs', code: run.code, trimBox: ghostscriptTrimBox(run.output), notices: notices(run.output), output: run.output };
 };
 
 const poppler = async (file: string): Promise<ReaderReport> => {
   const run = await runTool('pdfinfo', ['-box', file]);
-  const line = run.output.split('\n').find(text => text.startsWith('TrimBox:')) ?? '';
-  const trimBox = boxFromText('poppler', line, /TrimBox:\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/u);
-  return { tool: 'poppler', code: run.code, trimBox, notices: notices(run.output), output: run.output };
+  return { tool: 'poppler', code: run.code, trimBox: popplerTrimBox(run.code, run.output), notices: notices(run.output), output: run.output };
 };
 
 /** How qpdf, MuPDF, Ghostscript and poppler read page 1 of a file, and what damage each reports. */

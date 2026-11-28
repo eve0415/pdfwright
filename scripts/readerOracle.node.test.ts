@@ -2,7 +2,7 @@ import type { CheckedRun, ToolRun } from './readerOracle.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { boxFromText, qpdfPageBox, runChecked, runTool } from './readerOracle.ts';
+import { boxFromText, ghostscriptTrimBox, popplerTrimBox, qpdfPageBox, runChecked, runTool } from './readerOracle.ts';
 
 type Json = string | number | ReadonlyArray<Json> | { readonly [key: string]: Json };
 
@@ -106,5 +106,38 @@ describe('boxes in reader text output', () => {
 
   it('refuses captures that are not finite numbers', () => {
     expect(() => boxFromText('poppler', 'TrimBox: 1 2 3 .', pattern)).toThrow(/not four numbers/u);
+  });
+});
+
+// Output in the form Ghostscript 10.05 prints with -dPDFINFO.
+describe('page 1 TrimBox in Ghostscript output', () => {
+  it('reads the box on the page 1 line', () => {
+    expect(ghostscriptTrimBox('Processing pages 1 through 1.\nPage 1 MediaBox: [0 0 100 100] TrimBox: [10 20 90 80]\n')).toStrictEqual([10, 20, 90, 80]);
+  });
+
+  it('reports none when page 1 has none, when only another page is reported, and when no page is', () => {
+    expect([
+      ghostscriptTrimBox('Page 1 MediaBox: [0 0 100 100]\n\nPage 2 MediaBox: [0 0 100 100] TrimBox: [1 1 9 9]\n'),
+      ghostscriptTrimBox('Processing pages 1 through 2.\n   **** Error: page not found.\nPage 2 MediaBox: [0 0 100 100] TrimBox: [1 1 9 9]\n'),
+      ghostscriptTrimBox("   **** Error: Couldn't initialise file.\n   No pages will be processed (FirstPage > LastPage).\n"),
+    ]).toStrictEqual([undefined, undefined, undefined]);
+  });
+
+  it('refuses boxes reported on lines it cannot assign to a page', () => {
+    expect(() => ghostscriptTrimBox('Page 1: MediaBox: [0 0 100 100] TrimBox: [10 20 90 80]\n')).toThrow(/cannot read/u);
+  });
+});
+
+describe('TrimBox in pdfinfo output', () => {
+  it('reads the TrimBox line, which pdfinfo prints for a page without one too', () => {
+    expect(popplerTrimBox(0, 'CropBox:   0.00  0.00 100.00 100.00\nTrimBox:   0.00  0.00 100.00 100.00\n')).toStrictEqual([0, 0, 100, 100]);
+  });
+
+  it('reports none when pdfinfo cannot read the file', () => {
+    expect(popplerTrimBox(1, "Syntax Error: Couldn't read xref table\n")).toBeUndefined();
+  });
+
+  it('refuses output of a successful run with no TrimBox line', () => {
+    expect(() => popplerTrimBox(0, 'MediaBox:   0.00  0.00 100.00 100.00\nTrim box:   0.00  0.00 100.00 100.00\n')).toThrow(/cannot read/u);
   });
 });
