@@ -8,7 +8,6 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
-import { md5 } from '../hash/md5.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
@@ -42,6 +41,12 @@ const editedBytes = (): Uint8Array => {
 };
 
 const lastTrailer = (bytes: Uint8Array): string => latin1Text(bytes).split('trailer').at(-1) ?? '';
+
+// The file identifier pair of a saved file as lowercase hex, or undefined when its trailer has none.
+const identifierOf = (bytes: Uint8Array): ReadonlyArray<string> | undefined => {
+  const id = loadDocument(bytes).structure.trailer.get(pdfName('ID').bytes);
+  return id?.kind === 'array' ? id.items.map(item => (item.kind === 'string' ? hex(item.bytes) : '')) : undefined;
+};
 
 const producedObject = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
   if (value.kind !== 'stream') {
@@ -99,22 +104,36 @@ describe('incremental save', () => {
     ]);
   });
 
-  it('links deleted objects into the free list and numbers new objects above the old Size', () => {
-    const document = loadDocument(base());
+  // ISO 32000-1:2008, 7.5.4: entry 0 heads the linked list of free entries, and the source's list is 0, 6, back to 0.
+  it('links deleted objects into the free list ahead of its previous head and numbers new objects above the old Size', () => {
+    const source = base({ free: [{ number: 6, generation: 1 }] });
+    const document = loadDocument(source);
     document.delete(pdfReference(4, 0));
+    document.delete(pdfReference(5, 0));
     const added = document.object(pdfInteger(7));
     const saved = document.save();
-    const appended = latin1Text(saved.toBytes().subarray(base().length));
-    expect(appended).toMatch(/xref\n0 1\n0000000004 65535 f \n4 1\n0000000000 00001 f \n6 1\n\d{10} 00000 n \n/u);
+    const appended = latin1Text(saved.toBytes().subarray(source.length));
+    expect(appended).toMatch(/\nxref\n0 1\n0000000004 65535 f \n4 2\n0000000005 00001 f \n0000000006 00001 f \n7 1\n\d{10} 00000 n \ntrailer\n/u);
     const reloaded = loadDocument(saved.chunks);
-    expect([added, reloaded.get(pdfReference(4, 0)), reloaded.get(added)]).toStrictEqual([pdfReference(6, 0), { kind: 'null' }, pdfInteger(7)]);
+    expect([added, reloaded.get(pdfReference(4, 0)), reloaded.get(pdfReference(5, 0)), reloaded.get(added), reloaded.structure.status]).toStrictEqual([
+      pdfReference(7, 0),
+      { kind: 'null' },
+      { kind: 'null' },
+      pdfInteger(7),
+      'intact',
+    ]);
   });
 
-  it('writes identical bytes for identical edits and derives the second file identifier from the update', () => {
-    const first = hex(md5(editedBytes()));
-    const second = hex(md5(editedBytes()));
-    expect(first).toBe(second);
-    expect(first).toBe('5b731d37657fe7a600d5dc419af8156c');
+  it('writes identical bytes for identical edits, keeps the first file identifier and derives the second from the update', () => {
+    expect(editedBytes()).toStrictEqual(editedBytes());
+    const edited = identifierOf(editedBytes());
+    const otherDocument = loadDocument(base());
+    otherDocument.set(pdfReference(4, 0), pdfInteger(4));
+    const other = identifierOf(otherDocument.save().toBytes());
+    // ISO 32000-1:2008, 14.4: the first identifier does not change in an incremental update, and the second changes with the contents.
+    expect([edited?.[0], other?.[0]]).toStrictEqual(['11'.repeat(16), '11'.repeat(16)]);
+    expect(new Set([edited?.[1], other?.[1], '22'.repeat(16)]).size).toBe(3);
+    expect([edited?.[1], other?.[1]]).toStrictEqual([expect.stringMatching(/^[0-9a-f]{32}$/u), expect.stringMatching(/^[0-9a-f]{32}$/u)]);
   });
 
   it('keeps XRefStm out of an update to a hybrid file and refuses to update a reconstructed file', () => {
@@ -190,6 +209,8 @@ describe('incremental save', () => {
     }
     const updated = loadDocument(parts);
     const value = producedObject(updated.get(pdfReference(5, 0)));
+    // A wrong Length would be recovered from endstream with a warning, so a clean reload is what shows the Length object is right.
+    expect([updated.warnings, updated.structure.status]).toStrictEqual([[], 'intact']);
     expect(latin1Text(value.data)).toBe('firstsecond');
     expect(value.dictionary.get(pdfName('Length').bytes)?.kind).toBe('reference');
     expect(updated.structure.sections.map(section => section.kind)).toStrictEqual([xref, xref]);
