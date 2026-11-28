@@ -163,3 +163,43 @@ export const iccProfileBytes = (input: IccProfileInput): Uint8Array => {
   }
   return bytes;
 };
+
+export interface RawIccTagRecord {
+  readonly signature: string;
+  readonly offset: number;
+  readonly size: number;
+}
+
+export interface RawIccProfileInput extends HeaderFields {
+  /** The length of the profile in bytes, also written as the header's size field. */
+  readonly length: number;
+  /** Tag table records exactly as given, so that tags may overlap, share data or point outside the profile. */
+  readonly tags: ReadonlyArray<RawIccTagRecord>;
+  /** Bytes to place at an offset, such as tag data; each must lie inside the profile. */
+  readonly data?: ReadonlyArray<readonly [number, Uint8Array]>;
+}
+
+/** An ICC profile whose header is as `iccProfileBytes` writes it and whose tag table and data are placed as given, for tests of malformed tag tables. */
+export const rawIccProfileBytes = (input: RawIccProfileInput): Uint8Array => {
+  const tableEnd = 132 + input.tags.length * 12;
+  if (!Number.isInteger(input.length) || input.length < tableEnd) {
+    throw new RangeError(`a profile of ${String(input.length)} bytes cannot hold a header and ${String(input.tags.length)} tag records`);
+  }
+  const bytes = new Uint8Array(input.length);
+  const view = new DataView(bytes.buffer);
+  writeHeader(bytes, input);
+  view.setUint32(128, input.tags.length);
+  for (const [index, tag] of input.tags.entries()) {
+    bytes.set(signature(tag.signature), 132 + index * 12);
+    view.setUint32(136 + index * 12, tag.offset);
+    view.setUint32(140 + index * 12, tag.size);
+  }
+  for (const [offset, data] of input.data ?? []) {
+    // Uint8Array.set throws a RangeError itself for data that would run past the end.
+    if (!Number.isInteger(offset) || offset < tableEnd) {
+      throw new RangeError(`data at ${String(offset)} would overwrite the header or the tag table`);
+    }
+    bytes.set(data, offset);
+  }
+  return bytes;
+};

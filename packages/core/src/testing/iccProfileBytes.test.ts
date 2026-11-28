@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { parseIccStructure } from '../icc/iccStructure.ts';
 
-import { gammaCurveTag, iccProfileBytes, matrixLutTag, sampledCurveTag, xyzTag } from './iccProfileBytes.ts';
+import { gammaCurveTag, iccProfileBytes, matrixLutTag, rawIccProfileBytes, sampledCurveTag, xyzTag } from './iccProfileBytes.ts';
 
 const RED = [0.4361, 0.2225, 0.0139] as const;
 const GREEN = [0.3851, 0.7169, 0.0971] as const;
@@ -107,5 +108,65 @@ describe('ICC profile bytes', () => {
         Array.from({ length: count }, () => 0),
       ),
     ).toThrow(RangeError);
+  });
+});
+
+describe('raw ICC profile bytes', () => {
+  const mft2 = Uint8Array.from([0x6d, 0x66, 0x74, 0x32]);
+
+  it('writes the tag table exactly as given, so that tags can share data', () => {
+    const bytes = rawIccProfileBytes({
+      profileClass: 'prtr',
+      colorSpace: 'CMYK',
+      pcs: 'Lab ',
+      length: 172,
+      tags: [
+        { signature: 'A2B0', offset: 156, size: 16 },
+        { signature: 'A2B1', offset: 156, size: 16 },
+      ],
+      data: [[156, mft2]],
+    });
+    const structure = parseIccStructure(bytes);
+    expect([structure.header.size, structure.header.profileClass, structure.header.colorSpace, structure.header.pcs]).toStrictEqual([
+      172,
+      'output',
+      'CMYK',
+      'Lab',
+    ]);
+    expect(structure.tags.map(tag => [tag.signature, tag.offset, tag.size])).toStrictEqual([
+      ['A2B0', 156, 16],
+      ['A2B1', 156, 16],
+    ]);
+    expect([...bytes.subarray(156, 160)]).toStrictEqual([...mft2]);
+  });
+
+  it('writes the version it is given', () => {
+    const bytes = rawIccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs: 'XYZ ', version: [2, 0x10], length: 132, tags: [] });
+    expect(parseIccStructure(bytes).header.version).toStrictEqual({ major: 2, minor: 1, bugfix: 0 });
+  });
+
+  it('writes overlapping and out-of-bounds tag records for the parser to refuse', () => {
+    const fields = { profileClass: 'prtr', colorSpace: 'CMYK', pcs: 'Lab ', length: 172 } as const;
+    const overlapping = rawIccProfileBytes({
+      ...fields,
+      tags: [
+        { signature: 'A2B0', offset: 156, size: 16 },
+        { signature: 'A2B1', offset: 160, size: 12 },
+      ],
+    });
+    expect(() => parseIccStructure(overlapping)).toThrow(expect.objectContaining({ constructor: InvalidProfileError, reason: 'tag-overlap' }));
+    const outside = rawIccProfileBytes({ ...fields, tags: [{ signature: 'A2B0', offset: 168, size: 16 }] });
+    expect(() => parseIccStructure(outside)).toThrow(expect.objectContaining({ constructor: InvalidProfileError, reason: 'tag-out-of-bounds' }));
+  });
+
+  it('refuses a length too short for its tag table and data placed outside the profile', () => {
+    const fields = { profileClass: 'prtr', colorSpace: 'CMYK', pcs: 'Lab ' } as const;
+    const tags = [{ signature: 'A2B0', offset: 144, size: 4 }];
+    expect(() => rawIccProfileBytes({ ...fields, length: 143, tags })).toThrow(RangeError);
+    expect(rawIccProfileBytes({ ...fields, length: 144, tags })).toHaveLength(144);
+    expect(() => rawIccProfileBytes({ ...fields, length: 148, tags, data: [[145, mft2]] })).toThrow(RangeError);
+    expect(() => rawIccProfileBytes({ ...fields, length: 148, tags, data: [[140, mft2]] })).toThrow(RangeError);
+    expect([...rawIccProfileBytes({ ...fields, length: 148, tags, data: [[144, mft2]] }).subarray(144)]).toStrictEqual([...mft2]);
+    expect(() => rawIccProfileBytes({ ...fields, length: 148, tags: [{ signature: 'A2B', offset: 144, size: 4 }] })).toThrow(RangeError);
   });
 });
