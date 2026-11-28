@@ -68,9 +68,14 @@ describe('canonical Huffman codes', () => {
 
 describe('properties', () => {
   // The literal/length alphabet has 286 symbols and a 15-bit limit; the code-length alphabet has 19 and a 7-bit limit (RFC 1951, 3.2.7).
+  // Frequencies that are powers of two make an unbounded Huffman tree deeper than the limit, so the limiting step runs too.
+  const frequency = fc.oneof(
+    fc.nat({ max: 100_000 }),
+    fc.integer({ min: 0, max: 40 }).map(exponent => 2 ** exponent),
+  );
   const alphabet = fc.oneof(
-    fc.tuple(fc.array(fc.nat({ max: 100_000 }), { minLength: 1, maxLength: 286 }), fc.constant(15)),
-    fc.tuple(fc.array(fc.nat({ max: 100_000 }), { minLength: 1, maxLength: 19 }), fc.constant(7)),
+    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 286 }), fc.constant(15)),
+    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 19 }), fc.constant(7)),
   );
 
   it('gives used symbols lengths within the limit that form a complete code, longer for rarer symbols', () => {
