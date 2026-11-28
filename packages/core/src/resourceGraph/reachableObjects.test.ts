@@ -2,6 +2,7 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -94,5 +95,147 @@ describe('objects reachable from the trailer', () => {
     const document = load('', [{ number: 6, body: '<</Producer(new)>>' }], '/Info 7 0 R');
     internals(document).objects.setTrailerEntry(pdfName('Info').bytes, pdfReference(6, 0));
     expect(numbers(document)).toStrictEqual([1, 2, 3, 4, 5, 6]);
+  });
+  it('does not follow reference syntax inside stream data', () => {
+    // ISO 32000-1:2008, 7.3.8.1: a stream's data is a sequence of bytes, so `6 0 R` in it references nothing.
+    const document = load('/Metadata 7 0 R', [
+      { number: 6, body: '<<>>' },
+      { number: 7, body: streamBody('/Type/Metadata/Subtype/XML', '6 0 R') },
+    ]);
+    expect(numbers(document)).toStrictEqual([1, 2, 3, 4, 5, 7]);
+  });
+
+  it('lists an object stored in an object stream with generation 0', () => {
+    // ISO 32000-1:2008, 7.5.7: "The generation number of an object stream and of any compressed object shall be zero."
+    // Object 6 is the second member, so its index within the object stream, which the cross-reference stream records in place of a generation (7.5.8.3, Table 18), is 1.
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'stream',
+          objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R/A 6 0 R>>' }, ...PAGES],
+          objectStreams: [
+            {
+              number: 9,
+              members: [
+                { number: 8, body: '<<>>' },
+                { number: 6, body: '<</B 7 0 R>>' },
+              ],
+            },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect([...reachableObjects(internals(document)).objects].toSorted(([left], [right]) => left - right)).toStrictEqual([
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+      [5, 0],
+      [6, 0],
+    ]);
+  });
+
+  it('lists the objects in the order it resolved them', () => {
+    const document = load('/A 6 0 R/B 7 0 R', [
+      { number: 6, body: '<</C 8 0 R>>' },
+      { number: 7, body: '<</D 9 0 R>>' },
+      { number: 8, body: '<<>>' },
+      { number: 9, body: '<<>>' },
+    ]);
+    const parts = internals(document);
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    const listed = [...reachableObjects(parts).objects.keys()];
+    expect(listed).toStrictEqual(resolve.mock.calls.map(([objectNumber]) => objectNumber));
+  });
+});
+
+describe('properties', () => {
+  const FIRST = 6;
+
+  interface Table {
+    /** The objects the catalog references, by index. */
+    readonly roots: ReadonlyArray<number>;
+    readonly objects: ReadonlyArray<{
+      /** References to other objects by index; a stale one names generation 1 of an object whose generation is 0. */
+      readonly links: ReadonlyArray<{ readonly target: number; readonly stale: boolean }>;
+      /** Deleted after loading. */
+      readonly deleted: boolean;
+    }>;
+  }
+
+  const tables = fc.integer({ min: 1, max: 8 }).chain(count =>
+    fc.record({
+      roots: fc.uniqueArray(fc.integer({ min: 0, max: count - 1 }), { maxLength: count }),
+      objects: fc.array(
+        fc.record({
+          links: fc.array(fc.record({ target: fc.integer({ min: 0, max: count - 1 }), stale: fc.boolean() }), { maxLength: 4 }),
+          deleted: fc.boolean(),
+        }),
+        { minLength: count, maxLength: count },
+      ),
+    }),
+  );
+
+  // Writes the table with its references in the given order, so that two orders of the same table can be compared.
+  const loadTable = (table: Table, order: <T>(items: ReadonlyArray<T>) => ReadonlyArray<T>): LoadedDocument => {
+    const document = load(
+      order(table.roots)
+        .map(root => `/R${String(root)} ${String(FIRST + root)} 0 R`)
+        .join(''),
+      table.objects.map(({ links }, index) => ({
+        number: FIRST + index,
+        body: `<<${order([...links.entries()])
+          .map(([position, { target, stale }]) => `/L${String(position)} ${String(FIRST + target)} ${stale ? '1' : '0'} R`)
+          .join('')}>>`,
+      })),
+    );
+    for (const [index, { deleted }] of table.objects.entries()) {
+      if (deleted) {
+        document.delete(pdfReference(FIRST + index, 0));
+      }
+    }
+    return document;
+  };
+
+  // A naive closure over the table: a reference reaches an object only when it names generation 0 of an object that was not deleted (ISO 32000-1:2008, 7.3.10).
+  const closure = (table: Table): ReadonlyArray<number> => {
+    const reached = new Set<number>();
+    const visit = (index: number): void => {
+      const object = table.objects.at(index);
+      if (object === undefined || object.deleted || reached.has(index)) {
+        return;
+      }
+      reached.add(index);
+      for (const { target, stale } of object.links) {
+        if (!stale) {
+          visit(target);
+        }
+      }
+    };
+    for (const root of table.roots) {
+      visit(root);
+    }
+    return [1, 2, 3, 4, 5, ...[...reached].map(index => FIRST + index)].toSorted((left, right) => left - right);
+  };
+
+  it('lists the closure of the references, whatever order they are written in, resolving each object once', () => {
+    fc.assert(
+      fc.property(tables, table => {
+        const document = loadTable(table, items => items);
+        const parts = internals(document);
+        const resolve = vi.spyOn(parts.objects, 'resolve');
+        const listed = [...reachableObjects(parts).objects.keys()].toSorted((left, right) => left - right);
+        // Only the reachable objects are promised to be resolved once each; what else the walk resolves is not part of the contract.
+        const reached = new Set(listed);
+        const resolved = resolve.mock.calls
+          .map(([objectNumber]) => objectNumber)
+          .filter(objectNumber => reached.has(objectNumber))
+          .toSorted((left, right) => left - right);
+        const reversed = numbers(loadTable(table, items => items.toReversed()));
+        const expected = closure(table);
+        expect({ listed, resolved, reversed }).toStrictEqual({ listed: expected, resolved: expected, reversed: expected });
+      }),
+    );
   });
 });
