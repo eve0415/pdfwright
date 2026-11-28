@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { cmapEvidence, variantConfirmed } from './glyphEvidence.ts';
 
-// A cmap that maps 葛 (U+845B) to glyph 4 and a (U+0061) to glyph 9; its format 14 entries give 葛 with U+E0100 glyph 5, with U+E0101 the default glyph, and 辻 (U+8FBB), which it does not map, with U+E0100 glyph 6.
+// A cmap that maps 葛 (U+845B) to glyph 4 and a (U+0061) to glyph 9; its format 14 entries give 葛 with U+E0100 glyph 5, with U+E0101 the default glyph and, as a malformed subtable may list, with a (not a variation selector) glyph 9, and 辻 (U+8FBB), which it does not map, with U+E0100 glyph 6.
 const GLYPHS: ReadonlyMap<number, number> = new Map([
   [0x84_5b, 4],
   [0x61, 9],
@@ -12,6 +12,7 @@ const GLYPHS: ReadonlyMap<number, number> = new Map([
 const VARIANTS: ReadonlyMap<string, number | 'default'> = new Map<string, number | 'default'>([
   ['845b e0100', 5],
   ['845b e0101', 'default'],
+  ['845b 61', 9],
   ['8fbb e0100', 6],
 ]);
 const CMAP: EmbeddedCmap = {
