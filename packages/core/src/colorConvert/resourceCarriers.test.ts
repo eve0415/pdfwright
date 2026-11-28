@@ -794,6 +794,8 @@ const walkPage = (document: LoadedDocument, index: number, seen: CarrierSeen): R
 const PATTERNS = '/Resources<</Pattern<</P1 5 0 R/P2 6 0 R/P3 7 0 R>>>>';
 const EMPTY_PATTERNS = [5, 6, 7].map(number => ({ number, body: streamBody(`${PATTERN}/Resources<<>>`, '') }));
 
+const walkPastLimit = (): ReadonlyArray<ResourceCarrier> => walkPage(carrierPdf(PATTERNS, EMPTY_PATTERNS), 0, carrierSeen(2));
+
 describe('the step limit of the carrier walk', () => {
   // A page naming three tiling patterns, each with an empty Resources of its own, takes one step per pattern.
   it('lists every carrier when the walk takes as many steps as the limit', () => {
@@ -801,9 +803,8 @@ describe('the step limit of the carrier walk', () => {
   });
 
   it('refuses a walk that takes one step more than the limit', () => {
-    const walk = (): ReadonlyArray<ResourceCarrier> => walkPage(carrierPdf(PATTERNS, EMPTY_PATTERNS), 0, carrierSeen(2));
-    expect(walk).toThrow(ResourceLimitError);
-    expect(walk).toThrow(/more than 2 steps/u);
+    expect(walkPastLimit).toThrow(ResourceLimitError);
+    expect(walkPastLimit).toThrow(/more than 2 steps/u);
   });
 
   it('counts the steps of every page walk that shares the pass state', () => {
