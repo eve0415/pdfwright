@@ -158,13 +158,13 @@ const regions = (bytes: Uint8Array): Array<readonly [number, number]> => {
   return [[0, 132 + structure.tags.length * 12], ...heads];
 };
 
-const outcome = (bytes: Uint8Array): string => {
+// Parses the profile and lets only the library's own refusals pass, so any other error escapes and fails the test.
+const parseOrRefuse = (bytes: Uint8Array): void => {
   try {
     parseIccProfile(bytes);
-    return 'accepted';
   } catch (error) {
     if (error instanceof InvalidProfileError || error instanceof UnsupportedFeatureError || error instanceof ResourceLimitError) {
-      return 'refused';
+      return;
     }
     throw error;
   }
@@ -342,7 +342,9 @@ describe('icc profile tags', () => {
           for (let position = start; position < end; position++) {
             const original = changed[position] ?? 0;
             changed[position] = value;
-            expect(['accepted', 'refused']).toContain(outcome(changed));
+            expect(() => {
+              parseOrRefuse(changed);
+            }).not.toThrow();
             changed[position] = original;
           }
         }),
@@ -355,7 +357,9 @@ describe('icc profile tags', () => {
           const length = 132 + (cut % (fixture.length - 132));
           const truncated = Uint8Array.from(fixture.subarray(0, length));
           new DataView(truncated.buffer).setUint32(0, length);
-          expect(['accepted', 'refused']).toContain(outcome(truncated));
+          expect(() => {
+            parseOrRefuse(truncated);
+          }).not.toThrow();
         }),
       );
     });
