@@ -12,6 +12,7 @@ import syntheticCmykBytes from '../../../../tests/fixtures/icc/synthetic-cmyk.ic
 import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -913,6 +914,42 @@ describe('luminosity soft masks', () => {
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error).toMatchObject({ reason: 'color-space' });
+  });
+
+  const exponential = (c0: string, c1: string): string => `<</FunctionType 2/Domain[0 1]/C0[${c0}]/C1[${c1}]/N 1>>`;
+  // A shading function of an RGB space returns one value per RGB component.
+  it.each([
+    {
+      name: 'an RGB axial shading whose function returns one value',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function${exponential('0', '1')}>>`,
+    },
+    {
+      name: 'an RGB axial shading whose function returns four values',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function${exponential('0 0 0 0', '1 1 1 1')}>>`,
+    },
+    {
+      name: 'a CalRGB radial shading whose function returns one value',
+      body: `<</ShadingType 3/ColorSpace[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]/Coords[0 0 0 0 0 10]/Function${exponential('0', '1')}>>`,
+    },
+    {
+      name: 'an RGB axial shading whose stitched functions return one value',
+      body: `<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 3/Domain[0 1]/Functions[${exponential('0', '1')} ${exponential('1', '0')}]/Bounds[0.5]/Encode[0 1 0 1]>>>>`,
+    },
+    {
+      name: 'an RGB triangle mesh whose function returns one value',
+      body: streamBody(
+        `/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 8/Decode[0 100 0 100 0 1]/Function${exponential('0', '1')}`,
+        triangle,
+      ),
+    },
+  ])('rejects $name in an RGB luminosity mask as a page does and leaves the document unchanged', ({ body }) => {
+    const shading = { number: 9, body };
+    const onPage = refusal(loadDocument(documentBytes([{ resources: '/Shading<</Sh1 9 0 R>>', content: '/Sh1 sh' }], [shading])), cmykOptions);
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'), shading])), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(onPage.error).toBeInstanceOf(InvalidArgumentError);
+    expect(error).toBeInstanceOf(InvalidArgumentError);
+    expect(error).toMatchObject({ code: 'invalid-argument', reason: undefined });
   });
 
   it('keeps the soft mask of an RGB image the mask draws as gray when the image is not preblended', () => {
