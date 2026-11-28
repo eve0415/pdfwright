@@ -13,13 +13,28 @@ interface TiffInput {
   readonly samplesPerPixel?: number;
   readonly bits?: number;
   readonly compression?: number;
+  /** PlanarConfiguration, written only when given. */
+  readonly planar?: number;
   readonly strips: ReadonlyArray<Uint8Array>;
   /** Added to the last strip's byte count, to write a count the data does not have. */
   readonly countSkew?: number;
+  /** Byte counts written in place of the strips' own, to write a count for a strip the file does not have. */
+  readonly counts?: ReadonlyArray<number>;
 }
 
 // Writes a TIFF 6.0 file: an 8-byte header, the strips, the values that do not fit in their entries, then one IFD whose entries are sorted by tag.
-const tiff = ({ bigEndian = false, width, height, samplesPerPixel = 1, bits = 8, compression = 1, strips, countSkew = 0 }: TiffInput): Uint8Array => {
+const tiff = ({
+  bigEndian = false,
+  width,
+  height,
+  samplesPerPixel = 1,
+  bits = 8,
+  compression = 1,
+  planar,
+  strips,
+  countSkew = 0,
+  counts,
+}: TiffInput): Uint8Array => {
   const parts: Array<number> = [];
   const u16 = (value: number): Array<number> => (bigEndian ? [value >> 8, value & 0xff] : [value & 0xff, value >> 8]);
   const u32 = (value: number): Array<number> => {
@@ -32,7 +47,7 @@ const tiff = ({ bigEndian = false, width, height, samplesPerPixel = 1, bits = 8,
     stripOffsets.push(parts.length);
     parts.push(...strip);
   }
-  const counts = strips.map((strip, index) => strip.length + (index === strips.length - 1 ? countSkew : 0));
+  const stripCounts = counts ?? strips.map((strip, index) => strip.length + (index === strips.length - 1 ? countSkew : 0));
   // Each entry is [tag, type, values]; values of more than four bytes go before the IFD.
   const entries: Array<readonly [number, number, ReadonlyArray<number>]> = [
     [256, 3, [width]],
@@ -41,9 +56,10 @@ const tiff = ({ bigEndian = false, width, height, samplesPerPixel = 1, bits = 8,
     [259, 3, [compression]],
     [273, 4, stripOffsets],
     [277, 3, [samplesPerPixel]],
-    [279, 4, counts],
+    [279, 4, stripCounts],
     // XResolution, a RATIONAL, which the reader skips.
     [282, 5, [72, 1]],
+    ...(planar === undefined ? [] : [[284, 3, [planar]] as const]),
   ];
   const encoded = entries.map(([tag, type, values]) => {
     const bytes = values.flatMap(value => (type === 3 ? u16(value) : u32(value)));
@@ -88,6 +104,8 @@ describe('TIFF plates', () => {
   it.each([
     ['16-bit samples', { bits: 16 }, /bits per sample/u],
     ['a compressed plate', { compression: 5 }, /uncompressed/u],
+    ['planar samples', { planar: 2, samplesPerPixel: 2, width: 3, height: 1 }, /chunky/u],
+    ['more byte counts than strips', { counts: [3, 3] }, /one byte count per strip/u],
     ['strips that hold fewer bytes than the pixels', { strips: [PIXELS.subarray(0, 5)] }, /not the 6/u],
     ['strips that hold more bytes than the pixels', { strips: [PIXELS, PIXELS.subarray(0, 1)] }, /not the 6/u],
     ['a byte count past the end of the file', { countSkew: 4096, strips: [PIXELS.subarray(0, 2)], width: 1, height: 4098 }, /past the end/u],
@@ -161,6 +179,7 @@ describe('PAM images', () => {
   });
 
   it.each([
+    ['a binary RGB header', header.replace('P7\n', 'P6\n'), PIXELS],
     ['16-bit samples', header.replace('MAXVAL 255', 'MAXVAL 65535'), PIXELS],
     ['data shorter than its header', header, PIXELS.subarray(0, 5)],
     ['data longer than its header', header, Uint8Array.from([...PIXELS, 0])],
