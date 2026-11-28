@@ -79,12 +79,12 @@ const offsetOf = (bytes: Uint8Array, needle: string): number => {
 };
 
 // Replaces the first occurrence of a needle, failing when it is absent so that a fixture cannot silently stay valid.
-const edited = (bytes: Uint8Array, needle: string, replacement: string): Uint8Array => {
+const edited = (bytes: Uint8Array, needle: string, replacement: string | Uint8Array): Uint8Array => {
   const index = offsetOf(bytes, needle);
   if (index === -1) {
     throw new Error(`fixture bytes are missing ${JSON.stringify(needle)}`);
   }
-  const inserted = encoder.encode(replacement);
+  const inserted = typeof replacement === 'string' ? encoder.encode(replacement) : replacement;
   const output = new Uint8Array(bytes.length - encoder.encode(needle).length + inserted.length);
   output.set(bytes.subarray(0, index));
   output.set(inserted, index);
@@ -115,6 +115,59 @@ describe('native model reader', () => {
   it('reads no artboard name when the native data marks it as the default name', () => {
     const native = edited(nativeBytes, '%_0 /Bool (IsArtboardDefaultName) ,', '%_1 /Bool (IsArtboardDefaultName) ,');
     expect(readNative(native, date).document.artboard).toStrictEqual({ width: 100, height: 70, bleed: { top: 3, right: 3, bottom: 3, left: 3 } });
+  });
+
+  it('reads an octal escape in a layer name as the character it codes', () => {
+    // PostScript Language Reference, 3.2.2: \145 is the character with octal code 145, e.
+    const native = edited(nativeBytes, '(Design) Ln', String.raw`(D\145sign) Ln`);
+    expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Design']);
+  });
+
+  // PostScript Language Reference, 3.2.2: inside a literal string a backslash before an end-of-line marker is dropped with it, so the name continues on the next line.
+  it.each([
+    { case: 'a layer name continued after a CR', needle: '(Design) Ln', replacement: '(Des\\\rign) Ln' },
+    { case: 'a layer name continued after a CR and LF', needle: '(Design) Ln', replacement: '(Des\\\r\nign) Ln' },
+    { case: 'a layer name continued after an LF', needle: '(Design) Ln', replacement: '(Des\\\nign) Ln' },
+    { case: 'a spot name continued after a CR', needle: '(White) 0.75 x', replacement: '(Wh\\\rite) 0.75 x' },
+    { case: 'a spot name continued after an LF', needle: '(White) 0.75 x', replacement: '(Wh\\\nite) 0.75 x' },
+  ])('reads $case', ({ needle, replacement }) => {
+    expect(readNative(edited(nativeBytes, needle, replacement), date).document).toStrictEqual(normalizeModel(document));
+  });
+
+  // The raw bytes of a name and the bytes its escapes code make one UTF-8 sequence, so é may be split between them.
+  it.each([
+    { case: 'a raw lead byte before an octal continuation byte', name: [...encoder.encode('(D'), 0xc3, ...encoder.encode(String.raw`\251sign) Ln`)] },
+    { case: 'an octal lead byte before a raw continuation byte', name: [...encoder.encode(String.raw`(D\303`), 0xa9, ...encoder.encode('sign) Ln')] },
+    { case: 'a raw lead byte before an escaped raw continuation byte', name: [...encoder.encode('(D'), 0xc3, 0x5c, 0xa9, ...encoder.encode('sign) Ln')] },
+  ])('reads a layer name with $case', ({ name }) => {
+    const native = edited(nativeBytes, '(Design) Ln', Uint8Array.from(name));
+    expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Désign']);
+  });
+
+  // A spot or artboard name is matched within its line, so a name whose escapes code a line or paragraph separator must still be matched as escapes; a separator split between raw and escaped bytes is written as escapes too.
+  it.each([
+    { case: 'octal escapes of a line separator', name: encoder.encode(String.raw`(Wh\342\200\250ite) 0.75 x`), expected: 'Wh\u2028ite' },
+    {
+      case: 'a raw lead byte before octal escapes of a line separator',
+      name: Uint8Array.from([...encoder.encode('(Wh'), 0xe2, ...encoder.encode(String.raw`\200\250ite) 0.75 x`)]),
+      expected: 'Wh\u2028ite',
+    },
+  ])('reads a spot name with $case', ({ name, expected }) => {
+    const native = edited(nativeBytes, '(White) 0.75 x', name);
+    expect(readNative(native, date).document.layers[1]?.items[0]).toMatchObject({ fill: { paint: { kind: 'spot', spot: { name: expected } } } });
+  });
+
+  // A backslash before a CR in a comment continues nothing, so the header still ends at %%EndComments.
+  it('ends the header at %%EndComments after a comment whose last character is a backslash', () => {
+    const native = edited(nativeBytes, '%%EndComments\r', '%%For: (x\\\r%%EndComments\r');
+    const header = readNative(native, date).header;
+    expect(header.get('%%For')).toBe('(x\\');
+    expect([...header.keys()]).toStrictEqual([...readNative(nativeBytes, date).header.keys()]);
+  });
+
+  it('reads an artboard name with octal escapes of a paragraph separator', () => {
+    const native = edited(nativeBytes, '%_(Board) /UnicodeString', String.raw`%_(Bo\342\200\251ard) /UnicodeString`);
+    expect(readNative(native, date).document.artboard).toMatchObject({ name: 'Bo\u2029ard' });
   });
 
   it('reports only the setup blocks it does not know', () => {
@@ -190,11 +243,14 @@ const unsupportedRows = [
   { name: 'a compound path with no members', needle: '0 Ae\r*u\r', replacement: '0 Ae\r*u\r*U\r0 Ae\r*u\r', at: '*U\r0 Ae\r*u' },
   { name: 'a filled path with no fill paint', needle: '0.2 0 0 0 (White) 0.75 x\r', replacement: '', at: 'f\r0 Ae\r*u' },
   { name: 'a spot raster without a spot paint before it', needle: '0 O\r0.2 0 0 0 (White) 0 x\r', replacement: '', at: 'F\r%_/ArtDictionary' },
+  // An escaped backslash leaves nothing to continue the name, so the CR after it ends the line.
+  { name: 'a layer name split by a CR after an escaped backslash', needle: '(Design) Ln', replacement: '(Des\\\\\rign) Ln', at: '(Des\\\\\rign' },
 ] as const;
 
 const parseRows = [
   { name: 'a layer without its end marker', needle: '%AI5_EndLayer--\r%%PageTrailer', replacement: '%%PageTrailer', at: `%AI5_BeginLayer\r${designLb}` },
   { name: 'a coordinate that is not a number', needle: '10 0 L', replacement: '1O 0 L', at: '1O 0 L' },
+  { name: 'a layer name whose closing parenthesis is escaped', needle: '(Design) Ln', replacement: String.raw`(Design\) Ln`, at: String.raw`(Design\) Ln` },
 ] as const;
 
 describe('native grammar refusals', () => {

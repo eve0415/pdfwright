@@ -55,9 +55,107 @@ describe('native tokenizer', () => {
     expect(tokenizeNative(encoder.encode('%!PS\r%%EndComments\r')).map(record => record.offset)).toStrictEqual([0, 5]);
   });
 
+  // PostScript Language Reference, 3.2.2: inside a literal string a backslash before an end-of-line marker is dropped with it, so the record runs on past that CR.
+  it.each([
+    {
+      case: 'a CR',
+      native: '(a\\\rb) Ln\r%%EOF\r',
+      expected: [
+        { kind: 'line', text: '(ab) Ln', offset: 0 },
+        { kind: 'line', text: '%%EOF', offset: 10 },
+      ],
+    },
+    {
+      case: 'a CR and LF',
+      native: '(a\\\r\nb) Ln\r%%EOF\r',
+      expected: [
+        { kind: 'line', text: '(ab) Ln', offset: 0 },
+        { kind: 'line', text: '%%EOF', offset: 11 },
+      ],
+    },
+    { case: 'a CR inside a nested parenthesis', native: '(a(b\\\rc)) Ln\r', expected: [{ kind: 'line', text: '(a(bc)) Ln', offset: 0 }] },
+    { case: 'a CR after an escaped closing parenthesis', native: '(a\\)\\\rb) Ln\r', expected: [{ kind: 'line', text: String.raw`(a\)b) Ln`, offset: 0 }] },
+  ])('joins a record whose literal string continues after $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
+  it.each([
+    { case: 'outside a literal string', native: 'a\\\rb\r', expected: ['a\\', 'b'] },
+    { case: 'after a literal string closes', native: '(a)\\\rb\r', expected: ['(a)\\', 'b'] },
+    { case: 'after an escaped backslash', native: '(a\\\\\rb)\r', expected: [String.raw`(a\\`, 'b)'] },
+  ])('ends a record at a CR after a backslash $case', ({ native, expected }) => {
+    expect(lines(tokenizeNative(encoder.encode(native)))).toStrictEqual(expected);
+  });
+
+  // A % outside a literal string starts a PostScript comment that runs to the end of the line, so a parenthesis in it opens no string and a backslash before its CR continues nothing.
+  it.each([
+    {
+      case: 'a header comment',
+      native: '%%For: (x\\\r%%EndComments\r',
+      expected: [
+        { kind: 'line', text: '%%For: (x\\', offset: 0 },
+        { kind: 'line', text: '%%EndComments', offset: 11 },
+      ],
+    },
+    {
+      case: 'a comment after other tokens',
+      native: 'a %(x\\\rb\r',
+      expected: [
+        { kind: 'line', text: 'a %(x\\', offset: 0 },
+        { kind: 'line', text: 'b', offset: 7 },
+      ],
+    },
+    {
+      case: 'a commented dictionary entry',
+      native: '%_(x\\\r%_/Document\r',
+      expected: [
+        { kind: 'line', text: '%_(x\\', offset: 0 },
+        { kind: 'line', text: '%_/Document', offset: 6 },
+      ],
+    },
+    {
+      case: 'a comment on a continued line',
+      native: '(a\\\rb) %(c\\\rd\r',
+      expected: [
+        { kind: 'line', text: '(ab) %(c\\', offset: 0 },
+        { kind: 'line', text: 'd', offset: 12 },
+      ],
+    },
+  ])('ends a record at a CR after a backslash in $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
+  it.each([
+    { case: 'a literal string', native: '(50%\\\r) Ln\r', expected: [{ kind: 'line', text: '(50%) Ln', offset: 0 }] },
+    { case: 'an earlier literal string on the line', native: '(a%) (b\\\rc) x\r', expected: [{ kind: 'line', text: '(a%) (bc) x', offset: 0 }] },
+  ])('joins a record whose literal string continues after a % inside $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
   it('reads escaped PostScript literal strings', () => {
     expect(parseNativeLiteral(String.raw`(Die \(outer\) \\ White)`, 0)).toBe(String.raw`Die (outer) \ White`);
     expect(parseNativeLiteral('(非表示)', 0)).toBe('非表示');
+  });
+
+  it('reads a literal string that ends in an escaped backslash', () => {
+    expect(parseNativeLiteral(String.raw`(abc\\)`, 0)).toBe('abc\\');
+  });
+
+  // PostScript Language Reference, 3.2.2: one to three octal digits code a byte with high-order overflow ignored, five letters code control characters, a backslash before a line feed continues the line, and a backslash before any other character is dropped.
+  it.each([
+    { case: 'a three-digit octal escape', literal: String.raw`(a\101)`, expected: 'aA' },
+    { case: 'a two-digit octal escape', literal: String.raw`(\12x)`, expected: '\nx' },
+    { case: 'a one-digit octal escape', literal: String.raw`(a\7b)`, expected: 'a\u0007b' },
+    { case: 'an octal escape that stops after three digits', literal: String.raw`(\0053)`, expected: '\u00053' },
+    { case: 'an octal escape that stops at a digit that is not octal', literal: String.raw`(\18)`, expected: '\u00018' },
+    { case: 'an octal escape beyond 255', literal: String.raw`(\501)`, expected: 'A' },
+    { case: 'octal escapes of UTF-8 bytes', literal: String.raw`(caf\303\251)`, expected: 'café' },
+    { case: 'the letter escapes', literal: String.raw`(\n\r\t\b\f)`, expected: '\n\r\t\b\f' },
+    { case: 'a backslash before a line feed', literal: '(ab\\\ncd)', expected: 'abcd' },
+    { case: 'a byte order mark at the start of an escaped name', literal: String.raw`(${'﻿'}\(a)`, expected: '﻿(a' },
+    { case: 'a backslash before a character without an escape', literal: String.raw`(\q\8)`, expected: 'q8' },
+  ])('reads $case', ({ literal, expected }) => {
+    expect(parseNativeLiteral(literal, 0)).toBe(expected);
   });
 
   it('reads an empty literal string', () => {
@@ -95,6 +193,22 @@ describe('malformed native bytes', () => {
     expect(error).toMatchObject({ offset: 5 });
   });
 
+  it('reports a literal string continued past the end of the data at the line start', () => {
+    const error = thrown(() => {
+      tokenizeNative(encoder.encode('%!PS\r(a\\\r\n'));
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 5 });
+  });
+
+  it('reports a comment on a continued line that has no closing CR at the line start', () => {
+    const error = thrown(() => {
+      tokenizeNative(encoder.encode('%!PS\r(a\\\rb) %c'));
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 5 });
+  });
+
   it('reports raster data that ends early at the end of the data', () => {
     const native = encoder.encode('[ 1 0 0 1 0 0 ] 0 0 2 2 2 2 8 4 1 18 1 0 4 4 0 0\r%%BeginData: 7\rXI\n1234');
     const error = thrown(() => {
@@ -107,6 +221,17 @@ describe('malformed native bytes', () => {
   it('reports a literal string that is not closed', () => {
     const error = thrown(() => {
       parseNativeLiteral('(open', 12);
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 12 });
+  });
+
+  it.each([
+    { case: 'an escaped closing parenthesis', literal: String.raw`(abc\)` },
+    { case: 'an escaped backslash and an escaped closing parenthesis', literal: String.raw`(abc\\\)` },
+  ])('reports a literal string whose last character is $case', ({ literal }) => {
+    const error = thrown(() => {
+      parseNativeLiteral(literal, 12);
     });
     expect(error).toBeInstanceOf(ParseError);
     expect(error).toMatchObject({ offset: 12 });
@@ -136,7 +261,11 @@ describe('malformed native bytes', () => {
 });
 
 // No line can spell a raster size or %%BeginData line, which need digits; multi-byte characters make byte and character offsets differ.
-const lineText = fc.string({ unit: fc.constantFrom('a', ' ', '%', ':', '(', ')', '\\', 'é', '非', '😀', '\n'), maxLength: 12 });
+// A backslash comes only as an escape pair, since one before an end-of-line marker inside a literal string continues the line.
+const lineText = fc.string({
+  unit: fc.constantFrom('a', ' ', '%', ':', '(', ')', String.raw`\(`, String.raw`\)`, String.raw`\\`, String.raw`\a`, 'é', '非', '😀', '\n'),
+  maxLength: 12,
+});
 const nameText = fc.string({ unit: fc.constantFrom('a', ' ', '(', ')', '\\', 'é', '非', '😀'), maxLength: 12 });
 
 describe('properties', () => {

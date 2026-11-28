@@ -102,6 +102,17 @@ describe('native paths', () => {
     expect(render(item)).toContain('\r0.0000000001 0.0000000001 m\r5 5 L\r0.0000000001 0.0000000001 L\rf\r');
   });
 
+  it('shifts an exact length whose numerator alone is beyond Number range by the y offset', () => {
+    // 10^309 / 10^308 is 10 points, and 10^309 is beyond Number range while 10^308 is not.
+    const ten: Length = { numerator: 10n ** 309n, denominator: 10n ** 308n };
+    const item: PathItem = {
+      kind: 'path',
+      geometry: { subpaths: [{ start: [5, ten], segments: [{ kind: 'line', to: [5, 5] }] }] },
+      fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } },
+    };
+    expect(render(item, { yOffset: -100 })).toContain('\r5 -90 m\r5 -95 L\r5 -90 L\rf\r');
+  });
+
   it('writes smooth curves and process fill in shifted coordinates', () => {
     const path: PathItem = {
       kind: 'path',
