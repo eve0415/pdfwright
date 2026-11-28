@@ -165,6 +165,25 @@ describe('value graph comparison', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 7.3.10: a reference to an undefined object is a reference to the null object.
+  it.each([
+    { name: 'a missing object', objects: [] },
+    { name: 'a null object', objects: [{ number: 9, body: 'null' }] },
+  ])('compares a direct null in an array with a reference to $name, whichever side holds it', ({ objects }) => {
+    const [direct, referenced] = [withPage('/Foo[null]'), withPage('/Foo[9 0 R]', objects)];
+    expect([compareDocuments(direct, referenced).differences, compareDocuments(referenced, direct).differences]).toStrictEqual([[], []]);
+  });
+
+  it('still reports a direct null in an array against a referenced value or a shorter array', () => {
+    expect([
+      compareDocuments(withPage('/Foo[null]'), withPage('/Foo[9 0 R]', [{ number: 9, body: '5' }])).differences,
+      compareDocuments(withPage('/Foo[null]'), withPage('/Foo[]')).differences,
+    ]).toStrictEqual([
+      [{ kind: 'page-attribute', page: 0, path: ['Foo', 0], a: { kind: 'null', text: 'null' }, b: { kind: 'integer', text: '5' } }],
+      [{ kind: 'page-attribute', page: 0, path: ['Foo'], a: { kind: 'array', text: '1 items' }, b: { kind: 'array', text: '0 items' } }],
+    ]);
+  });
+
   // ISO 32000-1:2008, 8.10: a form's data is a content stream, so only a form compares operation by operation.
   it('compares the data of a form by operations and of other streams by decoded bytes', () => {
     expect([
