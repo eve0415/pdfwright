@@ -5,9 +5,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { runTool } from '../../../../scripts/readerOracle.ts';
+import { magick, runQpdf } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { compareDocuments } from '../compare/compareDocuments.ts';
 import { pdfDate } from '../date/pdfDate.ts';
@@ -22,10 +23,12 @@ import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { decodeJpeg } from '../jpeg/decodeJpeg.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
+import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertImages } from './convertImages.ts';
 import { convertToCmyk } from './convertToCmyk.ts';
+import { convertImageRow, readImageSample } from './imageRows.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { rewritePageColors } from './rewritePage.ts';
 
@@ -36,21 +39,10 @@ const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const displayP3 = parseIccProfile(await fixture('DisplayP3-v4.icc'));
 const pixels = Uint8Array.of(0, 0, 0, 255, 128, 64);
 
-const jpegFixture = async (): Promise<Uint8Array> => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-jpeg-'));
-  try {
-    const input = path.join(directory, 'input.ppm');
-    const output = path.join(directory, 'output.jpg');
-    await writeFile(input, Uint8Array.of(...new TextEncoder().encode('P6\n2 1\n255\n'), ...pixels));
-    const generated = await runTool('magick', [input, '-sampling-factor', '1x1,1x1,1x1', '-quality', '90', output]);
-    if (generated.code !== 0) {
-      throw new Error(generated.output);
-    }
-    return Uint8Array.from(await readFile(output));
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-};
+const jpegFixture = async (): Promise<Uint8Array> =>
+  magick(['ppm:-', '-sampling-factor', '1x1,1x1,1x1', '-quality', '90', 'jpeg:-'], Uint8Array.of(...new TextEncoder().encode('P6\n2 1\n255\n'), ...pixels));
+const grayJpegFixture = async (): Promise<Uint8Array> =>
+  magick(['pgm:-', '-quality', '90', 'jpeg:-'], Uint8Array.of(...new TextEncoder().encode('P5\n2 1\n255\n'), 0, 200));
 
 const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [
   255,
@@ -95,8 +87,8 @@ const qpdfCheck = async (chunks: ReadonlyArray<Uint8Array>): Promise<void> => {
     }
     const file = path.join(directory, 'converted.pdf');
     await writeFile(file, bytes);
-    const check = await runTool('qpdf', ['--check', file]);
-    expect(check.code).toBe(0);
+    const check = await runQpdf(['--check', file]);
+    expect(check.stdout).toContain('No syntax or stream encoding errors found');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -112,6 +104,8 @@ interface ImagePdfOptions {
   readonly decodeParms?: string;
   readonly intent?: string;
   readonly pageContent?: string;
+  readonly objects?: ReadonlyArray<{ readonly number: number; readonly body: string }>;
+  readonly pageResources?: string;
 }
 
 const twoImages = buildPdf([
@@ -133,7 +127,7 @@ const twoImages = buildPdf([
 
 const imageDictionary = (filter: string, options?: ImagePdfOptions): string => {
   const colorSpace = options?.colorSpace === '' ? '' : `/ColorSpace${options?.colorSpace ?? '/DeviceRGB'}`;
-  return `/Type/XObject/Subtype/Image/Width ${String(options?.width ?? 2)}/Height ${String(options?.height ?? 1)}/BitsPerComponent ${String(options?.bits ?? 8)}${colorSpace}/Filter/${filter}${options?.decode ?? ''}${options?.mask ?? ''}${options?.decodeParms ?? ''}${options?.intent ?? ''}`;
+  return `/Type/XObject/Subtype/Image/Width ${String(options?.width ?? 2)}/Height ${String(options?.height ?? 1)}/BitsPerComponent ${String(options?.bits ?? 8)}${colorSpace}/Filter${filter.startsWith('[') ? '' : '/'}${filter}${options?.decode ?? ''}${options?.mask ?? ''}${options?.decodeParms ?? ''}${options?.intent ?? ''}`;
 };
 
 const imagePdf = (filter: string, data: Uint8Array, options?: ImagePdfOptions): Uint8Array =>
@@ -143,12 +137,16 @@ const imagePdf = (filter: string, data: Uint8Array, options?: ImagePdfOptions): 
       objects: [
         { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
         { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-        { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<</Im 5 0 R>>>>>>' },
+        {
+          number: 3,
+          body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<</Im 5 0 R>>${options?.pageResources ?? ''}>>>>`,
+        },
         { number: 4, body: streamBody('', options?.pageContent ?? '/Im Do') },
         {
           number: 5,
           body: streamBody(imageDictionary(filter, options), latin1Text(data)),
         },
+        ...(options?.objects ?? []),
       ],
       trailer: '/Root 1 0 R',
     },
@@ -218,6 +216,45 @@ const jp2Icc = (profile: Uint8Array): Uint8Array => {
   const header = jp2Box('jp2h', colr);
   return joined([signature, header]);
 };
+
+const DEFAULT_TRANSFORM = { intent: 'relativeColorimetric', blackPointCompensation: true } as const;
+const rgbRow = (rgb: ArrayLike<number>, intent: 'relativeColorimetric' | 'perceptual' = 'relativeColorimetric'): Uint8Array => {
+  const output = new Uint8Array((rgb.length / 3) * 4);
+  createColorTransform({ kind: 'icc', profile: source }, destination, { ...DEFAULT_TRANSFORM, intent }).convertRow8(
+    Uint8Array.from(rgb),
+    output,
+    rgb.length / 3,
+  );
+  return output;
+};
+const convertOptions = { sourceRgbProfile: source, outputProfile: destination };
+
+// ICC.1:2022, 7.2.2: the header's size field counts the whole profile, so the padding is part of the profile.
+const profileOf = (length: number): string => {
+  const bytes = new Uint8Array(length);
+  bytes.set(source.bytes);
+  new DataView(bytes.buffer).setUint32(0, length);
+  return latin1Text(bytes);
+};
+
+// The error `run` throws, so that its class and message can be checked apart; a thrown non-Error is wrapped so that the class check fails on it.
+const thrownBy = (run: () => void): Error | undefined => {
+  try {
+    run();
+  } catch (error: unknown) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  return undefined;
+};
+
+const keyed = (bound: number): ReturnType<typeof loadDocument> =>
+  loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { mask: `/Mask[0 ${String(bound)} 0 0 0 0]` }));
+
+const withProfile = (length: number): Uint8Array =>
+  imagePdf('DCTDecode', Uint8Array.of(0xff, 0xd8, 0xff, 0xd9), {
+    pageResources: '/ColorSpace<</DefaultRGB[/ICCBased 6 0 R]>>',
+    objects: [{ number: 6, body: streamBody('/N 3', profileOf(length)) }],
+  });
 
 const imageStream = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
   if (value.kind !== 'stream') {
@@ -357,6 +394,8 @@ describe('image colour conversion', () => {
     convertImages(fromPage, { sourceRgbProfile: source, outputProfile: destination });
     convertImages(fromImage, { sourceRgbProfile: source, outputProfile: destination });
     expect(imageData(fromPage)).toStrictEqual(imageData(fromImage));
+    expect(imageData(fromPage)).toStrictEqual(rgbRow(pixels, 'perceptual'));
+    expect(imageData(fromPage)).not.toStrictEqual(rgbRow(pixels));
   });
 
   it('keeps a DCT image encoded and tags DeviceRGB with the caller profile', () => {
@@ -367,7 +406,11 @@ describe('image colour conversion', () => {
     expect(report.keptRgbImages).toHaveLength(1);
     expect(report.keptRgbImages[0]?.tagged).toBe('added');
     expect(image.data).toStrictEqual(encoded);
-    expect(image.dictionary.get(pdfName('ColorSpace').bytes)?.kind).toBe('array');
+    const space = image.dictionary.get(pdfName('ColorSpace').bytes);
+    expect(space?.kind === 'array' ? space.items[0] : undefined).toStrictEqual(pdfName('ICCBased'));
+    expect(parseIccProfile(embeddedProfile(document, 5)).identity).toStrictEqual(source.identity);
+    const profile = space?.kind === 'array' && space.items[1]?.kind === 'reference' ? imageStream(document.get(space.items[1])) : undefined;
+    expect(profile?.dictionary.get(pdfName('N').bytes)).toStrictEqual(pdfInteger(3));
   });
 
   it('embeds each distinct RGB source profile for kept DCT images', () => {
@@ -435,9 +478,28 @@ describe('image colour conversion', () => {
   });
 
   it('replaces an RGB colour-key mask with an explicit stencil', () => {
-    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { mask: '/Mask[0 0 0 0 0 0]' }));
+    // ISO 32000-1:2008, 8.9.6.4: a pixel is masked only when every component lies in its range, so (0, 128, 0) stays painted.
+    const keyed = Uint8Array.of(...pixels, 0, 128, 0);
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(keyed), { width: 3, mask: '/Mask[0 0 0 0 0 0]' }));
     convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(stencilData(document)).toStrictEqual(Uint8Array.of(0b1000_0000));
+    const mask = imageStream(document.get(pdfReference(5, 0))).dictionary.get(pdfName('Mask').bytes);
+    const stencil = imageStream(mask?.kind === 'reference' ? document.get(mask) : { kind: 'null' }).dictionary;
+    expect(['ImageMask', 'BitsPerComponent', 'Width', 'Height'].map(key => stencil.get(pdfName(key).bytes))).toStrictEqual([
+      { kind: 'boolean', value: true },
+      pdfInteger(1),
+      pdfInteger(3),
+      pdfInteger(1),
+    ]);
+    expect(imageData(document)).toStrictEqual(rgbRow(keyed));
+  });
+
+  it('accepts a colour-key bound of 2^bits - 1 and refuses 2^bits', () => {
+    // ISO 32000-1:2008, 8.9.6.4: each range bound lies between 0 and 2^BitsPerComponent - 1.
+    const accepted = keyed(255);
+    expect(convertImages(accepted, convertOptions).converted).toBe(1);
+    expect(stencilData(accepted)).toStrictEqual(Uint8Array.of(0b1000_0000));
+    expect(() => convertImages(keyed(256), convertOptions)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
   });
 
   it('uses the parser predictor before converting a Flate image', () => {
@@ -453,11 +515,22 @@ describe('image colour conversion', () => {
 
   it('converts CalGray image samples without applying K-only substitution', () => {
     const colorSpace = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
-    const compressed = deflateZlib(Uint8Array.of(0));
-    const document = loadDocument(imagePdf('FlateDecode', compressed, { width: 1, colorSpace }));
+    const samples = Uint8Array.of(0, 128);
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(samples), { width: 2, colorSpace }));
     const report = convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
+    const gray = (gamma: number): Uint8Array => {
+      const output = new Uint8Array(8);
+      createColorTransform({ kind: 'calGray', whitePoint: { x: 0.9505, y: 1, z: 1.089 }, gamma }, destination, DEFAULT_TRANSFORM).convertRow8(
+        samples,
+        output,
+        2,
+      );
+      return output;
+    };
     expect(report.converted).toBe(1);
-    expect(imageData(document)).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
+    expect(imageData(document)).toStrictEqual(gray(2.2));
+    expect(gray(2.2)).not.toStrictEqual(gray(1));
+    expect(gray(2.2).subarray(0, 4)).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
   });
 
   it('refuses compressed RGB images when requested', () => {
@@ -497,6 +570,8 @@ describe('image colour conversion', () => {
     const expected = new Uint8Array(8);
     transform.convertRow8(rgb, expected, 2);
     expect(imageData(reloaded)).toStrictEqual(expected);
+    expect(reloaded.catalog().has(pdfName('Metadata').bytes)).toBe(true);
+    expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
   });
 
   it('moves a transcoded inline JPEG into a streamed Flate image XObject', async () => {
@@ -511,9 +586,18 @@ describe('image colour conversion', () => {
       chunks.push(chunk);
     }
     await qpdfCheck(chunks);
-    const image = namedImage(loadDocument(chunks), 'PWIM0');
-    expect(image.dictionary.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
-    expect(image.dictionary.get(pdfName('Filter').bytes)).toStrictEqual(pdfName('FlateDecode'));
+    const reloaded = loadDocument(chunks);
+    const image = namedImage(reloaded, 'PWIM0');
+    expect(['ColorSpace', 'Filter', 'Width', 'Height', 'BitsPerComponent'].map(key => image.dictionary.get(pdfName(key).bytes))).toStrictEqual([
+      pdfName('DeviceCMYK'),
+      pdfName('FlateDecode'),
+      pdfInteger(2),
+      pdfInteger(1),
+      pdfInteger(8),
+    ]);
+    const internals = internalsOf(reloaded);
+    const data = internals === undefined ? 'no internals' : decodedData(internals, image);
+    expect(data).toStrictEqual(rgbRow([...joined([...decodeJpeg(jpeg).rows()])]));
   });
 
   it('limits total decoded JPEG bytes in XObject and inline transcode', () => {
@@ -548,9 +632,9 @@ describe('image colour conversion', () => {
   it.each(['2', '-1', '0.5'])('reports PDF JPEG ColorTransform %s as a parse error', async value => {
     const jpeg = await jpegFixture();
     const xobject = loadDocument(imagePdf('DCTDecode', jpeg, { decodeParms: `/DecodeParms<</ColorTransform ${value}>>` }));
-    expect(() => convertImages(xobject, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
-      expect.objectContaining({ constructor: ParseError, message: 'JPEG ColorTransform must be 0 or 1' }),
-    );
+    const fromXObject = thrownBy(() => convertImages(xobject, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' }));
+    expect(fromXObject).toBeInstanceOf(ParseError);
+    expect(fromXObject?.message).toMatch(/ColorTransform/u);
 
     const inline = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels)));
     const content = joined([
@@ -559,9 +643,9 @@ describe('image colour conversion', () => {
       new TextEncoder().encode('\nEI'),
     ]);
     inline.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
-    expect(() => rewritePageColors(inline, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' })).toThrow(
-      expect.objectContaining({ constructor: ParseError, message: 'inline JPEG ColorTransform must be 0 or 1' }),
-    );
+    const fromInline = thrownBy(() => rewritePageColors(inline, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' }));
+    expect(fromInline).toBeInstanceOf(ParseError);
+    expect(fromInline?.message).toMatch(/inline .*ColorTransform/u);
   });
 
   it('refuses JPEG 2000 under the transcode policy', () => {
@@ -597,6 +681,210 @@ describe('image colour conversion', () => {
     const unsupported = Uint8Array.from(source.bytes);
     unsupported[8] = 5;
     expect([jpxHasRgbColor(jp2Icc(unsupported), 16 * 1024 * 1024)]).toStrictEqual([false]);
+  });
+
+  it('leaves an image mask untouched', () => {
+    // ISO 32000-1:2008, 8.9.6.2: an image mask has no colour space; its samples are a stencil.
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(Uint8Array.of(0x80)), { width: 1, bits: 1, colorSpace: '', mask: '/ImageMask true' }));
+    const before = document.save().toBytes();
+    expect(convertImages(document, convertOptions)).toStrictEqual({ converted: 0, keptRgbImages: [] });
+    expect(document.save().toBytes()).toStrictEqual(before);
+  });
+
+  it('refuses an image without a ColorSpace that is not JPX', () => {
+    expect(() => convertImages(loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { colorSpace: '' })), convertOptions)).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+  });
+
+  it('refuses one image shared under two DefaultRGB spaces', () => {
+    const shared = buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R 6 0 R]/Count 2>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<</Im 5 0 R>>>>>>' },
+          { number: 4, body: streamBody('', '/Im Do') },
+          { number: 5, body: streamBody(imageDictionary('FlateDecode'), latin1Text(deflateZlib(pixels))) },
+          {
+            number: 6,
+            body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</XObject<</Im 5 0 R>>/ColorSpace<</DefaultRGB[/ICCBased 7 0 R]>>>>>>',
+          },
+          { number: 7, body: streamBody('/N 3', latin1Text(displayP3.bytes)) },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes;
+    expect(() => convertImages(loadDocument(shared), convertOptions)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+  });
+
+  it('refuses an image without Intent drawn under two rendering intents', () => {
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { pageContent: '/Im Do /Perceptual ri /Im Do' }));
+    expect(() => convertImages(document, convertOptions)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+    const fixed = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { pageContent: '/Im Do /Perceptual ri /Im Do' }));
+    expect(convertImages(fixed, { ...convertOptions, intent: 'relativeColorimetric' }).converted).toBe(1);
+  });
+
+  it.each([
+    { decode: '/Decode[0 1 0 1]', what: 'a Decode array of four numbers' },
+    { decode: '/Decode[0 1 0 1 0 /One]', what: 'a Decode entry that is a name' },
+    { decode: '', bits: 3, what: 'BitsPerComponent 3' },
+    { decode: '', bits: 32, what: 'BitsPerComponent 32' },
+    { decode: '', width: 0, what: 'Width 0' },
+  ])('refuses an image with $what', ({ decode, bits, width }) => {
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { decode, bits: bits ?? 8, width: width ?? 2 }));
+    expect(() => convertImages(document, convertOptions)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+  });
+
+  it('refuses unfiltered image data longer than its dimensions', () => {
+    const document = loadDocument(imagePdf('[]', Uint8Array.of(...pixels, 0)));
+    expect(() => convertImages(document, convertOptions)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
+  });
+
+  it('converts image data that only the general decoder reads', () => {
+    const hex = `${[...pixels].map(value => value.toString(16).padStart(2, '0')).join('')}>`;
+    const document = loadDocument(imagePdf('ASCIIHexDecode', new TextEncoder().encode(hex)));
+    expect(convertImages(document, convertOptions).converted).toBe(1);
+    expect(imageData(document)).toStrictEqual(rgbRow(pixels));
+  });
+
+  it('undoes a TIFF predictor before converting', () => {
+    // ISO 32000-1:2008, 7.4.4.4 Table 8: Predictor 2 stores each component as its difference from the same component of the pixel to the left.
+    const raw = Uint8Array.of(10, 20, 30, 255, 128, 64);
+    const differenced = Uint8Array.of(10, 20, 30, 245, 108, 34);
+    const parameters = '/DecodeParms<</Predictor 2/Colors 3/BitsPerComponent 8/Columns 2>>';
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(differenced), { decodeParms: parameters }));
+    convertImages(document, convertOptions);
+    expect(imageData(document)).toStrictEqual(rgbRow(raw));
+  });
+
+  it('accepts working rows of exactly maxDecodedBytes and refuses one byte more', () => {
+    // Two RGB pixels: three 6-byte input rows and one 8-byte output row make 26 working bytes.
+    const bytes = imagePdf('FlateDecode', deflateZlib(pixels));
+    expect(convertImages(loadDocument(bytes, { maxDecodedBytes: 26 }), convertOptions).converted).toBe(1);
+    expect(() => convertImages(loadDocument(bytes, { maxDecodedBytes: 25 }), convertOptions)).toThrow(ResourceLimitError);
+  });
+
+  it('keeps a DCT image under a source profile of exactly 4 MiB and refuses one byte more', () => {
+    const cap = 4 * 1024 * 1024;
+    expect(convertImages(loadDocument(withProfile(cap)), convertOptions).keptRgbImages).toHaveLength(1);
+    expect(() => convertImages(loadDocument(withProfile(cap + 1)), convertOptions)).toThrow(ResourceLimitError);
+  });
+
+  it('refuses to transcode a DCT image that is not a single 8-bit RGB frame of its stated size', async () => {
+    const jpeg = await jpegFixture();
+    const gray = await grayJpegFixture();
+    const transcode = { ...convertOptions, compressedRgbImages: 'transcode' } as const;
+    const calGray = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
+    expect(() => convertImages(loadDocument(imagePdf('DCTDecode', jpeg, { colorSpace: calGray })), transcode)).toThrow(
+      expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'compressed-rgb-image' }),
+    );
+    expect(() => convertImages(loadDocument(imagePdf('DCTDecode', jpeg, { bits: 16 })), transcode)).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+    expect(() => convertImages(loadDocument(imagePdf('[/ASCIIHexDecode/DCTDecode]', jpeg)), transcode)).toThrow(
+      expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'compressed-rgb-image' }),
+    );
+    expect(() => convertImages(loadDocument(imagePdf('DCTDecode', gray)), transcode)).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+    expect(() => convertImages(loadDocument(imagePdf('DCTDecode', jpeg, { width: 3 })), transcode)).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+    expect(convertImages(loadDocument(imagePdf('DCTDecode', jpeg)), transcode).converted).toBe(1);
+  });
+
+  it('reports a DCT image that already carries ICCBased as existing and leaves its dictionary unchanged', () => {
+    const document = loadDocument(
+      imagePdf('DCTDecode', Uint8Array.of(0xff, 0xd8, 0xff, 0xd9), {
+        colorSpace: '[/ICCBased 6 0 R]',
+        objects: [{ number: 6, body: streamBody('/N 3', latin1Text(displayP3.bytes)) }],
+      }),
+    );
+    const before = imageStream(document.get(pdfReference(5, 0)));
+    const report = convertImages(document, convertOptions);
+    expect(report.keptRgbImages).toStrictEqual([{ ref: pdfReference(5, 0), filter: 'DCTDecode', tagged: 'existing' }]);
+    expect(imageStream(document.get(pdfReference(5, 0)))).toStrictEqual(before);
+  });
+
+  it('shares one embedded profile between kept DCT images with the same source', () => {
+    const document = loadDocument(twoImages.bytes);
+    convertImages(document, convertOptions);
+    const references = [5, 8].map(number => {
+      const space = imageStream(document.get(pdfReference(number, 0))).dictionary.get(pdfName('ColorSpace').bytes);
+      return space?.kind === 'array' ? space.items[1] : undefined;
+    });
+    expect(references[0]?.kind).toBe('reference');
+    expect(references[1]).toStrictEqual(references[0]);
+  });
+
+  it('refuses an untagged sRGB JPX image when compressed RGB images are refused', () => {
+    const document = loadDocument(imagePdf('JPXDecode', jp2Color(16), { colorSpace: '' }));
+    expect(() => convertImages(document, { ...convertOptions, compressedRgbImages: 'refuse' })).toThrow(
+      expect.objectContaining({ constructor: UnsupportedFeatureError, reason: 'compressed-rgb-image' }),
+    );
+  });
+
+  it('refuses a form that draws itself while it collects image intents', () => {
+    const document = loadDocument(
+      imagePdf('FlateDecode', deflateZlib(pixels), {
+        pageContent: '/Fm Do',
+        pageResources: '',
+        objects: [{ number: 6, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</XObject<</Fm 6 0 R/Im 5 0 R>>>>', '/Fm Do') }],
+      }),
+    );
+    const page = dictionaryValue(document.get(document.page(0).reference));
+    const resources = document.page(0).resources();
+    resources.set(pdfName('XObject').bytes, pdfDictionary(new PdfDictionaryEntries([[pdfName('Fm').bytes, pdfReference(6, 0)]])));
+    page.entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
+    document.set(document.page(0).reference, page);
+    expect(() => convertImages(document, convertOptions)).toThrow(ResourceLimitError);
+  });
+
+  it.each([
+    { decode: '/Decode[1 0 0 1 0 1]', rgb: [1 - 0x80_00 / 65_535, 0x40_00 / 65_535, 1] },
+    { decode: '/Decode[0 1 0 1 0 1]', rgb: [0x80_00 / 65_535, 0x40_00 / 65_535, 1] },
+  ])('writes a 16-bit image with $decode as 16-bit big-endian CMYK', ({ decode, rgb }) => {
+    const raw = Uint8Array.of(0x80, 0x00, 0x40, 0x00, 0xff, 0xff);
+    const document = loadDocument(imagePdf('FlateDecode', deflateZlib(raw), { width: 1, bits: 16, decode }));
+    convertImages(document, convertOptions);
+    const output = new Float64Array(4);
+    createColorTransform({ kind: 'icc', profile: source }, destination, DEFAULT_TRANSFORM).convert(Float64Array.from(rgb), output);
+    const expected = [...output].flatMap(value => {
+      const sample = Math.round(value * 65_535);
+      return [Math.floor(sample / 256), sample % 256];
+    });
+    expect(imageData(document)).toStrictEqual(Uint8Array.from(expected));
+    expect(imageStream(document.get(pdfReference(5, 0))).dictionary.get(pdfName('BitsPerComponent').bytes)).toStrictEqual(pdfInteger(16));
+  });
+
+  it('classifies only a well-formed JP2 header that names RGB', () => {
+    const signature = jp2Color(16).subarray(0, 12);
+    const colr = (payload: ReadonlyArray<number>): Uint8Array => jp2Box('colr', Uint8Array.from(payload));
+    const header = (...boxes: ReadonlyArray<Uint8Array>): Uint8Array => joined([signature, jp2Box('jp2h', joined(boxes))]);
+    const xl = (payload: Uint8Array): Uint8Array =>
+      joined([Uint8Array.of(0, 0, 0, 1, ...new TextEncoder().encode('jp2h'), 0, 0, 0, 0, ...be32(payload.length + 16)), payload]);
+    const badSignature = Uint8Array.from(jp2Color(16));
+    badSignature[8] = 0x0e;
+    const limit = 16 * 1024 * 1024;
+    expect(
+      [
+        jp2Color(16),
+        jp2Color(16).subarray(0, 10),
+        badSignature,
+        header(colr([1, 0, 0, 0, 0, 0, 16])),
+        header(colr([1, 0, 0, 0, 0, 16])),
+        header(jp2Box('ihdr', new Uint8Array(14))),
+        header(jp2Box('ihdr', new Uint8Array(14)), colr([1, 0, 0, 0, 0, 0, 16])),
+        joined([signature, xl(colr([1, 0, 0, 0, 0, 0, 16]))]),
+      ].map(bytes => jpxHasRgbColor(bytes, limit)),
+    ).toStrictEqual([true, false, false, true, false, false, true, true]);
+  });
+
+  it('reads an embedded JP2 profile of exactly the limit and refuses one byte more', () => {
+    expect(jpxHasRgbColor(jp2Icc(source.bytes), source.bytes.length)).toBe(true);
+    expect(() => jpxHasRgbColor(jp2Icc(source.bytes), source.bytes.length - 1)).toThrow(ResourceLimitError);
   });
 });
 
@@ -720,5 +1008,86 @@ describe('preblended soft-mask images', () => {
     }
     expect(imageData(document)).toStrictEqual(expected);
     expect(softMaskOf(document, 5).dictionary.get(pdfName('Matte').bytes)).toBeUndefined();
+  });
+
+  it('keeps the stored components of a pixel whose alpha is 0', () => {
+    // ISO 32000-1:2008, 11.6.5.3: a fully transparent pixel has no straight colour to recover.
+    const document = loadDocument(softMaskedPdf([preblendedRed], { dictionary: '/Width 1/Height 1/BitsPerComponent 8/Matte[1 1 1]', data: Uint8Array.of(0) }));
+    convertImages(document, convertOptions);
+    expect(imageData(document)).toStrictEqual(opaqueConversion(Uint8Array.of(255, 128, 128), { width: 1, decode: '/Decode[0 1 0 1 0 1]' }));
+  });
+});
+
+// ISO 32000-1:2008, 8.9.3: samples are packed high bit first, each row padded to a whole byte.
+const packSamples = (samples: ReadonlyArray<number>, bits: number): Uint8Array => {
+  if (bits === 16) {
+    return Uint8Array.from(samples.flatMap(sample => [Math.floor(sample / 256), sample % 256]));
+  }
+  const text = samples.map(sample => sample.toString(2).padStart(bits, '0')).join('');
+  const padded = text.padEnd(Math.ceil(text.length / 8) * 8, '0');
+  return Uint8Array.from({ length: padded.length / 8 }, (_, index) => Number.parseInt(padded.slice(index * 8, index * 8 + 8), 2));
+};
+
+const jp2Signature = jp2Color(16).subarray(0, 12);
+
+describe('properties', () => {
+  it('reads back every sample packed high bit first', () => {
+    const packed = fc
+      .constantFrom(1, 2, 4, 8, 16)
+      .chain(bits => fc.record({ bits: fc.constant(bits), samples: fc.array(fc.integer({ min: 0, max: 2 ** bits - 1 }), { minLength: 1, maxLength: 40 }) }));
+    fc.assert(
+      fc.property(packed, ({ bits, samples }) => {
+        const row = packSamples(samples, bits);
+        expect(samples.map((_, index) => readImageSample(row, index, bits))).toStrictEqual(samples);
+      }),
+    );
+  });
+
+  it('classifies any byte string as RGB or not, or refuses it only for its profile size', () => {
+    const bytes = fc.oneof(
+      fc.uint8Array({ maxLength: 64 }),
+      fc.uint8Array({ maxLength: 64 }).map(tail => joined([jp2Signature, tail])),
+      fc.uint8Array({ maxLength: 64 }).map(payload => joined([jp2Signature, jp2Box('jp2h', payload)])),
+      fc.uint8Array({ maxLength: 64 }).map(payload => joined([jp2Signature, jp2Box('jp2h', jp2Box('colr', payload))])),
+    );
+    fc.assert(
+      fc.property(bytes, input => {
+        let outcome: string;
+        try {
+          outcome = typeof jpxHasRgbColor(input, 32);
+        } catch (error: unknown) {
+          outcome = error instanceof ResourceLimitError ? 'resource-limit' : String(error);
+        }
+        expect(['boolean', 'resource-limit']).toContain(outcome);
+      }),
+    );
+  });
+
+  it('removes a matte by the preblending formula whenever the result needs no clipping', () => {
+    // ISO 32000-1:2008, 11.6.5.3: c' = m + alpha * (c - m), so c = m + (c' - m) / alpha.
+    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, DEFAULT_TRANSFORM);
+    const unit = fc.double({ min: 0, max: 1, noNaN: true });
+    const input = fc.record({
+      stored: fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 3, maxLength: 3 }),
+      matte: fc.array(unit, { minLength: 3, maxLength: 3 }),
+      alpha: fc.double({ min: 0.05, max: 1, noNaN: true }),
+    });
+    fc.assert(
+      fc.property(input, ({ stored, matte, alpha }) => {
+        const straight = stored.map((sample, channel) => (matte[channel] ?? 0) + (sample / 255 - (matte[channel] ?? 0)) / alpha);
+        fc.pre(straight.every(value => value >= 0 && value <= 1));
+        const expected = new Float64Array(4);
+        transform.convert(Float64Array.from(straight), expected);
+        const row = convertImageRow(Uint8Array.from(stored), {
+          width: 1,
+          channels: 3,
+          bits: 8,
+          transform,
+          decode: undefined,
+          matte: { values: matte, alpha: Float64Array.of(alpha) },
+        });
+        expect(row).toStrictEqual(Uint8Array.from(expected, value => Math.round(value * 255)));
+      }),
+    );
   });
 });
