@@ -115,10 +115,10 @@ describe('alignment', () => {
 });
 
 describe('properties', () => {
-  // Long sequences over two or four symbols, so that the searches from both ends prune diagonals and meet with either parity of the length difference.
+  // Long sequences over two or four symbols, so that the searches from both ends prune diagonals and meet with either parity of the length difference; fast-check keeps a string to about ten units unless its size is raised.
   const sequence = fc.oneof(
-    fc.string({ unit: fc.constantFrom('a', 'b'), maxLength: 300 }),
-    fc.string({ unit: fc.constantFrom('a', 'b', 'c', 'd'), maxLength: 300 }),
+    fc.string({ unit: fc.constantFrom('a', 'b'), maxLength: 300, size: 'max' }),
+    fc.string({ unit: fc.constantFrom('a', 'b', 'c', 'd'), maxLength: 300, size: 'max' }),
   );
 
   it('matches a longest common subsequence of long sequences and lists every item once, in order', () => {
