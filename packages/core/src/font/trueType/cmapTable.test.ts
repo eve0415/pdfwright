@@ -276,7 +276,8 @@ describe('embedded TrueType cmap tables', () => {
 
   it('reads format 14 variation sequences as default or as a glyph of their own', () => {
     const base = format4([{ start: 0x84_5b, end: 0x84_5b, delta: 0 }]);
-    const variations = format14(0xe_01_00, [[0x84_5b, 0]], [[0x84_5c, 77]]);
+    // The default UVS range starts at U+845B with additionalCount 2, so it covers U+845B to U+845D.
+    const variations = format14(0xe_01_00, [[0x84_5b, 2]], [[0x84_60, 77]]);
     const cmap = cmapOf(
       readTrueTypeCmap(
         programWith([
@@ -287,10 +288,11 @@ describe('embedded TrueType cmap tables', () => {
     );
     expect([
       cmap.variant(0x84_5b, 0xe_01_00),
-      cmap.variant(0x84_5c, 0xe_01_00),
       cmap.variant(0x84_5d, 0xe_01_00),
+      cmap.variant(0x84_5e, 0xe_01_00),
+      cmap.variant(0x84_60, 0xe_01_00),
       cmap.variant(0x84_5b, 0xe_01_01),
-    ]).toStrictEqual(['default', 77, undefined, undefined]);
+    ]).toStrictEqual(['default', 'default', undefined, 77, undefined]);
   });
 
   it('limits decoded format 14 mappings before building a large map', () => {
