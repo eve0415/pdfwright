@@ -530,32 +530,29 @@ describe('forms drawn from converted pages', () => {
   };
 
   it.each([
-    { name: 'gray and RGB', states: ['0.5 g', '0.2 0.4 0.6 rg'], xobjects: '/XObject<</Fm 5 0 R>>', objects: [formStream], others: 0, image: undefined },
+    { name: 'gray and RGB', states: ['0.5 g', '0.2 0.4 0.6 rg'], xobjects: '/XObject<</Fm 5 0 R>>', objects: [formStream], others: [] },
     {
       name: 'two RGB spaces',
       states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg'],
       xobjects: '/XObject<</Fm 5 0 R>>',
       objects: [formStream],
-      others: 0,
-      image: undefined,
+      others: [],
     },
     {
       name: 'three RGB spaces',
       states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
       xobjects: '/XObject<</Fm 5 0 R>>',
       objects: [formStream],
-      others: 0,
-      image: undefined,
+      others: [],
     },
     {
       name: 'three RGB spaces beside an image named like a form copy',
       states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
       xobjects: '/XObject<</Fm 5 0 R/PWFORM1 7 0 R>>',
       objects: [formStream, grayImage],
-      others: 1,
-      image: pdfReference(7, 0),
+      others: [{ name: 'PWFORM1', value: pdfReference(7, 0) }],
     },
-  ])('names one copy of a form for each state when the page draws it under $name many times', ({ states, xobjects, objects, others, image }) => {
+  ])('names one copy of a form for each state when the page draws it under $name many times', ({ states, xobjects, objects, others }) => {
     // Each state alone shows the content its copy of the form must have.
     const expected = states.map(state => {
       const single = loadDocument(documentBytes([{ resources: `${formSpaces}${xobjects}`, content: `${state} /Fm Do` }], objects));
@@ -572,8 +569,8 @@ describe('forms drawn from converted pages', () => {
     expect(new Set(copies).size).toBe(states.length);
     expect(names).toStrictEqual(draws.map((_, index) => copies[index % states.length]));
     expect(copies.map(name => text(name))).toStrictEqual(expected);
-    expect(dictionary?.size).toBe(states.length + others);
-    expect(dictionary?.get(pdfName('PWFORM1').bytes)).toStrictEqual(image);
+    expect(dictionary?.size).toBe(states.length + others.length);
+    expect(others.map(({ name }) => dictionary?.get(pdfName(name).bytes))).toStrictEqual(others.map(({ value }) => value));
   });
 });
 
