@@ -47,6 +47,21 @@ describe('white overprint guard', () => {
     }).not.toThrow();
   });
 
+  // ISO 32000-1:2008, 8.6.7: under OPM 1 a DeviceCMYK component of 0 leaves the plate below unchanged, so only a colour with every component 0 paints nothing.
+  it.each([
+    { color: 'cyan only', c: 0.5, m: 0, y: 0, k: 0 },
+    { color: 'magenta only', c: 0, m: 0.5, y: 0, k: 0 },
+    { color: 'yellow only', c: 0, m: 0, y: 0.5, k: 0 },
+    { color: 'black only', c: 0, m: 0, y: 0, k: 0.5 },
+  ])('accepts a fill under OPM 1 with $color ink', ({ c, m, y, k }) => {
+    const { content } = createContentBuilder(5);
+    content.fillColor(cmyk(c, m, y, k));
+    content.graphicsState({ overprintFill: true, overprintMode: 1 });
+    expect(() => {
+      content.fill('nonzero');
+    }).not.toThrow();
+  });
+
   it('checks the painting operation flag and restores state across q/Q', () => {
     const { content } = createContentBuilder(5);
     content.strokeColor(cmyk(0, 0, 0, 0));
