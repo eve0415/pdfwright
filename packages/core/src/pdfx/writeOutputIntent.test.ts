@@ -239,6 +239,31 @@ describe('gts pdfx output intent', () => {
     expect(write).toThrow(expect.objectContaining({ reason: 'unreadable-resource' }));
   });
 
+  it.each<[string, Array<[string, PdfDirectObject]>, string]>([
+    ['is not an ICC profile', [], 'x'.repeat(200)],
+    ['does not decode', [['Filter', pdfName('FlateDecode')]], 'garbage'],
+  ])('replaces an existing intent whose profile %s when asked', (_, fields, data) => {
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries(fields.map(([name, value]) => [pdfName(name).bytes, value])),
+      data: new TextEncoder().encode(data),
+    });
+    const intentReference = document.object(
+      pdfDictionary(
+        new PdfDictionaryEntries([
+          [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+          [pdfName('DestOutputProfile').bytes, profileReference],
+        ]),
+      ),
+    );
+    setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes]).toStrictEqual(['replaced', ['GTS_PDFA1']]);
+    expect([document.get(intentReference), document.get(profileReference)]).toStrictEqual([{ kind: 'null' }, { kind: 'null' }]);
+    expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX']);
+  });
+
   it('reuses an identical indirect profile and refuses a conflicting one by default', () => {
     const { document, profileReference } = withIntent(profile);
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
