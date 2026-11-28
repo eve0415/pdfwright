@@ -86,11 +86,12 @@ const sameProfile = (internals: DocumentInternals, value: PdfDirectObject | unde
 };
 
 // ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name, and a reference that names no object, such as one to another generation, is the null object, so a reference the loader refuses gives no name.
-const subtypeOf = (internals: DocumentInternals, value: PdfDirectObject | undefined): string => {
+// The subtype of an intent about to be removed is only reported, so one that cannot be read within the limits reads as other too; a kept intent's subtype decides what is written, so there the limit error stands.
+const subtypeOf = (internals: DocumentInternals, value: PdfDirectObject | undefined, removed: boolean): string => {
   try {
     return nameOf(internals.objects.deref(value)) ?? 'other';
   } catch (error: unknown) {
-    if (error instanceof ParseError) {
+    if (error instanceof ParseError || (removed && error instanceof PdfwrightError)) {
       return 'other';
     }
     throw error;
@@ -116,7 +117,7 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
-    const subtype = subtypeOf(internals, value.entries.get(key('S')));
+    const subtype = subtypeOf(internals, value.entries.get(key('S')), !matches);
     const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
     existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
