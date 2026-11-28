@@ -112,6 +112,15 @@ describe('glyph order', () => {
     ]);
   });
 
+  it('takes glyphs that share a right edge into columns in content order, whatever order they are given in', () => {
+    // Narrow glyph 2 shares wide glyph 1's right edge and overlaps glyph 0 by exactly half its own width, so it joins whichever of the two is grouped first; content order groups glyph 1 first, and glyph 2 tops that column.
+    const [right, wide, narrow] = [boxed(0, [19, 0, 24, 10]), boxed(1, [0, 20, 20, 30]), boxed(2, [18, 40, 20, 50])];
+    expect([indexes(orderGlyphs([right, wide, narrow], 'columns-rtl')), indexes(orderGlyphs([right, narrow, wide], 'columns-rtl'))]).toStrictEqual([
+      [0, 2, 1],
+      [0, 2, 1],
+    ]);
+  });
+
   it.each([
     // Glyph 0 lies left of glyph 1 and glyph 1's top is higher: tops closer than 0.01 count as one, so the left glyph comes first.
     ['0.009 apart share a top and read left to right', 100.009, [0, 1]],
