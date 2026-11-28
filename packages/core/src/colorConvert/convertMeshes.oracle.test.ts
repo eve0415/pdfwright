@@ -967,16 +967,22 @@ describe('mesh shading conversion', () => {
 
   it.each([
     { name: 'a Type 4 edge flag of 3', dictionary: rgbDictionary(4), data: vertexData([...rgbTriangle, { flag: 3, x: 100, y: 100, color: [0, 0, 0] }]) },
-    { name: 'an incomplete Type 4 triangle', dictionary: rgbDictionary(4), data: vertexData(rgbTriangle.slice(0, 2)) },
+    {
+      name: 'an incomplete Type 4 triangle after a complete one',
+      dictionary: rgbDictionary(4),
+      data: vertexData([...rgbTriangle, { x: 100, y: 100, color: [0, 0, 0] }]),
+    },
     {
       name: 'a first Type 6 patch that continues an edge',
       dictionary: rgbDictionary(6),
       data: patchData([
         {
           flag: 1,
-          points: Array.from({ length: 8 }, (_, index) => [index, index] as const),
+          points: Array.from({ length: 12 }, (_, index) => [index * 5, index * 3] as const),
           colors: [
-            [0, 0, 0],
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
             [255, 255, 255],
           ],
         },
@@ -984,6 +990,7 @@ describe('mesh shading conversion', () => {
     },
     { name: 'an empty Type 6 patch mesh', dictionary: rgbDictionary(6), data: new Uint8Array() },
     { name: 'a Type 5 lattice with an incomplete row', dictionary: rgbDictionary(5), data: vertexData(rgbTriangle, { flagged: false }) },
+    { name: 'a Type 5 lattice with a single row', dictionary: rgbDictionary(5), data: vertexData(rgbTriangle.slice(0, 2), { flagged: false }) },
   ])('reports $name as a parse error', ({ dictionary, data }) => {
     const document = loadDocument(shadingPdf(dictionary, data));
     expect(() => convertMeshShadings(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(ParseError);
