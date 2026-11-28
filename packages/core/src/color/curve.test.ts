@@ -71,8 +71,7 @@ describe('icc sampled curves', () => {
     expect(invertCurve(table([40_000]), output)).toBe(expected);
   });
 
-  // A flat table at level 0 has no sample below it to interpolate from, unlike one at a non-zero level.
-  it.each([0, 30_000].flatMap(level => [0, 0.2, level / 65_535, 1].map(output => ({ level, output }))))(
+  it.each([0, 30_000].flatMap(level => [...new Set([0, 0.2, level / 65_535, 1])].map(output => ({ level, output }))))(
     'inverts a flat table at level $level to its lowest input, since the flat stretch ends the domain: $output',
     ({ level, output }) => {
       expect(invertCurve(table([level, level, level]), output)).toBe(0);
