@@ -4,6 +4,7 @@ import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObje
 
 import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -56,9 +57,22 @@ export interface CarrierSeen {
   readonly categories: Map<number, Array<CarrierHolder>>;
   /** Object numbers of the streams an annotation's appearance names, whatever role they were listed by. */
   readonly appearances: Set<number>;
+  /** The most steps the walks may take together, where a step is one resource entry or appearance a walk examines; every carrier costs one. */
+  readonly maxSteps: number;
+  steps: number;
 }
 
-export const carrierSeen = (): CarrierSeen => ({ objects: new Set(), fonts: new Map(), categories: new Map(), appearances: new Set() });
+/** The steps one pass's carrier walks may take together by default. */
+const MAX_CARRIER_STEPS = 10_000_000;
+
+export const carrierSeen = (maxSteps: number = MAX_CARRIER_STEPS): CarrierSeen => ({
+  objects: new Set(),
+  fonts: new Map(),
+  categories: new Map(),
+  appearances: new Set(),
+  maxSteps,
+  steps: 0,
+});
 
 /** The key of an indirect object, shared by carrier keys and by callers that key pages and forms. */
 export const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
@@ -230,6 +244,9 @@ class CarrierWalk {
 
   private drain(): void {
     for (let item = this.pending.pop(); item !== undefined; item = this.pending.pop()) {
+      if (++this.seen.steps > this.seen.maxSteps) {
+        throw new ResourceLimitError(`the resource carrier walk takes more than ${String(this.seen.maxSteps)} steps`);
+      }
       if (item.kind === 'font') {
         this.directFont(item.slot, item.name, item.font);
       } else {
@@ -256,11 +273,11 @@ class CarrierWalk {
         const variants = this.internals.objects.deref(entry);
         if (variants?.kind === 'dictionary') {
           for (const [, value] of variants.entries.entries()) {
-            this.owner(value, true);
+            this.pending.push({ kind: 'owner', value, appearance: true });
             this.drain();
           }
         } else {
-          this.owner(entry, true);
+          this.pending.push({ kind: 'owner', value: entry, appearance: true });
           this.drain();
         }
       }
@@ -273,6 +290,7 @@ class CarrierWalk {
  * A holder is listed before the carriers reached from it.
  * Soft-mask groups and what only they reach are not listed.
  * Indirect objects in `seen` are skipped and every listed or walked one is added to it, which ends every cycle, including one through a directly stored Type 3 font, and lists an object shared by pages or holders once, so the walk is linear in the objects it reaches.
+ * Throws ResourceLimitError once the walks sharing `seen` take more than its `maxSteps` steps.
  */
 export const resourceCarriers = (
   internals: DocumentInternals,
