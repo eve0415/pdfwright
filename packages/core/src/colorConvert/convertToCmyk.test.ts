@@ -9,13 +9,15 @@ import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgbBytes from '../../../../tests/fixtures/icc/sRGB2014.icc?icc-bytes';
 import syntheticCmykBytes from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { pdfDate } from '../date/pdfDate.ts';
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodedData } from '../font/fontValues.ts';
 import { pdfArray, pdfLiteralString, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
 import { writeGtsPdfxOutputIntent } from '../pdfx/writeOutputIntent.ts';
 import { gammaCurveTag, iccProfileBytes } from '../testing/iccProfileBytes.ts';
-import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
 
@@ -335,6 +337,54 @@ describe('refused shading functions', () => {
       { number: 6, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>' },
     ];
     expect(convertToCmyk(loadDocument(documentBytes([shadingPage], objects)), cmykOptions).shadings.shadings).toBe(1);
+  });
+});
+
+// The decoded content of a stream object, as text.
+const streamText = (document: LoadedDocument, number: number): string => {
+  const stream = document.get(pdfReference(number, 0));
+  const internals = internalsOf(document);
+  if (stream.kind !== 'stream' || internals === undefined) {
+    throw new Error(`object ${String(number)} is not a stream`);
+  }
+  const data = decodedData(internals, stream);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return latin1Text(data);
+};
+
+// The four operands a page writes for an RGB colour set with the given operator, which a form must write for the same colour under an inherited RGB space.
+const pageCmyk = (operator: 'rg' | 'RG', rgb: string): string => {
+  const document = loadDocument(documentBytes([{ resources: '', content: `${rgb} ${operator} 0 0 10 10 re f` }], []));
+  convertToCmyk(document, cmykOptions);
+  const page = document.get(document.page(0).reference);
+  const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+  if (contents?.kind !== 'reference') {
+    throw new Error('the converted page has no content stream');
+  }
+  const cmyk = /^((?:[\d.]+ ){4})[kK] /u.exec(streamText(document, contents.objectNumber))?.[1];
+  if (cmyk === undefined) {
+    throw new Error('the converted page sets no CMYK colour');
+  }
+  return cmyk;
+};
+
+describe('forms drawn from converted pages', () => {
+  // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do; 8.6.8: sc and SC take one operand per component of the current space.
+  it.each([
+    { name: 'fill', page: '0.2 0.4 0.6 rg', form: '0.9 0.5 0.1 sc', operator: 'rg', paint: 'sc' },
+    { name: 'stroke', page: '0.2 0.4 0.6 RG', form: '0.9 0.5 0.1 SC', operator: 'RG', paint: 'SC' },
+  ] as const)('converts the $name colour a form sets in the RGB space it inherits from the page', ({ page, form, operator, paint }) => {
+    const document = loadDocument(
+      documentBytes(
+        [{ resources: '/XObject<</Fm 5 0 R>>', content: `${page} /Fm Do` }],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', `${form} 0 0 10 10 re f`) }],
+      ),
+    );
+    const report = convertToCmyk(document, cmykOptions);
+    expect(report.forms).toStrictEqual({ forms: 1, clones: 0 });
+    expect(streamText(document, 5)).toBe(`${pageCmyk(operator, '0.9 0.5 0.1')}${paint} 0 0 10 10 re f`);
   });
 });
 
