@@ -48,7 +48,8 @@ int main(int argc, char **argv) {
   }
   if (count == 0) return 6;
   fclose(input);
-  printf("%zu %.9f %.9f %.9f\n", count, maximum, total / (double)count, channelMaximum);
+  // The last value names the LittleCMS release the comparison ran against.
+  printf("%zu %.9f %.9f %.9f %d\n", count, maximum, total / (double)count, channelMaximum, cmsGetEncodedCMMversion());
   cmsDeleteTransform(toLab);
   cmsDeleteTransform(convert);
   cmsCloseProfile(lab);

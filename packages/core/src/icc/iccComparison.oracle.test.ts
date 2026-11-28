@@ -97,12 +97,41 @@ const cases = ['sRGB2014.icc', 'sRGB.icm', 'sRGB-v4.icc', 'DisplayP3-v4.icc', 'R
   ),
 );
 
-describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
-  it('agrees with transicc on a printed RGB black sample', async () => {
-    const output = await execute('transicc', ['-n', `-i${fixturePath('sRGB.icm')}`, `-o${fixturePath('fogra28l.icc')}`, '-t1', '-c0'], '0 0 0\n');
-    expect(output.trim()).toBe('99.9863 62.8260 37.1252 100.0000');
-  });
+describe('littlecms oracle harness', () => {
+  it('measures no difference for transicc output and the full shift of one moved channel', async () => {
+    const colors = samples();
+    const output = await execute(
+      'transicc',
+      ['-n', `-i${fixturePath('sRGB.icm')}`, `-o${fixturePath('fogra28l.icc')}`, '-t1', '-c0'],
+      `${colors.map(color => color.join(' ')).join('\n')}\n`,
+    );
+    const cmyk = output
+      .trim()
+      .split(/\r?\n/u)
+      .map(line => line.trim().split(/\s+/u).map(Number));
+    expect(cmyk).toHaveLength(colors.length);
+    const rows = (cyanShift: number): Array<string> =>
+      colors.map(([red, green, blue], index) => {
+        const [cyan = Number.NaN, magenta = Number.NaN, yellow = Number.NaN, black = Number.NaN] = cmyk[index] ?? [];
+        return [red / 255, green / 255, blue / 255, cyan + cyanShift, magenta, yellow, black].map(value => value.toPrecision(17)).join(' ');
+      });
+    const config = { source: 'sRGB.icm', destination: 'fogra28l.icc', intent: 1, bpc: 0 };
+    // transicc prints four decimals, so its rows differ from the harness's own conversion only by that rounding.
+    const [count, maximum, , channelMaximum, version] = await runOracle({ ...config, rows: rows(0) });
+    // The fixture README names LittleCMS 2.16 as the reference.
+    expect(version).toBe(2160);
+    expect(count).toBe(6189);
+    expect(maximum).toBeLessThan(0.005);
+    expect(channelMaximum).toBeLessThan(0.005);
+    // One percentage point of cyan must read as a channel difference of 1 and as a ΔE2000 above the 0.05 limit the comparisons use.
+    const [shiftedCount, shiftedMaximum, , shiftedChannelMaximum] = await runOracle({ ...config, rows: rows(1) });
+    expect(shiftedCount).toBe(6189);
+    expect(shiftedMaximum).toBeGreaterThan(0.05);
+    expect(shiftedChannelMaximum).toBeCloseTo(1, 2);
+  }, 60_000);
+});
 
+describe('littlecms ΔE2000 over 6,189 RGB samples', () => {
   it.each(cases.filter(item => item.intent !== 3))('maps $source paper white to exact no ink in $destination intent $intent bpc $bpc', async item => {
     const source = await rgbSource(item.source);
     const destination = parseIccProfile(await readFile(fixturePath(item.destination)));
