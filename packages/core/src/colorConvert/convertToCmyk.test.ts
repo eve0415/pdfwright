@@ -13,6 +13,7 @@ import { pdfDate } from '../date/pdfDate.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
@@ -576,6 +577,51 @@ describe('luminosity soft masks', () => {
       '0.59 g 0 0 10 10 re f',
       expect.stringMatching(/^(?:[\d.]+ ){4}k 0 0 10 10 re f$/u),
     ]);
+  });
+
+  const calGray = '[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]';
+  const grayImage = (space: string): TestObject => ({
+    number: 9,
+    body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace${space}`, String.fromCodePoint(128)),
+  });
+  const grayProfileObject: TestObject = { number: 10, body: streamBody('/N 1', latin1Text(grayProfile)) };
+  const grayPaint = [
+    { name: 'a CalGray image', resources: '/XObject<</Im 9 0 R>>', content: '/Im Do', objects: [grayImage(calGray)], category: 'XObject', key: 'Im' },
+    {
+      name: 'an ICC gray image',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [grayImage('[/ICCBased 10 0 R]'), grayProfileObject],
+      category: 'XObject',
+      key: 'Im',
+    },
+    {
+      name: 'a CalGray axial shading',
+      resources: '/Shading<</Sh1 9 0 R>>',
+      content: '/Sh1 sh',
+      objects: [{ number: 9, body: `<</ShadingType 2/ColorSpace${calGray}/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>>>` }],
+      category: 'Shading',
+      key: 'Sh1',
+    },
+  ] as const;
+
+  // ISO 32000-1:2008, 11.6.5.2: the mask takes its values from the group's own paint, so calibrated gray paint that the other passes would turn into CMYK inside the gray group is refused.
+  it.each(grayPaint)('refuses $name in an RGB luminosity mask and leaves the document unchanged', ({ resources, content, objects }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
+    expect([error, after]).toStrictEqual([
+      expect.objectContaining({ constructor: UnsupportedFeatureError, message: expect.stringMatching(/^luminosity /u) }),
+      before,
+    ]);
+  });
+
+  it.each(grayPaint)('keeps $name in an RGB luminosity mask when calibrated gray is kept', ({ resources, content, objects, category, key }) => {
+    const bytes = documentBytes([maskPage], [maskGroup(resources, content), ...objects]);
+    const document = loadDocument(bytes);
+    convertToCmyk(document, { ...cmykOptions, iccGray: 'keep' });
+    const source = maskResource(loadDocument(bytes), category, key);
+    const paint = maskResource(document, category, key);
+    const space = pdfName('ColorSpace').bytes;
+    expect([maskGroupSpace(document), paint.entries.get(space), paint.data]).toStrictEqual([pdfName('DeviceGray'), source.entries.get(space), source.data]);
   });
 
   // ISO 32000-1:2008, 8.10.1 and 11.6.5.2: a form drawn with Do paints with the state at Do, while the same stream as a soft-mask group only supplies mask values.
