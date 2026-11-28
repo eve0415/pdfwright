@@ -2,6 +2,8 @@ import type { LoadedDocument, PdfDictionaryEntries, PdfObject } from '@pdfwright
 
 import { InvalidArgumentError, ParseError, UnsupportedFeatureError, ValidationError, inflateZlib, loadDocument, pdfName } from '@pdfwright/core';
 
+import { isUint8Array } from '../isUint8Array.ts';
+
 /** Decodes one complete Zstandard frame (RFC 8878, 3.1.1) and returns its decompressed content. */
 export type ZstandardDecompressor = (frame: Uint8Array) => Uint8Array;
 
@@ -118,7 +120,7 @@ const decompressZstandard = (frame: Uint8Array, zstandard: ZstandardDecompressor
   // RFC 8878, 3.1.1.1.1: bit 5 of the Frame_Header_Descriptor is the Single_Segment_flag, and a single-segment frame has no Window_Descriptor.
   const singleSegment = Math.floor(frameHeaderDescriptor / 32) % 2 === 1;
   const native: unknown = zstandard(frame);
-  if (!(native instanceof Uint8Array)) {
+  if (!isUint8Array(native)) {
     throw new InvalidArgumentError('zstandard must return a Uint8Array');
   }
   return { native, compression: { kind: 'zstandard', frameHeaderDescriptor, windowDescriptor: singleSegment ? undefined : windowDescriptor } };

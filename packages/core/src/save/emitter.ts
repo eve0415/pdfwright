@@ -4,10 +4,10 @@ export type EmittedPart = Uint8Array | { readonly length: number; readonly produ
 
 export const emittedChunks = function* (parts: ReadonlyArray<EmittedPart>): Generator<Uint8Array> {
   for (const part of parts) {
-    if (part instanceof Uint8Array) {
-      yield part;
-    } else {
+    if ('produce' in part) {
       yield* part.produce();
+    } else {
+      yield part;
     }
   }
 };
@@ -57,9 +57,9 @@ export class PdfEmitter {
   /** The chunks emitted so far, finishing the current buffer. */
   finish(): Array<Uint8Array> {
     this.flush();
-    if (this.chunks.some(part => !(part instanceof Uint8Array))) {
+    if (this.chunks.some(part => 'produce' in part)) {
       throw new Error('produced output requires a streamed save');
     }
-    return this.chunks.filter((part): part is Uint8Array => part instanceof Uint8Array);
+    return this.chunks.filter((part): part is Uint8Array => !('produce' in part));
   }
 }

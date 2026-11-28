@@ -15,7 +15,7 @@ export class ByteSource {
   private readonly starts: Array<number>;
 
   constructor(input: Uint8Array | ReadonlyArray<Uint8Array>) {
-    const segments = input instanceof Uint8Array ? [input] : input.filter(segment => segment.length > 0);
+    const segments = ArrayBuffer.isView(input) ? [input] : input.filter(segment => segment.length > 0);
     this.segments = segments;
     this.starts = [];
     let length = 0;

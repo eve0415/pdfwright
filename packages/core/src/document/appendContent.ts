@@ -235,7 +235,7 @@ const existingContents = (context: ContentContext, page: PageEntry): Array<PdfDi
  * ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "If the value is an array, the effect shall be as if all of the streams in the array were concatenated, in order, to form a single stream."
  */
 export const appendPageContent = (context: ContentContext, page: PageEntry, request: AppendRequest): void => {
-  if (request.content instanceof Uint8Array) {
+  if (typeof request.content !== 'function') {
     checkRawContent(request.content, request.isolate);
   }
   const data = typeof request.content === 'function' ? built(context, page, request.content) : request.content;

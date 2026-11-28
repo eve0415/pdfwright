@@ -162,7 +162,7 @@ export const readContentSpans = function* (
   maxNesting: number,
 ): Generator<SpannedContentOperation, ReadonlyArray<ContentOperand>> {
   const reader = new OperationReader(maxNesting);
-  const streams = content instanceof Uint8Array ? [content] : content;
+  const streams = ArrayBuffer.isView(content) ? [content] : content;
   for (const [index, bytes] of streams.entries()) {
     yield* reader.read(bytes, index);
   }

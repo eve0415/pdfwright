@@ -29,7 +29,7 @@ export interface PieceInfoRecord {
   value: PdfDirectObject;
 }
 
-const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => data instanceof Map;
+const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => Object.prototype.toString.call(data) === '[object Map]';
 
 const dataEntries = (data: PieceDataEntries): Array<[string | Uint8Array, PieceData]> => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
 

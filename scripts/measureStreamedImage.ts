@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { isUint8Array } from 'node:util/types';
 import { createDeflate } from 'node:zlib';
 
 import { convertImages } from '../packages/core/src/colorConvert/convertImages.ts';
@@ -21,7 +22,7 @@ const rows = Readable.from(
 );
 for await (const value of rows.pipe(createDeflate())) {
   const chunk: unknown = value;
-  if (!(chunk instanceof Uint8Array)) {
+  if (!isUint8Array(chunk)) {
     throw new TypeError('deflate returned non-byte data');
   }
   compressed.push(Uint8Array.from(chunk));

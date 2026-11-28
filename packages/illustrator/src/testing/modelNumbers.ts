@@ -1,10 +1,12 @@
 import type { IllustratorDocument } from '../model/illustratorDocument.ts';
 
+import { isUint8Array } from '../isUint8Array.ts';
+
 const numbersOf = (value: unknown): Array<number> => {
   if (typeof value === 'number') {
     return [value];
   }
-  if (typeof value !== 'object' || value === null || value instanceof Uint8Array) {
+  if (typeof value !== 'object' || value === null || isUint8Array(value)) {
     return [];
   }
   if (Array.isArray(value)) {

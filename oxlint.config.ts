@@ -104,8 +104,6 @@ export default defineConfig({
     // The rule takes any function whose name starts with `use` for a React hook, and this repository has no React.
     'react-hooks/rules-of-hooks': 'off',
     'import/no-nodejs-modules': 'error',
-
-    '@nkzw/no-instanceof': 'off',
   },
   overrides: [
     {

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { text } from 'node:stream/consumers';
+import { isUint8Array } from 'node:util/types';
 import { createDeflate } from 'node:zlib';
 
 import { convertToCmyk } from '../packages/core/src/colorConvert/convertToCmyk.ts';
@@ -65,7 +66,7 @@ const createFixture = async (filePath: string, pageCount: number): Promise<void>
       write('stream\n');
       const streamAt = length;
       for await (const chunk of Readable.from(imageRows()).pipe(createDeflate({ level: 1 }))) {
-        if (!(chunk instanceof Uint8Array)) {
+        if (!isUint8Array(chunk)) {
           throw new TypeError('deflate returned non-byte data');
         }
         write(chunk);

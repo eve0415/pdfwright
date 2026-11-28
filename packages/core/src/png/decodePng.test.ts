@@ -105,13 +105,13 @@ describe('png chunk CRC-32', () => {
 describe('decoding PNG datastreams', () => {
   it.each(CASES)('decodes colour type $colorType at bit depth $bitDepth, $width × $height, interlaced $interlaced', source => {
     const decoded = decodePng(encodeTestPng({ ...source, idatChunks: 3 }));
-    expect([decoded.width, decoded.height, decoded.bitDepth, decoded.interlaced, decoded.samples instanceof Uint16Array]).toStrictEqual([
-      source.width,
-      source.height,
-      source.bitDepth,
-      source.interlaced,
-      source.bitDepth === 16,
-    ]);
+    expect([
+      decoded.width,
+      decoded.height,
+      decoded.bitDepth,
+      decoded.interlaced,
+      decoded.samples.BYTES_PER_ELEMENT === Uint16Array.BYTES_PER_ELEMENT,
+    ]).toStrictEqual([source.width, source.height, source.bitDepth, source.interlaced, source.bitDepth === 16]);
     expect([...decoded.samples]).toStrictEqual(source.samples);
   });
 

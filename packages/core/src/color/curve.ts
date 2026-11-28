@@ -8,7 +8,7 @@ const table = (values: Uint8Array | Uint16Array, input: number): number => {
   const position = clip(input) * (values.length - 1);
   const low = Math.min(Math.floor(position), values.length - 2);
   const fraction = position - low;
-  const scale = values instanceof Uint8Array ? 255 : 65_535;
+  const scale = values.BYTES_PER_ELEMENT === Uint8Array.BYTES_PER_ELEMENT ? 255 : 65_535;
   return (values[low] ?? 0) / scale + fraction * ((values[low + 1] ?? 0) / scale - (values[low] ?? 0) / scale);
 };
 
@@ -51,7 +51,7 @@ interface Inversion {
 }
 
 const invertTable = (values: Uint8Array | Uint16Array, inversion: Inversion): number => {
-  const scale = values instanceof Uint8Array ? 255 : 65_535;
+  const scale = values.BYTES_PER_ELEMENT === Uint8Array.BYTES_PER_ELEMENT ? 255 : 65_535;
   const at = (index: number): number => (inversion.direction * (values[index] ?? 0)) / scale;
   const last = values.length - 1;
   if (inversion.target >= inversion.top) {
