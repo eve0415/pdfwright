@@ -7,6 +7,7 @@ import type { PrintingCondition } from './printingConditions.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { versionNumber } from '../document/readStructure.ts';
+import { ParseError } from '../error/parseError.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
@@ -83,6 +84,18 @@ const sameProfile = (internals: DocumentInternals, value: PdfDirectObject | unde
   }
 };
 
+// ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name, and a reference that names no object, such as one to another generation, is the null object, so a reference the loader refuses gives no name.
+const subtypeOf = (internals: DocumentInternals, value: PdfDirectObject | undefined): string => {
+  try {
+    return nameOf(internals.objects.deref(value)) ?? 'other';
+  } catch (error: unknown) {
+    if (error instanceof ParseError) {
+      return 'other';
+    }
+    throw error;
+  }
+};
+
 const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): Array<ExistingIntent> => {
   const { objects } = internals;
   const intents = objects.deref(catalog.get(key('OutputIntents')));
@@ -102,8 +115,7 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
-    // ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name.
-    const subtype = nameOf(objects.deref(value.entries.get(key('S')))) ?? 'other';
+    const subtype = subtypeOf(internals, value.entries.get(key('S')));
     const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
     existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
