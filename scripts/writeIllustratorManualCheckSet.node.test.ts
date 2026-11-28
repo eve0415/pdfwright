@@ -18,7 +18,7 @@ import { manualCheckModel } from '../packages/illustrator/src/testing/manualChec
 import { readIllustratorContainer, readIllustratorPdf } from '../packages/illustrator/src/testing/readIllustratorPdf.ts';
 
 import { readIllustratorExportManifest } from './illustratorExports.ts';
-import { contentSizeFrame, writeDiagnosticLadder, writeManualCheckSet } from './writeIllustratorManualCheckSet.ts';
+import { contentSizeFrame, isInsideDirectory, writeDiagnosticLadder, writeManualCheckSet } from './writeIllustratorManualCheckSet.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
 if (exportsDirectory === undefined) {
@@ -70,15 +70,6 @@ describe('illustrator manual-check file set', () => {
     { case: 'a relative path inside the repository', directory: path.relative(process.cwd(), path.join(repository, 'scripts', 'tmp-manual')) },
   ])('refuses $case as the output directory', async ({ directory }) => {
     await expect(writeManualCheckSet(directory)).rejects.toThrow(/outside the repository/u);
-  });
-
-  it('accepts a sibling of the repository whose name starts with the repository name', async () => {
-    const sibling = `${repository}-manual-check-${String(process.pid)}`;
-    try {
-      await expect(writeManualCheckSet(sibling)).resolves.toContain('01-standard.pdf');
-    } finally {
-      await rm(sibling, { recursive: true, force: true });
-    }
   });
 
   it('writes the locked variant', async () => {
@@ -144,6 +135,31 @@ describe('illustrator manual-check file set', () => {
       expect(unequalBytes.length).toBeGreaterThan(standardBytes.length);
       expect(unequalBytes.subarray(0, standardBytes.length)).toStrictEqual(standardBytes);
     });
+  });
+});
+
+describe('the repository boundary', () => {
+  const root = path.resolve('/work/repo');
+
+  it.each([
+    { case: 'the root itself', target: '/work/repo', inside: true },
+    { case: 'a child', target: '/work/repo/scripts', inside: true },
+    { case: 'a nested child', target: '/work/repo/scripts/out/set', inside: true },
+    { case: 'a child whose name starts with two dots', target: '/work/repo/..hidden', inside: true },
+    { case: 'a sibling whose name starts with the root name', target: '/work/repo-manual-check-1', inside: false },
+    { case: 'a sibling inside which the root name is a prefix of a directory', target: '/work/repository/scripts', inside: false },
+    { case: 'the parent', target: '/work', inside: false },
+    { case: 'an unrelated path', target: '/elsewhere/repo', inside: false },
+    { case: 'a path with dot-dot segments that resolves inside', target: '/work/repo/scripts/../docs', inside: true },
+    { case: 'a path with dot-dot segments that resolves outside', target: '/work/repo/../repo-copy', inside: false },
+    { case: 'a path with dot-dot segments that leaves and re-enters the root', target: '/work/other/../repo/scripts', inside: true },
+  ])('treats $case as inside: $inside', ({ target, inside }) => {
+    expect(isInsideDirectory(root, path.resolve(target))).toBe(inside);
+  });
+
+  it('resolves a relative target against the working directory', () => {
+    expect(isInsideDirectory(root, path.relative(process.cwd(), '/work/repo/scripts'))).toBe(true);
+    expect(isInsideDirectory(root, path.relative(process.cwd(), '/work/repo-manual-check-1'))).toBe(false);
   });
 });
 
