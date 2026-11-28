@@ -22,6 +22,7 @@ const leftOver = (content: string): ReadonlyArray<ContentOperand> => {
 };
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });
+const integer = (value: number): ContentOperand => ({ kind: 'integer', value });
 
 describe('content operations', () => {
   it('reads each operator with its parsed operands and offset', () => {
@@ -66,12 +67,18 @@ describe('content operations', () => {
 
   it('reads an inline image as one BI operation with its parameters and data', () => {
     const [save, image, restore] = operations('q BI /W 6 /H 1 /BPC 8 /CS /G ID\nA EI B EI Q');
-    expect([save?.operator, image?.operator, image?.offset, image?.inlineImage?.parameters.length, image?.inlineImage?.data, restore]).toStrictEqual([
+    expect([save?.operator, image, restore]).toStrictEqual([
       'q',
-      'BI',
-      2,
-      8,
-      latin1Bytes('A EI B'),
+      {
+        operator: 'BI',
+        operands: [],
+        inlineImage: {
+          parameters: [name('W'), integer(6), name('H'), integer(1), name('BPC'), integer(8), name('CS'), name('G')],
+          data: latin1Bytes('A EI B'),
+        },
+        stream: 0,
+        offset: 2,
+      },
       { operator: 'Q', operands: [], stream: 0, offset: 42 },
     ]);
   });
@@ -112,8 +119,19 @@ describe('content operations', () => {
     expect(() => operations('0 '.repeat(16_385))).toThrow(ResourceLimitError);
   });
 
-  it('refuses an oversized array operand while it is parsed', () => {
-    expect(() => operations(`[${'0 '.repeat(16_385)}] TJ`)).toThrow(ResourceLimitError);
+  it('reads an operator with 16,384 operands', () => {
+    const [operation] = operations(`${'0 '.repeat(16_384)}n`);
+    expect([operation?.operator, operation?.operands.length]).toStrictEqual(['n', 16_384]);
+  });
+
+  it('refuses an array operand of 16,385 values, the array included, while it is parsed', () => {
+    expect(() => operations(`[${'0 '.repeat(16_384)}] TJ`)).toThrow(ResourceLimitError);
+  });
+
+  it('reads an array operand of 16,384 values, the array included', () => {
+    const [operation] = operations(`[${'0 '.repeat(16_383)}] TJ`);
+    const [array] = operation?.operands ?? [];
+    expect([operation?.operator, array?.kind === 'array' ? array.items.length : undefined]).toStrictEqual(['TJ', 16_383]);
   });
 
   it('throws ParseError for an operand it cannot read', () => {
