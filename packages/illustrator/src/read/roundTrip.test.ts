@@ -51,16 +51,66 @@ describe('native layer round trips', () => {
     expect(second.bytes).toStrictEqual(first.bytes);
   });
 
-  it('retains nested objects, alpha bytes and Unicode names', () => {
-    const read = readNative(writeNative(model).bytes, date).document;
-    expect(read.layers.map(layer => layer.name)).toStrictEqual(['非表示', 'Die (outer)']);
-    expect(read.layers[1]?.items[0]).toMatchObject({ kind: 'clipGroup', items: [{ kind: 'group', opacity: 0.3, isolated: true }] });
-    expect(read.layers[1]?.items[1]).toMatchObject({ kind: 'raster', alpha: new Uint8Array([255, 0]) });
-  });
-
   it('reads the model after native-number rounding and default materialization', () => {
     const read = readNative(writeNative(model).bytes, date).document;
     expect(read).toStrictEqual(normalizeModel(model));
+  });
+
+  // Each model differs from `model` in one field that every other round trip leaves at its default or symmetric value.
+  const fill: PathItem = { kind: 'path', geometry: { subpaths: [outline] }, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } } };
+  const variants = [
+    { name: 'a bleed that differs on every side', variant: { ...model, artboard: { ...model.artboard, bleed: { top: 1, right: 2, bottom: 3, left: 4 } } } },
+    {
+      name: 'overprinting fills and strokes',
+      variant: {
+        ...model,
+        layers: [
+          {
+            name: 'Overprint',
+            items: [
+              { ...fill, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, overprint: true } },
+              { ...die, stroke: { ...cut, overprint: true } },
+              { ...fill, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] }, overprint: true }, stroke: cut },
+            ],
+          },
+        ],
+      },
+    },
+    { name: 'a custom layer colour', variant: { ...model, layers: [{ name: 'Coloured', color: [1, 2, 3], items: [die] }] } },
+    {
+      name: 'a smooth line anchor',
+      variant: {
+        ...model,
+        layers: [
+          {
+            name: 'Smooth',
+            items: [
+              {
+                ...fill,
+                geometry: {
+                  subpaths: [
+                    {
+                      start: [10, 10],
+                      segments: [
+                        { kind: 'line', to: [20, 10], anchor: 'smooth' },
+                        { kind: 'line', to: [20, 20] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ] as const satisfies Array<{ name: string; variant: IllustratorDocument }>;
+
+  it.each(variants)('round trips $name', ({ variant }) => {
+    const first = writeNative(variant);
+    const read = readNative(first.bytes, date).document;
+    expect(read).toStrictEqual(normalizeModel(variant));
+    expect(writeNative(read).bytes).toStrictEqual(first.bytes);
   });
 
   it('round trips layer and item locks', () => {
