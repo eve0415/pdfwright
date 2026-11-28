@@ -57,8 +57,8 @@ export interface CarrierSeen {
   readonly categories: Map<number, Array<CarrierHolder>>;
   /** Object numbers of the streams an annotation's appearance names, whatever role they were listed by. */
   readonly appearances: Set<number>;
-  /** Object numbers of indirect Resources dictionaries and XObject, Pattern and ExtGState categories whose entries a walk has queued. */
-  readonly expanded: Set<number>;
+  /** The indirect dictionaries whose entries a walk has queued, by object number and how they were read: as Resources, as an XObject or Pattern category, or as an ExtGState category. */
+  readonly expanded: Set<string>;
   /** The most steps the walks may take together, where a step is one resource entry or appearance a walk examines; every carrier costs one. */
   readonly maxSteps: number;
   steps: number;
@@ -207,14 +207,15 @@ class CarrierWalk {
   }
 
   // The entries of an indirect dictionary reach the same carriers whichever holder names it, so they are queued once per pass; a dictionary shared by many holders then costs its size once rather than once per holder.
-  private expand(value: PdfDirectObject | undefined): boolean {
+  private expand(value: PdfDirectObject | undefined, reading: 'resources' | 'category' | 'states'): boolean {
     if (value?.kind !== 'reference') {
       return true;
     }
-    if (this.seen.expanded.has(value.objectNumber)) {
+    const key = `${String(value.objectNumber)} ${reading}`;
+    if (this.seen.expanded.has(key)) {
       return false;
     }
-    this.seen.expanded.add(value.objectNumber);
+    this.seen.expanded.add(key);
     return true;
   }
 
@@ -238,10 +239,10 @@ class CarrierWalk {
 
   // `reference` is how the holder names `resources`. When an earlier walk queued that dictionary, only the directly stored fonts of its direct Font category are queued again, because they are replaced through the holder.
   private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined, depth: number): void {
-    const fresh = this.expand(reference);
+    const fresh = this.expand(reference, 'resources');
     const found: Array<PendingCarrier> = [];
     for (const key of fresh ? [XOBJECT, PATTERN] : []) {
-      const category = this.expand(resources.get(key)) ? this.internals.objects.deref(resources.get(key)) : undefined;
+      const category = this.expand(resources.get(key), 'category') ? this.internals.objects.deref(resources.get(key)) : undefined;
       for (const [, value] of category?.kind === 'dictionary' ? category.entries.entries() : []) {
         found.push({ kind: 'owner', value, appearance: false, depth });
       }
@@ -258,7 +259,7 @@ class CarrierWalk {
       }
     }
     // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
-    const states = fresh && this.expand(resources.get(EXT_G_STATE)) ? this.internals.objects.deref(resources.get(EXT_G_STATE)) : undefined;
+    const states = fresh && this.expand(resources.get(EXT_G_STATE), 'states') ? this.internals.objects.deref(resources.get(EXT_G_STATE)) : undefined;
     for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
       const font = this.internals.objects.deref(entriesOf(this.internals.objects.deref(value))?.get(FONT));
       found.push({ kind: 'owner', value: font?.kind === 'array' ? font.items[0] : undefined, appearance: false, depth });
