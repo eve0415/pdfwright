@@ -341,10 +341,7 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Arra
   checkChunkTrailer({ data, trailerOffset: Math.ceil(reader.bitPosition / 8) + 2, checksum, warnings });
 };
 
-/** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk. */
-export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> {
-  const limit = maxOutputBytes(options);
-  const copy = options?.copyInput === false ? data : Uint8Array.from(data);
+const scanThenDecodeChunks = function* (copy: Uint8Array, limit: number, options?: ChunkedInflateOptions): Generator<Uint8Array> {
   const warnings: Array<FlateWarning> = [];
   const scan = decodeChunks(copy, limit, warnings);
   let complete = false;
@@ -355,4 +352,10 @@ export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInfla
     options?.onWarning?.(warning);
   }
   yield* decodeChunks(copy, limit);
+};
+
+/** Inflates a zlib stream with a 32 KiB history window and at most one 64 KiB output chunk; maxOutputBytes is validated and the input copied when called, before iteration starts. */
+export const inflateChunks = (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> => {
+  const limit = maxOutputBytes(options);
+  return scanThenDecodeChunks(options?.copyInput === false ? data : Uint8Array.from(data), limit, options);
 };

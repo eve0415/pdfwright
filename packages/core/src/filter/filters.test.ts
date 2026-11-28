@@ -231,6 +231,20 @@ describe('ASCII85Decode', () => {
     expect(() => decodeAscii85(latin1Bytes(text), LIMIT)).toThrow(expect.objectContaining({ name: 'ParseError', offset }));
   });
 
+  // ISO 32000-1:2008, 7.4.3: a group whose value exceeds 2^32 - 1 never occurs, and a final partial group, padded with u, is one such group. Each pair is the highest accepted final group of its length and the next one up.
+  it.each([
+    ['s7~>', [255]],
+    ['s8V~>', [255, 255]],
+    ['s8W,~>', [255, 255, 255]],
+  ])('decodes the final partial group %s, whose padded value is below 2^32', (text, expected) => {
+    expect(decodeAscii85(latin1Bytes(text), LIMIT)).toStrictEqual(Uint8Array.from(expected));
+  });
+
+  it.each(['s8~>', 's8W~>', 's8W-~>'])('refuses the final partial group %s, whose padded value exceeds 2^32 - 1', text => {
+    expect(() => decodeAscii85(latin1Bytes(text), LIMIT)).toThrow(ParseError);
+    expect(() => decodeAscii85(latin1Bytes(text), LIMIT)).toThrow(/2\^32/u);
+  });
+
   it('accepts output up to maxOutputBytes and refuses a byte more', () => {
     expect(decodeAscii85(latin1Bytes('z~>'), 4)).toStrictEqual(new Uint8Array(4));
     expect(() => decodeAscii85(latin1Bytes('z~>'), 3)).toThrow(ResourceLimitError);

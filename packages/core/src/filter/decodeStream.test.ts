@@ -36,11 +36,13 @@ const pngColumns4 = dictionary([
   ['Columns', pdfInteger(4)],
 ]);
 
-// Resolves 9 0 R to the name ASCIIHexDecode, 10 0 R to the Predictor 12, Columns 4 dictionary and 11 0 R to the null object; any other reference names no object.
+// Resolves 9 0 R to the name ASCIIHexDecode, 10 0 R to the Predictor 12, Columns 4 dictionary, 11 0 R to the null object, 12 0 R to the name Identity and 13 0 R to the name StdCF; any other reference names no object.
 const objects = new Map<string, PdfObject>([
   ['9 0', pdfName('ASCIIHexDecode')],
   ['10 0', pngColumns4],
   ['11 0', NULL],
+  ['12 0', pdfName('Identity')],
+  ['13 0', pdfName('StdCF')],
 ]);
 const deref = (value: PdfDirectObject | undefined): PdfObject | undefined =>
   value?.kind === 'reference' ? objects.get(`${String(value.objectNumber)} ${String(value.generation)}`) : value;
@@ -202,6 +204,45 @@ describe('stream decoding', () => {
     expect(decodeStream(direct, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upDecoded);
   });
 
+  // ISO 32000-1:2008, 7.3.8.2, Table 5: DecodeParms is a dictionary, or an array of dictionaries and nulls; a value of any other kind, or a reference left unresolved, is refused rather than read as defaults that would return the predictor rows undecoded.
+  it.each([
+    ['an indirect reference with no resolver', pdfReference(10, 0)],
+    ['an integer', pdfInteger(5)],
+    ['a name', pdfName('Predictor')],
+    ['an array holding an indirect reference with no resolver', pdfArray([pdfReference(10, 0)])],
+    ['an array holding an integer', pdfArray([pdfInteger(5)])],
+  ])('refuses DecodeParms given as %s', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(() => decode(input)).toThrow(ParseError);
+    expect(() => decode(input)).toThrow(/DecodeParms/u);
+  });
+
+  it.each([
+    ['DecodeParms', pdfReference(9, 0)],
+    ['a DecodeParms array entry', pdfArray([pdfReference(9, 0)])],
+  ])('refuses %s whose reference resolves to an object that is not a dictionary', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(() => decodeStream(input, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(ParseError);
+  });
+
+  // ISO 32000-1:2008, 7.3.10 (quoted below): a DecodeParms reference to no object reads as null, which leaves the filter on its defaults.
+  it.each([
+    ['DecodeParms', pdfReference(8, 0)],
+    ['a DecodeParms array entry', pdfArray([pdfReference(8, 0)])],
+  ])('reads %s that refers to no object as the defaults', (_, value) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', value],
+    ]);
+    expect(decodeStream(input, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upRows);
+  });
+
   // ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
   it('reads a null Filter, given directly, as a reference to the null object or as a reference to no object, as no filter', () => {
     expect(decode(stream(text, [['Filter', NULL]])).data).toStrictEqual(text);
@@ -219,6 +260,64 @@ describe('stream decoding', () => {
     expect(() => decode(crypt)).toThrow(UnsupportedFeatureError);
     // An unknown filter is refused too; the message is what says decryption is the reason.
     expect(() => decode(crypt)).toThrow(/decryption/u);
+  });
+
+  // ISO 32000-1:2008, 7.4.10, Table 14: Name defaults to Identity; 7.6.5, Table 26: Identity "Input data shall be passed through without any processing."
+  it.each([
+    ['DecodeParms naming Identity', [['DecodeParms', dictionary([['Name', pdfName('Identity')]])]]],
+    ['DecodeParms with no Name', [['DecodeParms', dictionary([['Type', pdfName('CryptFilterDecodeParms')]])]]],
+    ['no DecodeParms', []],
+  ] satisfies Array<[string, Array<[string, PdfDirectObject]>]>)('passes data through the Identity crypt filter given %s', (_, extra) => {
+    expect(decode(stream(text, [['Filter', pdfName('Crypt')], ...extra])).data).toStrictEqual(text);
+  });
+
+  it('decodes the filters after an Identity crypt filter', () => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfArray([pdfName('Crypt'), pdfName('FlateDecode')])],
+      ['DecodeParms', pdfArray([NULL, pngColumns4])],
+    ]);
+    expect(decode(input).data).toStrictEqual(upDecoded);
+  });
+
+  // ISO 32000-1:2008, 7.4.10: "The Crypt filter shall be the first filter in the Filter array entry."
+  it('refuses an Identity crypt filter after the first filter', () => {
+    const input = stream(deflateZlib(text), [['Filter', pdfArray([pdfName('FlateDecode'), pdfName('Crypt')])]]);
+    expect(() => decode(input)).toThrow(ParseError);
+    expect(() => decode(input)).toThrow(/first/u);
+  });
+
+  it('refuses a crypt filter Name that is not a name', () => {
+    const crypt = stream(text, [
+      ['Filter', pdfName('Crypt')],
+      ['DecodeParms', dictionary([['Name', pdfInteger(1)]])],
+    ]);
+    expect(() => decode(crypt)).toThrow(ParseError);
+  });
+
+  const cryptNamed = (name: PdfDirectObject): PdfStream =>
+    stream(text, [
+      ['Filter', pdfName('Crypt')],
+      ['DecodeParms', dictionary([['Name', name]])],
+    ]);
+
+  // ISO 32000-1:2008, 7.3.9: "Specifying the null object as the value of a dictionary entry (7.3.7, "Dictionary Objects") shall be equivalent to omitting the entry entirely", and a reference to a nonexistent object is treated as null, so Name takes its default, Identity.
+  it.each([
+    ['a reference to Identity', pdfReference(12, 0)],
+    ['a reference to the null object', pdfReference(11, 0)],
+    ['a reference to no object', pdfReference(8, 0)],
+    ['null', NULL],
+  ])('passes data through a crypt filter whose Name is %s', (_, name) => {
+    expect(decodeStream(cryptNamed(name), { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(text);
+  });
+
+  it('refuses a crypt filter whose Name refers to a crypt filter that needs decryption', () => {
+    const crypt = cryptNamed(pdfReference(13, 0));
+    expect(() => decodeStream(crypt, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(UnsupportedFeatureError);
+    expect(() => decodeStream(crypt, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toThrow(/decryption/u);
+  });
+
+  it('refuses a crypt filter Name given as a reference with no resolver', () => {
+    expect(() => decode(cryptNamed(pdfReference(12, 0)))).toThrow(ParseError);
   });
 });
 

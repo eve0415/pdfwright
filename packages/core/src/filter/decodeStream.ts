@@ -27,6 +27,7 @@ type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
 
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const CRYPT_FILTER_NAME = pdfName('Name').bytes;
 // ISO 32000-1:2008, Table 94 gives the abbreviations for inline images; readers accept them in stream dictionaries too.
 const NAMES: ReadonlyMap<string, string> = new Map([
   ['AHx', 'ASCIIHexDecode'],
@@ -113,7 +114,20 @@ const applyFilter = ({ name, parameters }: FilterStep, data: Uint8Array, context
       return decodeRunLength(data, limit);
     }
     case 'Crypt': {
-      // ISO 32000-1:2008, 7.4.10: Crypt filters need the document's security handler; pdfwright does not decrypt.
+      // ISO 32000-1:2008, 7.4.10, Table 14: Name defaults to Identity, and 7.6.5, Table 26: Identity passes the data through unchanged.
+      const entry = parameters?.get(CRYPT_FILTER_NAME);
+      const cryptFilter = context.deref === undefined ? entry : context.deref(entry);
+      // ISO 32000-1:2008, 7.3.9: a null value, or a reference to a nonexistent object, is the same as omitting the entry.
+      if (cryptFilter === undefined || cryptFilter.kind === 'null') {
+        return data;
+      }
+      if (cryptFilter.kind !== 'name') {
+        throw new ParseError('the Crypt filter Name is not a name', 0);
+      }
+      if (latin1(cryptFilter.bytes) === 'Identity') {
+        return data;
+      }
+      // Every other crypt filter needs the document's security handler; pdfwright does not decrypt.
       throw new UnsupportedFeatureError('the Crypt filter needs decryption, which pdfwright does not perform');
     }
     default: {
@@ -134,12 +148,18 @@ export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Ar
     if (filter?.kind !== 'name') {
       throw new ParseError('a stream filter is not a name', 0);
     }
-    const name = latin1(filter.bytes);
-    const parameter = parameters[index];
-    data = applyFilter({ name: NAMES.get(name) ?? name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);
-    if (data.length > context.maxDecodedBytes) {
-      throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
+    const written = latin1(filter.bytes);
+    const name = NAMES.get(written) ?? written;
+    // ISO 32000-1:2008, 7.4.10: "The Crypt filter shall be the first filter in the Filter array entry."
+    if (name === 'Crypt' && index !== 0) {
+      throw new ParseError('the Crypt filter is not the first filter', 0);
     }
+    const parameter = parameters[index];
+    // ISO 32000-1:2008, 7.3.8.2, Table 5: DecodeParms is a parameter dictionary, or an array of them with null for a filter that takes the defaults.
+    if (parameter !== undefined && parameter.kind !== 'null' && parameter.kind !== 'dictionary') {
+      throw new ParseError('a stream DecodeParms entry is not a dictionary or null', 0);
+    }
+    data = applyFilter({ name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);
   }
   if (data.length > context.maxDecodedBytes) {
     throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);

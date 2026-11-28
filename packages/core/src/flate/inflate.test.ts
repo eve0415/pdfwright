@@ -521,8 +521,16 @@ describe('chunked zlib inflate', () => {
     expect(() => [...inflateChunks(compressed, { maxOutputBytes: 69_999 })]).toThrow(ResourceLimitError);
   });
 
-  it.each([-1, 1.5, Number.NaN])('refuses maxOutputBytes %d by the time it is iterated', maxOutputBytes => {
-    expect(() => [...inflateChunks(deflateZlib(Uint8Array.of(1)), { maxOutputBytes })]).toThrow(InvalidArgumentError);
+  it.each([-1, 1.5, Number.NaN])('refuses maxOutputBytes %d when called, before iteration starts', maxOutputBytes => {
+    expect(() => inflateChunks(deflateZlib(Uint8Array.of(1)), { maxOutputBytes })).toThrow(InvalidArgumentError);
+  });
+
+  it('decodes from its own copy of the input taken when called', () => {
+    const payload = new TextEncoder().encode('payload');
+    const compressed = deflateZlib(payload);
+    const chunks = inflateChunks(compressed);
+    compressed.fill(0);
+    expect(concat([...chunks])).toStrictEqual(payload);
   });
 
   it('decodes from its own copy of the input by default once iteration has started', () => {
