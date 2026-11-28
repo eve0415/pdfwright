@@ -88,7 +88,8 @@ const subtypesOf = (document: LoadedDocument): Array<string | undefined> => {
   }
   return intents.items.map(item => {
     const intent = item.kind === 'reference' ? document.get(item) : item;
-    const subtype = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    const stored = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
+    const subtype = stored?.kind === 'reference' ? document.get(stored) : stored;
     return subtype?.kind === 'name' ? new TextDecoder().decode(subtype.bytes) : undefined;
   });
 };
@@ -272,6 +273,22 @@ describe('gts pdfx output intent', () => {
     expect(() => writeGtsPdfxOutputIntent(document, { outputProfile: other, outputConditionIdentifier: 'FOGRA28' })).toThrow(
       expect.objectContaining({ constructor: ValidationError, reason: 'output-intent-conflict' }),
     );
+  });
+
+  it.each<[string, Array<string>]>([
+    ['GTS_PDFX', ['GTS_PDFX']],
+    ['GTS_PDFA1', ['GTS_PDFX', 'GTS_PDFA1']],
+  ])('reads an existing intent whose S is an indirect %s', (subtype, subtypes) => {
+    // ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name.
+    const document = loadDocument(base().bytes);
+    const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
+    const entries = new PdfDictionaryEntries([
+      [pdfName('S').bytes, document.object(pdfName(subtype))],
+      [pdfName('DestOutputProfile').bytes, profileReference],
+    ]);
+    setCatalogEntry(document, 'OutputIntents', pdfArray([document.object(pdfDictionary(entries))]));
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
+    expect([result.action, subtypesOf(document)]).toStrictEqual([subtype === 'GTS_PDFX' ? 'updated' : 'added', subtypes]);
   });
 
   it('writes N 4 on a reused profile that lacks it', () => {
