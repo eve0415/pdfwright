@@ -456,6 +456,10 @@ const readDatastream = (data: Uint8Array, header: Header, context: { readonly st
       if (state.palette !== undefined || idat !== 'before') {
         fail(chunk.offset, 'PLTE is repeated or follows IDAT');
       }
+      // PNG Third Edition, 5.6: tRNS follows PLTE in every colour type that may carry both.
+      if (state.transparency !== undefined) {
+        fail(chunk.offset, 'PLTE follows tRNS');
+      }
       state.palette = readPalette(chunk, header);
     } else if (COLOR_CHUNKS.has(chunk.type)) {
       if (idat !== 'before') {
