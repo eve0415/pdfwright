@@ -341,6 +341,29 @@ describe('full rewrite', () => {
     ]).toStrictEqual([true, 'stream', ['linearization-removed'], { kind: 'null' }, { kind: 'null' }, 1, 'intact']);
   });
 
+  // The loader reads offsets relative to a header that bytes precede, or else as absolute offsets; H is read the same way as the cross-reference offsets.
+  it.each([
+    ['relative to the header', 'relative', 4],
+    ['from the start of the file', 'absolute', 0],
+  ] as const)('drops the hint stream of a linearized file with bytes before its header, with offsets %s', (_, offsets, shift) => {
+    const prefix = offsets === 'absolute' ? 'JUNK' : '';
+    const draft = buildPdf([{ xref: 'classic', objects: linearizedObjects(0), trailer: '/Root 1 0 R' }], { prefix });
+    const linearized = buildPdf([{ xref: 'classic', objects: linearizedObjects(draft.offsets.get(10) ?? 0), trailer: '/Root 1 0 R' }], { prefix });
+    const document = loadDocument(latin1Bytes(offsets === 'absolute' ? linearized.text : `JUNK${linearized.text}`));
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      document.structure.headerOffset,
+      internalsOf(document)?.base?.shift,
+      document.structure.linearized,
+      document.get(pdfReference(10, 0)).kind,
+      saved.warnings.map(warning => warning.code),
+      reloaded.get(pdfReference(9, 0)),
+      reloaded.get(pdfReference(10, 0)),
+      reloaded.structure.status,
+    ]).toStrictEqual([4, shift, true, 'stream', ['linearization-removed', 'junk-dropped'], { kind: 'null' }, { kind: 'null' }, 'intact']);
+  });
+
   it.each([
     ['bytes before the header', 'JUNK', '', ['junk-dropped']],
     ['bytes after the last %%EOF', '', 'garbage', ['junk-dropped']],
