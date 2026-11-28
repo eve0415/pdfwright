@@ -604,6 +604,15 @@ const softMasked = (matte: string, mask = '/Width 1/Height 1/BitsPerComponent 8'
   },
 ];
 
+// A 1 by 1 DeviceRGB image with the given extra entries and samples, whose soft mask is a valid preblended image.
+const preblendedImage = (entries: string, data: string): ReadonlyArray<TestObject> => [
+  { number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB${entries}/SMask 10 0 R`, data) },
+  {
+    number: 10,
+    body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray/Matte[1 0 0]', String.fromCodePoint(128)),
+  },
+];
+
 describe('luminosity soft masks', () => {
   // ISO 32000-1:2008, 11.6.5.2, Table 144: a Luminosity soft mask derives its values from its group, which becomes DeviceGray, so red, green and blue paint becomes 0.3, 0.59 and 0.11 gray.
   it('converts an RGB image the mask draws into a gray image', () => {
@@ -779,6 +788,63 @@ describe('luminosity soft masks', () => {
     { name: 'a preblended soft mask with no samples', matte: '/Matte[1 0 0]', mask: undefined, maskData: '' },
   ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, mask, maskData }) => {
     const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, mask, maskData))), cmykOptions);
+    expect(after).toStrictEqual(before);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error).toMatchObject({ reason: 'color-space' });
+  });
+
+  // ISO 32000-1:2008, 8.9.5, Table 89: an image needs a Width, a Height, 1, 2, 4, 8 or 16 bits per component and the samples they imply, so paint the mask cannot convert is still rejected as malformed when it is.
+  it.each([
+    {
+      name: 'an RGB image with too few samples and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('', 'AB'),
+    },
+    {
+      name: 'an RGB image with a one-value Decode and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('/Decode[0]', 'ABC'),
+    },
+    {
+      name: 'an RGB image with a one-range colour key and a preblended soft mask',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: preblendedImage('/Mask[0 1]', 'ABC'),
+    },
+    {
+      name: 'an RGB image of 3 bits per component',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 3/ColorSpace/DeviceRGB', 'AB') }],
+    },
+    {
+      name: 'a CalGray image with too few samples',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 2/Height 2/BitsPerComponent 8/ColorSpace${calGray}`, 'A') }],
+    },
+    {
+      name: 'a CalGray image of 3 bits per component',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Width 2/Height 2/BitsPerComponent 3/ColorSpace${calGray}`, 'AB') }],
+    },
+    {
+      name: 'a CalGray image without a Width',
+      resources: '/XObject<</Im 9 0 R>>',
+      content: '/Im Do',
+      objects: [{ number: 9, body: streamBody(`/Type/XObject/Subtype/Image/Height 2/BitsPerComponent 8/ColorSpace${calGray}`, 'ABCD') }],
+    },
+    {
+      name: 'a CalGray axial shading without a Function',
+      resources: '/Shading<</Sh1 9 0 R>>',
+      content: '/Sh1 sh',
+      objects: [{ number: 9, body: `<</ShadingType 2/ColorSpace${calGray}/Coords[0 0 10 0]>>` }],
+    },
+  ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ resources, content, objects }) => {
+    const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
     expect(after).toStrictEqual(before);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error).toMatchObject({ reason: 'color-space' });
