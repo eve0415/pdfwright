@@ -9,6 +9,11 @@ import { MAX_CMAP_ENTRIES, utf16Text } from './parseCMap.ts';
 // Repeated codespace checks over a long shown string otherwise multiply without a page operation.
 const MAX_CODESPACE_CHECKS = 1_000_000;
 
+/** The count of codespace checks spent splitting one shown string: each string starts its own count at 0, and splitting fails once the count passes 1,000,000. */
+export interface CodespaceBudget {
+  checks: number;
+}
+
 /** The code a CMap reads at a position, and whether it matched a codespace range (ISO 32000-1:2008, 9.7.6.2) or was consumed by the partial-match rules for invalid codes (9.7.6.3). */
 export interface CodeRead {
   readonly code: CMapCode;
@@ -68,7 +73,6 @@ export class CMap {
   private readonly notdefs: MappingTable<CidMapping>;
   private readonly unicodes: MappingTable<UnicodeMapping>;
   private readonly shortest: number;
-  private codespaceChecks = 0;
 
   constructor(parsed: ParsedCMap, parent?: CMap, unavailable?: string) {
     this.name = parsed.name;
@@ -103,8 +107,8 @@ export class CMap {
     this.shortest = Math.min(...local.map(range => range.low.length), parent?.shortest ?? 4);
   }
 
-  private match(range: CodespaceRange, bytes: Uint8Array, offset: number): number {
-    if (++this.codespaceChecks > MAX_CODESPACE_CHECKS) {
+  private match(range: CodespaceRange, bytes: Uint8Array, offset: number, budget: CodespaceBudget): number {
+    if (++budget.checks > MAX_CODESPACE_CHECKS) {
       throw new ResourceLimitError(`CMap code splitting exceeds ${String(MAX_CODESPACE_CHECKS)} codespace checks`);
     }
     return matchesPrefix(range, bytes, offset);
@@ -112,12 +116,12 @@ export class CMap {
 
   // 9.7.6.3: "a) If the first byte extracted from the string to be shown does not match the first byte of any codespace range, the range having the shortest codes shall be chosen."
   // "b) Otherwise …, for each additional byte extracted, the code accumulated so far shall be matched against the beginnings of all longer codespace ranges until the longest such partial match has been found. If multiple codespace ranges have partial matches of the same length, the one having the shortest codes shall be chosen."
-  private invalidLength(bytes: Uint8Array, offset: number): number {
+  private invalidLength(bytes: Uint8Array, offset: number, budget: CodespaceBudget): number {
     let best = 0;
     let length = this.codespaceCount === 0 ? 1 : this.shortest;
     for (const ranges of this.codespaceChain) {
       for (const range of ranges) {
-        const matched = this.match(range, bytes, offset);
+        const matched = this.match(range, bytes, offset, budget);
         const { length: rangeLength } = range.low;
         if (matched > best || (matched === best && matched > 0 && rangeLength < length)) {
           best = matched;
@@ -131,20 +135,21 @@ export class CMap {
   /**
    * Reads the code at `offset`. ISO 32000-1:2008, 9.7.6.2: "the first byte shall be matched against 1-byte codespace ranges; if no match is found, a second byte shall be extracted, and the 2-byte code shall be matched against 2-byte codespace ranges", up to 4 bytes.
    * A code that matches no range is consumed by the rules of 9.7.6.3 and is `valid: false`; a code cut short by the end of the string is shorter than its range.
+   * The codespace checks the read makes are counted in `budget`, the count of the string being split.
    */
-  read(bytes: Uint8Array, offset: number): CodeRead {
+  read(bytes: Uint8Array, offset: number, budget: CodespaceBudget): CodeRead {
     const remaining = bytes.length - offset;
     for (let length = 1; length <= 4 && length <= remaining; length++) {
       for (const ranges of this.codespaceChain) {
         for (const range of ranges) {
-          const valid = range.low.length === length && this.match(range, bytes, offset) === length;
+          const valid = range.low.length === length && this.match(range, bytes, offset, budget) === length;
           if (valid) {
             return { code: { value: readValue(bytes, offset, length), length }, valid };
           }
         }
       }
     }
-    const length = Math.max(1, Math.min(this.invalidLength(bytes, offset), remaining));
+    const length = Math.max(1, Math.min(this.invalidLength(bytes, offset, budget), remaining));
     return { code: { value: readValue(bytes, offset, length), length }, valid: false };
   }
 

@@ -12,7 +12,7 @@ describe('the Identity CMaps', () => {
     // ISO 32000-1:2008, Table 118: Identity-H "maps 2-byte character codes ranging from 0 to 65,535 to the same 2-byte CID value"; Table 119 gives the character collection Adobe-Identity-0.
     const cmap = identityCMap(name);
     expect([
-      cmap.read(Uint8Array.of(0xff, 0xff, 0x41), 0),
+      cmap.read(Uint8Array.of(0xff, 0xff, 0x41), 0, { checks: 0 }),
       cmap.cid({ value: 0xff_ff, length: 2 }),
       cmap.mapped({ value: 0, length: 2 }),
       cmap.writingMode,
@@ -27,6 +27,9 @@ describe('the Identity CMaps', () => {
   });
 
   it('reads a lone last byte as an invalid 1-byte code', () => {
-    expect(identityCMap('Identity-H').read(Uint8Array.of(0x00, 0x41, 0x41), 2)).toStrictEqual({ code: { value: 0x41, length: 1 }, valid: false });
+    expect(identityCMap('Identity-H').read(Uint8Array.of(0x00, 0x41, 0x41), 2, { checks: 0 })).toStrictEqual({
+      code: { value: 0x41, length: 1 },
+      valid: false,
+    });
   });
 });

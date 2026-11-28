@@ -2,7 +2,7 @@ import type { Matrix } from '../content/matrix.ts';
 import type { Found } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
-import type { CMap } from './cmap/cmap.ts';
+import type { CMap, CodespaceBudget } from './cmap/cmap.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { CMapResult } from './cmap/cmapResolver.ts';
 import type { CMapCode } from './cmap/mappingTable.ts';
@@ -426,11 +426,12 @@ const splitComposite = (
 ): Array<FontGlyph> => {
   const { string, maxGlyphs } = input;
   const shown: Array<FontGlyph> = [];
+  const budget: CodespaceBudget = { checks: 0 };
   for (let offset = 0; offset < string.length;) {
     if (shown.length >= maxGlyphs) {
       throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
     }
-    const { code, valid } = parts.cmap.read(string, offset);
+    const { code, valid } = parts.cmap.read(string, offset, budget);
     const key = `${valid ? '' : '!'}${String(code.length)}:${String(code.value)}`;
     let glyph = cache.get(key);
     if (glyph === undefined) {
