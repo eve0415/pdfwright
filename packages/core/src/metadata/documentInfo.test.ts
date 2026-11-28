@@ -120,7 +120,7 @@ describe('reading text strings', () => {
 
   // ISO 32000-1:2008, 7.9.2.2: an escape is U+001B, two ASCII letters, optionally two more, and U+001B; anything else is text.
   it.each([
-    ['digits after the escape', utf16(0x1b, 0x31_32, 0x41), { text: '\u001B\u3132A', languages: [], replaced: 0 }],
+    ['numerals between two escapes', utf16(0x1b, 0x31_32, 0x1b, 0x41), { text: '\u001B\u3132\u001BA', languages: [], replaced: 0 }],
     ['an escape truncated at the end', utf16(0x1b, 0x6a_61), { text: '\u001B\u6A61', languages: [], replaced: 0 }],
     ['a country code without its closing escape', utf16(0x1b, 0x65_6e, 0x55_53), { text: '\u001B\u656E\u5553', languages: [], replaced: 0 }],
     ['a high surrogate before an escape', utf16(0xd8_00, 0x1b, 0x6a_61, 0x1b, 0x41), { text: '\uFFFDA', languages: ['ja'], replaced: 1 }],
