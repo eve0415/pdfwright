@@ -283,6 +283,24 @@ describe('document comparison: results and areas', () => {
       { kind: 'font-set', page: 'document', added: [helvetica], removed: [] },
     ]);
   });
+
+  it('identifies a font by what its encoding unfolds to, however the objects of a cycle in it are shared', () => {
+    const withEncoding = (objects: ReadonlyArray<string>): ReturnType<typeof loadDocument> =>
+      loadDocument(
+        pdf([
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<</Font<</F1 8 0 R>>>>>>' },
+          { number: 8, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding<</Type/Encoding/X 20 0 R>>>>' },
+          ...objects.map((body, index): TestObject => ({ number: 20 + index, body })),
+        ]),
+      );
+    const shared = withEncoding(['[21 0 R 21 0 R]', '<</Y 20 0 R>>']);
+    expect([
+      compareDocuments(shared, withEncoding(['[<</Y 20 0 R>> <</Y 20 0 R>>]'])).differences,
+      compareDocuments(shared, withEncoding(['[21 0 R 22 0 R]', '<</Y 20 0 R>>', '<</Y 20 0 R>>'])).differences,
+      compareDocuments(shared, withEncoding(['[21 0 R 21 0 R]', '<</Y 21 0 R>>'])).differences.map(difference => difference.kind),
+    ]).toStrictEqual([[], [], ['page-resources', 'font-set', 'font-set']]);
+  });
 });
 
 interface PageSpec {
