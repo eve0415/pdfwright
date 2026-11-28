@@ -353,7 +353,7 @@ const CHAR_PROCS = pdfName('CharProcs').bytes;
  */
 export const carrierContent = (internals: DocumentInternals, carrier: ResourceCarrier, seen: CarrierSeen): ReadonlyArray<Uint8Array> => {
   const { owner } = carrier;
-  const role = owner.kind === 'object' && seen.appearances.has(owner.reference.objectNumber) ? 'appearance' : carrier.role;
+  const role = carrier.role === 'form' && owner.kind === 'object' && seen.appearances.has(owner.reference.objectNumber) ? 'appearance' : carrier.role;
   return [...carrier.objects].flatMap(object => objectContent(internals, role, object));
 };
 
