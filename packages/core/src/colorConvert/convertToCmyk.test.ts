@@ -909,6 +909,12 @@ describe('luminosity soft masks', () => {
       content: '/Sh1 sh',
       objects: [{ number: 9, body: `<</ShadingType 2/ColorSpace${calGray}/Coords[0 0 10 0]>>` }],
     },
+    {
+      name: 'an RGB axial shading without a Function after a preblended RGB image',
+      resources: '/XObject<</Im 9 0 R>>/Shading<</Sh1 11 0 R>>',
+      content: '/Im Do /Sh1 sh',
+      objects: [...preblendedImage('', 'ABC'), { number: 11, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]>>' }],
+    },
   ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ resources, content, objects }) => {
     const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], [maskGroup(resources, content), ...objects])), cmykOptions);
     expect(after).toStrictEqual(before);
