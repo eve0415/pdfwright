@@ -805,7 +805,9 @@ describe('the step limit of the carrier walk', () => {
     );
     const seen = carrierSeen(5);
     expect(walkPage(document, 0, seen)).toHaveLength(3);
-    expect(() => walkPage(document, 1, seen)).toThrow(/more than 5 steps/u);
+    const walkSecond = (): ReadonlyArray<ResourceCarrier> => walkPage(document, 1, seen);
+    expect(walkSecond).toThrow(ResourceLimitError);
+    expect(walkSecond).toThrow(/more than 5 steps/u);
   });
 });
 
