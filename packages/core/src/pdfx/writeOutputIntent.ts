@@ -31,7 +31,7 @@ export interface OutputIntentOptions {
   readonly outputCondition?: string;
   /** Registry URI for a registered condition. */
   readonly registryName?: string;
-  /** Whether to refuse or replace a conflicting intent, and `replace` also removes an intent whose profile cannot be read; defaults to refuse. */
+  /** Whether to refuse or replace a conflicting intent; defaults to refuse. */
   readonly existing?: 'refuse' | 'replace';
   /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4, refusing a catalog with Extensions; defaults to true. */
   readonly pdfx?: boolean;
@@ -226,7 +226,7 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   return catalogLowered;
 };
 
-/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict` unless `existing` is `replace`. */
+/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict`, and one whose profile cannot be read throws, unless `existing` is `replace`, which removes both. */
 export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: OutputIntentOptions): OutputIntentChange => {
   const prepared = prepare(document, options);
   const { existing, internals } = prepared;
