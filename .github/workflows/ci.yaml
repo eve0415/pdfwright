@@ -107,7 +107,7 @@ jobs:
     name: Oracle
     runs-on: ubuntu-24.04-arm
     container:
-      image: mcr.microsoft.com/devcontainers/typescript-node:5.2.5-26-trixie
+      image: mcr.microsoft.com/devcontainers/typescript-node:5.2.7-26-trixie
     permissions:
       contents: read
 
