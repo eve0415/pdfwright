@@ -43,7 +43,7 @@ describe('deterministic calculator math', () => {
   });
 
   // 1.4 times a power of two has a mantissa in the range fdlibm e_log.c treats with a separate polynomial, and a value just above or below 1 or 2 has its top 20 mantissa bits all clear or all but the last set, which takes the short series.
-  it.each([1.4, 1.4 * 2 ** 30, 1.4 * 2 ** -30, 1 + 2 ** -40, 2 + 2 ** -39, 1 - 2 ** -20, 2 - 2 ** -19])(
+  it.each([1.4, 1.4 * 2 ** 30, 1.4 * 2 ** -30, 1 + 2 ** -40, 2 + 2 ** -20, 1 - 2 ** -20, 2 - 2 ** -19])(
     'approximates the logarithm of %d within a few units in the last place',
     value => {
       const expected = Math.log(value);
