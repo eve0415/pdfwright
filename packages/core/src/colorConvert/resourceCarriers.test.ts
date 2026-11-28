@@ -944,3 +944,21 @@ describe('an indirect dictionary read in two ways', () => {
     expectIndexed(ownResource(document, owner, 'ColorSpace', 'X1'));
   });
 });
+
+/** A page whose Type 3 font 5 holds a direct shading that its glyph paints after selecting Perceptual, and whose annotation names font 5 as an appearance state. */
+const fontAppearanceSample = (intent: Intent): ReadonlyArray<number> => {
+  const document = carrierPdf('/Resources<</Font<</F 5 0 R>>>>/Annots[10 0 R]', [
+    { number: 5, body: `<<${TYPE3}${OWN_SHADING}>>` },
+    { number: 6, body: streamBody('', '1000 0 d0 /Perceptual ri /Sh1 sh') },
+    { number: 10, body: '<</Type/Annot/Subtype/Widget/Rect[0 0 10 10]/AS/On/AP<</N<</On 5 0 R>>>>>>' },
+  ]);
+  convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+  return sampled(document, 5, ['Resources', 'Shading', 'Sh1']);
+};
+
+describe('rendering intents of direct shadings in a Type 3 font that an appearance entry names', () => {
+  it('samples the shading with the intent the glyph selects', () => {
+    expect(fontAppearanceSample('perceptual')).not.toStrictEqual(fontAppearanceSample('relativeColorimetric'));
+    expect(fontAppearanceSample('document')).toStrictEqual(fontAppearanceSample('perceptual'));
+  });
+});
