@@ -7,9 +7,10 @@ import { describe, expect, it } from 'vitest';
 import { pdfDate } from '../date/pdfDate.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { pt } from '../length/length.ts';
 import { PdfDictionaryEntries, pdfName, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
+import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { compareDocuments } from './compareDocuments.ts';
 
@@ -61,6 +62,21 @@ const outlinedTo = (target: number): LoadedDocument =>
       '/Outlines 12 0 R',
     ),
   );
+
+const unreadable = (): LoadedDocument => load(objects([page(' 8 0 R'), { number: 8, body: '<</Type/Font/Subtype [1 2>>' }]));
+
+const catalogData = (data: string, date = 'D:2020'): LoadedDocument =>
+  load(
+    objects(
+      [
+        { number: 12, body: '<</Private 13 0 R>>' },
+        { number: 13, body: streamBody('', data) },
+      ],
+      `/PieceInfo<</App 12 0 R>>/LastModified(${date})`,
+    ),
+  );
+
+const indirect = (number: number, body: string): LoadedDocument => load(objects([page(` ${String(number)} 0 R`), { number, body }]));
 
 describe('page-piece data, LastModified and attribute comparison', () => {
   it('compares non-ASCII application names by their original name bytes', () => {
@@ -165,6 +181,141 @@ describe('page-piece data, LastModified and attribute comparison', () => {
     document.set(pdfReference(11, 0), { kind: 'dictionary', entries: new PdfDictionaryEntries([[pdfName('Title').bytes, pdfName('Plate')]]) });
     expect(compareDocuments(source, document, { include: ['documentAttributes'] }).differences).toMatchObject([
       { kind: 'document-attribute', path: ['Info', 'Title'] },
+    ]);
+  });
+
+  it('reports page-piece and LastModified differences only under their own area, and unreadable page-piece data under either', () => {
+    const changed = load(objects([{ number: 10, body: streamBody('', 'AIPrivateData1 %%EndDatX') }]));
+    const dated = load(objects([{ number: 9, body: '<</LastModified(D:20250101000000Z)/Private 10 0 R>>' }]));
+    expect([
+      compareDocuments(source, changed, { include: ['lastModified'] }).differences,
+      compareDocuments(source, dated, { include: ['pieceInfo'] }).differences,
+    ]).toStrictEqual([[], []]);
+    expect(compareDocuments(unreadable(), unreadable(), { include: ['lastModified'] }).differences).toMatchObject([
+      { kind: 'undecodable', where: ['page', 0, 'PieceInfo'], document: 'a' },
+      { kind: 'undecodable', where: ['page', 0, 'PieceInfo'], document: 'b' },
+    ]);
+  });
+
+  it('compares the page-piece data and LastModified of the catalog', () => {
+    const owner = { kind: 'catalog' };
+    expect(compareDocuments(catalogData('x'), catalogData('y')).differences).toMatchObject([
+      { kind: 'piece-info', owner, aspect: 'value', path: ['PieceInfo', 'App', 'Private'] },
+      { kind: 'piece-info', owner, aspect: 'stream-bytes', path: ['PieceInfo', 'App', 'Private'] },
+    ]);
+    expect(compareDocuments(catalogData('x'), catalogData('x', 'D:2021')).differences).toStrictEqual([
+      { kind: 'last-modified', owner, path: ['LastModified'], a: latin1Bytes('D:2020'), b: latin1Bytes('D:2021') },
+    ]);
+  });
+
+  it('reports page-piece data of an application only one document has', () => {
+    const extra = load(objects([page('<</Illustrator 9 0 R/App2<</Private 1>>>>')]));
+    expect(compareDocuments(extra, source).differences).toMatchObject([
+      { kind: 'piece-info', owner: { kind: 'page', page: 0 }, aspect: 'value', path: ['PieceInfo', 'App2'], a: { kind: 'dictionary' }, b: { kind: 'absent' } },
+      { kind: 'piece-info', aspect: 'source-bytes', path: ['PieceInfo'] },
+    ]);
+  });
+
+  it('compares a PieceInfo that is not a dictionary as a value', () => {
+    expect(compareDocuments(load(objects([page(' 5')])), load(objects([page('<<>>')]))).differences).toMatchObject([
+      { kind: 'piece-info', aspect: 'value', path: ['PieceInfo'], a: { kind: 'integer', text: '5' }, b: { kind: 'dictionary', text: '<<>>' } },
+      { kind: 'piece-info', aspect: 'source-bytes', path: ['PieceInfo'], a: { text: '5' }, b: { text: '<<>>' } },
+    ]);
+  });
+
+  it('reports a LastModified that only one document has', () => {
+    const undated = load(objects([{ number: 9, body: '<</Private 10 0 R>>' }]));
+    const pageUndated = load(objects([page(undefined, '', '<<>>', '')]));
+    const date = latin1Bytes("D:20070624192720-05'00'");
+    const owner = { kind: 'page', page: 0 };
+    expect([compareDocuments(source, undated).differences, compareDocuments(source, pageUndated).differences]).toStrictEqual([
+      [{ kind: 'last-modified', owner, path: ['PieceInfo', 'Illustrator', 'LastModified'], a: date, b: undefined }],
+      [{ kind: 'last-modified', owner, path: ['LastModified'], a: date, b: undefined }],
+    ]);
+  });
+
+  it('compares source bytes only for a PieceInfo written directly in a page the document has not changed', () => {
+    expect(compareDocuments(indirect(20, '<</Illustrator 9 0 R>>'), indirect(21, '<< /Illustrator 9 0 R >>')).differences).toStrictEqual([]);
+    const respaced = load(objects([page('<< /Illustrator 9 0 R >>')]));
+    respaced.page(0).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
+    expect(kinds(compareDocuments(source, respaced).differences)).toStrictEqual(['page-box']);
+  });
+
+  it('reports private data recompressed to the same decoded bytes by stored bytes only', () => {
+    const deflated = latin1Text(deflateZlib(latin1Bytes('AIPrivateData1 %%EndData')));
+    const recompressed = load(objects([{ number: 10, body: streamBody('/Filter/FlateDecode', deflated) }]));
+    expect(kinds(compareDocuments(source, recompressed).differences)).toStrictEqual(['piece-info:stream-bytes']);
+  });
+});
+
+// The base document with the page resources replaced, and further objects such as forms and their page-piece data.
+const withForms = (resources: string, forms: ReadonlyArray<TestObject>): LoadedDocument => load(objects([page(undefined, '', resources), ...forms]));
+
+const form = (number: number, dictionary: string): TestObject => ({ number, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]${dictionary}`, '') });
+
+const owned = (data: string): LoadedDocument =>
+  withForms('<</XObject<</X1 12 0 R>>>>', [form(12, '/PieceInfo<</App<</Private 13 0 R>>>>'), { number: 13, body: streamBody('', data) }]);
+
+const nested = (data: string): LoadedDocument =>
+  withForms('<</XObject<</X1 12 0 R>>>>', [
+    form(12, '/Resources<</XObject<</X2 14 0 R>>>>'),
+    form(14, '/PieceInfo<</App<</Private 13 0 R>>>>'),
+    { number: 13, body: streamBody('', data) },
+  ]);
+
+const recursive = (value: number): LoadedDocument =>
+  withForms('<</XObject<</X1 12 0 R>>>>', [form(12, `/Resources<</XObject<</Self 12 0 R>>>>/PieceInfo<</App<</V ${String(value)}>>>>`)]);
+
+describe('page-piece data of forms', () => {
+  it('reports page-piece data of a form with the form as its owner', () => {
+    const owner = { kind: 'form', page: 0, path: ['Resources', 'XObject', 'X1'] };
+    expect(compareDocuments(owned('x'), owned('y')).differences).toMatchObject([
+      { kind: 'page-resources', page: 0, path: ['Resources', 'XObject', 'X1', 'PieceInfo', 'App', 'Private'] },
+      { kind: 'piece-info', owner, aspect: 'value', path: ['PieceInfo', 'App', 'Private'] },
+      { kind: 'piece-info', owner, aspect: 'stream-bytes', path: ['PieceInfo', 'App', 'Private'] },
+    ]);
+  });
+
+  it('follows forms through the resources of forms', () => {
+    const owner = { kind: 'form', page: 0, path: ['Resources', 'XObject', 'X1', 'Resources', 'XObject', 'X2'] };
+    expect(compareDocuments(nested('x'), nested('y'), { include: ['pieceInfo'] }).differences).toMatchObject([
+      { kind: 'piece-info', owner, aspect: 'value' },
+      { kind: 'piece-info', owner, aspect: 'stream-bytes' },
+    ]);
+  });
+
+  it('visits a form that names itself once', () => {
+    const owner = { kind: 'form', page: 0, path: ['Resources', 'XObject', 'X1'] };
+    expect(compareDocuments(recursive(1), recursive(1)).differences).toStrictEqual([]);
+    expect(compareDocuments(recursive(1), recursive(2), { include: ['pieceInfo'] }).differences).toMatchObject([
+      { kind: 'piece-info', owner, aspect: 'value', path: ['PieceInfo', 'App', 'V'] },
+      { kind: 'piece-info', owner, aspect: 'source-bytes', path: ['PieceInfo'] },
+    ]);
+  });
+
+  it('gives a form only one document has no page-piece owner', () => {
+    const present = withForms('<</XObject<</X1 12 0 R>>>>', [form(12, '/PieceInfo<</App<</Private 1>>>>')]);
+    expect(kinds(compareDocuments(present, source).differences)).toStrictEqual(['page-resources']);
+  });
+});
+
+const annotated = (text: string): LoadedDocument => load(objects([page(undefined, `/Annots[<</Subtype/Text/Rect[0 0 1 1]/Contents(${text})>>]`)]));
+
+describe('page and document attributes', () => {
+  it('leaves page entries that other areas compare out of the page attributes', () => {
+    const dated = load(objects([page(undefined, '', '<<>>', '/LastModified(D:20250101000000Z)')]));
+    expect(compareDocuments(source, dated, { include: ['pageAttributes'] }).differences).toStrictEqual([]);
+  });
+
+  it('reports a change inside an annotation with its path from the page', () => {
+    expect(compareDocuments(annotated('a'), annotated('b')).differences).toStrictEqual([
+      { kind: 'page-attribute', page: 0, path: ['Annots', 0, 'Contents'], a: { kind: 'string', text: '(a)' }, b: { kind: 'string', text: '(b)' } },
+    ]);
+  });
+
+  it('reports a document information dictionary only one document has', () => {
+    expect(compareDocuments(source, load(objects(), '/Root 1 0 R')).differences).toStrictEqual([
+      { kind: 'document-attribute', path: ['Info'], a: { kind: 'dictionary', text: '<</Title(Plate)>>' }, b: { kind: 'absent', text: '' } },
     ]);
   });
 });
