@@ -35,6 +35,12 @@ const offsetOf = (objectNumber: number): number => base.offsets.get(objectNumber
 
 const summary = (document: LoadedDocument): Array<string | Array<string>> => [document.structure.status, document.warnings.map(warning => warning.code)];
 
+// Object 3 and the warnings, as a document loaded from the input reads them.
+const streamAndWarnings = (input: Uint8Array | ReadonlyArray<Uint8Array>): Array<unknown> => {
+  const document = loadDocument(input);
+  return [document.get(pdfReference(3, 0)), document.warnings];
+};
+
 describe('loading documents', () => {
   it('reads an intact file lazily and returns fresh values', () => {
     const document = loadDocument(base.bytes);
@@ -232,13 +238,9 @@ describe('loading documents', () => {
     const { bytes } = buildPdf([
       { xref: 'classic', objects: [catalog, pages, { number: 3, body: '<</Length 2>>\nstream\nabcdefgh\nendstream' }], trailer: '/Root 1 0 R' },
     ]);
-    const read = (input: Uint8Array | ReadonlyArray<Uint8Array>): Array<unknown> => {
-      const document = loadDocument(input);
-      return [document.get(pdfReference(3, 0)), document.warnings];
-    };
-    const contiguous = read(bytes);
+    const contiguous = streamAndWarnings(bytes);
     const cuts = Array.from({ length: bytes.length - 1 }, (_, index) => index + 1);
-    expect([contiguous[0], cuts.map(cut => read([bytes.subarray(0, cut), bytes.subarray(cut)]))]).toStrictEqual([
+    expect([contiguous[0], cuts.map(cut => streamAndWarnings([bytes.subarray(0, cut), bytes.subarray(cut)]))]).toStrictEqual([
       expect.objectContaining({ kind: 'stream', data: latin1Bytes('abcdefgh') }),
       cuts.map(() => contiguous),
     ]);
