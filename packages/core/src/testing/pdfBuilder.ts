@@ -307,6 +307,9 @@ const checkSection = (section: TestSection, index: number): void => {
   ) {
     throw new RangeError(`section ${String(index)} cannot number its cross-reference stream ${String(stream)}`);
   }
+  if (section.xref === 'classic' && section.xrefStreamEncoding !== undefined) {
+    throw new RangeError(`section ${String(index)} has a classic table, so it has no cross-reference stream to encode`);
+  }
 };
 
 /** Writes one PDF: the first section is the original file and each further section an incremental update whose Prev points at the one before. */

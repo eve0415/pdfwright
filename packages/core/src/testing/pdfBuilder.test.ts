@@ -49,6 +49,7 @@ describe('sections the builder refuses', () => {
       { xref: 'stream', objects: [CATALOG], objectStreams: [{ number: 3, members: [member] }], xrefStreamNumber: 4 },
     ],
     ['a cross-reference stream number on a classic section', { xref: 'classic', objects: [CATALOG], xrefStreamNumber: 9 }],
+    ['a cross-reference stream encoding on a classic section', { xref: 'classic', objects: [CATALOG], xrefStreamEncoding: 'none' }],
     ['a cross-reference stream numbered 0', { xref: 'stream', objects: [CATALOG], xrefStreamNumber: 0 }],
   ] as const)('refuses %s', (_, section) => {
     expect(() => buildPdf([section])).toThrow(RangeError);
