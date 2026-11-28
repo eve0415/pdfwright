@@ -171,7 +171,11 @@ const frameComponent = (data: Uint8Array, position: number): Component => {
   const horizontal = Math.floor(factors / 16);
   const vertical = factors % 16;
   const quantization = byte(data, position + 2);
-  if (horizontal < 1 || horizontal > 2 || vertical < 1 || vertical > 2 || quantization > 3) {
+  // ITU-T T.81 (1992), B.2.2: Hi and Vi are 1 to 4 and Tqi is 0 to 3; factors above 2 are valid but unsupported.
+  if (horizontal < 1 || horizontal > 4 || vertical < 1 || vertical > 4 || quantization > 3) {
+    return invalid(position, 'frame component parameters are invalid');
+  }
+  if (horizontal > 2 || vertical > 2) {
     return unsupported('jpeg-sampling');
   }
   return { id, horizontal, vertical, quantization };
@@ -214,6 +218,10 @@ const frameHeader = (data: Uint8Array, bounds: SegmentBounds): Frame => {
   const height = word(data, start + 1);
   const width = word(data, start + 3);
   const count = byte(data, start + 5);
+  // ITU-T T.81 (1992), B.2.2: Nf is at least 1.
+  if (count === 0) {
+    return invalid(start + 5, 'frame has no components');
+  }
   if (count === 4) {
     return unsupported('jpeg-cmyk');
   }

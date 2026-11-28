@@ -333,6 +333,8 @@ describe('decoding PNG structure', () => {
     ['tRNS in a grey image with alpha', encodeTestPng({ ...image(4, 8, { width: 1, height: 1 }), before: [pngChunk('tRNS', [0, 0])] })],
     ['a repeated tRNS', encodeTestPng({ ...GRAY_PIXEL, before: [pngChunk('tRNS', [0, 0]), pngChunk('tRNS', [0, 0])] })],
     ['an indexed tRNS before PLTE', encodeTestPng({ ...image(3, 1, { width: 1, height: 1 }), before: [pngChunk('tRNS', [0]), pngChunk('PLTE', palette(2))] })],
+    // PNG Third Edition, 5.6: tRNS follows PLTE whatever the colour type, so a truecolour tRNS may not precede a suggested palette.
+    ['a truecolour tRNS before PLTE', encodeTestPng({ ...RGB_PIXEL, before: [pngChunk('tRNS', [0, 1, 0, 2, 0, 3]), pngChunk('PLTE', palette(1))] })],
     // PNG Third Edition, 11.3.2.1, 11.3.2.2 and 11.3.2.5: cHRM is 32 bytes, gAMA 4 and sRGB 1, and none follows IDAT.
     ['a gAMA of 3 bytes', encodeTestPng({ ...GRAY_PIXEL, before: [pngChunk('gAMA', [0, 0, 1])] })],
     [
@@ -414,6 +416,12 @@ describe('decoding PNG structure', () => {
       [0, 0, 0, 200, 100, 50],
       [0, 0, 0, 255, 200, 100, 50, 255],
     ]);
+  });
+
+  it('reads a truecolour tRNS that follows a suggested palette', () => {
+    const before = [pngChunk('PLTE', [10, 20, 30]), pngChunk('tRNS', [0, 1, 0, 2, 0, 3])];
+    const decoded = decodePng(encodeTestPng({ ...RGB_PIXEL, before }));
+    expect([decoded.palette, decoded.transparentColor]).toStrictEqual([Uint8Array.of(10, 20, 30), [1, 2, 3]]);
   });
 });
 

@@ -209,7 +209,8 @@ describe('icc structure', () => {
     expect(parseIccStructure(header([16, signature])).header.colorSpace).toStrictEqual(expected);
   });
 
-  it.each(['1CLR', 'GCLR', 'RGBA'])('rejects data colour space %s', signature => {
+  // The nCLR digit is an upper-case hexadecimal digit, so lower-case a to f name no colour space.
+  it.each(['1CLR', 'GCLR', 'RGBA', 'aCLR', 'bCLR', 'fCLR'])('rejects data colour space %s', signature => {
     expect(failure(header([16, signature]))).toStrictEqual({ reason: 'unknown-color-space', offset: 16, tag: undefined });
   });
 
