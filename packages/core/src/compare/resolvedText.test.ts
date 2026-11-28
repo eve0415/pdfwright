@@ -125,13 +125,13 @@ describe('reference cycles', () => {
   it.each(['Filter', 'DecodeParms'])(
     'describes the encoding of a stream whose %s leads into a cycle the same whichever object of the cycle was met first',
     key => {
-      const internals = internalsOrThrow([streamBody(`/${key} 21 0 R`, 'x'), '[22 0 R 1]', '[21 0 R 2]']);
-      const stream = internals.objects.deref(pdfReference(FIRST, 0));
-      if (stream?.kind !== 'stream') {
-        throw new Error('object 20 is not a stream');
+      const internals = internalsOrThrow([streamBody(`/${key} 21 0 R`, 'x'), '[22 0 R 1]', '[21 0 R 2]', streamBody(`/${key} 22 0 R`, 'x')]);
+      const [stream, other] = [FIRST, 23].map(number => internals.objects.deref(pdfReference(number, 0)));
+      if (stream?.kind !== 'stream' || other?.kind !== 'stream') {
+        throw new Error('objects 20 and 23 are not streams');
       }
       const shared = new ResolvedTexts(internals);
-      shared.text(pdfReference(22, 0));
+      shared.encoding(other);
       expect(shared.encoding(stream)).toBe(new ResolvedTexts(internals).encoding(stream));
     },
   );
