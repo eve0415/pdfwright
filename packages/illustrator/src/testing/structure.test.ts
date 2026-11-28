@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
-import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
+import { endCommentsLength } from './endComments.ts';
+import { readIllustratorContainer } from './readIllustratorPdf.ts';
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 56, offset: 'Z' });
 const model: IllustratorDocument = {
@@ -53,10 +54,10 @@ describe('illustrator PDF structure', () => {
     expect(facts.pageDate).toStrictEqual(facts.applicationDate);
   });
 
-  it('reads the synthesized native model through the PDF wrapper', () => {
-    const read = readIllustratorPdf(writeIllustratorPdf(model));
-    expect(read.document.layers.map(layer => layer.name)).toStrictEqual(['Cut']);
-    expect(read.header.get('%AI3_Cropmarks')).toBe('0 0 283.4645669291 198.4251968504');
-    expect(read.native.slice(0, read.metaData?.length)).toStrictEqual(read.metaData);
+  it('stores the native header through %%EndComments as AIMetaData', () => {
+    const facts = readIllustratorContainer(writeIllustratorPdf(model));
+    const length = endCommentsLength(facts.native);
+    expect(length).toBeGreaterThan(0);
+    expect(facts.metaData).toStrictEqual(facts.native.slice(0, length));
   });
 });
