@@ -175,7 +175,9 @@ describe('page content comparison', () => {
 
   it.each([
     { a: 'q Q', b: 'q Q q Q', difference: { operationsA: 2, operationsB: 4, commonPrefix: 2, commonSuffix: 0 } },
+    { a: 'q Q q Q', b: 'q Q', difference: { operationsA: 4, operationsB: 2, commonPrefix: 2, commonSuffix: 0 } },
     { a: '0 0 m S', b: '0 0 m S S', difference: { operationsA: 2, operationsB: 3, commonPrefix: 2, commonSuffix: 0 } },
+    { a: '0 0 m S S', b: '0 0 m S', difference: { operationsA: 3, operationsB: 2, commonPrefix: 2, commonSuffix: 0 } },
     { a: '1 g', b: '2 g', difference: { operationsA: 1, operationsB: 1, commonPrefix: 0, commonSuffix: 0 } },
     { a: '/P <</MCID 1>> BDC EMC', b: '/P <</MCID 0>> BDC EMC', difference: { operationsA: 2, operationsB: 2, commonPrefix: 0, commonSuffix: 1 } },
     { a: 'BT (a) Tj ET', b: 'BT <62> Tj ET', difference: { operationsA: 3, operationsB: 3, commonPrefix: 1, commonSuffix: 1 } },
@@ -337,16 +339,19 @@ const changedOperation = fc
 
 const operationList = fc.array(fc.constantFrom('q', 'Q', '0 g'), { maxLength: 4 });
 
-// Unrelated lists, and lists that share a start and an end around different middles, where a prefix and a suffix found independently would overlap.
+// Unrelated lists, and lists that share a start and an end around different middles, where a prefix and a suffix found independently would overlap, with either list first.
 const operationLists = fc.oneof(
   fc.tuple(operationList, operationList),
-  fc.tuple(operationList, operationList, operationList).map(
-    ([start, end, middle]) =>
-      [
-        [...start, ...end],
-        [...start, ...middle, ...end],
-      ] as const,
-  ),
+  fc
+    .tuple(operationList, operationList, operationList)
+    .map(
+      ([start, end, middle]) =>
+        [
+          [...start, ...end],
+          [...start, ...middle, ...end],
+        ] as const,
+    )
+    .chain(pair => fc.constantFrom(pair, [pair[1], pair[0]] as const)),
 );
 
 describe('properties', () => {
