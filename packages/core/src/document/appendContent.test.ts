@@ -391,6 +391,8 @@ describe('appending built content', () => {
     ['every component written as a real', '/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]', 'CS7', ['CS7']],
     ['the components a save writes, whole ones as integers', '/C0[0 0 0 0]/C1[0 0.5 0 0]', 'CS7', ['CS7']],
     ['a different tint', '/C0[0 0 0 0]/C1[0 0.4 0 0]', 'CS1', ['CS1', 'CS7']],
+    ['a further function entry', '/C0[0 0 0 0]/C1[0 0.5 0 0]/Range[0 1 0 1 0 1 0 1]', 'CS1', ['CS1', 'CS7']],
+    ['a fifth component', '/C0[0 0 0 0]/C1[0 0.5 0 0 0]', 'CS1', ['CS1', 'CS7']],
   ])('reuses a name the page resources already give the same separation, with %s', (_, components, name, names) => {
     const spot = `[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]${components}/N 1>>]`;
     const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
@@ -426,6 +428,10 @@ describe('appending built content', () => {
     ['an escaped space', 'CS#207', 'CS1', ['CS 7', 'CS1']],
     ['an escaped number sign', 'CS#237', 'CS1', ['CS#7', 'CS1']],
     ['an escaped regular character', 'C#537', 'CS7', ['CS7']],
+    ['an escaped control byte', 'CS#1F7', 'CS1', ['CS\u001F7', 'CS1']],
+    ['an escaped byte past the printable range', 'CS#7F7', 'CS1', ['CS1', 'CS\u007F7']],
+    ['the first printable byte', 'CS!7', 'CS!7', ['CS!7']],
+    ['the last printable byte', 'CS~7', 'CS~7', ['CS~7']],
   ])('reuses the name of the same separation only when its key needs no escape, given %s', (_, key, name, names) => {
     const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 0.5 0 0]/N 1>>]';
     const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</${key} ${spot}>>>>`));
