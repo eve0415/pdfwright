@@ -191,6 +191,9 @@ importers:
 
   .:
     devDependencies:
+      '@cloudflare/oxlint-config':
+        specifier: 0.2.0
+        version: 0.2.0(oxlint@1.95.0(oxlint-tsgolint@7.0.2009))
       '@cloudflare/vitest-plugin':
         specifier: 1.9.2
         version: 1.9.2(@types/node@26.6.11)(vitest@5.1.2)
@@ -263,6 +266,21 @@ packages:
 
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
+
+  '@cloudflare/oxlint-config@0.2.0':
+    resolution: {integrity: sha512-HENc8yIzCuIPvUyQbX47UKv2kgA26iZt1XRsrlQXayJG6cWmBNlnHXfPy7oNCghqWpTBcbFRdGwsHd1Ahe3zhw==}
+    engines: {node: ^22.18.0 || >=24.0.0}
+    peerDependencies:
+      oxlint: ^1.94.0
+      tsrs: '>=7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
+        optional: true
 
   '@cloudflare/vitest-plugin@1.9.2':
     resolution: {integrity: sha512-5kvabPtAcJNg/VMZyJ6M3dczw02eG8miWXOst1xMQLqKG9ItWYtzeln/q9+FV0T57Gg8ftLXjZS9mzoYfnxBdQ==}
@@ -668,6 +686,31 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
+
+  '@nkzw/eslint-plugin@3.0.0':
+    resolution: {integrity: sha512-J6Ms/OzUxx7BNBggCKOqFWbESgAJYjvXvekCjjpxVJA2fBv5xOsC5P+2WDYqQUMCvDOU3GxBgG/jrmbqf+/wQA==}
+    peerDependencies:
+      eslint: '>= 9'
+    peerDependenciesMeta:
+      eslint:
+        optional: true
+
+  '@nkzw/oxlint-config@4.1.0':
+    resolution: {integrity: sha512-uFJxSqD8LPGe+uYVh+EC9BwndUGr3h7+aHQhKcdUANNSV4c1vvRoOqqHUTlML5RnHtvABtapW1ZyY4gkz6sKOA==}
+    peerDependencies:
+      eslint-plugin-perfectionist: ^5.14.0
+      oxlint: '>=1.94.0'
+      tsrs: '>=0.25.0-ts7.1.0-beta || ^7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      eslint-plugin-perfectionist:
+        optional: true
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
+        optional: true
 
   '@oven/bun-darwin-aarch64@1.4.5':
     resolution: {integrity: sha512-4MIFXHmctH2EhAxLXm2/qxNtv17dFtLJylvaOCsrgq6KSqHTs6eW5YSrJjRbJxYUJaR901fsN8JfZOa+CsWpWQ==}
@@ -1401,6 +1444,10 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  eslint-plugin-no-only-tests@3.4.0:
+    resolution: {integrity: sha512-4S3/9Nb7A2tiMcpzEQE9bQSlpeOz6WJkgryBuou/SA8W2x2c8Zf4j0NvTKBjv6qNhF9T79tmkecm/0CHqV0UGg==}
+    engines: {node: '>=5.0.0'}
+
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
@@ -2032,6 +2079,15 @@ snapshots:
 
   '@blazediff/core@1.10.0': {}
 
+  '@cloudflare/oxlint-config@0.2.0(oxlint@1.95.0(oxlint-tsgolint@7.0.2009))':
+    dependencies:
+      '@nkzw/oxlint-config': 4.1.0(oxlint@1.95.0(oxlint-tsgolint@7.0.2009))
+    optionalDependencies:
+      oxlint: 1.95.0(oxlint-tsgolint@7.0.2009)
+    transitivePeerDependencies:
+      - eslint
+      - eslint-plugin-perfectionist
+
   '@cloudflare/vitest-plugin@1.9.2(@types/node@26.6.11)(vitest@5.1.2)':
     dependencies:
       cjs-module-lexer: 1.2.3
@@ -2284,6 +2340,17 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.3
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@nkzw/eslint-plugin@3.0.0': {}
+
+  '@nkzw/oxlint-config@4.1.0(oxlint@1.95.0(oxlint-tsgolint@7.0.2009))':
+    dependencies:
+      '@nkzw/eslint-plugin': 3.0.0
+      eslint-plugin-no-only-tests: 3.4.0
+    optionalDependencies:
+      oxlint: 1.95.0(oxlint-tsgolint@7.0.2009)
+    transitivePeerDependencies:
+      - eslint
 
   '@oven/bun-darwin-aarch64@1.4.5':
     optional: true
@@ -2760,6 +2827,8 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.2
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
+
+  eslint-plugin-no-only-tests@3.4.0: {}
 
   estree-walker@3.0.3:
     dependencies:

@@ -12,6 +12,7 @@
     "check:type-aware-coverage": "node scripts/assertTypeAwareCoverage.ts"
   },
   "devDependencies": {
+    "@cloudflare/oxlint-config": "0.2.0",
     "@cloudflare/vitest-plugin": "1.9.2",
     "@oxlint/plugins": "1.95.0",
     "@types/node": "26.6.11",
