@@ -135,6 +135,11 @@ describe('icc lut8 and lut16 tags', () => {
     expect(failure(bytes)).toStrictEqual({ reason: 'bad-tag-data', offset: 0 });
   });
 
+  // ICC.1:2022, 10.11 Table 44: bytes 8 to 10 hold the channel counts and grid points, so a tag that ends before byte 10 has no dimensions to read.
+  it('rejects a lut8 tag that ends before its grid point count', () => {
+    expect(failure(header('lut8', [1, 1, 2]).slice(0, 10))).toStrictEqual({ reason: 'bad-tag-data', offset: 0 });
+  });
+
   it('rejects a tag of another type', () => {
     const bytes = header('lut8', [1, 1, 2]);
     bytes.set(new TextEncoder().encode('mft3'));
