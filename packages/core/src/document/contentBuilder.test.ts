@@ -7,10 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pt } from '../length/length.ts';
+import { pdfName } from '../object/pdfObject.ts';
 
 import { cmyk, gray, rgb } from './color.ts';
 import { createContentBuilder } from './contentBuilder.ts';
-import { objectText, pageResource, reload } from './inspectSaved.ts';
+import { entry, objectText, pageResource, reload } from './inspectSaved.ts';
 import { createDocument } from './pdfDocument.ts';
 import { rect } from './rect.ts';
 
@@ -133,14 +134,13 @@ describe('content builder', () => {
       c.path(p => p.rect(0, 0, 10, 10));
       c.fill('nonzero');
     });
-    const bytes = document.save().toBytes();
-    const text = ascii(bytes);
-    expect(text).toContain('/Filter/FlateDecode');
-    const start = text.indexOf('stream\n') + 7;
-    const end = text.indexOf('\nendstream', start);
-    const compressed = bytes.subarray(start, end);
-    const decoded = inflateZlib(compressed).data;
-    expect(ascii(decoded)).toBe('q\n0 0 10 10 re\nf\nQ\n');
+    const saved = reload(document.save());
+    const contents = entry(saved, saved.get(saved.page(0).reference), 'Contents');
+    // ISO 32000-1:2008, 7.4.4: FlateDecode data inflates with zlib.
+    expect([entry(saved, contents, 'Filter'), contents.kind === 'stream' ? ascii(inflateZlib(contents.data).data) : contents.kind]).toStrictEqual([
+      pdfName('FlateDecode'),
+      'q\n0 0 10 10 re\nf\nQ\n',
+    ]);
   });
 
   it('hands draw callbacks only drawing operations and refuses use after the callback', () => {
