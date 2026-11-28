@@ -1,18 +1,23 @@
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
+import type { ContentBuilder } from './contentBuilder.ts';
+import type { ImageOptions } from './image.ts';
 import type { LoadedDocument } from './loadDocument.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { pdfDate } from '../date/pdfDate.ts';
+import { ParseError } from '../error/parseError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pt } from '../length/length.ts';
-import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { pdfDictionary, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { cmyk } from './color.ts';
+import { entry, keys, objectText, resolved, streamBytes } from './inspectSaved.ts';
 import { loadDocument } from './loadDocument.ts';
 import { rect } from './rect.ts';
 
@@ -167,5 +172,292 @@ describe('appending page content', () => {
     }
     expect(object(document, 3)).toBe('<</Type/Page/Parent 2 0 R/Resources<</XObject<</Im1 6 0 R>>>>/Contents[9 0 R 7 0 R 10 0 R 8 0 R]>>');
     expect([document.get(pdfReference(5, 0)).kind, object(document, 6).includes('/SMask 5 0 R')]).toStrictEqual(['stream', true]);
+  });
+});
+
+// The reason raw content is refused, or 'accepted'.
+const rawOutcome = (raw: string | Uint8Array, isolate: boolean): string => {
+  const document = load(page('/Contents 4 0 R/Resources<<>>'));
+  try {
+    document.page(0).appendContent(typeof raw === 'string' ? latin1Bytes(raw) : raw, { isolate });
+  } catch (error: unknown) {
+    return error instanceof ValidationError ? `ValidationError ${String(error.reason)}` : String(error);
+  }
+  return 'accepted';
+};
+
+// The outcome of appending built content, as the class and reason of the error or 'accepted'.
+const builtOutcome = (document: LoadedDocument, render: (builder: ContentBuilder) => void): string => {
+  try {
+    document.page(0).appendContent(render);
+  } catch (error: unknown) {
+    return error instanceof ValidationError ? `ValidationError ${String(error.reason)}` : String(error);
+  }
+  return 'accepted';
+};
+
+const whiteOverprintFill = (builder: ContentBuilder): void => {
+  builder.graphicsState({ overprintFill: true, overprintMode: 1 });
+  builder.fillColor(cmyk(0, 0, 0, 0));
+  builder.path(path => path.rect(0, 0, 5, 5));
+  builder.fill('nonzero');
+};
+
+const nestedSaves =
+  (levels: number) =>
+  (builder: ContentBuilder): void => {
+    for (let index = 0; index < levels; index++) {
+      builder.save();
+    }
+    for (let index = 0; index < levels; index++) {
+      builder.restore();
+    }
+  };
+
+const unchecked = 'ValidationError raw-content-unchecked';
+
+// A PDF 1.3 file with one page and no content.
+const loadPdf13 = (): LoadedDocument =>
+  loadDocument(
+    buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...page('/Resources<<>>')], trailer: '/Root 1 0 R' }], {
+      header: '%PDF-1.3',
+    }).bytes,
+  );
+
+// The save warnings and the catalog Version a PDF 1.3 file gets after one append.
+const versionAfter = (append: (document: LoadedDocument) => void): [Array<string>, PdfObject | undefined] => {
+  const document = loadPdf13();
+  append(document);
+  const saved = document.save();
+  return [saved.warnings.map(warning => warning.code), loadDocument(saved.chunks).catalog().get(pdfName('Version').bytes)];
+};
+
+const drawImage =
+  (softMask: boolean) =>
+  (document: LoadedDocument): void => {
+    const options: ImageOptions = { width: 1, height: 1, colorSpace: 'DeviceGray', bitsPerComponent: 8, samples: Uint8Array.of(1) };
+    if (softMask) {
+      options.softMask = { width: 1, height: 1, samples: Uint8Array.of(2) };
+    }
+    const image = document.image(options);
+    document.page(0).appendContent(builder => {
+      builder.image(image, [1, 0, 0, 1, 0, 0]);
+    });
+  };
+
+const placeGroup = (document: LoadedDocument): void => {
+  const group = document.group({ bbox: rect(pt(0), pt(0), pt(1), pt(1)) }, builder => {
+    builder.path(path => path.rect(0, 0, 1, 1));
+  });
+  document.page(0).appendContent(builder => {
+    builder.group(group, [1, 0, 0, 1, 0, 0]);
+  });
+};
+
+describe('raw content checks', () => {
+  it.each([
+    ['an operator missing an operand', '1 m', true, unchecked],
+    ['an unknown operator', '1 xyz', true, unchecked],
+    ['an XObject paint', '/Im0 Do', true, unchecked],
+    ['a shading paint', '/Sh0 sh', true, unchecked],
+    ['a restore with no save', 'Q', true, unchecked],
+    ['one restore too many', 'q Q Q', true, unchecked],
+    ['a balanced save and restore', 'q Q', true, 'accepted'],
+    ['an unterminated string', '(unterminated', true, unchecked],
+    ['arrays nested past the parse limit', '['.repeat(300), true, unchecked],
+    ['a line width without isolation', '1 w', false, 'accepted'],
+    ['a clip without isolation', '0 0 1 1 re W n', false, 'accepted'],
+  ])('checks %s (%s, isolate %s)', (_, raw, isolate, expected) => {
+    expect(rawOutcome(raw, isolate)).toBe(expected);
+  });
+
+  // Without isolation, content inherits the page's graphics state, so every painting operator is refused and a path ended with n is not.
+  it.each([
+    ['0 0 1 1 re f', 'f'],
+    ['0 0 1 1 re F', 'F'],
+    ['0 0 1 1 re f*', 'f*'],
+    ['0 0 1 1 re S', 'S'],
+    ['0 0 1 1 re s', 's'],
+    ['0 0 1 1 re B', 'B'],
+    ['0 0 1 1 re B*', 'B*'],
+    ['0 0 1 1 re b', 'b'],
+    ['0 0 1 1 re b*', 'b*'],
+    ['BI /W 1 /H 1 /CS /G /BPC 8 ID \u0000 EI', 'BI'],
+    ['BT (a) Tj ET', 'Tj'],
+    ['BT [(a)] TJ ET', 'TJ'],
+    ["BT (a) ' ET", "'"],
+    ['BT 1 2 (a) " ET', '"'],
+  ])('refuses %s without isolation, which paints with %s, and accepts it isolated', raw => {
+    expect([rawOutcome(raw, false), rawOutcome(raw, true)]).toStrictEqual([unchecked, 'accepted']);
+  });
+
+  it('accepts a path ended without painting when content is not isolated', () => {
+    expect(rawOutcome('0 0 1 1 re n', false)).toBe('accepted');
+  });
+});
+
+describe('appending built content', () => {
+  // The appended content is wrapped in q and Q, which takes one of the 28 levels of ISO 32000-1:2008, Annex C, Table C.1.
+  it.each([
+    [27, 'accepted'],
+    [28, 'ValidationError undefined'],
+  ])('accepts %i nested saves only while the wrapper fits within 28 levels', (levels, expected) => {
+    expect(builtOutcome(load(page('/Resources<<>>')), nestedSaves(levels))).toBe(expected);
+  });
+
+  // ISO 32000-1:2008, 11.4.7: the page group's colour space is the blending space, and 11.7.4.3 makes white with overprint mode 1 invisible only in DeviceCMYK.
+  it.each([
+    ['a DeviceRGB page group', '/Group<</S/Transparency/CS/DeviceRGB>>', [], 'accepted'],
+    ['a DeviceGray page group', '/Group<</S/Transparency/CS/DeviceGray>>', [], 'accepted'],
+    ['a DeviceCMYK page group', '/Group<</S/Transparency/CS/DeviceCMYK>>', [], 'ValidationError invisible-overprint'],
+    ['no page group', '', [], 'ValidationError invisible-overprint'],
+    ['a page group naming DeviceRGB indirectly', '/Group<</S/Transparency/CS 9 0 R>>', [{ number: 9, body: '/DeviceRGB' }], 'accepted'],
+    ['an indirect page group of DeviceRGB', '/Group 9 0 R', [{ number: 9, body: '<</S/Transparency/CS/DeviceRGB>>' }], 'accepted'],
+    [
+      'a page group naming DeviceCMYK indirectly',
+      '/Group<</S/Transparency/CS 9 0 R>>',
+      [{ number: 9, body: '/DeviceCMYK' }],
+      'ValidationError invisible-overprint',
+    ],
+  ])('reads the blending space from %s', (_, group, extra, expected) => {
+    expect(builtOutcome(load([...page(`/Resources<<>>${group}`), ...extra]), whiteOverprintFill)).toBe(expected);
+  });
+
+  // ISO 32000-1:2008, 8.4.5, Table 58: CA, ca, BM and SMask are PDF 1.4 features, while op, OP and OPM are not; 11.1 makes groups and soft masks PDF 1.4 too.
+  it.each([
+    ['an overprint state', { overprintFill: true }, [[], undefined]],
+    ['a stroke alpha', { strokeAlpha: 0.5 }, [['version-raised'], pdfName('1.4')]],
+    ['a blend mode', { blendMode: 'Multiply' }, [['version-raised'], pdfName('1.4')]],
+    ['a soft mask of None', { softMask: 'None' }, [['version-raised'], pdfName('1.4')]],
+  ] as const)('sets the catalog version of a PDF 1.3 file for %s as needed', (_, options, expected) => {
+    expect(
+      versionAfter(document => {
+        document.page(0).appendContent(builder => {
+          builder.graphicsState(options);
+        });
+      }),
+    ).toStrictEqual(expected);
+  });
+
+  it('raises a PDF 1.3 file to 1.4 for a placed group or a soft-masked image, and not for an image without a mask', () => {
+    expect([versionAfter(placeGroup), versionAfter(drawImage(true)), versionAfter(drawImage(false))]).toStrictEqual([
+      [['version-raised'], pdfName('1.4')],
+      [['version-raised'], pdfName('1.4')],
+      [[], undefined],
+    ]);
+  });
+
+  // Names are reused only for a strictly equal value, so the source writes every colour component as a real, as the library's own Separation does.
+  it('reuses a name the page resources already give the same separation', () => {
+    const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]/N 1>>]';
+    const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
+    document.page(0).appendContent(builder => {
+      builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+    });
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace'))]).toStrictEqual([
+      'q\n/CS7 cs\n1 scn\nQ\n',
+      ['CS7'],
+    ]);
+  });
+
+  it('writes a group drawn by two appends once and reuses its name', () => {
+    const document = load(page('/Resources<<>>'));
+    const group = document.group({ bbox: rect(pt(0), pt(0), pt(1), pt(1)) }, builder => {
+      builder.path(path => path.rect(0, 0, 1, 1));
+    });
+    for (let round = 0; round < 2; round++) {
+      document.page(0).appendContent(builder => {
+        builder.group(group, [1, 0, 0, 1, 0, 0]);
+      });
+    }
+    expect(object(document, 3)).toBe('<</Type/Page/Parent 2 0 R/Resources<</XObject<</Fm1 5 0 R>>>>/Contents[8 0 R 6 0 R 9 0 R 7 0 R]>>');
+    expect([content(document, 6), content(document, 7)]).toStrictEqual(['q\nq\n1 0 0 1 0 0 cm\n/Fm1 Do\nQ\nQ\n', 'q\nq\n1 0 0 1 0 0 cm\n/Fm1 Do\nQ\nQ\n']);
+  });
+
+  it('writes a nested group before the group that draws it, each once', () => {
+    const document = load(page('/Resources<<>>'));
+    const box = rect(pt(0), pt(0), pt(1), pt(1));
+    const inner = document.group({ bbox: box }, builder => {
+      builder.path(path => path.rect(0, 0, 1, 1));
+    });
+    const outer = document.group({ bbox: box }, builder => {
+      builder.group(inner, [1, 0, 0, 1, 0, 0]);
+    });
+    document.page(0).appendContent(builder => {
+      builder.group(outer, [1, 0, 0, 1, 0, 0]);
+      builder.group(inner, [1, 0, 0, 1, 0, 0]);
+    });
+    expect([object(document, 3), objectText(entry(document, entry(document, document.get(pdfReference(6, 0)), 'Resources'), 'XObject'))]).toStrictEqual([
+      '<</Type/Page/Parent 2 0 R/Resources<</XObject<</Fm1 6 0 R/Fm2 5 0 R>>>>/Contents 7 0 R>>',
+      '<</Fm1 5 0 R>>',
+    ]);
+  });
+});
+
+describe('appending to malformed pages', () => {
+  it.each([
+    ['a direct dictionary', '/Contents<<>>'],
+    ['an integer', '/Contents 5'],
+  ])('refuses a page whose Contents is %s, naming the page', (_, contents) => {
+    const document = load(page(`${contents}/Resources<<>>`));
+    expect(() => {
+      document.page(0).appendContent(latin1Bytes('n'));
+    }).toThrow(ParseError);
+    expect(() => {
+      document.page(0).appendContent(latin1Bytes('n'));
+    }).toThrow(/page 3 0 R/u);
+  });
+
+  it('refuses a page object replaced by a non-dictionary', () => {
+    const document = load(page('/Resources<<>>'));
+    const view = document.page(0);
+    document.set(pdfReference(3, 0), pdfName('Page'));
+    expect(() => {
+      view.appendContent(latin1Bytes('n'));
+    }).toThrow(ParseError);
+  });
+
+  it('writes a single stream, with no q and Q wrapper, after an empty Contents array', () => {
+    const document = load(page('/Contents[]/Resources<<>>'));
+    document.page(0).appendContent(latin1Bytes('n'));
+    expect([object(document, 3), content(document, 5)]).toStrictEqual(['<</Type/Page/Parent 2 0 R/Contents 5 0 R/Resources<<>>>>', 'n']);
+  });
+});
+
+describe('properties', () => {
+  // How the page holds its one existing stream, object 4.
+  const shapes = {
+    absent: { extra: '', objects: [] },
+    stream: { extra: '/Contents 4 0 R', objects: [] },
+    array: { extra: '/Contents[4 0 R]', objects: [] },
+    indirect: { extra: '/Contents 9 0 R', objects: [{ number: 9, body: '[4 0 R]' }] },
+  } as const;
+  const original = '0 0 m 10 10 l S';
+
+  it('adds content after the existing streams, leaving them and an indirect Contents array unchanged', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom('absent', 'stream', 'array', 'indirect'),
+        fc.boolean(),
+        fc.constantFrom('n', '1 w', '0 0 1 1 re W n'),
+        (shape, isolate, raw) => {
+          const { extra, objects } = shapes[shape];
+          const document = load([...page(`${extra}/Resources<<>>`), ...objects]);
+          const before = [object(document, 4), content(document, 4), ...objects.map(item => object(document, item.number))];
+          document.page(0).appendContent(latin1Bytes(raw), { isolate });
+          const contents = entry(document, document.get(pdfReference(3, 0)), 'Contents');
+          const streams = contents.kind === 'array' ? contents.items : [contents];
+          const decoded = streams.map(stream => latin1Text(streamBytes(resolved(document, stream)))).join('');
+          const existing = shape === 'absent' ? '' : original;
+          const expected = existing === '' ? raw : isolate ? `q\n${existing}\nQ\n${raw}` : `${existing}\n${raw}`;
+          const depth = [...decoded.matchAll(/\b[qQ]\b/gu)].reduce((level, [operator]) => level + (operator === 'q' ? 1 : -1), 0);
+          expect([decoded, depth, [object(document, 4), content(document, 4), ...objects.map(item => object(document, item.number))]]).toStrictEqual([
+            expected,
+            0,
+            before,
+          ]);
+        },
+      ),
+    );
   });
 });
