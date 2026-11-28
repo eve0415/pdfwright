@@ -743,43 +743,43 @@ describe('function shading conversion', () => {
   });
 });
 
+const OWN_SHADING =
+  '/Resources<</Shading<</Sh1<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>>>>>';
+const PATTERN = '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10';
+const TYPE3 =
+  '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</A 6 0 R>>/Encoding<</Type/Encoding/Differences[65/A]>>/FirstChar 65/LastChar 65/Widths[1000]';
+
+const carrierPdf = (page: string, objects: ReadonlyArray<{ readonly number: number; readonly body: string }>, content = '0 0 1 1 re f'): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R${page}>>` },
+        { number: 4, body: streamBody('', content) },
+        ...objects,
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+const expectConverted = (document: LoadedDocument, owner: number): void => {
+  const internals = internalsOf(document);
+  const object = document.get(pdfReference(owner, 0));
+  const entries = object.kind === 'stream' ? object.dictionary : object.kind === 'dictionary' ? object.entries : undefined;
+  const resources = internals?.objects.deref(entries?.get(pdfName('Resources').bytes));
+  const shadings = resources?.kind === 'dictionary' ? internals?.objects.deref(resources.entries.get(pdfName('Shading').bytes)) : undefined;
+  const shading = shadings?.kind === 'dictionary' ? shadings.entries.get(pdfName('Sh1').bytes) : undefined;
+  if (shading?.kind !== 'dictionary') {
+    throw new Error('carrier shading is missing');
+  }
+  const evaluate = functionOf(document, shading.entries.get(pdfName('Function').bytes));
+  expect(shading.entries.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
+  expect([close(evaluate([0]), cmykOf(1, 0, 0)), close(evaluate([1]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
+};
+
 describe('direct shadings in resource carriers', () => {
-  const OWN_SHADING =
-    '/Resources<</Shading<</Sh1<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>>>>>';
-  const PATTERN = '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10';
-  const TYPE3 =
-    '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</A 6 0 R>>/Encoding<</Type/Encoding/Differences[65/A]>>/FirstChar 65/LastChar 65/Widths[1000]';
-
-  const carrierPdf = (page: string, objects: ReadonlyArray<{ readonly number: number; readonly body: string }>, content = '0 0 1 1 re f'): Uint8Array =>
-    buildPdf([
-      {
-        xref: 'classic',
-        objects: [
-          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
-          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-          { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R${page}>>` },
-          { number: 4, body: streamBody('', content) },
-          ...objects,
-        ],
-        trailer: '/Root 1 0 R',
-      },
-    ]).bytes;
-
-  const expectConverted = (document: LoadedDocument, owner: number): void => {
-    const internals = internalsOf(document);
-    const object = document.get(pdfReference(owner, 0));
-    const entries = object.kind === 'stream' ? object.dictionary : object.kind === 'dictionary' ? object.entries : undefined;
-    const resources = internals?.objects.deref(entries?.get(pdfName('Resources').bytes));
-    const shadings = resources?.kind === 'dictionary' ? internals?.objects.deref(resources.entries.get(pdfName('Shading').bytes)) : undefined;
-    const shading = shadings?.kind === 'dictionary' ? shadings.entries.get(pdfName('Sh1').bytes) : undefined;
-    if (shading?.kind !== 'dictionary') {
-      throw new Error('carrier shading is missing');
-    }
-    const evaluate = functionOf(document, shading.entries.get(pdfName('Function').bytes));
-    expect(shading.entries.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
-    expect([close(evaluate([0]), cmykOf(1, 0, 0)), close(evaluate([1]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
-  };
-
   it.each([
     {
       carrier: 'a tiling pattern',
