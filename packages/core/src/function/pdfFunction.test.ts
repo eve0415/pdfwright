@@ -356,3 +356,64 @@ describe('stitching functions', () => {
     expect(build).toThrow(pattern);
   });
 });
+
+// A function dictionary with only the given entries, so a test can leave out FunctionType or Domain.
+const bareFunction = (extra: Record<string, PdfDirectObject>): ReturnType<typeof pdfDictionary> => {
+  const entries = new PdfDictionaryEntries();
+  for (const [name, value] of Object.entries(extra)) {
+    entries.set(key(name), value);
+  }
+  return pdfDictionary(entries);
+};
+
+describe('function dictionaries', () => {
+  it('reads equal Domain bounds and a null Range as valid', () => {
+    // ISO 32000-1:2008, 7.3.7: a null value is the same as an absent entry, so the output is not clipped.
+    const point = createPdfFunction(functionObject(2, { Domain: numbers([0.5, 0.5]), N: pdfInteger(1) }));
+    const unclipped = createPdfFunction(functionObject(2, { C1: numbers([2]), Range: { kind: 'null' }, N: pdfInteger(1) }));
+    expect([point([0]), unclipped([1])]).toStrictEqual([[0.5], [2]]);
+  });
+
+  it.each([
+    ['a missing FunctionType', bareFunction({ Domain: numbers([0, 1]), N: pdfInteger(1) }), /FunctionType must be a number/],
+    ['an integer object', pdfInteger(2), /dictionary or stream/],
+    ['an empty Domain', functionObject(2, { Domain: numbers([]), N: pdfInteger(1) }), /Domain needs pairs/],
+    ['an odd-length Domain', functionObject(2, { Domain: numbers([0, 1, 2]), N: pdfInteger(1) }), /Domain needs pairs/],
+    ['a reversed Domain', functionObject(2, { Domain: numbers([1, 0]), N: pdfInteger(1) }), /Domain has reversed bounds/],
+    ['a reversed Range', functionObject(2, { Range: numbers([1, 0]), N: pdfInteger(1) }), /Range has reversed bounds/],
+    [
+      'a Domain item that is not a number',
+      functionObject(2, { Domain: pdfArray([pdfInteger(0), { kind: 'boolean', value: true }]), N: pdfInteger(1) }),
+      /Domain must be a number/,
+    ],
+  ])('rejects %s', (_, object, pattern) => {
+    const build = () => createPdfFunction(object);
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+
+  it.each([1, 5])('rejects FunctionType %i as unsupported', type => {
+    expect(() => createPdfFunction(functionObject(type, {}))).toThrow(UnsupportedFeatureError);
+  });
+
+  it('rejects a reference that resolves to another reference', () => {
+    const objects = new Map<number, PdfDirectObject>([
+      [1, pdfReference(2, 0)],
+      [2, identity()],
+    ]);
+    const build = () => createPdfFunction(pdfReference(1, 0), value => resolveObject(objects, value));
+    expect(createPdfFunction(pdfReference(2, 0), value => resolveObject(objects, value))([0.5])).toStrictEqual([0.5]);
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(/does not resolve/);
+  });
+
+  it('rejects inputs and outputs whose count differs from Domain and Range', () => {
+    const evaluate = createPdfFunction(identity());
+    const outputs = createPdfFunction(functionObject(2, { C0: numbers([0, 0]), C1: numbers([1, 1]), Range: numbers([0, 1]), N: pdfInteger(1) }));
+    expect(() => evaluate([0.5, 0.5])).toThrow(ParseError);
+    expect(() => evaluate([0.5, 0.5])).toThrow(/input dimension/);
+    expect(() => evaluate([])).toThrow(/input dimension/);
+    expect(() => outputs([0.5])).toThrow(ParseError);
+    expect(() => outputs([0.5])).toThrow(/output dimension/);
+  });
+});
