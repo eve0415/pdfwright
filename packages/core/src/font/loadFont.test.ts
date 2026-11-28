@@ -1,6 +1,6 @@
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
-import type { FontGlyph, FontModel } from './fontModel.ts';
+import type { FontGlyph, FontModel, FontString } from './fontModel.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -16,8 +16,11 @@ import { fontDocument } from './testing/fontDocument.ts';
 const fontOf = (font: string, objects: ReadonlyArray<TestObject> = [], provider?: CMapProvider): FontModel =>
   new FontCache(fontDocument([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
 
+// A string shown with no glyph limit and a codespace check count of its own.
+const shownBy = (font: FontModel, string: Uint8Array): FontString => font.glyphs(string, Number.POSITIVE_INFINITY, { checks: 0 });
+
 const glyphsOf = (font: FontModel, string: Uint8Array | string): ReadonlyArray<FontGlyph> => {
-  const result = font.glyphs(typeof string === 'string' ? latin1Bytes(string) : string);
+  const result = shownBy(font, typeof string === 'string' ? latin1Bytes(string) : string);
   if (result.kind !== 'glyphs') {
     throw new Error(`the string does not split: ${result.kind}`);
   }
@@ -40,9 +43,9 @@ const descriptorObject = (flags: number, extra = ''): TestObject => ({
 describe('simple fonts', () => {
   it('refuses a string longer than its glyph budget and accepts one exactly at it', () => {
     const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>');
-    const atBudget = font.glyphs(latin1Bytes('AAA'), 3);
+    const atBudget = font.glyphs(latin1Bytes('AAA'), 3, { checks: 0 });
     expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'glyphName') : atBudget.kind).toStrictEqual(['A', 'A', 'A']);
-    expect(() => font.glyphs(latin1Bytes('AAA'), 2)).toThrow(ResourceLimitError);
+    expect(() => font.glyphs(latin1Bytes('AAA'), 2, { checks: 0 })).toThrow(ResourceLimitError);
   });
 
   it('names codes by a predefined encoding and takes widths from Widths', () => {
@@ -137,7 +140,7 @@ describe('simple fonts', () => {
 
   it('reads a font value that is not a dictionary as an unreadable font', () => {
     const font = new FontCache(fontDocument([]), undefined).font({ kind: 'integer', value: 3 }, 'direct:1.0:4631');
-    expect([font.subtype, font.glyphs(latin1Bytes('A')).kind, ...font.warnings.map(warning => warning.code)]).toStrictEqual([
+    expect([font.subtype, shownBy(font, latin1Bytes('A')).kind, ...font.warnings.map(warning => warning.code)]).toStrictEqual([
       'other',
       'undecodable',
       'font-unreadable',
@@ -156,9 +159,33 @@ describe('composite fonts', () => {
       { number: 12, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000>>' },
     ]);
     const shown = Uint8Array.of(0, 65, 0, 66);
-    const atBudget = font.glyphs(shown, 2);
+    const atBudget = font.glyphs(shown, 2, { checks: 0 });
     expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'cid') : atBudget.kind).toStrictEqual([65, 66]);
-    expect(() => font.glyphs(shown, 1)).toThrow(ResourceLimitError);
+    expect(() => font.glyphs(shown, 1, { checks: 0 })).toThrow(ResourceLimitError);
+  });
+
+  it('counts the codespace checks of two fonts that share a predefined CMap in the one count they are given', () => {
+    // 2000 one-code ranges in blocks of 100: the miss FFFF costs 4000 checks and the code 0000 costs 1, and splitting fails once the count passes 10,000,000.
+    const ranges = Array.from({ length: 2000 }, (_, index) => `<${index.toString(16).padStart(4, '0')}>`.repeat(2));
+    const wide = Array.from(
+      { length: 20 },
+      (_, block) => `100 begincodespacerange ${ranges.slice(block * 100, block * 100 + 100).join(' ')} endcodespacerange`,
+    ).join('\n');
+    const cache = new FontCache(
+      fontDocument([
+        { number: 10, body: type0Font('/Wide', CID_FONT_TYPE2) },
+        { number: 11, body: type0Font('/Wide', CID_FONT_TYPE2) },
+      ]),
+      providerOf({ Wide: wide }),
+    );
+    const [first, second] = [cache.font(pdfReference(10, 0), '10.0'), cache.font(pdfReference(11, 0), '11.0')];
+    const codespace = { checks: 9_992_000 };
+    const shown = [first, second].map(font => {
+      const result = font.glyphs(Uint8Array.of(0xff, 0xff), Number.POSITIVE_INFINITY, codespace);
+      return result.kind === 'glyphs' ? pick(result.glyphs, 'code') : result.kind;
+    });
+    expect([shown, codespace.checks]).toStrictEqual([[[0xff_ff], [0xff_ff]], 10_000_000]);
+    expect(() => first.glyphs(Uint8Array.of(0x00, 0x00), Number.POSITIVE_INFINITY, codespace)).toThrow(ResourceLimitError);
   });
 
   it('splits Identity-H strings into 2-byte CIDs and reads widths from W in both forms and DW', () => {
@@ -209,13 +236,13 @@ describe('composite fonts', () => {
   it('reports a string in a predefined CMap no provider supplies or one supplies empty, and reads it with a provider', () => {
     const font = type0Font('/UniJIS-UTF16-H', '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>');
     const without = fontOf(font);
-    expect([without.glyphs(Uint8Array.of(0x5c, 0x71)), ...without.warnings.map(warning => warning.code)]).toStrictEqual([
+    expect([shownBy(without, Uint8Array.of(0x5c, 0x71)), ...without.warnings.map(warning => warning.code)]).toStrictEqual([
       { kind: 'cmap-unavailable', cmap: 'UniJIS-UTF16-H' },
       'cmap-unavailable',
       'cmap-unavailable',
     ]);
     const empty = fontOf(font, [], providerOf({ 'UniJIS-UTF16-H': '', 'Adobe-Japan1-UCS2': '' }));
-    expect([empty.glyphs(Uint8Array.of(0x5c, 0x71)), ...empty.warnings.map(warning => warning.code)]).toStrictEqual([
+    expect([shownBy(empty, Uint8Array.of(0x5c, 0x71)), ...empty.warnings.map(warning => warning.code)]).toStrictEqual([
       { kind: 'cmap-unavailable', cmap: 'UniJIS-UTF16-H' },
       'cmap-unavailable',
       'cmap-unavailable',
@@ -538,7 +565,7 @@ describe('fonts of subtype Type3, damaged', () => {
 describe('composite fonts, damaged', () => {
   it('reports a Type 0 font without an Encoding and decodes none of its strings', () => {
     const font = fontOf(`<</Type/Font/Subtype/Type0/BaseFont/Test/DescendantFonts[<<${CID_FONT_TYPE2}>>]>>`);
-    expect([font.glyphs(Uint8Array.of(0, 0x41)).kind, font.encoding.kind, warningCodes(font)]).toStrictEqual([
+    expect([shownBy(font, Uint8Array.of(0, 0x41)).kind, font.encoding.kind, warningCodes(font)]).toStrictEqual([
       'undecodable',
       'unreadable',
       ['font-unreadable'],
@@ -695,7 +722,7 @@ describe('composite fonts, damaged', () => {
 
   it('summarises an embedded CMap stream that cannot be decoded as unreadable', () => {
     const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: streamBody('/Type/CMap/Filter/Foo', CODESPACE_2) }]);
-    expect([font.encoding.kind, font.glyphs(Uint8Array.of(0, 0x41)).kind, warningCodes(font)]).toStrictEqual([
+    expect([font.encoding.kind, shownBy(font, Uint8Array.of(0, 0x41)).kind, warningCodes(font)]).toStrictEqual([
       'unreadable',
       'undecodable',
       ['font-unreadable'],

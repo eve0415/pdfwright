@@ -12,14 +12,14 @@ const cmapOf = (text: string, parent?: CMap): CMap => new CMap(parseCMap(latin1B
 
 describe('CMaps', () => {
   it('reads each byte as an invalid 1-byte code when no codespace range is defined', () => {
-    expect(cmapOf('').read(Uint8Array.of(0x41, 0x42), 0)).toStrictEqual({ code: { value: 0x41, length: 1 }, valid: false });
+    expect(cmapOf('').read(Uint8Array.of(0x41, 0x42), 0, { checks: 0 })).toStrictEqual({ code: { value: 0x41, length: 1 }, valid: false });
   });
 
   it('consumes an invalid code by the shortest codespace range of the CMap its usecmap names, when it defines none of its own', () => {
     const parent = cmapOf('1 begincodespacerange <8000> <80FF> endcodespacerange');
     const child = cmapOf('/Parent usecmap', parent);
     // 9.7.6.3 a): the first byte 90 matches the first byte of no range, so the range with the shortest codes, here 2 bytes, decides.
-    expect([child.read(Uint8Array.of(0x90, 0x00, 0x41, 0x41), 0), child.read(Uint8Array.of(0x80, 0x01), 0)]).toStrictEqual([
+    expect([child.read(Uint8Array.of(0x90, 0x00, 0x41, 0x41), 0, { checks: 0 }), child.read(Uint8Array.of(0x80, 0x01), 0, { checks: 0 })]).toStrictEqual([
       { code: { value: 0x90_00, length: 2 }, valid: false },
       { code: { value: 0x80_01, length: 2 }, valid: true },
     ]);
@@ -36,6 +36,55 @@ describe('CMaps', () => {
       child.cid({ value: 0x41, length: 1 }),
       child.unicode({ value: 0x41, length: 1 }),
     ]).toStrictEqual([{ registry: latin1Bytes('Adobe'), ordering: latin1Bytes('Japan1'), supplement: 6 }, 1, 7, 'B']);
+  });
+
+  it('compares a valid code only with the codespace ranges of the lengths it tries, each counted as a check', () => {
+    const wide = Array.from({ length: 100 }, (_, index) => `<${index.toString(16).padStart(8, '0')}> <${index.toString(16).padStart(8, '0')}>`);
+    const parsed = parseCMap(latin1Bytes(`101 begincodespacerange ${wide.join(' ')} <00> <7F> endcodespacerange`), 32);
+    // A range is compared with a code by reading its lower bound, so the ranges whose bound is read are the ranges compared.
+    const compared = new Set<number>();
+    const codespaces = parsed.codespaces.map(({ low, high }, index): CodespaceRange => ({
+      get low(): Uint8Array {
+        compared.add(index);
+        return low;
+      },
+      high,
+    }));
+    const cmap = new CMap({ ...parsed, codespaces });
+    compared.clear();
+    const budget = { checks: 0 };
+    const read = cmap.read(Uint8Array.of(0x41, 0x00, 0x00, 0x00), 0, budget);
+    expect([read, [...compared], budget.checks]).toStrictEqual([{ code: { value: 0x41, length: 1 }, valid: true }, [100], 1]);
+  });
+
+  it('shares the codespace ranges a usecmap inherits instead of indexing them again, and still counts each comparison with them', () => {
+    const wide = Array.from({ length: 100 }, (_, index) => `<${index.toString(16).padStart(8, '0')}> <${index.toString(16).padStart(8, '0')}>`);
+    const parsed = parseCMap(latin1Bytes(`101 begincodespacerange ${wide.join(' ')} <00> <7F> endcodespacerange`), 32);
+    // A range is compared or indexed by reading its lower bound, so the ranges whose bound is read are the ranges touched.
+    const touched = new Set<number>();
+    const codespaces = parsed.codespaces.map(({ low, high }, index): CodespaceRange => ({
+      get low(): Uint8Array {
+        touched.add(index);
+        return low;
+      },
+      high,
+    }));
+    const parent = new CMap({ ...parsed, codespaces });
+    touched.clear();
+    const child = cmapOf('/Parent usecmap 1 begincodespacerange <8000> <80FF> endcodespacerange', parent);
+    const built = [...touched];
+    const budget = { checks: 0 };
+    const reads = [child.read(Uint8Array.of(0x41, 0x00, 0x00, 0x00), 0, budget), child.read(Uint8Array.of(0x80, 0x01, 0x00, 0x00), 0, budget)];
+    // The 1-byte code is compared with the inherited 1-byte range; the 2-byte code fails that range and then matches the child's own.
+    expect([built, reads, [...touched], budget.checks]).toStrictEqual([
+      [],
+      [
+        { code: { value: 0x41, length: 1 }, valid: true },
+        { code: { value: 0x80_01, length: 2 }, valid: true },
+      ],
+      [100],
+      3,
+    ]);
   });
 
   it('gives U+FFFD where incrementing a bfrange destination passes U+FFFF', () => {
@@ -65,9 +114,10 @@ describe('properties', () => {
       fc.property(fc.array(range, { maxLength: 6 }), fc.uint8Array({ max: 7, maxLength: 24 }), (ranges, bytes) => {
         const text = `${String(ranges.length)} begincodespacerange ${ranges.map(({ low, high }) => `${hexOf([...low])} ${hexOf([...high])}`).join(' ')} endcodespacerange`;
         const cmap = cmapOf(text);
+        const budget = { checks: 0 };
         let consumed = 0;
         while (consumed < bytes.length) {
-          const { code, valid } = cmap.read(bytes, consumed);
+          const { code, valid } = cmap.read(bytes, consumed, budget);
           const remaining = bytes.length - consumed;
           // 9.7.6.2: a valid code is the shortest one that matches a range of its length; 9.7.6.3: an invalid code matches no range.
           const matching = ranges.filter(candidate => matches(candidate, bytes, consumed)).map(candidate => candidate.low.length);

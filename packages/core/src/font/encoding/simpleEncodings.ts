@@ -817,9 +817,6 @@ export const WIN_ANSI_ENCODING: EncodingTable = ((): EncodingTable => {
   return names;
 })();
 
-/** The Latin character names by their PDFDocEncoding codes (D.2). */
-export const PDF_DOC_ENCODING: EncodingTable = latinColumn(3);
-
 /** MacExpertEncoding (D.4). */
 export const MAC_EXPERT_ENCODING: EncodingTable = tableOf(rows(EXPERT).map(([name = '', octal]) => [name, octal]));
 
