@@ -1,13 +1,27 @@
 import type { LoadWarning } from '../parse/loadWarning.ts';
+import type { Entry } from '../save/xrefWriter.ts';
 import type { StreamSection } from './xrefStream.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { ByteSource } from '../parse/byteSource.ts';
+import { fieldWidths, indexRuns, streamData } from '../save/xrefWriter.ts';
+import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { readXrefStream } from './xrefStream.ts';
+
+// The offset a ParseError reports, or a description of the other outcome, so that one equality checks both the class and the offset.
+const parseErrorOffset = (run: () => void): { readonly offset: number } | string => {
+  try {
+    run();
+  } catch (error: unknown) {
+    return error instanceof ParseError ? { offset: error.offset } : String(error);
+  }
+  return 'no error';
+};
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
@@ -49,6 +63,19 @@ const upRows = (rows: ReadonlyArray<Array<number>>): Array<number> => {
   }
   return encoded;
 };
+
+// A Flate stream of `count` free entries of one byte each, all zero, and the length of the file read() writes for it.
+const zeroRows = (count: number): readonly [string, Uint8Array] => [
+  `/Type/XRef/Size ${String(count)}/W[1 0 0]/Index[0 ${String(count)}]/Filter/FlateDecode`,
+  deflateZlib(new Uint8Array(count)),
+];
+
+const zeroRowsLength = (count: number): number => {
+  const [dictionary, data] = zeroRows(count);
+  return `9 0 obj\n<<${dictionary}/Length ${String(data.length)}>>\nstream\n${latin1(data)}\nendstream\nendobj\n`.length;
+};
+
+const readZeroRows = (count: number): StreamSection => read(...zeroRows(count)).section;
 
 const entries = (section: StreamSection): Array<Array<number | string>> =>
   section.entries.map(entry => [entry.objectNumber, entry.type, entry.location, entry.generation]);
@@ -100,19 +127,97 @@ describe('cross-reference streams', () => {
     expect(warnings.map(warning => warning.code)).toStrictEqual(['xref-stream-trailing-data', 'xref-stream-index-order']);
   });
 
-  it('rejects objects that are not cross-reference streams and data shorter than its entries', () => {
-    expect(() => read('/Type/ObjStm/Size 1/W[1 1 1]', Uint8Array.of(1, 1, 0))).toThrow(new ParseError('not a cross-reference stream', 0));
-    expect(() => read('/Type/XRef/Size 2/W[1 1 1]', Uint8Array.of(1, 1, 0))).toThrow(ParseError);
-    expect(() => read('/Type/XRef/Size 1/W[1 9 1]', new Uint8Array(11))).toThrow(ParseError);
-    expect(() => read('/Type/XRef/Size 1/W[1 2]', new Uint8Array(3))).toThrow(ParseError);
-    expect(() => read('/Type/XRef/Size 1/W 3 0 R', new Uint8Array(3))).toThrow(ParseError);
+  it('warns about subsections that overlap but not about adjacent ones', () => {
+    expect(read('/Type/XRef/Size 3/W[1 1 1]/Index[1 1 2 1]', Uint8Array.of(1, 1, 0, 1, 2, 0)).warnings).toStrictEqual([]);
+    expect(read('/Type/XRef/Size 3/W[1 1 1]/Index[1 2 2 1]', Uint8Array.of(1, 1, 0, 1, 2, 0, 1, 3, 0)).warnings.map(warning => warning.code)).toStrictEqual([
+      'xref-stream-index-order',
+    ]);
   });
 
-  it('rejects entries without width and more entries than the file has bytes', () => {
-    expect(() => read('/Type/XRef/Size 4/W[0 0 0]/Index[0 200000000]', new Uint8Array())).toThrow(
-      new ParseError('the cross-reference stream W entry gives entries no width', 0),
-    );
+  // Every refusal reports the offset of the stream's object header, here 5 after the prefix.
+  it.each([
+    ['an object that is not a cross-reference stream', '/Type/ObjStm/Size 1/W[1 1 1]', Uint8Array.of(1, 1, 0)],
+    ['data shorter than its entries', '/Type/XRef/Size 2/W[1 1 1]', Uint8Array.of(1, 1, 0)],
+    ['a width above 8 bytes', '/Type/XRef/Size 1/W[1 9 1]', new Uint8Array(11)],
+    ['W of two widths', '/Type/XRef/Size 1/W[1 2]', new Uint8Array(3)],
+    ['W given as a reference', '/Type/XRef/Size 1/W 3 0 R', new Uint8Array(4)],
+    ['no Size', '/Type/XRef/W[1 1 1]', Uint8Array.of(1, 1, 0)],
+    ['a negative Size', '/Type/XRef/Size -1/W[1 1 1]/Index[0 1]', Uint8Array.of(1, 1, 0)],
+    ['an Index of odd length', '/Type/XRef/Size 1/W[1 1 1]/Index[0 1 3]', Uint8Array.of(1, 1, 0)],
+    ['a negative Index element', '/Type/XRef/Size 1/W[1 1 1]/Index[-1 1]', Uint8Array.of(1, 1, 0)],
+    ['an Index beyond 2^31 - 1', '/Type/XRef/Size 1/W[1 1 1]/Index[2147483647 2]', Uint8Array.of(1, 1, 0, 1, 1, 0)],
+    ['entries without width', '/Type/XRef/Size 1/W[0 0 0]/Index[0 1]', new Uint8Array()],
+    // ISO 32000-1:2008, 7.5.8.3: a field holds an unsigned integer; 2^53 has no exact number.
+    ['a second field of 2^53', '/Type/XRef/Size 1/W[1 8 1]', Uint8Array.of(1, 0, 0x20, 0, 0, 0, 0, 0, 0, 0)],
+    ['an in-use generation of 2^32', '/Type/XRef/Size 1/W[1 1 5]', Uint8Array.of(1, 9, 1, 0, 0, 0, 0)],
+  ])('rejects %s at the object header', (_, dictionary, data) => {
+    expect(parseErrorOffset(() => read(dictionary, data, 'junk '))).toStrictEqual({ offset: 5 });
+  });
+
+  it('reads fields at the widest width, the exact range and the highest generation', () => {
+    const wide = read('/Type/XRef/Size 1/W[1 8 1]', Uint8Array.of(1, 0, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0)).section;
+    const generation = read('/Type/XRef/Size 1/W[1 1 5]', Uint8Array.of(1, 9, 0, 0xff, 0xff, 0xff, 0xff)).section;
+    const last = read('/Type/XRef/Size 1/W[1 1 1]/Index[2147483647 1]', Uint8Array.of(1, 9, 0)).section;
+    expect([entries(wide), entries(generation), entries(last)]).toStrictEqual([
+      [[0, 'file', 9_007_199_254_740_991, 0]],
+      [[0, 'file', 9, 4_294_967_295]],
+      [[2_147_483_647, 'file', 9, 0]],
+    ]);
+  });
+
+  it('reads an empty Index without entries, even with no width', () => {
+    expect(read('/Type/XRef/Size 0/W[0 0 0]/Index[]', new Uint8Array()).section.entries).toStrictEqual([]);
+  });
+
+  it('reads a type field wider than one byte as one number', () => {
+    // 0x0100 is type 256, not type 0 or 1 from a single byte.
+    const { section, warnings } = read('/Type/XRef/Size 2/W[2 1 1]/Index[1 1]', Uint8Array.of(1, 0, 5, 0));
+    expect([entries(section), warnings.map(warning => warning.code)]).toStrictEqual([[[1, 'free', 0, 0]], ['unknown-xref-entry-type']]);
+  });
+
+  it('accepts as many entries as the file has bytes plus 1,024 and refuses one more', () => {
+    // Zero rows compress to a few bytes, so the count can exceed the file length; the limit is found where count = file length + 1024.
+    let limit = 2000;
+    for (let step = 0; step < 10; step++) {
+      limit = zeroRowsLength(limit) + 1024;
+    }
+    expect([zeroRowsLength(limit) + 1024, zeroRowsLength(limit + 1) + 1024, readZeroRows(limit).entries.length]).toStrictEqual([limit, limit, limit]);
+    expect(parseErrorOffset(() => readZeroRows(limit + 1))).toStrictEqual({ offset: 0 });
+  });
+
+  it('rejects more entries than the file has bytes before decoding them', () => {
     const zeros = deflateZlib(new Uint8Array(100_000));
-    expect(() => read('/Type/XRef/Size 100000/W[1 0 0]/Filter/FlateDecode', zeros)).toThrow(ParseError);
+    expect(parseErrorOffset(() => read('/Type/XRef/Size 100000/W[1 0 0]/Filter/FlateDecode', zeros))).toStrictEqual({ offset: 0 });
+  });
+});
+
+describe('properties', () => {
+  // Sorted, distinct object numbers with entries of each type whose fields fit a cross-reference stream.
+  const streamEntries = fc
+    .uniqueArray(
+      fc.record({
+        objectNumber: fc.integer({ min: 0, max: 5000 }),
+        type: fc.constantFrom<0 | 1 | 2>(0, 1, 2),
+        field: fc.integer({ min: 0, max: 2 ** 40 - 1 }),
+        generation: fc.integer({ min: 0, max: 65_535 }),
+      }),
+      { selector: entry => entry.objectNumber, minLength: 1, maxLength: 30 },
+    )
+    .map(list => list.toSorted((left, right) => left.objectNumber - right.objectNumber));
+  const names = { 0: 'free', 1: 'file', 2: 'compressed' } as const;
+
+  it('reads back the entries the writer encodes', () => {
+    fc.assert(
+      fc.property(streamEntries, (list: ReadonlyArray<Entry>) => {
+        const [second, third] = fieldWidths(list);
+        const index = latin1(serializeObject(indexRuns(list), { fractionDigits: 0 }));
+        const size = (list.at(-1)?.objectNumber ?? 0) + 1;
+        const { section, warnings } = read(
+          `/Type/XRef/Size ${String(size)}/W[1 ${String(second)} ${String(third)}]/Index${index}`,
+          streamData(list, [second, third]),
+        );
+        expect([entries(section), warnings]).toStrictEqual([list.map(entry => [entry.objectNumber, names[entry.type], entry.field, entry.generation]), []]);
+      }),
+    );
   });
 });
