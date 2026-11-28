@@ -64,16 +64,13 @@ interface ReadExistingInput {
   readonly replacement: boolean;
 }
 
-// A profile that cannot be decoded or parsed differs from the destination, so under `replace` it is removed rather than read.
+// A profile that cannot be decoded within the limits or parsed differs from the destination, so under `replace` it is removed rather than read.
 const sameProfile = (internals: DocumentInternals, stream: PdfStream, destination: IccProfile, replacement: boolean): boolean => {
-  const bytes = decodedData(internals, stream);
-  if (typeof bytes === 'string') {
-    if (replacement) {
-      return false;
-    }
-    throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
-  }
   try {
+    const bytes = decodedData(internals, stream);
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
+    }
     return sameIdentity(parseIccProfile(bytes), destination);
   } catch (error: unknown) {
     if (replacement && error instanceof PdfwrightError) {
