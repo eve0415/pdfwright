@@ -1,6 +1,7 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
@@ -13,6 +14,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
+import { CarrierReplacement, carrierSeen, resourceCarriers } from './resourceCarriers.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface IndexedConversionReport {
@@ -42,9 +44,8 @@ interface ResourceResult {
   readonly count: number;
 }
 
-interface FormUpdate {
-  readonly reference: PdfReference;
-  readonly form: PdfStream;
+interface CarrierUpdate {
+  readonly carrier: ResourceCarrier;
   readonly resources: PdfDictionaryEntries;
   readonly discarded: ReadonlyArray<PdfReference>;
 }
@@ -189,45 +190,27 @@ const planImages = (context: IndexedContext, updates: Map<number, ImageUpdate>):
   }
 };
 
-const scanForms = (context: IndexedContext, state: { seen: Set<number>; updates: Map<number, FormUpdate> }): number => {
-  const { document, resources, options } = context;
-  const internals = internalsOf(document);
+const planCarriers = (
+  context: IndexedContext,
+  page: { index: number; reference: PdfReference },
+  state: { seen: CarrierSeen; updates: Array<CarrierUpdate> },
+): number => {
+  const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const category = internals.objects.deref(resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') {
-    return 0;
-  }
   let count = 0;
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
-      continue;
+  for (const carrier of resourceCarriers(internals, { ...page, resources: context.resources }, state.seen)) {
+    const converted = convertedResources({ document: context.document, resources: carrier.resources, options: context.options });
+    if (converted.resources !== undefined) {
+      state.updates.push({ carrier, resources: converted.resources, discarded: converted.discarded });
+      count += converted.count;
     }
-    const form = internals.objects.deref(value);
-    if (form?.kind !== 'stream') {
-      continue;
-    }
-    const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
-      continue;
-    }
-    state.seen.add(value.objectNumber);
-    const own = internals.objects.deref(form.dictionary.get(RESOURCES));
-    const formResources = own?.kind === 'dictionary' ? own.entries : resources;
-    if (own?.kind === 'dictionary') {
-      const converted = convertedResources({ document, resources: formResources, options });
-      if (converted.resources !== undefined) {
-        state.updates.set(value.objectNumber, { reference: value, form, resources: converted.resources, discarded: converted.discarded });
-        count += converted.count;
-      }
-    }
-    count += scanForms({ document, resources: formResources, options }, state);
   }
   return count;
 };
 
-/** Converts Indexed lookup tables in effective page ColorSpace resources without changing painted indices. */
+/** Converts Indexed lookup tables in effective page ColorSpace resources and in the own resources of every form, tiling pattern, Type 3 font and appearance stream they reach, without changing painted indices. The ColorSpace resources of a soft-mask group, and of carriers only it reaches, keep their lookups. */
 export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteColorOptions): IndexedConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
@@ -236,8 +219,8 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
   }
   const updates: Array<PageUpdate> = [];
   const imageUpdates = new Map<number, ImageUpdate>();
-  const formUpdates = new Map<number, FormUpdate>();
-  const seenForms = new Set<number>();
+  const carrierUpdates: Array<CarrierUpdate> = [];
+  const seenCarriers = carrierSeen();
   let indexed = 0;
   for (const [index, entry] of internals.pages.entries()) {
     const planned = pageUpdate(document, index, options);
@@ -245,7 +228,14 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
       updates.push(planned.update);
     }
     indexed += planned.count;
-    indexed += scanForms({ document, resources: document.page(index).resources(), options }, { seen: seenForms, updates: formUpdates });
+    indexed += planCarriers(
+      { document, resources: document.page(index).resources(), options },
+      { index, reference: entry.reference },
+      {
+        seen: seenCarriers,
+        updates: carrierUpdates,
+      },
+    );
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(index).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -258,7 +248,7 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
     }
   }
   indexed += imageUpdates.size;
-  if (updates.length === 0 && imageUpdates.size === 0 && formUpdates.size === 0) {
+  if (updates.length === 0 && imageUpdates.size === 0 && carrierUpdates.length === 0) {
     return { indexed };
   }
   const discarded: Array<PdfReference> = [];
@@ -283,16 +273,12 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
       discarded.push(update.discarded);
     }
   }
-  for (const update of formUpdates.values()) {
-    const dictionary = new PdfDictionaryEntries(update.form.dictionary.entries());
-    const oldResources = dictionary.get(RESOURCES);
-    if (oldResources?.kind === 'reference') {
-      discarded.push(oldResources);
-    }
+  const replacement = new CarrierReplacement(document, seenCarriers);
+  for (const update of carrierUpdates) {
+    replacement.replace(update.carrier, update.resources);
     discarded.push(...update.discarded);
-    dictionary.set(RESOURCES, pdfDictionary(update.resources));
-    document.set(update.reference, { kind: 'stream', dictionary, data: update.form.data });
   }
+  discarded.push(...replacement.finish());
   deleteDiscarded(document, internals, discarded);
   internals.objects.requireFullRewrite('color-conversion');
   return { indexed };

@@ -3,6 +3,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunction, PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SampledCmykFunction } from './sampleCmykFunction.ts';
 import type { SourceSpace } from './sourceSpace.ts';
@@ -20,6 +21,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
+import { CarrierReplacement, carrierSeen, resourceCarriers } from './resourceCarriers.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
@@ -43,8 +45,15 @@ type ConvertedTint = ConvertedCmykFunction;
 interface SpotPlan {
   readonly name: Uint8Array;
   readonly original: Extract<PdfDirectObject, { kind: 'array' }>;
-  readonly sampled: ConvertedTint;
+  /** The converted tint transform, or undefined for a DeviceN whose own alternate needs no conversion but whose Colorants do. */
+  readonly sampled: ConvertedTint | undefined;
   readonly kind: 'separation' | 'deviceN';
+  readonly colorants: ReadonlyArray<SpotPlan>;
+  readonly discarded: ReadonlyArray<PdfReference>;
+}
+
+interface ColorantPlans {
+  readonly plans: ReadonlyArray<SpotPlan>;
   readonly discarded: ReadonlyArray<PdfReference>;
 }
 
@@ -59,9 +68,8 @@ interface PagePlan extends ResourceSpotPlan {
   readonly reference: PdfReference;
 }
 
-interface FormPlan extends ResourceSpotPlan {
-  readonly reference: PdfReference;
-  readonly form: PdfStream;
+interface CarrierPlan extends ResourceSpotPlan {
+  readonly carrier: ResourceCarrier;
 }
 
 interface ImagePlan {
@@ -71,6 +79,7 @@ interface ImagePlan {
 }
 
 const COLOR_SPACE = pdfName('ColorSpace').bytes;
+const COLORANTS = pdfName('Colorants').bytes;
 const RESOURCES = pdfName('Resources').bytes;
 const XOBJECT = pdfName('XObject').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
@@ -185,38 +194,73 @@ const checkNChannel = (context: SpotContext, original: Extract<PdfDirectObject, 
   }
 };
 
-const planSpace = (context: SpotContext, name: Uint8Array, value: PdfDirectObject): SpotPlan | undefined => {
+const planSpace = (context: SpotContext, name: Uint8Array, value: PdfDirectObject, family?: 'separation'): SpotPlan | undefined => {
   const resolved = resolveSourceSpace(context.document, value, {
     resources: context.resources,
     sourceRgbProfile: context.options.sourceRgbProfile,
     options: { iccGray: context.options.iccGray ?? 'convert' },
   });
-  if (resolved.kind !== 'separation' && resolved.kind !== 'deviceN') {
-    return undefined;
-  }
-  if (alternateSource(resolved.alternate) === undefined) {
+  if (resolved.kind !== 'separation' && (resolved.kind !== 'deviceN' || family === 'separation')) {
     return undefined;
   }
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
+  const convertible = alternateSource(resolved.alternate) !== undefined;
   const original = internals.objects.deref(value);
   if (original?.kind !== 'array') {
-    return invalid('spot colour space is not an array');
+    return convertible ? invalid('spot colour space is not an array') : undefined;
+  }
+  const colorants = resolved.kind === 'deviceN' ? colorantPlans(context, original) : { plans: [], discarded: [] };
+  if (!convertible && colorants.plans.length === 0) {
+    return undefined;
   }
   if (resolved.kind === 'deviceN') {
     checkNChannel(context, original);
   }
-  const discarded: Array<PdfReference> = [];
+  const discarded: Array<PdfReference> = [...colorants.discarded];
   if (value.kind === 'reference') {
     discarded.push(value);
   }
   const functionValue = original.items.at(3);
-  if (functionValue !== undefined) {
+  if (convertible && functionValue !== undefined) {
     discarded.push(...discardedFunctionObjects(internals, functionValue));
   }
-  return { name, original, sampled: convertedTint(context, resolved), kind: resolved.kind, discarded };
+  return { name, original, sampled: convertible ? convertedTint(context, resolved) : undefined, kind: resolved.kind, colorants: colorants.plans, discarded };
+};
+
+// ISO 32000-1:2008, 8.6.6.5, Table 71: the Colorants entry of a DeviceN attributes dictionary maps colorant names to Separation colour spaces.
+const colorantPlans = (context: SpotContext, original: Extract<PdfDirectObject, { kind: 'array' }>): ColorantPlans => {
+  const internals = internalsOf(context.document);
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
+  const attributesValue = original.items.at(4);
+  const attributes = internals.objects.deref(attributesValue);
+  const colorantsValue = attributes?.kind === 'dictionary' ? attributes.entries.get(COLORANTS) : undefined;
+  const colorants = internals.objects.deref(colorantsValue);
+  if (colorants?.kind !== 'dictionary') {
+    return { plans: [], discarded: [] };
+  }
+  const plans: Array<SpotPlan> = [];
+  for (const [name, value] of colorants.entries.entries()) {
+    // ISO 32000-1:2008, 7.3.7: an entry whose value is null is treated as absent, which covers a reference to a missing object (7.3.10).
+    if (internals.objects.deref(value)?.kind === 'null') {
+      continue;
+    }
+    const plan = planSpace(context, name, value, 'separation');
+    if (plan !== undefined) {
+      plans.push(plan);
+    }
+  }
+  const discarded = plans.flatMap(plan => plan.discarded);
+  for (const value of [attributesValue, colorantsValue]) {
+    if (plans.length > 0 && value?.kind === 'reference') {
+      discarded.push(value);
+    }
+  }
+  return { plans, discarded };
 };
 
 const resourceSpots = (context: SpotContext): ResourceSpotPlan | undefined => {
@@ -256,43 +300,29 @@ const pagePlan = (document: LoadedDocument, pageIndex: number, options: RewriteC
   return planned === undefined ? undefined : { ...planned, reference: page.reference };
 };
 
-const scanForms = (context: SpotContext, state: { seen: Set<number>; plans: Array<FormPlan> }): void => {
+const planCarriers = (
+  context: SpotContext,
+  page: { index: number; reference: PdfReference },
+  state: { seen: CarrierSeen; plans: Array<CarrierPlan> },
+): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const category = internals.objects.deref(context.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') {
-    return;
-  }
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
-      continue;
+  for (const carrier of resourceCarriers(internals, { ...page, resources: context.resources }, state.seen)) {
+    const planned = resourceSpots({ document: context.document, resources: carrier.resources, options: context.options });
+    if (planned !== undefined) {
+      state.plans.push({ ...planned, carrier });
     }
-    const form = internals.objects.deref(value);
-    if (form?.kind !== 'stream') {
-      continue;
-    }
-    const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
-      continue;
-    }
-    state.seen.add(value.objectNumber);
-    const own = internals.objects.deref(form.dictionary.get(RESOURCES));
-    const resources = own?.kind === 'dictionary' ? own.entries : context.resources;
-    if (own?.kind === 'dictionary') {
-      const planned = resourceSpots({ document: context.document, resources, options: context.options });
-      if (planned !== undefined) {
-        state.plans.push({ ...planned, reference: value, form });
-      }
-    }
-    scanForms({ document: context.document, resources, options: context.options }, state);
   }
 };
 
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length === right.length && left.every((byte, index) => byte === right[index]);
 
-const sameTint = (left: ConvertedTint, right: ConvertedTint): boolean => {
+const sameTint = (left: ConvertedTint | undefined, right: ConvertedTint | undefined): boolean => {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
   if (left.kind !== right.kind) {
     return false;
   }
@@ -307,6 +337,14 @@ const sameTint = (left: ConvertedTint, right: ConvertedTint): boolean => {
   }
   return false;
 };
+
+const sameSpot = (left: SpotPlan, right: SpotPlan): boolean =>
+  sameTint(left.sampled, right.sampled) &&
+  left.colorants.length === right.colorants.length &&
+  left.colorants.every((colorant, index) => {
+    const other = right.colorants[index];
+    return other !== undefined && sameBytes(colorant.name, other.name) && sameSpot(colorant, other);
+  });
 
 const scanImages = (context: SpotContext, plans: Map<number, ImagePlan>): void => {
   const internals = internalsOf(context.document);
@@ -339,7 +377,7 @@ const scanImages = (context: SpotContext, plans: Map<number, ImagePlan>): void =
     }
     const previous = plans.get(value.objectNumber);
     if (previous !== undefined) {
-      if (!sameTint(previous.spot.sampled, spot.sampled)) {
+      if (!sameSpot(previous.spot, spot)) {
         throw new ValidationError('shared spot image has conflicting source spaces', 'color-space');
       }
       continue;
@@ -348,16 +386,36 @@ const scanImages = (context: SpotContext, plans: Map<number, ImagePlan>): void =
   }
 };
 
+const convertedAttributes = (document: LoadedDocument, spot: SpotPlan, attributes: PdfDirectObject): PdfDirectObject => {
+  const internals = internalsOf(document);
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
+  const entries = internals.objects.deref(attributes);
+  const colorants = entries?.kind === 'dictionary' ? internals.objects.deref(entries.entries.get(COLORANTS)) : undefined;
+  if (entries?.kind !== 'dictionary' || colorants?.kind !== 'dictionary') {
+    return invalid('DeviceN Colorants are missing');
+  }
+  const mapped = new PdfDictionaryEntries(colorants.entries.entries());
+  for (const colorant of spot.colorants) {
+    mapped.set(colorant.name, convertedArray(document, colorant));
+  }
+  const converted = new PdfDictionaryEntries(entries.entries.entries());
+  converted.set(COLORANTS, pdfDictionary(mapped));
+  return pdfDictionary(converted);
+};
+
 const convertedArray = (document: LoadedDocument, spot: SpotPlan): PdfDirectObject => {
-  const functionReference = writeCmykFunction(document, spot.sampled);
-  const [family, colorants] = spot.original.items;
-  if (family === undefined || colorants === undefined) {
+  const [family, colorants, alternate, tint, attributes, ...rest] = spot.original.items;
+  if (family === undefined || colorants === undefined || alternate === undefined || tint === undefined) {
     return invalid('spot colour space is incomplete');
   }
-  const items: Array<PdfDirectObject> = [family, colorants, pdfName('DeviceCMYK'), functionReference];
-  for (const extra of spot.original.items.slice(4)) {
-    items.push(extra);
+  const items: Array<PdfDirectObject> =
+    spot.sampled === undefined ? [family, colorants, alternate, tint] : [family, colorants, pdfName('DeviceCMYK'), writeCmykFunction(document, spot.sampled)];
+  if (attributes !== undefined) {
+    items.push(spot.colorants.length === 0 ? attributes : convertedAttributes(document, spot, attributes));
   }
+  items.push(...rest);
   return pdfArray(items);
 };
 
@@ -386,16 +444,9 @@ const applyPage = (document: LoadedDocument, plan: PagePlan): Array<PdfReference
   return discarded;
 };
 
-const applyForm = (document: LoadedDocument, plan: FormPlan): Array<PdfReference> => {
-  const dictionary = new PdfDictionaryEntries(plan.form.dictionary.entries());
-  const discarded = [...plan.discarded];
-  const oldResources = dictionary.get(RESOURCES);
-  if (oldResources?.kind === 'reference') {
-    discarded.push(oldResources);
-  }
-  dictionary.set(RESOURCES, pdfDictionary(convertedResources(document, plan)));
-  document.set(plan.reference, { kind: 'stream', dictionary, data: plan.form.data });
-  return discarded;
+const applyCarrier = (document: LoadedDocument, replacement: CarrierReplacement, plan: CarrierPlan): ReadonlyArray<PdfReference> => {
+  replacement.replace(plan.carrier, convertedResources(document, plan));
+  return plan.discarded;
 };
 
 const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReference> => {
@@ -405,7 +456,7 @@ const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReferen
   return [...plan.spot.discarded];
 };
 
-/** Converts RGB or calibrated-gray alternates while preserving every colorant name object. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
+/** Converts RGB or calibrated-gray alternates while preserving every colorant name object, in page and image colour spaces and in the own resources of every form, tiling pattern, Type 3 font and appearance stream a page reaches; the ColorSpace resources of a soft-mask group, and of carriers only it reaches, keep theirs. ISO 32000-1:2008, 8.6.6.4–5 defines Separation and DeviceN names, alternates and tint transforms. */
 export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColorOptions): SpotConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
@@ -413,19 +464,23 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
     return invalid('document internals are unavailable');
   }
   const pages: Array<PagePlan> = [];
-  const forms: Array<FormPlan> = [];
+  const carriers: Array<CarrierPlan> = [];
   const images = new Map<number, ImagePlan>();
-  const seenForms = new Set<number>();
+  const seenCarriers = carrierSeen();
   for (let page = 0; page < document.pageCount; page++) {
     const planned = pagePlan(document, page, options);
     if (planned !== undefined) {
       pages.push(planned);
     }
-    scanForms({ document, resources: document.page(page).resources(), options }, { seen: seenForms, plans: forms });
     const entry = internals.pages[page];
     if (entry === undefined) {
       return invalid('page entry is missing');
     }
+    planCarriers(
+      { document, resources: document.page(page).resources(), options },
+      { index: page, reference: entry.reference },
+      { seen: seenCarriers, plans: carriers },
+    );
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -437,22 +492,28 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
       throw new ValidationError('spot resources cannot be read', 'unreadable-resource');
     }
   }
-  const spots = [...pages.flatMap(plan => plan.spots), ...forms.flatMap(plan => plan.spots), ...[...images.values()].map(plan => plan.spot)];
-  if (spots.length === 0) {
+  const planned = [...pages.flatMap(plan => plan.spots), ...carriers.flatMap(plan => plan.spots), ...[...images.values()].map(plan => plan.spot)];
+  if (planned.length === 0) {
     return { separations: 0, deviceN: 0, approximations: [] };
   }
   const discarded: Array<PdfReference> = [];
   for (const plan of pages) {
     discarded.push(...applyPage(document, plan));
   }
-  for (const plan of forms) {
-    discarded.push(...applyForm(document, plan));
+  const replacement = new CarrierReplacement(document, seenCarriers);
+  for (const plan of carriers) {
+    discarded.push(...applyCarrier(document, replacement, plan));
   }
+  discarded.push(...replacement.finish());
   for (const plan of images.values()) {
     discarded.push(...applyImage(document, plan));
   }
   deleteDiscarded(document, internals, discarded);
   internals.objects.requireFullRewrite('color-conversion');
+  // A DeviceN whose own tint needs no conversion counts only through its converted Colorants.
+  const spots = planned
+    .flatMap(spot => [spot, ...spot.colorants])
+    .flatMap(spot => (spot.sampled === undefined ? [] : [{ kind: spot.kind, sampled: spot.sampled }]));
   const approximations = spots.flatMap(spot => {
     const functions = spot.sampled.kind === 'sampled' ? [spot.sampled] : spot.sampled.functions;
     return functions.filter(item => item.maxDeltaE2000 > 0.1).map(item => ({ maxDeltaE2000: item.maxDeltaE2000 }));
