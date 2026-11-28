@@ -216,12 +216,14 @@ export const deterministicAtanDegrees = (numerator: number, denominator: number)
   ((deterministicAtan2(numerator, denominator) * 180) / Math.PI + 360) % 360;
 
 export const deterministicExp = (base: number, exponent: number): number => {
-  if (base >= 0 || Object.is(base, -0)) {
+  // IEEE 754 pow: a negative or negative zero base gives a result whose sign is negative exactly when the exponent is an odd integer.
+  if (base > 0 || Object.is(base, 0)) {
     return deterministicPow(base, exponent);
   }
-  if (!Number.isInteger(exponent)) {
+  const integer = Number.isInteger(exponent);
+  if (!integer && base !== 0) {
     return Number.NaN;
   }
   const magnitude = deterministicPow(-base, exponent);
-  return exponent % 2 === 0 ? magnitude : -magnitude;
+  return integer && exponent % 2 !== 0 ? -magnitude : magnitude;
 };

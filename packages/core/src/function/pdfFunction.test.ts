@@ -301,6 +301,9 @@ describe('sampled functions', () => {
   it.each([
     ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /invalid sampled/],
     ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /invalid sampled/],
+    // ISO 32000-1:2008, 7.10.2, Table 39: Size is an array of positive integers.
+    ['a Size of 0', { Size: numbers([0]) }, /Size/],
+    ['a fractional Size', { Size: numbers([1.5]) }, /Size/],
     ['an Encode for two inputs', { Encode: numbers([0, 1, 0, 1]) }, /mapping/],
     ['a Decode for two outputs', { Decode: numbers([0, 1, 0, 1]) }, /mapping/],
   ])('rejects %s', (_, extra, pattern) => {
@@ -311,6 +314,13 @@ describe('sampled functions', () => {
 
   it('rejects cubic spline interpolation as unsupported', () => {
     expect(() => createPdfFunction(sampledFunction({ Order: pdfInteger(3) }, Uint8Array.of(0, 255)))).toThrow(UnsupportedFeatureError);
+  });
+
+  // ISO 32000-1:2008, 7.10.2, Table 39: the valid Order values are 1 and 3.
+  it.each([0, 2])('rejects Order %i as malformed', order => {
+    const build = () => createPdfFunction(sampledFunction({ Order: pdfInteger(order) }, Uint8Array.of(0, 255)));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(/Order/);
   });
 });
 
@@ -332,6 +342,30 @@ describe('exponential functions', () => {
     ['a missing N', {}, /N must be a number/],
   ])('rejects %s', (_, extra, pattern) => {
     const build = () => createPdfFunction(functionObject(2, extra));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+
+  // ISO 32000-1:2008, 7.10.3: if N is not an integer, every x in the Domain is non-negative, and if N is negative, no x in the Domain is 0.
+  it('builds an exponent its Domain allows', () => {
+    const outputs = [
+      createPdfFunction(functionObject(2, { Domain: numbers([-1, 1]), N: pdfInteger(2) }))([-0.5]),
+      createPdfFunction(functionObject(2, { Domain: numbers([0, 1]), N: pdfReal(0.5) }))([0.25]),
+      createPdfFunction(functionObject(2, { Domain: numbers([0.5, 1]), N: pdfInteger(-1) }))([0.5]),
+      createPdfFunction(functionObject(2, { Domain: numbers([-1, -0.5]), N: pdfInteger(-1) }))([-0.5]),
+    ];
+    expect(outputs).toStrictEqual([[0.25], [0.5], [2], [-2]]);
+  });
+
+  it.each([
+    ['a fractional N on a Domain below 0', [-1, 1], pdfReal(0.5), /negative Domain/],
+    ['a fractional N on a Domain entirely below 0', [-1, -0.5], pdfReal(0.5), /negative Domain/],
+    ['a negative N on a Domain that starts at 0', [0, 1], pdfInteger(-1), /negative N/],
+    ['a negative N on a Domain that ends at 0', [-1, 0], pdfInteger(-1), /negative N/],
+    ['a negative N on a Domain of only 0', [0, 0], pdfInteger(-2), /negative N/],
+    ['a negative N on a Domain with 0 inside it', [-1, 1], pdfInteger(-1), /negative N/],
+  ])('rejects %s', (_, domain, exponent, pattern) => {
+    const build = () => createPdfFunction(functionObject(2, { Domain: numbers(domain), N: exponent }));
     expect(build).toThrow(ParseError);
     expect(build).toThrow(pattern);
   });
@@ -406,6 +440,18 @@ describe('function dictionaries', () => {
       /Domain must be a number/,
     ],
   ])('rejects %s', (_, object, pattern) => {
+    const build = () => createPdfFunction(object);
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+
+  // ISO 32000-1:2008, 7.10.1, Table 38: Range is required for type 0 and type 4 functions; 7.10.2 and 7.10.5: both are stream functions.
+  it.each([
+    ['a sampled function without Range', streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8) }, Uint8Array.of(0, 255)), /Range/],
+    ['a sampled function that is not a stream', functionObject(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]) }), /stream/],
+    ['a calculator function without Range', streamFunction(4, {}, new TextEncoder().encode('{ }')), /Range/],
+    ['a calculator function that is not a stream', functionObject(4, { Range: numbers([0, 1]) }), /stream/],
+  ])('rejects %s as malformed', (_, object, pattern) => {
     const build = () => createPdfFunction(object);
     expect(build).toThrow(ParseError);
     expect(build).toThrow(pattern);

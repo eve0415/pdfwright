@@ -79,7 +79,11 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   const bits = numeric(entry('BitsPerSample'), 'BitsPerSample');
   const orderValue = entry('Order');
   const order = orderValue === undefined ? 1 : numeric(orderValue, 'Order');
-  if (order !== 1) {
+  // ISO 32000-1:2008, 7.10.2, Table 39: Order is 1 for linear or 3 for cubic spline interpolation.
+  if (order !== 1 && order !== 3) {
+    throw new ParseError('sampled function Order must be 1 or 3', 0);
+  }
+  if (order === 3) {
     throw new UnsupportedFeatureError('cubic sampled functions are unsupported');
   }
   if (sizes.length !== limits.domain.length / 2 || sizes.length > 8 || ![1, 2, 4, 8, 12, 16, 24, 32].includes(bits)) {
@@ -88,7 +92,11 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   const outputs = limits.range.length / 2;
   let count = outputs;
   for (const size of sizes) {
-    if (!Number.isSafeInteger(size) || size < 1 || count * size > 16_777_216) {
+    // ISO 32000-1:2008, 7.10.2, Table 39: Size is an array of positive integers, so a zero or fractional Size is a malformed function rather than one over the table limit below.
+    if (!Number.isInteger(size) || size < 1) {
+      throw new ParseError('sampled function Size must be a positive integer', 0);
+    }
+    if (count * size > 16_777_216) {
       throw new ResourceLimitError('sampled function table is too large');
     }
     count *= size;
@@ -154,6 +162,14 @@ const evaluateExponential = (entries: FunctionEntries, domain: Array<number>): E
   if (c0.length !== c1.length) {
     throw new ParseError('exponential function output dimensions differ', 0);
   }
+  const [low = 0, high = 0] = domain;
+  // ISO 32000-1:2008, 7.10.3: if N is not an integer, every x in the Domain is non-negative, and if N is negative, no x in the Domain is 0.
+  if (low < 0 && !Number.isInteger(exponent)) {
+    throw new ParseError('exponential function with a negative Domain needs an integer N', 0);
+  }
+  if (exponent < 0 && low <= 0 && high >= 0) {
+    throw new ParseError('exponential function with a negative N must not have 0 in its Domain', 0);
+  }
   return input =>
     c0.map((start, index) => start + deterministicExp(clip(input[0] ?? 0, domain[0] ?? 0, domain[1] ?? 0), exponent) * ((c1[index] ?? 0) - start));
 };
@@ -200,19 +216,23 @@ const buildFunction = (object: PdfObject, resolve: FunctionResolver, recurse: (i
     pairs(range, 'Range');
   }
   const evaluate: Evaluate = (() => {
-    if (type === 0 && object.kind === 'stream' && range !== undefined) {
-      return evaluateSampled(entries, object.data, { domain, range });
-    }
     if (type === 2) {
       return evaluateExponential(entries, domain);
     }
     if (type === 3) {
       return evaluateStitched(entries, domain, recurse);
     }
-    if (type === 4 && object.kind === 'stream' && range !== undefined) {
-      return createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
+    if (type !== 0 && type !== 4) {
+      throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
     }
-    throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
+    // ISO 32000-1:2008, 7.10.1, Table 38: Range is required for type 0 and type 4 functions; 7.10.2 and 7.10.5: both are stream functions.
+    if (object.kind !== 'stream') {
+      throw new ParseError(`PDF function type ${String(type)} must be a stream`, 0);
+    }
+    if (range === undefined) {
+      throw new ParseError(`PDF function type ${String(type)} needs a Range`, 0);
+    }
+    return type === 0 ? evaluateSampled(entries, object.data, { domain, range }) : createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
   })();
   const evaluateClipped: Evaluate = input => {
     if (input.length !== domain.length / 2) {

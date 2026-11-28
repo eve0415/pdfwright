@@ -20,10 +20,18 @@ const runNested = (levels: number): string => {
   return `{ { 2 } ${body} }`;
 };
 
+// The program { 1 2 add } with the space before add replaced by byte.
+const separatedBy = (byte: number): Uint8Array => Uint8Array.from([...new TextEncoder().encode('{ 1 2'), byte, ...new TextEncoder().encode('add }')]);
+
 describe('calculator operators', () => {
   it('rounds negative halves toward positive infinity', () => {
     expect(calculator('{ -2.5 round }')([])).toStrictEqual([-2]);
     expect(calculator('{ -1.5 round }')([])).toStrictEqual([-1]);
+  });
+
+  it('rounds to the nearest integer where adding one half would itself round', () => {
+    // 0.49999999999999994 + 0.5 and 4503599627370497 + 0.5 both round up to the next double, so floor(x + 0.5) is one too high for each.
+    expect([calculator('{ 0.49999999999999994 round }')([]), calculator('{ 4503599627370497 round }')([])]).toStrictEqual([[0], [4_503_599_627_370_497]]);
   });
 
   it('compares boolean operands in eq and ne', () => {
@@ -101,6 +109,21 @@ describe('calculator programs', () => {
   ])('rejects the program %j', (body, pattern) => {
     expect(() => calculator(body)).toThrow(ParseError);
     expect(() => calculator(body)).toThrow(pattern);
+  });
+
+  // ISO 32000-1:2008, 7.2.2, Table 1: the white-space characters are NUL, HT, LF, FF, CR and SP, and every other byte outside the delimiters is regular.
+  it('separates tokens at every PDF white-space character', () => {
+    const outputs = [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20].map(byte => createCalculatorFunction(separatedBy(byte), 0, 1)([]));
+    expect(outputs).toStrictEqual([[3], [3], [3], [3], [3], [3]]);
+  });
+
+  it.each([
+    ['vertical tab', 0x0b],
+    ['no-break space', 0xa0],
+  ])('reads a %s as part of a token', (_, byte) => {
+    const run = () => createCalculatorFunction(separatedBy(byte), 0, 1)([]);
+    expect(run).toThrow(ParseError);
+    expect(run).toThrow(/unknown operator/);
   });
 
   it('builds 16 levels of braces and rejects 17', () => {
