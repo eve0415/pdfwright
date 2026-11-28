@@ -338,6 +338,15 @@ describe('jpeg frame markers and sampling', () => {
       ],
     ],
     [
+      'luma sampled 4 × 1',
+      [
+        [1, 0x41, 0],
+        [2, 0x11, 0],
+        [3, 0x11, 0],
+      ],
+    ],
+    ['a grey component sampled 1 × 4', [[1, 0x14, 0]]],
+    [
       'two components',
       [
         [1, 0x11, 0],
@@ -346,6 +355,11 @@ describe('jpeg frame markers and sampling', () => {
     ],
   ])('refuses %s as jpeg-sampling', (_, components) => {
     expect(failure(() => decodeJpeg(samplingJpeg(components)))).toStrictEqual({ type: 'unsupported', reason: 'jpeg-sampling' });
+  });
+
+  it('decodes a component that selects quantization table 3', () => {
+    const headers = [dqt(3, ones(64)), DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x11, 3]] }), GRAY_SCAN];
+    expect(decodedRows(jpeg(headers, [0x3f]))).toStrictEqual(filled(8, 8, 128));
   });
 });
 
@@ -368,6 +382,13 @@ describe('jpeg header segments', () => {
     ['a frame header of 5 bytes', [Q_ONE, DC_ZERO, AC_EOB, segment(0xc0, [8, 0, 8, 0, 8]), GRAY_SCAN]],
     ['a frame of width 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 0, components: [[1, 0x11, 0]] }), GRAY_SCAN]],
     ['a frame component list one byte long', [Q_ONE, DC_ZERO, AC_EOB, segment(0xc0, [8, 0, 8, 0, 8, 1, 1, 0x11, 0, 0]), GRAY_SCAN]],
+    // ITU-T T.81 (1992), B.2.2: Nf is at least 1, Hi and Vi are 1 to 4, and Tqi is 0 to 3.
+    ['a frame with no components', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [] }), GRAY_SCAN]],
+    ['a horizontal sampling factor of 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x01, 0]] }), GRAY_SCAN]],
+    ['a vertical sampling factor of 0', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x10, 0]] }), GRAY_SCAN]],
+    ['a horizontal sampling factor of 5', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x51, 0]] }), GRAY_SCAN]],
+    ['a vertical sampling factor of 5', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x15, 0]] }), GRAY_SCAN]],
+    ['a quantization table selector of 4', [Q_ONE, DC_ZERO, AC_EOB, sof({ height: 8, width: 8, components: [[1, 0x11, 4]] }), GRAY_SCAN]],
     ['two frames', [Q_ONE, DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_FRAME, GRAY_SCAN]],
     // ITU-T T.81 (1992), B.2.3: a scan follows its frame, names frame components once each, selects tables that exist, and has length 6 + 2 × Ns.
     ['a scan before any frame', [Q_ONE, DC_ZERO, AC_EOB, GRAY_SCAN, GRAY_FRAME]],
