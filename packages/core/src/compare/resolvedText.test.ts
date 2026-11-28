@@ -153,11 +153,12 @@ describe('reference cycles', () => {
     const tail = ['[21 0 R]', '[21 0 R]'];
     const twoCycles = ['[20 0 R 21 0 R]', '[21 0 R 21 0 R]'];
     const otherItem = ['[20 0 R 21 0 R]', '[21 0 R 1]'];
-    expect([textOf(tail, 0) === textOf(tail, 1), textOf(twoCycles, 0) === textOf(twoCycles, 1), textOf(otherItem, 0) === textOf(otherItem, 1)]).toStrictEqual([
-      true,
-      true,
-      false,
-    ]);
+    expect([
+      textOf(tail, 0) === textOf(tail, 1),
+      textOf(twoCycles, 0) === textOf(twoCycles, 1),
+      textOf(otherItem, 0) === textOf(otherItem, 1),
+      textOf(['[21 0 R 22 0 R]', '[21 0 R]', '[23 0 R]', '[23 0 R 1]']) === textOf(['[21 0 R 21 0 R]', '[21 0 R]']),
+    ]).toStrictEqual([true, true, false, false]);
   });
 
   // A chain of references that comes back to where it started reaches no object, so it reads as null like a reference to an object that is not defined.
