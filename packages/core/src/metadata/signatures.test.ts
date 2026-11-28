@@ -52,6 +52,8 @@ describe('signature protection', () => {
     ['only an undefined bit', '/AcroForm<</SigFlags 4>>', undefined],
     ['an undefined bit beside SignaturesExist', '/AcroForm<</SigFlags 5>>', 'signatures-exist'],
     ['an undefined bit beside AppendOnly', '/AcroForm<</SigFlags 6>>', 'append-only'],
+    ['bits 1, 2 and 32, above the integer range', '/AcroForm<</SigFlags 2147483651>>', 'append-only'],
+    ['bits 1 and 32, above the integer range', '/AcroForm<</SigFlags 2147483649>>', 'signatures-exist'],
   ])('reads SigFlags with %s', (_name, catalog, expected) => {
     expect(protection(catalog)).toBe(expected);
   });
