@@ -79,7 +79,11 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   const bits = numeric(entry('BitsPerSample'), 'BitsPerSample');
   const orderValue = entry('Order');
   const order = orderValue === undefined ? 1 : numeric(orderValue, 'Order');
-  if (order !== 1) {
+  // ISO 32000-1:2008, 7.10.2, Table 39: Order is 1 for linear or 3 for cubic spline interpolation.
+  if (order !== 1 && order !== 3) {
+    throw new ParseError('sampled function Order must be 1 or 3', 0);
+  }
+  if (order === 3) {
     throw new UnsupportedFeatureError('cubic sampled functions are unsupported');
   }
   if (sizes.length !== limits.domain.length / 2 || sizes.length > 8 || ![1, 2, 4, 8, 12, 16, 24, 32].includes(bits)) {
@@ -200,19 +204,23 @@ const buildFunction = (object: PdfObject, resolve: FunctionResolver, recurse: (i
     pairs(range, 'Range');
   }
   const evaluate: Evaluate = (() => {
-    if (type === 0 && object.kind === 'stream' && range !== undefined) {
-      return evaluateSampled(entries, object.data, { domain, range });
-    }
     if (type === 2) {
       return evaluateExponential(entries, domain);
     }
     if (type === 3) {
       return evaluateStitched(entries, domain, recurse);
     }
-    if (type === 4 && object.kind === 'stream' && range !== undefined) {
-      return createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
+    if (type !== 0 && type !== 4) {
+      throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
     }
-    throw new UnsupportedFeatureError(`unsupported PDF function type ${String(type)}`);
+    // ISO 32000-1:2008, 7.10.1, Table 38: Range is required for type 0 and type 4 functions; 7.10.2 and 7.10.5: both are stream functions.
+    if (object.kind !== 'stream') {
+      throw new ParseError(`PDF function type ${String(type)} must be a stream`, 0);
+    }
+    if (range === undefined) {
+      throw new ParseError(`PDF function type ${String(type)} needs a Range`, 0);
+    }
+    return type === 0 ? evaluateSampled(entries, object.data, { domain, range }) : createCalculatorFunction(object.data, domain.length / 2, range.length / 2);
   })();
   const evaluateClipped: Evaluate = input => {
     if (input.length !== domain.length / 2) {
