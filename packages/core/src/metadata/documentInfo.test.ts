@@ -125,7 +125,7 @@ describe('reading text strings', () => {
     ['a country code without its closing escape', utf16(0x1b, 0x65_6e, 0x55_53), { text: '\u001B\u656E\u5553', languages: [], replaced: 0 }],
     ['a high surrogate before an escape', utf16(0xd8_00, 0x1b, 0x6a_61, 0x1b, 0x41), { text: '\uFFFDA', languages: ['ja'], replaced: 1 }],
     ['a lone low surrogate', utf16(0xdc_00, 0x41), { text: '\uFFFDA', languages: [], replaced: 1 }],
-  ])('keeps a malformed language escape as text: %s', (_name, bytes, expected) => {
+  ])('removes only well-formed language escapes and replaces only unpaired surrogates: %s', (_name, bytes, expected) => {
     expect(readTextString(bytes)).toStrictEqual({ encoding: 'utf-16be', ...expected });
   });
 
