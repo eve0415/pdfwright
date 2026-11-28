@@ -174,7 +174,9 @@ const openElement = (token: Extract<XmlToken, { kind: 'start' }>, parent: OpenEl
   });
   // Namespaces in XML 1.0, 6.3: "No element must have two attributes with the same expanded name." A local name holds no brace, so the key is unique to the pair.
   if (attributes.length > 1) {
-    const expanded = new Set(attributes.map(attribute => (attribute.namespace === undefined ? attribute.localName : `{${attribute.namespace}}${attribute.localName}`)));
+    const expanded = new Set(
+      attributes.map(attribute => (attribute.namespace === undefined ? attribute.localName : `{${attribute.namespace}}${attribute.localName}`)),
+    );
     if (expanded.size < attributes.length) {
       throw new UnreadableError('not-well-formed');
     }
