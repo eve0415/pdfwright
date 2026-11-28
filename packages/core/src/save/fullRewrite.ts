@@ -248,10 +248,14 @@ class FullRewriter {
       if (first === undefined) {
         break;
       }
-      let last = first;
+      // An object that starts before the run's end lies inside an object already in the run, as when a stream's data holds an object the index names, so it joins the run without extending it unless it ends later.
+      let end = first.end;
       let next = index + 1;
-      while (next < objects.length && this.gapIsBlank(last.end, objects[next]?.start ?? 0)) {
-        last = objects[next++] ?? last;
+      for (let following = objects[next]; following !== undefined; following = objects[++next]) {
+        if (following.start >= end && !this.gapIsBlank(end, following.start)) {
+          break;
+        }
+        end = Math.max(end, following.end);
       }
       const runOffset = emitter.offset;
       for (let member = index; member < next; member++) {
@@ -265,7 +269,7 @@ class FullRewriter {
           });
         }
       }
-      for (const view of source.views(first.start, last.end)) {
+      for (const view of source.views(first.start, end)) {
         emitter.view(view);
       }
       emitter.writer.writeByte(0x0a);
