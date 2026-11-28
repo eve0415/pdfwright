@@ -249,6 +249,35 @@ describe('full rewrite', () => {
     ]).toStrictEqual([['intact', innerString], 1, 'intact', [], data, innerString, { kind: 'string', bytes: latin1Bytes('nine'), encoding: 'literal' }]);
   });
 
+  it('copies an unchanged object whole when it starts inside another unchanged object and ends after it', () => {
+    // Object 8 starts in object 7's data and its string runs past object 7's endobj.
+    const data = 'aaa\n8 0 obj\n(';
+    const built = buildPdf([
+      {
+        xref: 'classic',
+        objects: [catalog, pages, page, content, { number: 7, body: `${streamBody('', data)}\nendobj\nx)` }, { number: 8, body: '(outer)' }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const seven = built.offsets.get(7) ?? 0;
+    const inner = seven + built.text.slice(seven).indexOf('8 0 obj');
+    const entry = `${String(built.offsets.get(8) ?? 0).padStart(10, '0')} 00000 n \n`;
+    const source = latin1Bytes(built.text.replace(entry, `${String(inner).padStart(10, '0')} 00000 n \n`));
+    const document = loadDocument(source);
+    const spanning = { kind: 'string', bytes: latin1Bytes('\nendstream\nendobj\nx'), encoding: 'literal' } as const;
+    const before = [document.structure.status, document.get(pdfReference(8, 0))];
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    const seventh = reloaded.get(pdfReference(7, 0));
+    expect([
+      before,
+      reloaded.structure.status,
+      reloaded.warnings.map(warning => warning.code),
+      seventh.kind === 'stream' ? latin1Text(seventh.data) : seventh.kind,
+      reloaded.get(pdfReference(8, 0)),
+    ]).toStrictEqual([['intact', spanning], 'intact', [], data, spanning]);
+  });
+
   it('writes changed and repaired objects after the runs and frees deleted ones', () => {
     const source = classic([catalog, pages, page, { number: 4, body: '<</Length 99>>\nstream\n0 0 m 10 10 l S\nendstream' }, { number: 7, body: '(seven)' }]);
     const document = loadDocument(source);
