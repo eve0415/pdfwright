@@ -147,7 +147,10 @@ class TransparencyScan {
     // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources dictionary is known by its font, or by one key for every direct font, so that a glyph selecting its own font ends.
     let scope = 'page';
     if (own !== undefined) {
-      scope = ownValue?.kind === 'reference' ? `resources ${String(ownValue.objectNumber)}` : `font ${value?.kind === 'reference' ? String(value.objectNumber) : 'direct'}`;
+      scope =
+        ownValue?.kind === 'reference'
+          ? `resources ${String(ownValue.objectNumber)}`
+          : `font ${value?.kind === 'reference' ? String(value.objectNumber) : 'direct'}`;
     }
     const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
     for (const [, procedure] of procedures?.entries() ?? []) {

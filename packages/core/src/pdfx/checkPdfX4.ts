@@ -237,7 +237,9 @@ const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean,
     return violation(`${what} was found`);
   }
   if (unresolved.length > 0) {
-    return unchecked(`PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(unresolved.length)} references could not be resolved`);
+    return unchecked(
+      `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(unresolved.length)} references could not be resolved`,
+    );
   }
   return passed(`no ${what} was found in reachable objects`);
 };
