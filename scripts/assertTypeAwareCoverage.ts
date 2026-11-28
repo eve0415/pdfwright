@@ -14,7 +14,7 @@ const REPO = path.dirname(import.meta.dirname);
 const OXLINT = path.join(REPO, 'node_modules', '.bin', 'oxlint');
 const FLAT_DIRS = ['scripts', 'tests'] as const;
 const CANARY = "const letters: string[] = ['a'];\nconst coverageCanary: string = letters[0];\nexport { coverageCanary };\n";
-const CANARY_CODE = '[Error/typescript(TS2322)]';
+const CANARY_CODE = 'typescript(TS2322)';
 
 const isDirectory = async (relative: string): Promise<boolean> => {
   try {
@@ -47,16 +47,41 @@ const targetFiles = async (): Promise<Array<string>> => {
   ];
 };
 
-const lintReport = async (files: ReadonlyArray<string>): Promise<string> => {
-  const child = spawn(OXLINT, [...files, '--format', 'unix'], { cwd: REPO });
+const canaryHits = (report: unknown): Set<string> => {
+  if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics)) {
+    throw new Error('oxlint JSON output has no diagnostics array');
+  }
+  const diagnostics: ReadonlyArray<unknown> = report.diagnostics;
+  const hits = new Set<string>();
+  for (const diagnostic of diagnostics) {
+    if (
+      typeof diagnostic === 'object' &&
+      diagnostic !== null &&
+      'code' in diagnostic &&
+      diagnostic.code === CANARY_CODE &&
+      'filename' in diagnostic &&
+      typeof diagnostic.filename === 'string'
+    ) {
+      hits.add(diagnostic.filename);
+    }
+  }
+  return hits;
+};
+
+// Returns the files oxlint reported the canary's type error in.
+const lintReport = async (files: ReadonlyArray<string>): Promise<Set<string>> => {
+  const child = spawn(OXLINT, [...files, '--format', 'json'], { cwd: REPO });
   try {
     const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-    const report = stdout + stderr;
     // Exit 0 means oxlint ran and reported nothing, so every canary was missed; exit 1 with diagnostics is the expected run.
-    if (closed[0] === 0 || (closed[0] === 1 && report.includes('[Error/'))) {
-      return report;
+    if (closed[0] === 0 || closed[0] === 1) {
+      try {
+        return canaryHits(JSON.parse(stdout));
+      } catch (error: unknown) {
+        throw new Error(`exit ${String(closed[0])}, ${error instanceof Error ? error.message : 'unreadable output'}:\n${stdout}${stderr}`, { cause: error });
+      }
     }
-    throw new Error(`exit ${String(closed[0])}; output contained no expected diagnostics:\n${report}`);
+    throw new Error(`exit ${String(closed[0])}:\n${stdout}${stderr}`);
   } catch (error: unknown) {
     child.kill();
     throw new Error(`oxlint failed to run: ${error instanceof Error ? error.message : 'unknown error'}`, { cause: error });
@@ -85,9 +110,8 @@ const main = async (): Promise<void> => {
       writeFileSync(path.join(REPO, file), CANARY);
     }
 
-    const report = await lintReport(planted);
-    const lines = report.split('\n');
-    const missed = planted.filter(file => !lines.some(line => line.startsWith(`${file}:`) && line.endsWith(CANARY_CODE)));
+    const hits = await lintReport(planted);
+    const missed = planted.filter(file => !hits.has(file));
     if (missed.length > 0) {
       console.error('Type-aware linting did not reach these files:');
       for (const file of missed) {
