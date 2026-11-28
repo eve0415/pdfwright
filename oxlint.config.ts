@@ -40,7 +40,7 @@ export default defineConfig({
     'no-undef': 'off',
     'no-undefined': 'off',
     // It requires `let value: T | undefined = undefined`, which unicorn/no-useless-undefined rejects, so the two rules have no fixed point.
-    // TypeScript already reports a read of a variable that is declared without a value and whose type excludes undefined.
+    // Outside a closure, TypeScript already reports a read of a variable that is declared without a value and whose type excludes undefined.
     'init-declarations': 'off',
     'unicorn/no-null': 'off',
     'no-ternary': 'off',
