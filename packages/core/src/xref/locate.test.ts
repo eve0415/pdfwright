@@ -105,8 +105,9 @@ describe('header and startxref location', () => {
   });
 
   it('treats a stream dictionary nested deeper than 64 as no section rather than an error', () => {
-    const deep = `7 0 obj\n<</Type/XRef/A${'['.repeat(70)}${']'.repeat(70)}>>`;
-    const shallow = `7 0 obj\n<</Type/XRef/A${'['.repeat(60)}${']'.repeat(60)}>>`;
+    // The dictionary is level 1 and each array adds one, so 63 arrays reach level 64 and 64 arrays reach level 65.
+    const deep = `7 0 obj\n<</Type/XRef/A${'['.repeat(64)}${']'.repeat(64)}>>`;
+    const shallow = `7 0 obj\n<</Type/XRef/A${'['.repeat(63)}${']'.repeat(63)}>>`;
     expect([sectionStartNear(source(deep), 0), sectionStartNear(source(shallow), 0)]).toStrictEqual([undefined, { offset: 0, corrected: false }]);
   });
 
