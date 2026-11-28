@@ -263,8 +263,16 @@ const checkPreblended = (scan: MaskScan, image: PdfStream, size: { width: number
     throw new ValidationError('luminosity image soft-mask bit depth is invalid', 'color-space');
   }
   const decode = scan.internals.objects.deref(softMask.dictionary.get(DECODE));
-  if (decode !== undefined && (decode.kind !== 'array' || decode.items.length !== 2)) {
-    throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+  if (decode !== undefined) {
+    if (decode.kind !== 'array' || decode.items.length !== 2) {
+      throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+    }
+    for (const item of decode.items) {
+      const bound = scan.internals.objects.deref(item);
+      if ((bound?.kind !== 'integer' && bound?.kind !== 'real') || typeof bound.value !== 'number') {
+        throw new ValidationError('luminosity image soft-mask Decode is invalid', 'color-space');
+      }
+    }
   }
   const data = decodedData(scan.internals, softMask);
   if (typeof data === 'string' || data.length !== Math.ceil((size.width * bits) / 8) * size.height) {
