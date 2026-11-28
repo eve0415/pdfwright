@@ -106,6 +106,36 @@ const transparentState = (internals: DocumentInternals, state: PdfDictionaryEntr
   return modes.some(mode => mode !== undefined && mode !== 'Normal' && mode !== 'Compatible');
 };
 
+/** A resource name that content selects, with the operator that selects it. */
+interface Use {
+  readonly operator: 'gs' | 'Do' | 'Tf' | 'scn';
+  readonly name: Uint8Array;
+}
+
+/** The resource subdictionaries that the operators of a Use look a name up in. */
+interface Lookup {
+  readonly resources: PdfDictionaryEntries;
+  readonly states: PdfDictionaryEntries | undefined;
+  readonly xobjects: PdfDictionaryEntries | undefined;
+  readonly patterns: PdfDictionaryEntries | undefined;
+  readonly fonts: PdfDictionaryEntries | undefined;
+}
+
+function* usesOf(bytes: Uint8Array | ReadonlyArray<Uint8Array>, maxNesting: number): Generator<Use> {
+  for (const operation of readContent(bytes, maxNesting)) {
+    if (operation.operator === 'scn' || operation.operator === 'SCN') {
+      const patternName = operation.operands.at(-1);
+      if (patternName?.kind === 'name') {
+        yield { operator: 'scn', name: patternName.bytes };
+      }
+    }
+    const [operand] = operation.operands;
+    if (operand?.kind === 'name' && (operation.operator === 'gs' || operation.operator === 'Do' || operation.operator === 'Tf')) {
+      yield { operator: operation.operator, name: operand.bytes };
+    }
+  }
+}
+
 class TransparencyScan {
   private readonly internals: DocumentInternals;
   private readonly page: PdfDictionaryEntries;
@@ -115,6 +145,10 @@ class TransparencyScan {
   private readonly fontObjects = new Set<number>();
   private readonly fonts = new Set<PdfDictionaryEntries>();
   private readonly directResources = new Map<string, number>();
+  // A glyph procedure is tokenised once per scan; the names it selects are kept, and a font with other Resources looks only those names up.
+  private readonly glyphUses = new Map<number, ReadonlyArray<Use>>();
+  private readonly reading = new Set<number>();
+  private steps = 0;
   private depth = 0;
 
   constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
@@ -130,9 +164,27 @@ class TransparencyScan {
     this.depth++;
   }
 
-  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
+  // Fonts that share glyph procedures multiply the work of reading them with each font's Resources, so that work is counted against maxDecodedBytes.
+  private step(count: number): void {
+    this.steps += count;
+    if (this.steps > this.internals.maxDecodedBytes) {
+      throw new ResourceLimitError(
+        `reading Type 3 glyph procedures with the Resources of each font takes more than maxDecodedBytes (${String(this.internals.maxDecodedBytes)}) steps`,
+      );
+    }
+  }
+
+  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Array<Use>): boolean {
     this.enter();
-    const found = this.operations(bytes, resources);
+    const found = this.operations(bytes, resources, record);
+    this.depth--;
+    return found;
+  }
+
+  private replay(uses: ReadonlyArray<Use>, resources: PdfDictionaryEntries): boolean {
+    this.enter();
+    const lookup = this.lookup(resources);
+    const found = uses.some(use => this.use(use, lookup));
     this.depth--;
     return found;
   }
@@ -236,14 +288,24 @@ class TransparencyScan {
     }
     const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
     for (const [, procedure] of procedures?.entries() ?? []) {
+      this.step(1);
       if (procedure.kind !== 'reference') {
         continue;
       }
-      const read = `${String(procedure.objectNumber)} ${scope}`;
+      const { objectNumber } = procedure;
+      const read = `${String(objectNumber)} ${scope}`;
       if (this.procedures.has(read)) {
         continue;
       }
       this.procedures.add(read);
+      const known = this.glyphUses.get(objectNumber);
+      if (known !== undefined) {
+        this.step(known.length);
+        if (this.replay(known, resources)) {
+          return true;
+        }
+        continue;
+      }
       const stream = this.internals.objects.deref(procedure);
       if (stream?.kind !== 'stream') {
         continue;
@@ -252,9 +314,22 @@ class TransparencyScan {
       if (typeof bytes === 'string') {
         throw new ValidationError(`glyph procedure cannot be read: ${bytes}`, 'unreadable-resource');
       }
-      if (this.nested(bytes, resources)) {
+      // A glyph that selects another font sharing it is reached again before its first read ends, while the names it selects are not all known.
+      if (this.reading.has(objectNumber)) {
+        this.step(bytes.length);
+        if (this.nested(bytes, resources)) {
+          return true;
+        }
+        continue;
+      }
+      this.reading.add(objectNumber);
+      const uses: Array<Use> = [];
+      const found = this.nested(bytes, resources, uses);
+      this.reading.delete(objectNumber);
+      if (found) {
         return true;
       }
+      this.glyphUses.set(objectNumber, uses);
     }
     return false;
   }
@@ -301,37 +376,48 @@ class TransparencyScan {
     return false;
   }
 
-  operations(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
-    const states = entriesOf(this.internals, resources.get(key('ExtGState')));
-    const xobjects = entriesOf(this.internals, resources.get(key('XObject')));
-    const patterns = entriesOf(this.internals, resources.get(key('Pattern')));
-    const fonts = entriesOf(this.internals, resources.get(key('Font')));
-    for (const operation of readContent(bytes, this.internals.maxNesting)) {
-      const [operand] = operation.operands;
-      if (operation.operator === 'scn' || operation.operator === 'SCN') {
-        const patternName = operation.operands.at(-1);
-        if (patternName?.kind === 'name' && this.pattern(patterns?.get(patternName.bytes), resources)) {
-          return true;
-        }
-      }
-      if (operand?.kind !== 'name') {
-        continue;
-      }
-      if (operation.operator === 'gs') {
-        const state = entriesOf(this.internals, states?.get(operand.bytes));
+  private lookup(resources: PdfDictionaryEntries): Lookup {
+    return {
+      resources,
+      states: entriesOf(this.internals, resources.get(key('ExtGState'))),
+      xobjects: entriesOf(this.internals, resources.get(key('XObject'))),
+      patterns: entriesOf(this.internals, resources.get(key('Pattern'))),
+      fonts: entriesOf(this.internals, resources.get(key('Font'))),
+    };
+  }
+
+  private use({ operator, name }: Use, lookup: Lookup): boolean {
+    switch (operator) {
+      case 'scn':
+        return this.pattern(lookup.patterns?.get(name), lookup.resources);
+      case 'gs': {
+        const state = entriesOf(this.internals, lookup.states?.get(name));
         if (state !== undefined && transparentState(this.internals, state)) {
           return true;
         }
         // ISO 32000-1:2008, 8.4.5, Table 58: a Font entry is an array of a font and a size, and gs selects that font as Tf does.
         const selected = this.internals.objects.deref(state?.get(key('Font')));
-        if (selected?.kind === 'array' && this.font(selected.items[0])) {
-          return true;
+        return selected?.kind === 'array' && this.font(selected.items[0]);
+      }
+      case 'Do':
+        return this.xobject(lookup.xobjects?.get(name), lookup.resources);
+      case 'Tf':
+        return this.font(lookup.fonts?.get(name));
+    }
+  }
+
+  operations(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Array<Use>): boolean {
+    const lookup = this.lookup(resources);
+    const distinct = new Set<string>();
+    for (const use of usesOf(bytes, this.internals.maxNesting)) {
+      if (record !== undefined) {
+        const text = `${use.operator} ${latin1.decode(use.name)}`;
+        if (!distinct.has(text)) {
+          distinct.add(text);
+          record.push(use);
         }
       }
-      if (operation.operator === 'Do' && this.xobject(xobjects?.get(operand.bytes), resources)) {
-        return true;
-      }
-      if (operation.operator === 'Tf' && this.font(fonts?.get(operand.bytes))) {
+      if (this.use(use, lookup)) {
         return true;
       }
     }
