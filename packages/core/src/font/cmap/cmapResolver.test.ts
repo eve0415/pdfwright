@@ -4,6 +4,7 @@ import type { CMapResult } from './cmapResolver.ts';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { pdfName, pdfReference } from '../../object/pdfObject.ts';
 import { latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
 import { fontDocument } from '../testing/fontDocument.ts';
@@ -91,5 +92,46 @@ describe('resolved CMaps', () => {
     const toUnicode = cmapOf(resolver.stream(pdfReference(4, 0)));
     expect(toUnicode.unicode({ value: 0x41, length: 1 })).toBe('B');
     expect(resolver.stream(pdfName('Identity-H')).kind).toBe('unreadable');
+  });
+});
+
+// A provider of the chain C0, C1, …, each using the next, the last defining a codespace range and a cidrange.
+const chain = (length: number): CMapProvider => {
+  const files: Record<string, string> = {};
+  for (let index = 0; index < length - 1; index++) {
+    files[`C${String(index)}`] = `/C${String(index + 1)} usecmap`;
+  }
+  files[`C${String(length - 1)}`] = PARENT;
+  return provider(files);
+};
+
+describe('resolved CMaps, at their limits', () => {
+  it('resolves a usecmap chain as deep as maxNesting and throws ResourceLimitError for one CMap more', () => {
+    const resolve = (length: number): CMapResult => new CMapResolver(fontDocument([], { maxNesting: 8 }), chain(length)).named('C0');
+    expect(cmapOf(resolve(8)).cid({ value: 0x41, length: 2 })).toBe(165);
+    expect(() => resolve(9)).toThrow(ResourceLimitError);
+  });
+
+  it('reads an embedded CMap stream once', () => {
+    const resolver = new CMapResolver(fontDocument([{ number: 4, body: streamBody('/Type/CMap', PARENT) }]), undefined);
+    expect(cmapOf(resolver.stream(pdfReference(4, 0)))).toBe(cmapOf(resolver.stream(pdfReference(4, 0))));
+  });
+
+  it('follows the usecmap of an embedded CMap stream without a UseCMap entry through the provider, keeping the problems of both', () => {
+    const parent = `${PARENT} 1 begincidchar <0042> -1 endcidchar`;
+    const internals = fontDocument([{ number: 4, body: streamBody('/Type/CMap', '/Parent usecmap 2 begincidchar <0041> 7 <0043> endcidchar') }]);
+    const result = new CMapResolver(internals, provider({ Parent: parent })).encoding(pdfReference(4, 0));
+    const cmap = cmapOf(result);
+    // The child's incomplete cidchar and the parent's negative CID are one problem each.
+    expect([
+      cmap.cid({ value: 0x41, length: 2 }),
+      cmap.cid({ value: 0x44, length: 2 }),
+      result.kind === 'cmap' ? result.problems.map(problem => problem.kind) : [],
+    ]).toStrictEqual([7, 168, ['damaged', 'damaged']]);
+  });
+
+  it('reads an embedded CMap stream whose UseCMap entry cannot be read as unreadable', () => {
+    const internals = fontDocument([{ number: 4, body: streamBody('/Type/CMap/UseCMap 5', PARENT) }]);
+    expect(new CMapResolver(internals, undefined).encoding(pdfReference(4, 0)).kind).toBe('unreadable');
   });
 });
