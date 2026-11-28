@@ -21,6 +21,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
+import { replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -59,9 +60,8 @@ interface DirectShadingPlan {
   readonly shading: ShadingPlan;
 }
 
-interface FormShadingPlan {
-  readonly form: PdfReference;
-  readonly stream: PdfStream;
+interface CarrierShadingPlan {
+  readonly carrier: PdfReference;
   readonly resources: PdfDictionaryEntries;
   readonly name: Uint8Array;
   readonly shading: ShadingPlan;
@@ -478,57 +478,30 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
   return plans;
 };
 
-const formShadingResources = (context: ShadingContext, target: { reference: PdfReference; form: PdfStream }, usage: ShadingUsage): Array<FormShadingPlan> => {
+const carrierShadingPlans = (context: ShadingContext, page: PdfReference, state: { seen: Set<number>; usage: ShadingUsage }): Array<CarrierShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const shadings = internals.objects.deref(context.resources.get(SHADING));
-  if (shadings?.kind !== 'dictionary') {
-    return [];
-  }
-  const plans: Array<FormShadingPlan> = [];
-  for (const [name, entry] of shadings.entries.entries()) {
-    if (entry.kind !== 'dictionary') {
+  const plans: Array<CarrierShadingPlan> = [];
+  for (const carrier of resourceCarriers(internals, { reference: page, resources: context.resources }, state.seen)) {
+    const shadings = internals.objects.deref(carrier.resources.get(SHADING));
+    if (shadings?.kind !== 'dictionary') {
       continue;
     }
-    const shading = planShading({ ...context, intent: usage.direct.get(useKey(target.reference, name)) }, undefined, entry);
-    if (shading !== undefined) {
-      plans.push({ form: target.reference, stream: target.form, resources: context.resources, name, shading });
+    for (const [name, entry] of shadings.entries.entries()) {
+      if (entry.kind !== 'dictionary') {
+        continue;
+      }
+      const shading = planShading(
+        { document: context.document, resources: carrier.resources, options: context.options, intent: state.usage.direct.get(useKey(carrier.reference, name)) },
+        undefined,
+        entry,
+      );
+      if (shading !== undefined) {
+        plans.push({ carrier: carrier.reference, resources: carrier.resources, name, shading });
+      }
     }
-  }
-  return plans;
-};
-
-const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; usage: ShadingUsage }): Array<FormShadingPlan> => {
-  const internals = internalsOf(context.document);
-  if (internals === undefined) {
-    return invalid('document internals are unavailable');
-  }
-  const category = internals.objects.deref(context.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') {
-    return [];
-  }
-  const plans: Array<FormShadingPlan> = [];
-  for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
-      continue;
-    }
-    const form = internals.objects.deref(value);
-    if (form?.kind !== 'stream') {
-      continue;
-    }
-    const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
-      continue;
-    }
-    state.seen.add(value.objectNumber);
-    const own = internals.objects.deref(form.dictionary.get(RESOURCES));
-    const resources = own?.kind === 'dictionary' ? own.entries : context.resources;
-    if (own?.kind === 'dictionary') {
-      plans.push(...formShadingResources({ document: context.document, resources, options: context.options }, { reference: value, form }, state.usage));
-    }
-    plans.push(...directFormPlans({ document: context.document, resources, options: context.options }, state));
   }
   return plans;
 };
@@ -590,16 +563,16 @@ const applyDirectPages = (document: LoadedDocument, plans: ReadonlyArray<DirectS
   return discarded;
 };
 
-const applyDirectForms = (document: LoadedDocument, plans: ReadonlyArray<FormShadingPlan>): Array<PdfReference> => {
+const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<CarrierShadingPlan>): Array<PdfReference> => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const grouped = new Map<number, Array<FormShadingPlan>>();
+  const grouped = new Map<number, Array<CarrierShadingPlan>>();
   for (const plan of plans) {
-    const list = grouped.get(plan.form.objectNumber) ?? [];
+    const list = grouped.get(plan.carrier.objectNumber) ?? [];
     list.push(plan);
-    grouped.set(plan.form.objectNumber, list);
+    grouped.set(plan.carrier.objectNumber, list);
   }
   const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
@@ -609,7 +582,7 @@ const applyDirectForms = (document: LoadedDocument, plans: ReadonlyArray<FormSha
     }
     const category = internals.objects.deref(first.resources.get(SHADING));
     if (category?.kind !== 'dictionary') {
-      return invalid('form Shading resources are missing');
+      return invalid('carrier Shading resources are missing');
     }
     const mapped = new PdfDictionaryEntries(category.entries.entries());
     for (const plan of group) {
@@ -622,13 +595,10 @@ const applyDirectForms = (document: LoadedDocument, plans: ReadonlyArray<FormSha
       discarded.push(oldShadings);
     }
     resources.set(SHADING, pdfDictionary(mapped));
-    const dictionary = new PdfDictionaryEntries(first.stream.dictionary.entries());
-    const oldResources = dictionary.get(RESOURCES);
-    if (oldResources?.kind === 'reference') {
+    const oldResources = replaceCarrierResources(document, first.carrier, resources);
+    if (oldResources !== undefined) {
       discarded.push(oldResources);
     }
-    dictionary.set(RESOURCES, pdfDictionary(resources));
-    document.set(first.form, { kind: 'stream', dictionary, data: first.stream.data });
   }
   return discarded;
 };
@@ -644,8 +614,8 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
   const plans = new Map<number, ShadingPlan>();
   const patternPlans = new Map<number, PatternShadingPlan>();
   const direct: Array<DirectShadingPlan> = [];
-  const formDirect: Array<FormShadingPlan> = [];
-  const seenForms = new Set<number>();
+  const carrierDirect: Array<CarrierShadingPlan> = [];
+  const seenCarriers = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) {
@@ -653,7 +623,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     }
     const effective = document.page(page).resources();
     direct.push(...directPagePlans({ document, resources: effective, options }, entry.reference, usage));
-    formDirect.push(...directFormPlans({ document, resources: effective, options }, { seen: seenForms, usage }));
+    carrierDirect.push(...carrierShadingPlans({ document, resources: effective, options }, entry.reference, { seen: seenCarriers, usage }));
     const resources: PdfDirectObject = { kind: 'dictionary', entries: effective };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -684,8 +654,8 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     document.set(plan.pattern, pdfDictionary(dictionary));
     discarded.push(...plan.shading.discarded);
   }
-  discarded.push(...applyDirectPages(document, direct), ...applyDirectForms(document, formDirect));
-  if (plans.size > 0 || patternPlans.size > 0 || direct.length > 0 || formDirect.length > 0) {
+  discarded.push(...applyDirectPages(document, direct), ...applyDirectCarriers(document, carrierDirect));
+  if (plans.size > 0 || patternPlans.size > 0 || direct.length > 0 || carrierDirect.length > 0) {
     deleteDiscarded(document, internals, discarded);
     internals.objects.requireFullRewrite('color-conversion');
   }
@@ -693,7 +663,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     ...plans.values(),
     ...[...patternPlans.values()].map(item => item.shading),
     ...direct.map(item => item.shading),
-    ...formDirect.map(item => item.shading),
+    ...carrierDirect.map(item => item.shading),
   ];
   const approximations = all.flatMap(plan => {
     const functions = plan.sampled.kind === 'sampled' ? [plan.sampled] : plan.sampled.functions;
