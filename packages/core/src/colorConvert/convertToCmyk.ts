@@ -79,6 +79,8 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
   const version = internals.pdfX4VersionState();
   try {
     const outputIntent = writeGtsPdfxOutputIntent(document, { outputProfile: options.outputProfile, ...options.outputIntent, pdfx });
+    // ISO 32000-1:2008, 11.6.5.2, Table 144: a luminosity mask takes its values from the RGB content of its group, so masks are planned before any other pass converts that content.
+    const groups = convertTransparencyGroups(document, conversion);
     // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do, so forms are planned from the page content before it is rewritten.
     const forms = convertForms(document, conversion);
     const page = rewritePageColors(document, conversion);
@@ -87,7 +89,6 @@ export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOp
     const spots = convertSpotSpaces(document, conversion);
     const shadings = convertShadings(document, conversion);
     const meshes = convertMeshShadings(document, conversion);
-    const groups = convertTransparencyGroups(document, conversion);
     const otherCarriers = convertOtherCarriers(document, conversion);
     const pageBoxes = options.pdfx === undefined || options.pdfx === false ? undefined : preparePdfX4Pages(document, options.pdfx);
     const metadata = options.pdfx === undefined || options.pdfx === false ? undefined : writePdfX4Metadata(document, options.pdfx);
