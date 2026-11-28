@@ -505,12 +505,8 @@ describe('gts pdfx output intent', () => {
 
   it('refuses an intent it keeps whose S is in an object stream past the limits', () => {
     // A kept intent's subtype decides whether it is updated or a GTS_PDFX intent is added beside it, so its S is not guessed.
-    const write = () =>
-      writeGtsPdfxOutputIntent(objectStreamSubtype(profile, { maxObjectStreamMembers: 1 }), {
-        outputProfile: profile,
-        outputConditionIdentifier: 'FOGRA39',
-        existing: 'replace',
-      });
+    const document = objectStreamSubtype(profile, { maxObjectStreamMembers: 1 });
+    const write = () => writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect(write).toThrow(ResourceLimitError);
     expect(write).toThrow(/maxObjectStreamMembers/u);
   });
