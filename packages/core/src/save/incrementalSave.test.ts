@@ -2,6 +2,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestPdf, TestSection } from '../testing/pdfBuilder.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -9,8 +10,9 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { pt } from '../length/length.ts';
+import { deepEqual } from '../object/deepEqual.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { pdfArray, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text } from '../testing/pdfBuilder.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -365,5 +367,71 @@ describe('incremental save', () => {
     trimBox(document);
     const saved = document.save({ mode: 'incremental', fileIdentifier: fileIdentifier === 'derive' ? 'derive' : [...fileIdentifier] });
     expect([identifierOf(saved.toBytes()), lastTrailer(saved.toBytes()).includes('/ID')]).toStrictEqual([expected, expected !== undefined]);
+  });
+});
+
+// Sources in each cross-reference format, objects 4 to 8 being free to edit: top-level, in an object stream, and behind a hybrid section.
+const editable = [4, 5, 6, 7, 8] as const;
+const plain = (numbers: ReadonlyArray<number>): Array<{ number: number; body: string }> =>
+  numbers.map(number => ({ number, body: `(object ${String(number)})` }));
+const structure = [
+  { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+  { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+];
+const roundTripSources: ReadonlyArray<ReadonlyArray<TestSection>> = [
+  [{ xref: 'classic', objects: [...structure, ...plain(editable)], trailer: '/Root 1 0 R' }],
+  [{ xref: 'stream', objects: [...structure, ...plain(editable)], trailer: '/Root 1 0 R', xrefStreamEncoding: 'flate' }],
+  [{ xref: 'stream', objects: [...structure, ...plain([7, 8])], objectStreams: [{ number: 9, members: plain([4, 5, 6]) }], trailer: '/Root 1 0 R' }],
+  [
+    { xref: 'classic', objects: [...structure, ...plain([4, 5, 6])], trailer: '/Root 1 0 R' },
+    { xref: 'hybrid', objects: [], objectStreams: [{ number: 10, members: plain([7, 8]) }], trailer: '/Root 1 0 R' },
+  ],
+];
+
+const values = fc.oneof(
+  fc.integer({ min: -9999, max: 9999 }).map(value => pdfInteger(value)),
+  fc.constantFrom('A', 'Changed').map(name => pdfName(name)),
+  fc
+    .array(
+      fc.integer({ min: 0, max: 99 }).map(value => pdfInteger(value)),
+      { maxLength: 4 },
+    )
+    .map(items => pdfArray(items)),
+);
+
+const objectEdits = fc.array(fc.record({ operation: fc.constantFrom('set', 'delete', 'add'), target: fc.constantFrom(...editable), value: values }), {
+  maxLength: 6,
+});
+
+describe('properties', () => {
+  it('appends any set of edits so that the source bytes stay and a reload reads every edited value', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...roundTripSources), objectEdits, (sections, changes) => {
+        const pdf = buildPdf(sections);
+        const source = pdf.bytes;
+        const document = loadDocument(source);
+        const live = new Set<number>(editable);
+        let highest = pdf.size;
+        for (const change of changes) {
+          if (change.operation === 'add') {
+            highest = Math.max(highest, document.object(change.value).objectNumber + 1);
+          } else if (live.has(change.target) && change.operation === 'set') {
+            document.set(pdfReference(change.target, 0), change.value);
+          } else if (live.has(change.target)) {
+            document.delete(pdfReference(change.target, 0));
+            live.delete(change.target);
+          }
+        }
+        const saved = document.save({ mode: 'incremental' });
+        const reloaded = loadDocument(saved.chunks);
+        const numbers = Array.from({ length: highest - 1 }, (_, index) => index + 1);
+        expect([
+          saved.toBytes().subarray(0, source.length),
+          reloaded.structure.status,
+          reloaded.warnings,
+          numbers.filter(number => !deepEqual(reloaded.get(pdfReference(number, 0)), document.get(pdfReference(number, 0)), 'strict')),
+        ]).toStrictEqual([source, 'intact', [], []]);
+      }),
+    );
   });
 });
