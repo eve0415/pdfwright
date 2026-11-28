@@ -103,6 +103,8 @@ describe('visible Illustrator page', () => {
     const content = pageContent(loaded);
     const boxes = loaded.page(0).boxes();
     const group = dictionaryOf(loaded, dictionaryOf(loaded, loaded.page(0).reference)?.get(key('Group')));
+    // ISO 32000-1:2008, 14.11.2: the media box holds the trimmed page and its bleed, and the trim box the finished page.
+    // ISO 32000-1:2008, 11.4.7: a page group is a transparency group dictionary whose CS names the group's colour space.
     expect({
       media: boxes.MediaBox.rect,
       trim: boxes.TrimBox.rect,
@@ -120,6 +122,7 @@ describe('visible Illustrator page', () => {
   it('offsets every box and the content by a different bleed on each side', () => {
     const loaded = render(model([{ name: 'Art', items: [path] }], { width: 50, height: 40, bleed: { top: 1, right: 2, bottom: 3, left: 4 } }));
     const boxes = loaded.page(0).boxes();
+    // ISO 32000-1:2008, 14.11.2: the bleed on each side widens the media box beyond the trim box by that side's amount.
     expect([boxes.MediaBox.rect, boxes.TrimBox.rect, boxes.ArtBox.rect]).toStrictEqual([
       [0, 0, 56, 44],
       [4, 3, 54, 43],
@@ -295,9 +298,11 @@ describe('visible Illustrator page', () => {
     const bytes = document.save().toBytes();
     const pdf = latin1.decode(bytes);
     const loaded = loadDocument(bytes);
+    // ISO 32000-1:2008, 11.6.6: the I entry of a transparency group's attributes dictionary says whether the group is isolated.
     expect(pdf.match(/\/Subtype\/Form/gu)).toHaveLength(2);
     expect(pdf).toContain('/I true');
     expect(pdf).toContain('/I false');
+    // ISO 32000-1:2008, 8.4.5 and Table 58: ca and CA in a graphics state parameter dictionary are the constant fill and stroke alpha.
     // The page sets the layer opacity before drawing the layer form, the layer form sets the group opacity before drawing the group form, and the group form sets none.
     expect(alphasByForm(loaded)).toStrictEqual([[0.3], [0.5], []]);
   });
