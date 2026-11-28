@@ -102,6 +102,13 @@ describe('reference cycles', () => {
     const swapped = textOf(['[22 0 R 21 0 R]', '<</P 1/X 20 0 R>>', '<</P 2/X 20 0 R>>']);
     expect([forward === renumbered, forward === swapped]).toStrictEqual([true, false]);
   });
+
+  it('keeps the description of a cycle apart from the items that follow it', () => {
+    const threeCycle = textOf(['[21 0 R]', '[22 0 R]', '[20 0 R]', '[20 0 R]'], 3);
+    const twoCycleAndSelfReference = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[20 0 R 22 0 R]'], 3);
+    const renumbered = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[21 0 R 22 0 R]'], 3);
+    expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
+  });
 });
 
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
