@@ -27,6 +27,7 @@ import { coveringStreamData, fieldWidths, idArray, writeCoveringTable } from './
 const TYPE = pdfName('Type').bytes;
 const LINEARIZED = pdfName('Linearized').bytes;
 const H = pdfName('H').bytes;
+const S = pdfName('S').bytes;
 const N = pdfName('N').bytes;
 const FILTER = pdfName('Filter').bytes;
 // The longest gap between two unchanged objects that is checked for white space and comments, so that they can be copied as one run.
@@ -89,6 +90,11 @@ class FullRewriter {
     this.warnings.push(warning);
   }
 
+  private isHintStream(number: number): boolean {
+    const value = this.input.store.load(number)?.value;
+    return value?.kind === 'stream' && value.dictionary.has(S);
+  }
+
   // Annex F: the linearization dictionary is the first object and its H entry gives the offsets of the hint streams; the rewrite does not keep the layout they describe.
   private dropLinearization(): void {
     const { store } = this.input;
@@ -110,11 +116,14 @@ class FullRewriter {
     const offsets = new Set(
       hints?.kind === 'array' ? hints.items.filter((_, index) => index % 2 === 0).map(item => (item.kind === 'integer' ? item.value : -1)) : [],
     );
-    // H gives offsets the way the cross-reference sections do, so they are compared with the index's locations less the shift the sections were read with.
+    // When bytes precede the header, H may count from the start of the file or, like the sections the index was read from, from the header. An object found under either reading is then dropped only if it is a stream whose dictionary has S, which a hint stream carries, so that the other reading never drops a live object.
     const shift = this.input.base?.shift ?? 0;
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
-      if (entry.type === IN_FILE && offsets.has(entry.location - shift)) {
+      if (entry.type !== IN_FILE) {
+        continue;
+      }
+      if (shift === 0 ? offsets.has(entry.location) : (offsets.has(entry.location) || offsets.has(entry.location - shift)) && this.isHintStream(number)) {
         this.dropped.add(number);
       }
     }
