@@ -18,11 +18,11 @@ const ignore = (): void => {
 
 interface Result {
   object: ParsedIndirectObject;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
 const parse = (text: string, offset = 0, base = 0): Result => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -111,7 +111,7 @@ describe('indirect object parser', () => {
       ['<</Length -1>>', 'missing or unresolvable'],
       ['<</Length 9 0 R>>', 'missing or unresolvable'],
       ['<</Length --5>>', 'missing or unresolvable'],
-    ]) {
+    ] as const satisfies Array<[string, string]>) {
       const result = parse(`1 0 obj ${dictionary} stream\r\nabc\ndef\r\nendstream\nendobj`);
       expect([data(result), result.object.source.clean]).toStrictEqual(['abc\ndef', false]);
       expect(result.warnings.at(-1)).toMatchObject({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found 7 bytes before endstream` });

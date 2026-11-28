@@ -6,9 +6,13 @@ const DELIMITER = 2;
 const CLASSES = ((): Uint8Array => {
   const table = new Uint8Array(256).fill(REGULAR);
   // Table 1: NUL, HORIZONTAL TAB, LINE FEED, FORM FEED, CARRIAGE RETURN and SPACE.
-  for (const byte of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]) table[byte] = WHITESPACE;
+  for (const byte of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]) {
+    table[byte] = WHITESPACE;
+  }
   // Table 2: ( ) < > [ ] { } / %.
-  for (const byte of [0x28, 0x29, 0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x2f, 0x25]) table[byte] = DELIMITER;
+  for (const byte of [0x28, 0x29, 0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x2f, 0x25]) {
+    table[byte] = DELIMITER;
+  }
   return table;
 })();
 

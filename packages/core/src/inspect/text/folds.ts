@@ -7,10 +7,10 @@ import { EQUIVALENT_UNIFIED_IDEOGRAPHS } from './equivalentIdeographs.ts';
 export type TextFold = 'radicals' | 'vertical-forms' | 'ligatures' | 'shared-glyphs';
 
 /** Every fold, in the order they are tried. */
-export const TEXT_FOLDS: readonly TextFold[] = ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'];
+export const TEXT_FOLDS: ReadonlyArray<TextFold> = ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'];
 
 // Noto Sans JP draws U+2F2C and U+2F3E, and Noto Serif JP U+2F2A, with the glyph of a different ideograph than the one the table gives, so a glyph mapped to them may show another character.
-const RADICAL_EXCEPTIONS = new Set([0x2f2a, 0x2f2c, 0x2f3e]);
+const RADICAL_EXCEPTIONS = new Set([0x2f_2a, 0x2f_2c, 0x2f_3e]);
 
 const RADICALS: ReadonlyMap<number, string> = new Map(
   EQUIVALENT_UNIFIED_IDEOGRAPHS.split('\n').flatMap(line => {
@@ -21,7 +21,7 @@ const RADICALS: ReadonlyMap<number, string> = new Map(
 );
 
 // The full-width form of an ASCII character, U+FF01–U+FF5E, is the ASCII code point plus 0xFEE0.
-const FULL_WIDTH_OFFSET = 0xfee0;
+const FULL_WIDTH_OFFSET = 0xfe_e0;
 
 // The Unicode Character Database's decompositions tagged <vertical> that give one character, U+FE10–U+FE19, U+FE30–U+FE44, U+FE47 and U+FE48; U+309F and U+30FF, whose decompositions are two characters, are not folded.
 // A form whose decomposition is an ASCII character is read as its full-width form: in vertical CJK text Chromium's ActualText gives the full-width character over these forms, while an ASCII character in vertical text is set sideways rather than as a presentation form.
@@ -69,17 +69,17 @@ const VERTICAL_FORMS: ReadonlyMap<number, string> = new Map(
 
 // The Alphabetic Presentation Forms ligatures U+FB00–U+FB06 and the letters each joins.
 const LIGATURES: ReadonlyMap<number, string> = new Map([
-  [0xfb00, 'ff'],
-  [0xfb01, 'fi'],
-  [0xfb02, 'fl'],
-  [0xfb03, 'ffi'],
-  [0xfb04, 'ffl'],
-  [0xfb05, 'ſt'],
-  [0xfb06, 'st'],
+  [0xfb_00, 'ff'],
+  [0xfb_01, 'fi'],
+  [0xfb_02, 'fl'],
+  [0xfb_03, 'ffi'],
+  [0xfb_04, 'ffl'],
+  [0xfb_05, 'ſt'],
+  [0xfb_06, 'st'],
 ]);
 
 // Noto Sans JP draws U+2027 and U+30FB with one glyph, and Chromium's ToUnicode gives U+2027 for a katakana middle dot set vertically.
-const SHARED_GLYPHS: ReadonlyMap<number, string> = new Map([[0x2027, '・']]);
+const SHARED_GLYPHS: ReadonlyMap<number, string> = new Map([[0x20_27, '・']]);
 
 const TABLES: Readonly<Record<TextFold, ReadonlyMap<number, string>>> = {
   radicals: RADICALS,
@@ -101,12 +101,12 @@ export const foldOf = (fold: TextFold, codePoint: number): string | undefined =>
 /** A text with folds applied, and each fold used. */
 export interface FoldedText {
   readonly text: string;
-  readonly uses: readonly FoldUse[];
+  readonly uses: ReadonlyArray<FoldUse>;
 }
 
 /** Applies the folds to each code point of a text, and lists each fold used. */
-export const foldText = (text: string, folds: readonly TextFold[]): FoldedText => {
-  const uses: FoldUse[] = [];
+export const foldText = (text: string, folds: ReadonlyArray<TextFold>): FoldedText => {
+  const uses: Array<FoldUse> = [];
   const folded = Array.from(text, character => {
     const codePoint = character.codePointAt(0) ?? 0;
     for (const fold of folds) {

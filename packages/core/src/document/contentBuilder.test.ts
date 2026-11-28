@@ -63,11 +63,15 @@ describe('content builder', () => {
     }).toThrow(ValidationError);
     builder.save();
     expect(() => finish()).toThrow(ValidationError);
-    for (let index = 1; index < 28; index++) builder.save();
+    for (let index = 1; index < 28; index++) {
+      builder.save();
+    }
     expect(() => {
       builder.save();
     }).toThrow(ValidationError);
-    for (let index = 0; index < 28; index++) builder.restore();
+    for (let index = 0; index < 28; index++) {
+      builder.restore();
+    }
     expect(() => finish()).not.toThrow();
   });
 
@@ -91,7 +95,7 @@ describe('content builder', () => {
   it('hands draw callbacks only drawing operations and refuses use after the callback', () => {
     const document = createDocument();
     const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
-    const retained: ContentBuilder[] = [];
+    const retained: Array<ContentBuilder> = [];
     page.draw(content => {
       retained.push(content);
       expect(['finish' in content, 'inheritedWhitePaint' in content, Object.isFrozen(content)]).toStrictEqual([false, false, true]);

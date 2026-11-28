@@ -15,21 +15,23 @@ import { textPdfBytes } from '../../testing/textPdf.ts';
 
 import { listFonts } from './listFonts.ts';
 
-const inventory = (pages: readonly TestPage[], objects: readonly TestObject[] = [], options: ListFontsOptions = {}): FontInventory =>
+const inventory = (pages: ReadonlyArray<TestPage>, objects: ReadonlyArray<TestObject> = [], options: ListFontsOptions = {}): FontInventory =>
   listFonts(loadDocument(textPdfBytes({ pages, objects })), options);
 
 const only = (result: FontInventory): FontEntry => {
   const [font, ...rest] = result.fonts;
-  if (font === undefined || rest.length > 0) throw new Error(`expected one font, found ${String(result.fonts.length)}`);
+  if (font === undefined || rest.length > 0) {
+    throw new Error(`expected one font, found ${String(result.fonts.length)}`);
+  }
   return font;
 };
 
-const onPage = (resources: string, objects: readonly TestObject[] = []): FontEntry => only(inventory([{ resources }], objects));
+const onPage = (resources: string, objects: ReadonlyArray<TestObject> = []): FontEntry => only(inventory([{ resources }], objects));
 
 const program = (name: string): string =>
   latin1Text(syntheticTrueType({ name, glyphs: [{ advance: 500 }, { advance: 600, box: [0, 0, 500, 700] }], characters: [[0x41, 1]] }));
 
-const embedded = (number: number, key: string, [data, dictionary = '']: readonly [string, string?]): readonly TestObject[] => [
+const embedded = (number: number, key: string, [data, dictionary = '']: readonly [string, string?]): ReadonlyArray<TestObject> => [
   {
     number,
     body: `<</Type/FontDescriptor/FontName/X/Flags 32/FontBBox[0 0 1 1]/ItalicAngle 0/Ascent 800/Descent -200/CapHeight 700/StemV 80/${key} ${String(number + 1)} 0 R>>`,
@@ -44,7 +46,7 @@ const reference = (objectNumber: number): PdfReference => pdfReference(objectNum
 const TYPE3 =
   '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]';
 
-const type0With = (cid: string): readonly TestObject[] => [
+const type0With = (cid: string): ReadonlyArray<TestObject> => [
   { number: 100, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[102 0 R]>>' },
   { number: 102, body: `<</Type/Font/Subtype/${cid}/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 103 0 R>>` },
   ...embedded(103, 'FontFile3', ['data', '/Subtype/CIDFontType0C']),
@@ -57,7 +59,7 @@ const taggedTrueType = (number: number, descriptor: number): TestObject => ({
 
 const helvetica = (number: number): TestObject => ({ number, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' });
 
-const codes = (entry: FontEntry): string[] => entry.problems.map(problem => problem.code);
+const codes = (entry: FontEntry): Array<string> => entry.problems.map(problem => problem.code);
 
 describe('font inventory', () => {
   it('lists a font only named by AcroForm default resources', () => {
@@ -132,7 +134,7 @@ describe('font inventory', () => {
   });
 
   it('says whether the provider supplied a predefined CMap other than Identity', () => {
-    const objects: readonly TestObject[] = [
+    const objects: ReadonlyArray<TestObject> = [
       {
         number: 100,
         body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/90ms-RKSJ-V/DescendantFonts[<</Type/Font/Subtype/CIDFontType0/BaseFont/Test>>]>>',
@@ -307,7 +309,7 @@ describe('font inventory', () => {
   });
 });
 
-const shown = (pages: readonly TestPage[], objects: readonly TestObject[] = [], options: ListFontsOptions = {}): string[][] =>
+const shown = (pages: ReadonlyArray<TestPage>, objects: ReadonlyArray<TestObject> = [], options: ListFontsOptions = {}): Array<Array<string>> =>
   inventory(pages, objects, options).fonts.map(font => [font.key, font.shownOn.join(' ')]);
 
 const appearance = (number: number, font: string): TestObject => ({

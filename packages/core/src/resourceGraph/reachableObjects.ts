@@ -7,21 +7,29 @@ export interface ReachableObjects {
   /** The generation of every in-use object reachable from the trailer, by object number, in the order the walk found them. */
   readonly objects: ReadonlyMap<number, number>;
   /** Reachable objects that could not be parsed, so that what they reference is unknown. */
-  readonly unreadable: readonly { readonly reference: PdfReference; readonly reason: string }[];
+  readonly unreadable: ReadonlyArray<{ readonly reference: PdfReference; readonly reason: string }>;
 }
 
 // Pushed one by one: spreading a large array into push can exceed the engine's argument limit.
-const pushChildren = (work: PdfDirectObject[], value: PdfObject): void => {
+const pushChildren = (work: Array<PdfDirectObject>, value: PdfObject): void => {
   if (value.kind === 'array') {
-    for (const item of value.items) work.push(item);
+    for (const item of value.items) {
+      work.push(item);
+    }
     return;
   }
   if (value.kind === 'dictionary') {
-    for (const [, item] of value.entries.entries()) work.push(item);
+    for (const [, item] of value.entries.entries()) {
+      work.push(item);
+    }
     return;
   }
   // A stream's data is a sequence of bytes, not objects (ISO 32000-1:2008, 7.3.8.1); only its dictionary references other objects.
-  if (value.kind === 'stream') for (const [, item] of value.dictionary.entries()) work.push(item);
+  if (value.kind === 'stream') {
+    for (const [, item] of value.dictionary.entries()) {
+      work.push(item);
+    }
+  }
 };
 
 /**
@@ -32,8 +40,8 @@ const pushChildren = (work: PdfDirectObject[], value: PdfObject): void => {
 export const reachableObjects = (document: DocumentInternals): ReachableObjects => {
   const { objects: edited, structure } = document;
   const objects = new Map<number, number>();
-  const unreadable: { reference: PdfReference; reason: string }[] = [];
-  const work: PdfDirectObject[] = [];
+  const unreadable: Array<{ reference: PdfReference; reason: string }> = [];
+  const work: Array<PdfDirectObject> = [];
   pushChildren(work, { kind: 'dictionary', entries: edited.trailer(structure.trailer) });
   for (let value = work.pop(); value !== undefined; value = work.pop()) {
     if (value.kind !== 'reference') {
@@ -41,12 +49,16 @@ export const reachableObjects = (document: DocumentInternals): ReachableObjects 
       continue;
     }
     const { objectNumber, generation } = value;
-    if (objects.has(objectNumber) || edited.generationOf(objectNumber) !== generation) continue;
+    if (objects.has(objectNumber) || edited.generationOf(objectNumber) !== generation) {
+      continue;
+    }
     objects.set(objectNumber, generation);
     try {
       pushChildren(work, edited.resolve(objectNumber, generation));
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
       unreadable.push({ reference: value, reason: error.message });
     }
   }

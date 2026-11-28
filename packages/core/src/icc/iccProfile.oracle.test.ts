@@ -55,16 +55,22 @@ describe('icc transform smoke oracle', () => {
         Float64Array.from(item.rgb, value => value / 255),
         output,
       );
-      for (let channel = 0; channel < 4; channel++) expect(Math.abs(Number(output[channel]) * 100 - Number(item.cmyk[channel]))).toBeLessThan(0.5);
+      for (let channel = 0; channel < 4; channel++) {
+        expect(Math.abs(Number(output[channel]) * 100 - Number(item.cmyk[channel]))).toBeLessThan(0.5);
+      }
     }
   });
 });
 
 const localDirectory = env['PDFWRIGHT_TEST_ICC_PROFILE_DIR'];
-if (localDirectory === undefined) stdout.write('Local ICC profiles not run: PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset.\n');
+if (localDirectory === undefined) {
+  stdout.write('Local ICC profiles not run: PDFWRIGHT_TEST_ICC_PROFILE_DIR is unset.\n');
+}
 
-const localProfiles = async (): Promise<Uint8Array[]> => {
-  if (localDirectory === undefined) return [];
+const localProfiles = async (): Promise<Array<Uint8Array>> => {
+  if (localDirectory === undefined) {
+    return [];
+  }
   const entries = await readdir(localDirectory);
   const names = entries.filter(name => /\.(?:icc|icm)$/iu.test(name));
   return Promise.all(names.map(async name => Uint8Array.from(await readFile(path.join(localDirectory, name)))));
@@ -72,25 +78,31 @@ const localProfiles = async (): Promise<Uint8Array[]> => {
 
 interface Paint {
   readonly space: 'RGB' | 'CMYK' | 'Gray';
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
 }
 interface Patch {
   readonly key: string;
   readonly paint: Paint;
 }
 
-const numeric = (operands: readonly { readonly kind: string }[], count: number): number[] | undefined => {
-  if (operands.length !== count) return undefined;
-  const values: number[] = [];
+const numeric = (operands: ReadonlyArray<{ readonly kind: string }>, count: number): Array<number> | undefined => {
+  if (operands.length !== count) {
+    return undefined;
+  }
+  const values: Array<number> = [];
   for (const operand of operands) {
-    if (operand.kind !== 'integer' && operand.kind !== 'real') return undefined;
-    if (!('value' in operand) || typeof operand.value !== 'number') return undefined;
+    if (operand.kind !== 'integer' && operand.kind !== 'real') {
+      return undefined;
+    }
+    if (!('value' in operand) || typeof operand.value !== 'number') {
+      return undefined;
+    }
     values.push(operand.value);
   }
   return values;
 };
 
-const rectangleKey = (page: number, rectangle: readonly number[], stroke: boolean): string =>
+const rectangleKey = (page: number, rectangle: ReadonlyArray<number>, stroke: boolean): string =>
   `${String(page)}:${rectangle.map(value => value.toFixed(3)).join(',')}:${stroke ? 'stroke' : 'fill'}`;
 
 const colorOperators = new Set(['rg', 'RG', 'k', 'K', 'g', 'G']);
@@ -99,7 +111,9 @@ const strokeEnds = new Set(['S', 's']);
 
 const colorChange = (operation: ContentOperation): Paint | undefined => {
   const { operator } = operation;
-  if (!colorOperators.has(operator)) return undefined;
+  if (!colorOperators.has(operator)) {
+    return undefined;
+  }
   let space: Paint['space'] = 'Gray';
   let count = 1;
   if (operator === 'rg' || operator === 'RG') {
@@ -110,15 +124,17 @@ const colorChange = (operation: ContentOperation): Paint | undefined => {
     count = 4;
   }
   const values = numeric(operation.operands, count);
-  if (values === undefined) throw new Error(`invalid ${operator} operands`);
+  if (values === undefined) {
+    throw new Error(`invalid ${operator} operands`);
+  }
   return { space, values };
 };
 
-const readPagePaints = (config: { streams: readonly Uint8Array[]; maxNesting: number; page: number; paints: Map<string, Paint> }): void => {
+const readPagePaints = (config: { streams: ReadonlyArray<Uint8Array>; maxNesting: number; page: number; paints: Map<string, Paint> }): void => {
   let fill: Paint = { space: 'Gray', values: [0] };
   let stroke: Paint = { space: 'Gray', values: [0] };
-  const stack: { readonly fill: Paint; readonly stroke: Paint }[] = [];
-  let rectangles: number[][] = [];
+  const stack: Array<{ readonly fill: Paint; readonly stroke: Paint }> = [];
+  let rectangles: Array<Array<number>> = [];
   for (const operation of readContent(config.streams, config.maxNesting)) {
     const { operator } = operation;
     if (operator === 'q') {
@@ -127,26 +143,37 @@ const readPagePaints = (config: { streams: readonly Uint8Array[]; maxNesting: nu
     }
     if (operator === 'Q') {
       const saved = stack.pop();
-      if (saved === undefined) throw new Error('unbalanced graphics state');
+      if (saved === undefined) {
+        throw new Error('unbalanced graphics state');
+      }
       ({ fill, stroke } = saved);
       continue;
     }
     const changed = colorChange(operation);
     if (changed !== undefined) {
-      if (operator === operator.toLowerCase()) fill = changed;
-      else stroke = changed;
+      if (operator === operator.toLowerCase()) {
+        fill = changed;
+      } else {
+        stroke = changed;
+      }
       continue;
     }
     if (operator === 're') {
       const rectangle = numeric(operation.operands, 4);
-      if (rectangle !== undefined) rectangles.push(rectangle);
+      if (rectangle !== undefined) {
+        rectangles.push(rectangle);
+      }
       continue;
     }
-    if (!pathEnds.has(operator)) continue;
+    if (!pathEnds.has(operator)) {
+      continue;
+    }
     const useStroke = strokeEnds.has(operator);
     for (const rectangle of rectangles) {
       const key = rectangleKey(config.page, rectangle, useStroke);
-      if (config.paints.has(key)) throw new Error(`duplicate patch rectangle ${key}`);
+      if (config.paints.has(key)) {
+        throw new Error(`duplicate patch rectangle ${key}`);
+      }
       config.paints.set(key, useStroke ? stroke : fill);
     }
     rectangles = [];
@@ -156,42 +183,64 @@ const readPagePaints = (config: { streams: readonly Uint8Array[]; maxNesting: nu
 const paintsIn = async (file: string): Promise<Map<string, Paint>> => {
   const document = loadDocument(Uint8Array.from(await readFile(file)));
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('loaded document has no internals');
+  if (internals === undefined) {
+    throw new Error('loaded document has no internals');
+  }
   const paints = new Map<string, Paint>();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) throw new Error('page missing from loaded document');
+    if (entry === undefined) {
+      throw new Error('page missing from loaded document');
+    }
     const content = pageContent(internals, entry);
-    if (content.problems.length > 0) throw new Error(content.problems.join('; '));
+    if (content.problems.length > 0) {
+      throw new Error(content.problems.join('; '));
+    }
     readPagePaints({ streams: content.streams, maxNesting: internals.maxNesting, page: page + 1, paints });
   }
   return paints;
 };
 
-const numberArray = (value: unknown): readonly number[] | undefined => {
-  if (!Array.isArray(value)) return undefined;
-  const entries: readonly unknown[] = value;
-  if (!entries.every((item): item is number => typeof item === 'number' && Number.isFinite(item))) return undefined;
+const numberArray = (value: unknown): ReadonlyArray<number> | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const entries: ReadonlyArray<unknown> = value;
+  if (!entries.every((item): item is number => typeof item === 'number' && Number.isFinite(item))) {
+    return undefined;
+  }
   return entries;
 };
 
 const jsonPatch = (item: unknown): Patch | null | undefined => {
-  if (typeof item !== 'object' || item === null || !('page' in item) || !('rectPt' in item) || !('kind' in item) || !('value' in item)) return undefined;
+  if (typeof item !== 'object' || item === null || !('page' in item) || !('rectPt' in item) || !('kind' in item) || !('value' in item)) {
+    return undefined;
+  }
   const rectangle = numberArray(item.rectPt);
   const values = numberArray(item.value);
-  if (typeof item.page !== 'number' || typeof item.kind !== 'string' || rectangle?.length !== 4 || values === undefined) return undefined;
-  if (values.length !== 3) return null;
+  if (typeof item.page !== 'number' || typeof item.kind !== 'string' || rectangle?.length !== 4 || values === undefined) {
+    return undefined;
+  }
+  if (values.length !== 3) {
+    return null;
+  }
   return { key: rectangleKey(item.page, rectangle, item.kind === 'special-stroke'), paint: { space: 'RGB', values } };
 };
 
-const patchesFromJson = (value: unknown): Patch[] | undefined => {
-  if (typeof value !== 'object' || value === null || !('patches' in value) || !Array.isArray(value.patches)) return undefined;
-  const items: readonly unknown[] = value.patches;
-  const patches: Patch[] = [];
+const patchesFromJson = (value: unknown): Array<Patch> | undefined => {
+  if (typeof value !== 'object' || value === null || !('patches' in value) || !Array.isArray(value.patches)) {
+    return undefined;
+  }
+  const items: ReadonlyArray<unknown> = value.patches;
+  const patches: Array<Patch> = [];
   for (const item of items) {
     const patch = jsonPatch(item);
-    if (patch === undefined) return undefined;
-    if (patch !== null) patches.push(patch);
+    if (patch === undefined) {
+      return undefined;
+    }
+    if (patch !== null) {
+      patches.push(patch);
+    }
   }
   return patches;
 };
@@ -200,12 +249,14 @@ const optionalText = async (file: string): Promise<string | undefined> => {
   try {
     return await readFile(file, 'utf8');
   } catch (error: unknown) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined;
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+      return undefined;
+    }
     throw error;
   }
 };
 
-const inputPatches = async (exportsDirectory: string): Promise<Patch[]> => {
+const inputPatches = async (exportsDirectory: string): Promise<Array<Patch>> => {
   const input = await paintsIn(path.join(exportsDirectory, '_inputs', 'C-colour-oracle.pdf'));
   const candidates = [
     path.join(exportsDirectory, 'probes', 'C-colour-oracle.json'),
@@ -217,11 +268,19 @@ const inputPatches = async (exportsDirectory: string): Promise<Patch[]> => {
   if (found !== undefined) {
     const parsed: unknown = JSON.parse(found.contents ?? '');
     const patches = patchesFromJson(parsed);
-    if (patches === undefined) throw new Error(`invalid patch map ${found.candidate}`);
-    for (const patch of patches) expect(input.get(patch.key)).toStrictEqual(patch.paint);
+    if (patches === undefined) {
+      throw new Error(`invalid patch map ${found.candidate}`);
+    }
+    for (const patch of patches) {
+      expect(input.get(patch.key)).toStrictEqual(patch.paint);
+    }
     return patches;
   }
-  return [...input].filter(([, paint]) => paint.space === 'RGB').map(([key, paint]) => ({ key, paint }));
+  return input
+    .entries()
+    .filter(([, paint]) => paint.space === 'RGB')
+    .map(([key, paint]) => ({ key, paint }))
+    .toArray();
 };
 
 const acrobatCases = [
@@ -235,14 +294,16 @@ const acrobatCases = [
 
 const normalizedDescription = (description: string): string => description.replaceAll(/[^a-z0-9]/giu, '').toLowerCase();
 
-const profileFor = (profiles: readonly IccProfile[], description: string): IccProfile => {
+const profileFor = (profiles: ReadonlyArray<IccProfile>, description: string): IccProfile => {
   const expected = normalizedDescription(description);
   const profile = profiles.find(candidate => candidate.description !== undefined && normalizedDescription(candidate.description).startsWith(expected));
-  if (profile === undefined) throw new Error(`local profile ${description} missing`);
+  if (profile === undefined) {
+    throw new Error(`local profile ${description} missing`);
+  }
   return profile;
 };
 
-const localOracleProfiles = async (directory: string): Promise<IccProfile[]> => {
+const localOracleProfiles = async (directory: string): Promise<Array<IccProfile>> => {
   const entries = await readdir(directory);
   const names = entries.filter(name => /\.(?:icc|icm)$/iu.test(name));
   return Promise.all(
@@ -253,17 +314,22 @@ const localOracleProfiles = async (directory: string): Promise<IccProfile[]> => 
   );
 };
 
-const labOf = (pcs: ReturnType<ReturnType<typeof sourceEvaluator>>): readonly number[] => (pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values));
+const labOf = (pcs: ReturnType<ReturnType<typeof sourceEvaluator>>): ReadonlyArray<number> => (pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values));
 
 const patchError = (
   patch: Patch,
   observed: Paint | undefined,
   config: { transform: ReturnType<typeof createColorTransform>; toPcs: ReturnType<typeof sourceEvaluator>; preserveBlack: boolean },
 ): number => {
-  if (observed?.space !== 'CMYK') throw new Error(`CMYK patch ${patch.key} missing`);
+  if (observed?.space !== 'CMYK') {
+    throw new Error(`CMYK patch ${patch.key} missing`);
+  }
   const output = new Float64Array(4);
-  if (config.preserveBlack && patch.paint.values.every(value => value === 0)) output.set([0, 0, 0, 1]);
-  else config.transform.convert(Float64Array.from(patch.paint.values), output);
+  if (config.preserveBlack && patch.paint.values.every(value => value === 0)) {
+    output.set([0, 0, 0, 1]);
+  } else {
+    config.transform.convert(Float64Array.from(patch.paint.values), output);
+  }
   return deltaE2000(labOf(config.toPcs(observed.values)), labOf(config.toPcs(output)));
 };
 
@@ -272,13 +338,17 @@ const measureAcrobatCase = async (
   directories: { profiles: string | undefined; exports: string | undefined },
 ): Promise<{ maximum: number; mean: number; count: number }> => {
   const { profiles: profilesDirectory, exports: exportsDirectory } = directories;
-  if (profilesDirectory === undefined || exportsDirectory === undefined) throw new Error('Acrobat oracle directories are unset');
+  if (profilesDirectory === undefined || exportsDirectory === undefined) {
+    throw new Error('Acrobat oracle directories are unset');
+  }
   const source = parseIccProfile(await fixture('sRGB.icm'));
   const patches = await inputPatches(exportsDirectory);
   const profiles = await localOracleProfiles(profilesDirectory);
   const outputNames = await readdir(path.join(exportsDirectory, 'C-colour'));
   const name = outputNames.find(candidate => candidate.startsWith(entry.prefix) && candidate.endsWith('.pdf'));
-  if (name === undefined) throw new Error(`Acrobat output ${entry.prefix} missing`);
+  if (name === undefined) {
+    throw new Error(`Acrobat output ${entry.prefix} missing`);
+  }
   const destination = profileFor(profiles, entry.description);
   const observed = await paintsIn(path.join(exportsDirectory, 'C-colour', name));
   const transform = createColorTransform({ kind: 'icc', profile: source }, destination, {
@@ -299,7 +369,9 @@ const missingOracleVariables = [
   ...(localDirectory === undefined ? ['PDFWRIGHT_TEST_ICC_PROFILE_DIR'] : []),
   ...(exportsDirectory === undefined ? ['PDFWRIGHT_ADOBE_EXPORTS_DIR'] : []),
 ];
-if (missingOracleVariables.length > 0) stdout.write(`Acrobat lut8 Lab oracle not run: ${missingOracleVariables.join(' and ')} unset.\n`);
+if (missingOracleVariables.length > 0) {
+  stdout.write(`Acrobat lut8 Lab oracle not run: ${missingOracleVariables.join(' and ')} unset.\n`);
+}
 
 describe('ciede2000 oracle metric', () => {
   it.each([

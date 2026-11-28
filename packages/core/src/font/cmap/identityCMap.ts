@@ -15,7 +15,7 @@ export const identityCMap = (name: 'Identity-H' | 'Identity-V'): CMap =>
     cidSystemInfo: { registry: ADOBE, ordering: IDENTITY, supplement: 0 },
     useCMap: undefined,
     codespaces: [{ low: Uint8Array.of(0x00, 0x00), high: Uint8Array.of(0xff, 0xff) }],
-    cids: [{ length: 2, low: 0, high: 0xffff, cid: 0 }],
+    cids: [{ length: 2, low: 0, high: 0xff_ff, cid: 0 }],
     notdefs: [],
     unicode: [],
     problems: [],

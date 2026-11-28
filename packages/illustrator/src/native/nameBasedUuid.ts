@@ -5,7 +5,9 @@ const encoder = new TextEncoder();
 
 /** Computes UUIDv3 in network byte order, with version and variant bits set per RFC 9562, 5.3. */
 export const uuidV3 = (namespace: Uint8Array, name: Uint8Array): string => {
-  if (namespace.length !== 16) throw new InvalidArgumentError('UUID namespace must contain 16 bytes');
+  if (namespace.length !== 16) {
+    throw new InvalidArgumentError('UUID namespace must contain 16 bytes');
+  }
   const input = new Uint8Array(namespace.length + name.length);
   input.set(namespace);
   input.set(name, namespace.length);

@@ -4,23 +4,35 @@ const angle = (b: number, a: number): number => {
 };
 
 const hueDifference = (first: number, second: number, chromaProduct: number): number => {
-  if (chromaProduct === 0) return 0;
+  if (chromaProduct === 0) {
+    return 0;
+  }
   const difference = second - first;
-  if (difference > 180) return difference - 360;
-  if (difference < -180) return difference + 360;
+  if (difference > 180) {
+    return difference - 360;
+  }
+  if (difference < -180) {
+    return difference + 360;
+  }
   return difference;
 };
 
 const meanHue = (first: number, second: number, chromaProduct: number): number => {
-  if (chromaProduct === 0) return first + second;
-  if (Math.abs(first - second) <= 180) return (first + second) / 2;
+  if (chromaProduct === 0) {
+    return first + second;
+  }
+  if (Math.abs(first - second) <= 180) {
+    return (first + second) / 2;
+  }
   const sum = first + second;
-  if (sum < 360) return (sum + 360) / 2;
+  if (sum < 360) {
+    return (sum + 360) / 2;
+  }
   return (sum - 360) / 2;
 };
 
 /** CIEDE2000 for two L*a*b* triples, with unit parametric factors. */
-export const deltaE2000 = (first: readonly number[], second: readonly number[]): number => {
+export const deltaE2000 = (first: ReadonlyArray<number>, second: ReadonlyArray<number>): number => {
   const [l1, a1, b1] = first;
   const [l2, a2, b2] = second;
   const c1 = Math.hypot(a1 ?? 0, b1 ?? 0);

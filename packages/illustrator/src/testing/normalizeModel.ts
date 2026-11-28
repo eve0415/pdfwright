@@ -26,12 +26,16 @@ const point = (value: Point): Point => [number(value[0]), number(value[1])];
 
 const subpath = (value: Subpath): Subpath => {
   const start = point(value.start);
-  const segments: Segment[] = cubicSegments(value).map(segment => {
-    if (segment.kind === 'line') return { kind: 'line', to: point(segment.to), anchor: segment.anchor ?? 'corner' };
+  const segments: Array<Segment> = cubicSegments(value).map(segment => {
+    if (segment.kind === 'line') {
+      return { kind: 'line', to: point(segment.to), anchor: segment.anchor ?? 'corner' };
+    }
     return { kind: 'curve', control1: point(segment.control1), control2: point(segment.control2), to: point(segment.to), anchor: segment.anchor ?? 'corner' };
   });
   const last = segments.at(-1)?.to;
-  if (last !== undefined && (last[0] !== start[0] || last[1] !== start[1])) segments.push({ kind: 'line', to: start, anchor: 'corner' });
+  if (last !== undefined && (last[0] !== start[0] || last[1] !== start[1])) {
+    segments.push({ kind: 'line', to: start, anchor: 'corner' });
+  }
   return { start, segments };
 };
 
@@ -43,7 +47,9 @@ const spot = (value: SpotColor): SpotColor => ({
 });
 
 const paint = (value: Paint): Paint => {
-  if (value.kind === 'process') return { kind: 'process', cmyk: [number(value.cmyk[0]), number(value.cmyk[1]), number(value.cmyk[2]), number(value.cmyk[3])] };
+  if (value.kind === 'process') {
+    return { kind: 'process', cmyk: [number(value.cmyk[0]), number(value.cmyk[1]), number(value.cmyk[2]), number(value.cmyk[3])] };
+  }
   const nativeTint = number(1 - (value.tint ?? 1));
   return { kind: 'spot', spot: spot(value.spot), tint: 1 - nativeTint };
 };
@@ -56,8 +62,12 @@ const path = (value: PathItem): PathItem => {
   if (value.fill !== undefined && value.stroke !== undefined) {
     return { kind: 'path', locked: value.locked ?? false, geometry: normalized, fill: fill(value.fill), stroke: stroke(value.stroke) };
   }
-  if (value.fill !== undefined) return { kind: 'path', locked: value.locked ?? false, geometry: normalized, fill: fill(value.fill) };
-  if (value.stroke !== undefined) return { kind: 'path', locked: value.locked ?? false, geometry: normalized, stroke: stroke(value.stroke) };
+  if (value.fill !== undefined) {
+    return { kind: 'path', locked: value.locked ?? false, geometry: normalized, fill: fill(value.fill) };
+  }
+  if (value.stroke !== undefined) {
+    return { kind: 'path', locked: value.locked ?? false, geometry: normalized, stroke: stroke(value.stroke) };
+  }
   throw new Error('path has no paint');
 };
 

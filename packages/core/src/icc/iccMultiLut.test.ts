@@ -16,7 +16,9 @@ describe('icc multi-process lut tags', () => {
     bytes[8] = 3;
     bytes[9] = 3;
     new DataView(bytes.buffer).setUint32(12, 32);
-    for (let index = 0; index < 3; index++) identityCurve(bytes, 32 + index * 12);
+    for (let index = 0; index < 3; index++) {
+      identityCurve(bytes, 32 + index * 12);
+    }
     const lut = readMultiLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lutAtoB');
     expect(lut.b).toHaveLength(3);
@@ -47,11 +49,17 @@ describe('icc multi-process lut tags', () => {
     view.setUint32(12, 32);
     view.setUint32(24, 68);
     view.setUint32(28, 120);
-    for (let index = 0; index < 3; index++) identityCurve(bytes, 32 + index * 12);
+    for (let index = 0; index < 3; index++) {
+      identityCurve(bytes, 32 + index * 12);
+    }
     bytes.set([2, 2, 2], 68);
     bytes[84] = 1;
-    for (let index = 0; index < 32; index++) bytes[88 + index] = index;
-    for (let index = 0; index < 4; index++) identityCurve(bytes, 120 + index * 12);
+    for (let index = 0; index < 32; index++) {
+      bytes[88 + index] = index;
+    }
+    for (let index = 0; index < 4; index++) {
+      identityCurve(bytes, 120 + index * 12);
+    }
     const lut = readMultiLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lutBtoA');
     expect(lut.clut?.gridPoints).toStrictEqual([2, 2, 2]);

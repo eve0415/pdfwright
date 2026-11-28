@@ -10,7 +10,7 @@ import { buildPdf, latin1Text } from '../testing/pdfBuilder.ts';
 
 import { loadDocument } from './loadDocument.ts';
 
-const load = (objects: readonly TestObject[]): LoadedDocument =>
+const load = (objects: ReadonlyArray<TestObject>): LoadedDocument =>
   loadDocument(buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...objects], trailer: '/Root 1 0 R' }]).bytes);
 
 const text = (value: PdfObject): string => latin1Text(serializeObject(value, { fractionDigits: 5 }));
@@ -19,7 +19,7 @@ const object = (document: LoadedDocument, number: number): string => text(docume
 
 const spot = pdfArray([pdfName('Separation'), pdfName('Spot'), pdfName('DeviceCMYK'), pdfReference(20, 0)]);
 
-const twoPages = (resources: string): TestObject[] => [
+const twoPages = (resources: string): Array<TestObject> => [
   { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2/MediaBox[0 0 10 10]>>' },
   { number: 3, body: `<</Type/Page/Parent 2 0 R${resources}>>` },
   { number: 4, body: `<</Type/Page/Parent 2 0 R${resources}>>` },

@@ -4,7 +4,7 @@ import { cmyk, compareDocuments, loadDocument, mm, rect } from '@pdfwright/core'
 
 export interface VarnishEdit {
   readonly saved: SavedPdf;
-  readonly differences: readonly PdfDifference[];
+  readonly differences: ReadonlyArray<PdfDifference>;
 }
 
 export const addVarnishPlate = (input: Uint8Array): VarnishEdit => {

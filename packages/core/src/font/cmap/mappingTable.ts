@@ -7,7 +7,7 @@ export interface CMapCode {
 }
 
 // Codes of different lengths are different codes (9.7.6.2: "looked up in the character code mappings for codes of that length"), so the key carries the length above the 32-bit value.
-const keyOf = (length: number, value: number): number => length * 0x100000000 + value;
+const keyOf = (length: number, value: number): number => length * 0x1_00_00_00_00 + value;
 
 /**
  * Mappings of one kind, looked up by code: single-code mappings by key, the rest by binary search over ranges sorted by their low bound.
@@ -15,14 +15,17 @@ const keyOf = (length: number, value: number): number => length * 0x100000000 + 
  */
 export class MappingTable<T extends CodeRange> {
   private readonly singles = new Map<number, T>();
-  private readonly ranges: T[];
-  private readonly reach: number[];
+  private readonly ranges: Array<T>;
+  private readonly reach: Array<number>;
 
-  constructor(mappings: readonly T[]) {
-    const ranges: T[] = [];
+  constructor(mappings: ReadonlyArray<T>) {
+    const ranges: Array<T> = [];
     for (const mapping of mappings) {
-      if (mapping.low === mapping.high) this.singles.set(keyOf(mapping.length, mapping.low), mapping);
-      else ranges.push(mapping);
+      if (mapping.low === mapping.high) {
+        this.singles.set(keyOf(mapping.length, mapping.low), mapping);
+      } else {
+        ranges.push(mapping);
+      }
     }
     ranges.sort((left, right) => keyOf(left.length, left.low) - keyOf(right.length, right.low));
     this.ranges = ranges;
@@ -37,18 +40,25 @@ export class MappingTable<T extends CodeRange> {
   find(code: CMapCode): T | undefined {
     const key = keyOf(code.length, code.value);
     const single = this.singles.get(key);
-    if (single !== undefined) return single;
+    if (single !== undefined) {
+      return single;
+    }
     let low = 0;
     let high = this.ranges.length - 1;
     while (low <= high) {
       const middle = Math.floor((low + high) / 2);
       const range = this.ranges[middle];
-      if (range !== undefined && keyOf(range.length, range.low) <= key) low = middle + 1;
-      else high = middle - 1;
+      if (range !== undefined && keyOf(range.length, range.low) <= key) {
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
     }
     for (let index = high; index >= 0 && (this.reach[index] ?? 0) >= key; index--) {
       const range = this.ranges[index];
-      if (range !== undefined && range.length === code.length && range.low <= code.value && code.value <= range.high) return range;
+      if (range !== undefined && range.length === code.length && range.low <= code.value && code.value <= range.high) {
+        return range;
+      }
     }
     return undefined;
   }

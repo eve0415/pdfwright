@@ -18,13 +18,17 @@ const pad = (value: number, width: number): string => String(value).padStart(wid
 /** Reads an XMP date (XMP Part 1 8.2.1.2); undefined for any other text or a day that does not exist. */
 export const parseXmpDate = (text: string): XmpDate | undefined => {
   const match = XMP_DATE.exec(text);
-  if (match === null) return undefined;
+  if (match === null) {
+    return undefined;
+  }
   const [, year = '', month, day, hour, minute, second, zone] = match;
   const clock = `${year}${month ?? ''}${day ?? ''}${hour ?? ''}${minute ?? ''}${second ?? ''}`;
   const offset = zone === undefined || zone === 'Z' ? 'Z' : `${zone.slice(0, 3)}'${zone.slice(4)}`;
   // The same fields as a PDF date string, which checks their ranges and the calendar day.
   const parsed = parsePdfDate(`D:${clock}${offset}`);
-  if (parsed === undefined) return undefined;
+  if (parsed === undefined) {
+    return undefined;
+  }
   const precision = parsed.precision === 'hour' ? 'minute' : parsed.precision;
   return { date: parsed.date, precision, zone: zone === undefined ? 'absent' : 'explicit' };
 };
@@ -36,7 +40,7 @@ export const xmpDateString = (date: PdfDate): string => {
   return `${pad(date.year, 4)}-${pad(date.month, 2)}-${pad(date.day, 2)}T${pad(date.hour, 2)}:${pad(date.minute, 2)}:${pad(date.second, 2)}${zone}`;
 };
 
-const ORDER: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+const ORDER: ReadonlyArray<PdfDatePrecision> = ['year', 'month', 'day', 'hour', 'minute', 'second'];
 
 const reaches = (value: ParsedPdfDate, precision: PdfDatePrecision): boolean => ORDER.indexOf(value.precision) >= ORDER.indexOf(precision);
 
@@ -50,7 +54,9 @@ export const finerThan = (left: ParsedPdfDate, right: ParsedPdfDate): boolean =>
 export const xmpDateText = (value: ParsedPdfDate): string => {
   const { date } = value;
   const day = [pad(date.year, 4), ...(reaches(value, 'month') ? [pad(date.month, 2)] : []), ...(reaches(value, 'day') ? [pad(date.day, 2)] : [])].join('-');
-  if (!reaches(value, 'hour')) return day;
+  if (!reaches(value, 'hour')) {
+    return day;
+  }
   const { offset } = date;
   const zone = offset === 'Z' ? 'Z' : `${offset.sign}${pad(offset.hours, 2)}:${pad(offset.minutes, 2)}`;
   return `${day}T${pad(date.hour, 2)}:${pad(date.minute, 2)}${reaches(value, 'second') ? `:${pad(date.second, 2)}` : ''}${zone}`;
@@ -66,7 +72,9 @@ export const pdfDateText = (value: ParsedPdfDate): string => {
   const last = time ? 'second' : ORDER[Math.min(ORDER.indexOf(value.precision), ORDER.indexOf('day'))];
   const fields = [pad(date.year, 4), pad(date.month, 2), pad(date.day, 2), pad(date.hour, 2), pad(date.minute, 2), pad(date.second, 2)];
   const clock = fields.slice(0, ORDER.indexOf(last ?? 'year') + 1).join('');
-  if (!time) return `D:${clock}`;
+  if (!time) {
+    return `D:${clock}`;
+  }
   const { offset } = date;
   return `D:${clock}${offset === 'Z' ? 'Z' : `${offset.sign}${pad(offset.hours, 2)}'${pad(offset.minutes, 2)}`}`;
 };
@@ -95,11 +103,15 @@ export const compareDates = (pdf: ParsedPdfDate, xmp: XmpDate): 'equal' | 'diffe
     const same = fields(pdf.date) === fields(xmp.date);
     return same ? 'equal' : 'different';
   }
-  if (xmp.zone === 'absent') return 'indeterminate';
+  if (xmp.zone === 'absent') {
+    return 'indeterminate';
+  }
   // The coarser value names an hour or minute of its own local time, which a finer value must fall within; UTC hours would split an hour of a +05:30 zone.
   const [coarse, fine] = pdf.precision === precision ? [pdf, xmp] : [xmp, pdf];
   const start = instant(coarse.date);
   const at = instant(fine.date);
-  if (fine.precision === precision) return start === at ? 'equal' : 'different';
+  if (fine.precision === precision) {
+    return start === at ? 'equal' : 'different';
+  }
   return at >= start && at < start + UNIT_MS[precision] ? 'equal' : 'different';
 };

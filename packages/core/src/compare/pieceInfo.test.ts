@@ -17,8 +17,8 @@ const page = (pieceInfo = '<</Illustrator 9 0 R>>', extra = ''): TestObject => (
   body: `<</Type/Page/Parent 2 0 R/PieceInfo${pieceInfo}/LastModified(D:20070624192720-05'00')/MediaBox[0 0 612 792]/Resources<<>>${extra}>>`,
 });
 
-const objects = (overrides: readonly TestObject[] = [], catalog = ''): TestObject[] => {
-  const base: TestObject[] = [
+const objects = (overrides: ReadonlyArray<TestObject> = [], catalog = ''): Array<TestObject> => {
+  const base: Array<TestObject> = [
     { number: 1, body: `<</Type/Catalog/Pages 2 0 R${catalog}>>` },
     { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
     page(),
@@ -30,13 +30,13 @@ const objects = (overrides: readonly TestObject[] = [], catalog = ''): TestObjec
   return [...replaced, ...overrides.filter(override => !base.some(object => object.number === override.number))];
 };
 
-const load = (list: readonly TestObject[]): ReturnType<typeof loadDocument> =>
+const load = (list: ReadonlyArray<TestObject>): ReturnType<typeof loadDocument> =>
   loadDocument(buildPdf([{ xref: 'classic', objects: list, trailer: '/Root 1 0 R/Info 11 0 R' }]).bytes);
 
-const kinds = (differences: readonly PdfDifference[]): string[] =>
+const kinds = (differences: ReadonlyArray<PdfDifference>): Array<string> =>
   differences.map(difference => (difference.kind === 'piece-info' ? `piece-info:${difference.aspect}` : difference.kind));
 
-const paths = (differences: readonly PdfDifference[]): ValuePath[] =>
+const paths = (differences: ReadonlyArray<PdfDifference>): Array<ValuePath> =>
   differences.map(difference => (difference.kind === 'last-modified' ? difference.path : []));
 
 const source = load(objects());

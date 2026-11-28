@@ -12,7 +12,7 @@ import { loadDocument } from './loadDocument.ts';
 import { rect } from './rect.ts';
 
 const loadPage = (media: 'own' | 'inherited' | 'indirect' = 'own', boxes = '') => {
-  const objects: TestObject[] = [
+  const objects: Array<TestObject> = [
     { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
     { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1${media === 'inherited' ? '/MediaBox[0 0 100.6 100.6]' : ''}>>` },
     {
@@ -20,11 +20,13 @@ const loadPage = (media: 'own' | 'inherited' | 'indirect' = 'own', boxes = '') =
       body: `<</Type/Page/Parent 2 0 R/Resources<<>>${media === 'own' ? '/MediaBox[0 0 100.6 100.6]' : ''}${media === 'indirect' ? '/MediaBox 4 0 R' : ''}${boxes}>>`,
     },
   ];
-  if (media === 'indirect') objects.push({ number: 4, body: '[0 0 5 0 R 5 0 R]' }, { number: 5, body: '100.6' });
+  if (media === 'indirect') {
+    objects.push({ number: 4, body: '[0 0 5 0 R 5 0 R]' }, { number: 5, body: '100.6' });
+  }
   return loadDocument(buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes);
 };
 
-const boxNames: readonly BoxName[] = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
+const boxNames: ReadonlyArray<BoxName> = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
 
 describe.each(['incremental', 'full'] as const)('%s page box saves', mode => {
   it.each(['own', 'inherited', 'indirect'] as const)('checks a rounded TrimBox against the preserved %s MediaBox', media => {

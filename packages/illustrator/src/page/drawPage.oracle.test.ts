@@ -70,9 +70,13 @@ const renderedInk = (plate: Plate, [minX, minY, maxX, maxY]: readonly [number, n
   let escaped = 0;
   for (let y = 0; y < plate.height; y++) {
     for (let x = 0; x < plate.width; x++) {
-      if (plate.inkAt(x, y) < 128) continue;
+      if (plate.inkAt(x, y) < 128) {
+        continue;
+      }
       ink++;
-      if (x + 1 < minX || x > maxX || plate.height - y < minY || plate.height - y - 1 > maxY) escaped++;
+      if (x + 1 < minX || x > maxX || plate.height - y < minY || plate.height - y - 1 > maxY) {
+        escaped++;
+      }
     }
   }
   return { ink, escaped };

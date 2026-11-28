@@ -10,7 +10,7 @@ import { buildPdf, streamBody } from './pdfBuilder.ts';
 
 export interface TestPage {
   /** One content stream, or the streams of a Contents array; omitted, the page has no Contents entry of its own making. */
-  readonly content?: string | readonly string[];
+  readonly content?: string | ReadonlyArray<string>;
   /** The entries of the page's Resources dictionary, without the delimiters; omitted, the page has no Resources. */
   readonly resources?: string;
   /** Further page dictionary entries, such as "/Annots[20 0 R]". */
@@ -18,9 +18,9 @@ export interface TestPage {
 }
 
 export interface TextPdf {
-  readonly pages: readonly TestPage[];
+  readonly pages: ReadonlyArray<TestPage>;
   /** Objects the pages refer to, numbered from 100 so that they do not collide with the pages and their contents. */
-  readonly objects?: readonly TestObject[];
+  readonly objects?: ReadonlyArray<TestObject>;
   /** Entries of the page tree root, such as inherited Resources. */
   readonly root?: string;
   /** Further entries of the document catalog, such as OCProperties. */
@@ -29,14 +29,14 @@ export interface TextPdf {
 
 /** The bytes of a PDF whose pages are 600 by 800 points: the catalog is object 1, the page tree 2, and each page and its content streams follow from 3. */
 export const textPdfBytes = ({ pages, objects = [], root = '', catalog = '' }: TextPdf): Uint8Array => {
-  const built: TestObject[] = [];
+  const built: Array<TestObject> = [];
   let next = 3;
-  const kids: number[] = [];
+  const kids: Array<number> = [];
   for (const page of pages) {
     const number = next++;
     kids.push(number);
     const streams = typeof page.content === 'string' ? [page.content] : page.content;
-    const contents: string[] = [];
+    const contents: Array<string> = [];
     for (const data of streams ?? []) {
       built.push({ number: next, body: streamBody('', data) });
       contents.push(`${String(next++)} 0 R`);
@@ -58,6 +58,8 @@ export const textPdfBytes = ({ pages, objects = [], root = '', catalog = '' }: T
 /** Loads a composed PDF and returns what the library reads from it. */
 export const textPdf = (input: TextPdf): DocumentInternals => {
   const parts = internalsOf(loadDocument(textPdfBytes(input)));
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };

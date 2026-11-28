@@ -12,7 +12,7 @@ import { DEFAULT_XML_LIMITS } from './xmlTokenizer.ts';
 export interface SplicedPacket {
   readonly bytes: Uint8Array;
   /** The legacy properties removed, as their conventional prefix and name. */
-  readonly removedLegacy: readonly string[];
+  readonly removedLegacy: ReadonlyArray<string>;
   /** Whether the packet was in an encoding other than UTF-8 and was re-encoded. */
   readonly transcoded: boolean;
 }
@@ -28,10 +28,18 @@ const arrayValue = (type: 'Alt' | 'Seq', value: string | undefined): XmpValue | 
   value === undefined ? undefined : { kind: 'array', type, items: [{ text: value, language: type === 'Alt' ? 'x-default' : undefined }] };
 
 const sameValue = (left: XmpValue, right: XmpValue): boolean => {
-  if (left.kind === 'text' && right.kind === 'text') return left.text === right.text && left.language === right.language;
-  if (left.kind === 'uri' && right.kind === 'uri') return left.uri === right.uri;
-  if (left.kind === 'opaque' || right.kind === 'opaque') return left.kind === right.kind;
-  if (left.kind !== 'array' || right.kind !== 'array' || left.type !== right.type || left.items.length !== right.items.length) return false;
+  if (left.kind === 'text' && right.kind === 'text') {
+    return left.text === right.text && left.language === right.language;
+  }
+  if (left.kind === 'uri' && right.kind === 'uri') {
+    return left.uri === right.uri;
+  }
+  if (left.kind === 'opaque' || right.kind === 'opaque') {
+    return left.kind === right.kind;
+  }
+  if (left.kind !== 'array' || right.kind !== 'array' || left.type !== right.type || left.items.length !== right.items.length) {
+    return false;
+  }
   return left.items.every((item, index) => {
     const other = right.items[index];
     return other !== undefined && item.text === other.text && item.language === other.language;
@@ -74,26 +82,37 @@ const LEGACY: ReadonlyMap<string, string> = new Map(
 // The white space before a property goes with it, so that removing an attribute leaves no gap and removing an element no blank line.
 const withSpaceBefore = (text: string, start: number): number => {
   let at = start;
-  while (at > 0 && ' \t\r\n'.includes(text[at - 1] ?? '')) at--;
+  while (at > 0 && ' \t\r\n'.includes(text[at - 1] ?? '')) {
+    at--;
+  }
   return at;
 };
 
 // A splice defect must not ship a packet that disagrees with Info, so the result is read back and each managed property compared with its value.
 const readsBack = (bytes: Uint8Array, expected: ReadonlyMap<string, XmpValue | undefined>, maxTokens: number): boolean => {
   const read = readXmp(bytes, maxTokens);
-  if (!read.ok) return false;
+  if (!read.ok) {
+    return false;
+  }
   // Each occurrence is appended in place, so that a packet repeating one name many times is still checked in linear time.
-  const found = new Map<string, XmpValue[]>();
+  const found = new Map<string, Array<XmpValue>>();
   for (const property of read.packet.properties) {
     const name = key(property.namespace, property.localName);
     const occurrences = found.get(name);
-    if (occurrences === undefined) found.set(name, [property.value]);
-    else occurrences.push(property.value);
+    if (occurrences === undefined) {
+      found.set(name, [property.value]);
+    } else {
+      occurrences.push(property.value);
+    }
   }
-  if ([...LEGACY.keys()].some(name => found.has(name))) return false;
+  if ([...LEGACY.keys()].some(name => found.has(name))) {
+    return false;
+  }
   return [...expected].every(([name, value]) => {
     const occurrences = found.get(name) ?? [];
-    if (value === undefined) return occurrences.length === 0;
+    if (value === undefined) {
+      return occurrences.length === 0;
+    }
     const [only] = occurrences;
     return occurrences.length === 1 && only !== undefined && sameValue(only, value);
   });
@@ -129,7 +148,9 @@ export const splicePacket = (
   let from = 0;
   for (const property of removed) {
     const start = withSpaceBefore(text, property.textSpan.start);
-    if (start < from) continue;
+    if (start < from) {
+      continue;
+    }
     result += text.slice(from, start);
     from = property.textSpan.end;
   }
@@ -147,7 +168,9 @@ export const splicePacket = (
   const transcoded = packet.encoding !== 'utf8';
   if (transcoded) {
     // The byte-order mark of a UTF-16 or UTF-32 packet has no purpose in UTF-8, where XMP Part 1 7.1 does not recommend one.
-    if (result.startsWith('\u{FEFF}')) result = result.slice(1);
+    if (result.startsWith('\u{FEFF}')) {
+      result = result.slice(1);
+    }
     // XML 1.0, 4.3.3: "it is a fatal error for an entity including an encoding declaration to be presented to the XML processor in an encoding other than that named in the declaration".
     result = result.replace(ENCODING_DECLARATION, '$1$2UTF-8$2');
   }

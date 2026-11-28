@@ -21,7 +21,9 @@ interface SavedBoxContext {
 const editedResolver = (store: ObjectStore, changes: ReadonlyMap<number, ObjectChange>): ObjectResolver => {
   const resolve = (objectNumber: number, generation: number): PdfObject => {
     const change = changes.get(objectNumber);
-    if (change === undefined) return store.resolve(objectNumber, generation);
+    if (change === undefined) {
+      return store.resolve(objectNumber, generation);
+    }
     return 'deleted' in change || change.generation !== generation ? { kind: 'null' } : change.value;
   };
   return { resolve, deref: value => (value?.kind === 'reference' ? resolve(value.objectNumber, value.generation) : value) };
@@ -31,11 +33,19 @@ const savedResolver = (store: ObjectStore, context: SavedBoxContext): ObjectReso
   const cache = new Map<number, PdfObject>();
   const resolve = (objectNumber: number, generation: number): PdfObject => {
     const change = context.changes.get(objectNumber);
-    if (change === undefined) return store.resolve(objectNumber, generation);
-    if ('deleted' in change || change.generation !== generation) return { kind: 'null' };
+    if (change === undefined) {
+      return store.resolve(objectNumber, generation);
+    }
+    if ('deleted' in change || change.generation !== generation) {
+      return { kind: 'null' };
+    }
     const cached = cache.get(objectNumber);
-    if (cached !== undefined) return cached;
-    if (change.value.kind === 'stream') return change.value;
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (change.value.kind === 'stream') {
+      return change.value;
+    }
     // Both save modes preserve unchanged coordinates, so validation must read the same merged bytes rather than round every coordinate anew.
     const bytes = changedObjectBytes(objectNumber, change.value, { store, fractionDigits: context.fractionDigits, maxNesting: context.maxNesting });
     const lexer = new Lexer({ bytes, base: 0, final: true }, 0, {
@@ -78,14 +88,16 @@ const sameValue = (left: PdfObject | undefined, right: PdfObject | undefined): b
 const unchangedBox = (store: ObjectStore, edited: ObjectResolver, entry: BoxEntry): boolean => {
   const original = store.deref(ownBox(store, entry.owner, entry.name));
   const current = edited.deref(entry.value);
-  if (original?.kind !== 'array' || current?.kind !== 'array') return sameValue(original, current);
+  if (original?.kind !== 'array' || current?.kind !== 'array') {
+    return sameValue(original, current);
+  }
   return (
     original.items.length === current.items.length && original.items.every((item, index) => sameValue(store.deref(item), edited.deref(current.items[index])))
   );
 };
 
 /** Validates changed page boundaries against their written coordinates, preserving unchanged input boxes. */
-export const validateSavedPageBoxes = (store: ObjectStore, pages: readonly PageEntry[], context: SavedBoxContext): void => {
+export const validateSavedPageBoxes = (store: ObjectStore, pages: ReadonlyArray<PageEntry>, context: SavedBoxContext): void => {
   const edited = editedResolver(store, context.changes);
   const resolver = savedResolver(store, context);
   const cache = createInheritedCache();
@@ -93,9 +105,13 @@ export const validateSavedPageBoxes = (store: ObjectStore, pages: readonly PageE
   for (const page of pages) {
     for (const name of ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'] as const) {
       const entry = boxEntry(edited, page, { name, cache: editedCache });
-      if (entry === undefined || unchangedBox(store, edited, entry)) continue;
+      if (entry === undefined || unchangedBox(store, edited, entry)) {
+        continue;
+      }
       const written = boxEntry(resolver, page, { name, cache });
-      if (written === undefined) continue;
+      if (written === undefined) {
+        continue;
+      }
       const media = boxEntry(resolver, page, { name: 'MediaBox', cache });
       checkPageBox(
         name,

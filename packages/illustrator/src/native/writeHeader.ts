@@ -18,8 +18,8 @@ export interface HeaderOptions {
 }
 
 export interface DocumentColors {
-  readonly spots: readonly SpotColor[];
-  readonly process: readonly string[];
+  readonly spots: ReadonlyArray<SpotColor>;
+  readonly process: ReadonlyArray<string>;
 }
 
 const encoder = new TextEncoder();
@@ -31,7 +31,9 @@ const byteCompare = (left: string, right: string): number => {
   const second = encoder.encode(right);
   for (let index = 0; index < Math.min(first.length, second.length); index++) {
     const difference = (first[index] ?? 0) - (second[index] ?? 0);
-    if (difference !== 0) return difference;
+    if (difference !== 0) {
+      return difference;
+    }
   }
   return first.length - second.length;
 };
@@ -44,26 +46,37 @@ export const documentColors = (document: IllustratorDocument): DocumentColors =>
       spots.set(value.spot.name, value.spot);
     } else if (visible) {
       for (const [index, component] of value.cmyk.entries()) {
-        if (component > 0) used.add(PROCESS_PLATES[index] ?? '');
+        if (component > 0) {
+          used.add(PROCESS_PLATES[index] ?? '');
+        }
       }
     }
   };
   const scanRaster = (samples: Uint8Array): void => {
     for (let index = 0; index < samples.length; index++) {
-      if ((samples[index] ?? 0) > 0) used.add(PROCESS_PLATES[index % 4] ?? '');
+      if ((samples[index] ?? 0) > 0) {
+        used.add(PROCESS_PLATES[index % 4] ?? '');
+      }
     }
   };
-  const visit = (items: readonly Item[], visible: boolean): void => {
+  const visit = (items: ReadonlyArray<Item>, visible: boolean): void => {
     for (const item of items) {
       switch (item.kind) {
         case 'path': {
-          if (item.fill !== undefined) paint(item.fill.paint, visible);
-          if (item.stroke !== undefined) paint(item.stroke.paint, visible);
+          if (item.fill !== undefined) {
+            paint(item.fill.paint, visible);
+          }
+          if (item.stroke !== undefined) {
+            paint(item.stroke.paint, visible);
+          }
           break;
         }
         case 'raster': {
-          if (item.color.space === 'spot') spots.set(item.color.spot.name, item.color.spot);
-          else if (visible) scanRaster(item.color.samples);
+          if (item.color.space === 'spot') {
+            spots.set(item.color.spot.name, item.color.spot);
+          } else if (visible) {
+            scanRaster(item.color.samples);
+          }
           break;
         }
         case 'clipGroup':
@@ -77,7 +90,9 @@ export const documentColors = (document: IllustratorDocument): DocumentColors =>
       }
     }
   };
-  for (const layer of document.layers) visit(layer.items, layer.visible !== false);
+  for (const layer of document.layers) {
+    visit(layer.items, layer.visible !== false);
+  }
   return { spots: [...spots.values()].toSorted((left, right) => byteCompare(left.name, right.name)), process: PROCESS_PLATES.filter(name => used.has(name)) };
 };
 
@@ -87,7 +102,7 @@ const postScriptComment = (writer: NativeWriter, prefix: string, value: string):
   writer.line();
 };
 
-const writeSpotComments = (writer: NativeWriter, spots: readonly SpotColor[]): void => {
+const writeSpotComments = (writer: NativeWriter, spots: ReadonlyArray<SpotColor>): void => {
   for (const [index, spot] of spots.entries()) {
     postScriptComment(writer, index === 0 ? '%%DocumentCustomColors: ' : '%%+ ', spot.name);
   }
@@ -110,7 +125,9 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   const creator = options.creator ?? '@pdfwright/illustrator';
   for (const character of creator) {
     const code = character.codePointAt(0);
-    if (code === undefined || code < 32 || code > 126) throw new InvalidArgumentError('creator requires printable ASCII');
+    if (code === undefined || code < 32 || code > 126) {
+      throw new InvalidArgumentError('creator requires printable ASCII');
+    }
   }
   const topLeft = options.nativeOrigin === 'artboard-top-left';
   const rulerX = topLeft ? 8191.5 - width / 2 : Math.floor(8191.5 - width / 2);
@@ -130,7 +147,9 @@ export const writeHeader = (writer: NativeWriter, document: IllustratorDocument,
   writer.line(`%%BoundingBox: ${String(minX)} ${String(minY)} ${String(maxX)} ${String(maxY)}`);
   writer.line(`%%HiResBoundingBox: ${[shifted.minX, shifted.minY, shifted.maxX, shifted.maxY].map(value => formatNativeNumber(value)).join(' ')}`);
   const { spots, process } = colors;
-  if (process.length > 0) writer.line(`%%DocumentProcessColors: ${process.join(' ')}`);
+  if (process.length > 0) {
+    writer.line(`%%DocumentProcessColors: ${process.join(' ')}`);
+  }
   writer.line('%AI5_FileFormat 14.0');
   writer.line('%AI12_BuildNumber: 7');
   writer.line('%AI3_ColorUsage: Color');

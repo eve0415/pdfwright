@@ -32,10 +32,12 @@ interface FontRow {
 }
 
 // pdffonts pads each column to the width of the dashes under its heading, and names and types contain spaces, so rows are cut at those widths.
-const parsePdffonts = (output: string): FontRow[] => {
+const parsePdffonts = (output: string): Array<FontRow> => {
   const lines = output.split('\n');
   const rule = lines.findIndex(line => line.startsWith('---'));
-  if (rule === -1) return [];
+  if (rule === -1) {
+    return [];
+  }
   const widths = (lines[rule] ?? '').split(' ').map(dashes => dashes.length);
   return lines
     .slice(rule + 1)
@@ -53,7 +55,7 @@ const parsePdffonts = (output: string): FontRow[] => {
 };
 
 // Only standard output holds the table: poppler writes its syntax errors and warnings to standard error.
-const pdffonts = async (file: string): Promise<FontRow[]> => {
+const pdffonts = async (file: string): Promise<Array<FontRow>> => {
   const child = spawn('pdffonts', [file]);
   child.stderr.resume();
   const [stdout] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
@@ -66,11 +68,21 @@ const text = (bytes: Uint8Array | undefined): string => (bytes === undefined ? '
 const typeName = (font: FontEntry): string => {
   const { embedding } = font;
   const file = embedding.state === 'embedded' ? text(embedding.fileSubtype) : '';
-  if (font.subtype === 'Type3') return 'Type 3';
-  if (font.subtype === 'Type1' || font.subtype === 'MMType1') return { Type1C: 'Type 1C', OpenType: 'Type 1C (OT)' }[file] ?? 'Type 1';
-  if (font.subtype === 'TrueType') return file === 'OpenType' ? 'TrueType (OT)' : 'TrueType';
-  if (font.descendant?.subtype === 'CIDFontType0') return { CIDFontType0C: 'CID Type 0C', OpenType: 'CID Type 0C (OT)' }[file] ?? 'CID Type 0';
-  if (font.descendant?.subtype === 'CIDFontType2') return file === 'OpenType' ? 'CID TrueType (OT)' : 'CID TrueType';
+  if (font.subtype === 'Type3') {
+    return 'Type 3';
+  }
+  if (font.subtype === 'Type1' || font.subtype === 'MMType1') {
+    return { Type1C: 'Type 1C', OpenType: 'Type 1C (OT)' }[file] ?? 'Type 1';
+  }
+  if (font.subtype === 'TrueType') {
+    return file === 'OpenType' ? 'TrueType (OT)' : 'TrueType';
+  }
+  if (font.descendant?.subtype === 'CIDFontType0') {
+    return { CIDFontType0C: 'CID Type 0C', OpenType: 'CID Type 0C (OT)' }[file] ?? 'CID Type 0';
+  }
+  if (font.descendant?.subtype === 'CIDFontType2') {
+    return file === 'OpenType' ? 'CID TrueType (OT)' : 'CID TrueType';
+  }
   return 'unknown';
 };
 
@@ -82,7 +94,7 @@ const yes = (value: boolean): string => (value ? 'yes' : 'no');
 const objectOf = (font: FontEntry): string =>
   font.reference === undefined ? '[none]' : `${String(font.reference.objectNumber)} ${String(font.reference.generation)}`;
 
-const expectedRow = (font: FontEntry, printed: readonly FontRow[]): FontRow => {
+const expectedRow = (font: FontEntry, printed: ReadonlyArray<FontRow>): FontRow => {
   const type3 = font.subtype === 'Type3';
   const tagged = font.subset.state === 'subset' || (font.subset.state === 'not-applicable' && font.subset.tag !== undefined);
   const object = objectOf(font);
@@ -97,11 +109,14 @@ const expectedRow = (font: FontEntry, printed: readonly FontRow[]): FontRow => {
   };
 };
 
-const byObject = (rows: readonly FontRow[]): FontRow[] =>
+const byObject = (rows: ReadonlyArray<FontRow>): Array<FontRow> =>
   rows.toSorted((left, right) => `${left.object} ${left.name}`.localeCompare(`${right.object} ${right.name}`));
 
 // pdffonts does not list fonts only named by a graphics state's Font entry or AcroForm default resources, which pdfwright lists.
-const compare = async (file: string, omitted: ReadonlySet<string> = new Set()): Promise<{ readonly pdffonts: FontRow[]; readonly pdfwright: FontRow[] }> => {
+const compare = async (
+  file: string,
+  omitted: ReadonlySet<string> = new Set(),
+): Promise<{ readonly pdffonts: Array<FontRow>; readonly pdfwright: Array<FontRow> }> => {
   const printed = await pdffonts(file);
   const bytes = new Uint8Array(await readFile(file));
   const inventory = listFonts(loadDocument(bytes), { shownOn: false });
@@ -134,7 +149,7 @@ const form = (font: string): string =>
   streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 100 100]/Resources<</Font<</F1 ${font}>>>>`, 'BT /F1 12 Tf 0 0 Td (A) Tj ET');
 
 // A page that reaches fonts through its resources, a form, a tiling pattern, a graphics state and an annotation appearance: a direct standard 14 font, an embedded TrueType subset, a Type 0 CIDFontType2 subset, a Type 3 font shaped as Chromium writes one for a CFF face, and further standard 14 fonts.
-const FIXTURE: readonly TestObject[] = [
+const FIXTURE: ReadonlyArray<TestObject> = [
   {
     number: 100,
     body: '<</Type/Font/Subtype/TrueType/BaseFont/BCDEFG+Synthetic/FirstChar 65/LastChar 66/Widths[600 700]/Encoding/WinAnsiEncoding/FontDescriptor 101 0 R/ToUnicode 103 0 R>>',
@@ -181,37 +196,47 @@ const FIXTURE_PAGE = {
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
   for (const [file, entry] of Object.entries(parsed)) {
-    if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
   }
   return failing;
 };
 
-const corpusFiles = async (set: string, directory = path.join(CORPUS, set)): Promise<readonly string[]> => {
+const corpusFiles = async (set: string, directory = path.join(CORPUS, set)): Promise<ReadonlyArray<string>> => {
   try {
     const names = await readdir(directory);
     const files = names
       .filter(name => name.endsWith('.pdf'))
       .toSorted()
       .map(name => path.join(directory, name));
-    if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+    if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return files;
   } catch {
-    if (set === 'govdocs1' && env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+    if (set === 'govdocs1' && env['CI'] !== undefined) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return [];
   }
 };
 
 // Every file of a set that loads: pdfwright lists exactly the fonts pdffonts lists, with the same name, type, embedding, subset and ToUnicode columns.
-const differencesIn = async (set: string, directory?: string): Promise<string[]> => {
+const differencesIn = async (set: string, directory?: string): Promise<Array<string>> => {
   const failing = await expectedErrors();
   const files = await corpusFiles(set, directory);
-  const differences: string[] = [];
+  const differences: Array<string> = [];
   // Files run one after another, so that a large set does not start every pdffonts process at once.
-  const next = async (index: number): Promise<string[]> => {
+  const next = async (index: number): Promise<Array<string>> => {
     const file = files[index];
-    if (file === undefined) return differences;
+    if (file === undefined) {
+      return differences;
+    }
     if (!failing.has(`${set}/${path.basename(file)}`)) {
       const { pdffonts: printed, pdfwright } = await compare(file);
       if (JSON.stringify(printed) !== JSON.stringify(pdfwright)) {

@@ -13,7 +13,7 @@ const ignore = (): void => {
   // Warnings are not under test here.
 };
 
-const chainOf = (trailers: readonly string[], xref: 'classic' | 'stream' = 'classic'): SectionChain => {
+const chainOf = (trailers: ReadonlyArray<string>, xref: 'classic' | 'stream' = 'classic'): SectionChain => {
   const pdf = buildPdf(trailers.map((trailer, index) => ({ xref, objects: [{ number: index + 1, body: '<<>>' }], trailer })));
   const context = { warn: ignore, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576 };
   return readSectionChain(new ByteSource(pdf.bytes), { startxref: pdf.sections.at(-1) ?? 0, shift: 0 }, context);

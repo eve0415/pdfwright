@@ -9,14 +9,16 @@ import { writeRaster } from '../native/writeRaster.ts';
 
 import { parseNativeLiteral, tokenizeNative } from './nativeTokenizer.ts';
 
-const lines = (records: readonly NativeRecord[]): string[] => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
+const lines = (records: ReadonlyArray<NativeRecord>): Array<string> => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
 const encoder = new TextEncoder();
 
 const thrown = (action: () => void): Error | undefined => {
   try {
     action();
   } catch (error: unknown) {
-    if (error instanceof Error) return error;
+    if (error instanceof Error) {
+      return error;
+    }
     throw error;
   }
   return undefined;

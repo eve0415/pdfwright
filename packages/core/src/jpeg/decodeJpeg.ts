@@ -48,7 +48,7 @@ interface Component {
 interface Frame {
   readonly width: number;
   readonly height: number;
-  readonly components: readonly Component[];
+  readonly components: ReadonlyArray<Component>;
   readonly maxHorizontal: number;
   readonly maxVertical: number;
 }
@@ -72,7 +72,7 @@ interface Scan {
   readonly start: number;
   readonly end: number;
   readonly frame: Frame;
-  readonly components: readonly ScanComponent[];
+  readonly components: ReadonlyArray<ScanComponent>;
   readonly restartInterval: number;
   readonly colorTransform: number;
 }
@@ -93,9 +93,9 @@ interface DecodedBlock {
 }
 
 interface ParserState {
-  readonly quantization: (Uint16Array | undefined)[];
-  readonly dc: (HuffmanTable | undefined)[];
-  readonly ac: (HuffmanTable | undefined)[];
+  readonly quantization: Array<Uint16Array | undefined>;
+  readonly dc: Array<HuffmanTable | undefined>;
+  readonly ac: Array<HuffmanTable | undefined>;
   frame: Frame | undefined;
   restartInterval: number;
   adobeColorTransform: number | undefined;
@@ -140,18 +140,28 @@ const byte = (data: Uint8Array, offset: number): number => data[offset] ?? inval
 const word = (data: Uint8Array, offset: number): number => byte(data, offset) * 256 + byte(data, offset + 1);
 
 const markerAt = (data: Uint8Array, position: number): MarkerLocation => {
-  if (byte(data, position) !== 0xff) return invalid(position, 'expected marker');
+  if (byte(data, position) !== 0xff) {
+    return invalid(position, 'expected marker');
+  }
   let next = position + 1;
-  while (byte(data, next) === 0xff) next++;
+  while (byte(data, next) === 0xff) {
+    next++;
+  }
   const marker = byte(data, next);
-  if (marker === 0) return invalid(next, 'unexpected stuffed byte outside scan');
+  if (marker === 0) {
+    return invalid(next, 'unexpected stuffed byte outside scan');
+  }
   return { marker, next: next + 1 };
 };
 
 const segment = (data: Uint8Array, position: number): SegmentBounds => {
   const length = word(data, position);
-  if (length < 2) return invalid(position, 'marker segment length is invalid');
-  if (position + length > data.length) return invalid(position, 'marker segment is truncated', 'image-truncated');
+  if (length < 2) {
+    return invalid(position, 'marker segment length is invalid');
+  }
+  if (position + length > data.length) {
+    return invalid(position, 'marker segment is truncated', 'image-truncated');
+  }
   return { start: position + 2, end: position + length };
 };
 
@@ -161,13 +171,17 @@ const frameComponent = (data: Uint8Array, position: number): Component => {
   const horizontal = Math.floor(factors / 16);
   const vertical = factors % 16;
   const quantization = byte(data, position + 2);
-  if (horizontal < 1 || horizontal > 2 || vertical < 1 || vertical > 2 || quantization > 3) return unsupported('jpeg-sampling');
+  if (horizontal < 1 || horizontal > 2 || vertical < 1 || vertical > 2 || quantization > 3) {
+    return unsupported('jpeg-sampling');
+  }
   return { id, horizontal, vertical, quantization };
 };
 
-const checkSampling = (components: readonly Component[], maxHorizontal: number, maxVertical: number): void => {
+const checkSampling = (components: ReadonlyArray<Component>, maxHorizontal: number, maxVertical: number): void => {
   if (components.length === 1) {
-    if (maxHorizontal !== 1 || maxVertical !== 1) unsupported('jpeg-sampling');
+    if (maxHorizontal !== 1 || maxVertical !== 1) {
+      unsupported('jpeg-sampling');
+    }
     return;
   }
   const [luma, firstChroma, secondChroma] = components;
@@ -190,20 +204,32 @@ const checkSampling = (components: readonly Component[], maxHorizontal: number, 
 // ITU-T T.81 (1992), B.2.2 and Table B.2 define SOF component identifiers, precision and sampling factors.
 const frameHeader = (data: Uint8Array, bounds: SegmentBounds): Frame => {
   const { start, end } = bounds;
-  if (end - start < 6) return invalid(start, 'frame header is short');
+  if (end - start < 6) {
+    return invalid(start, 'frame header is short');
+  }
   const precision = byte(data, start);
-  if (precision !== 8) return unsupported('jpeg-12-bit');
+  if (precision !== 8) {
+    return unsupported('jpeg-12-bit');
+  }
   const height = word(data, start + 1);
   const width = word(data, start + 3);
   const count = byte(data, start + 5);
-  if (count === 4) return unsupported('jpeg-cmyk');
-  if (count !== 1 && count !== 3) return unsupported('jpeg-sampling');
-  if (height === 0 || width === 0 || end - start !== 6 + count * 3) return invalid(start, 'frame geometry is invalid');
-  const components: Component[] = [];
+  if (count === 4) {
+    return unsupported('jpeg-cmyk');
+  }
+  if (count !== 1 && count !== 3) {
+    return unsupported('jpeg-sampling');
+  }
+  if (height === 0 || width === 0 || end - start !== 6 + count * 3) {
+    return invalid(start, 'frame geometry is invalid');
+  }
+  const components: Array<Component> = [];
   for (let index = 0; index < count; index++) {
     const position = start + 6 + index * 3;
     const component = frameComponent(data, position);
-    if (components.some(item => item.id === component.id)) return invalid(position, 'duplicate component identifier');
+    if (components.some(item => item.id === component.id)) {
+      return invalid(position, 'duplicate component identifier');
+    }
     components.push(component);
   }
   const maxHorizontal = Math.max(...components.map(component => component.horizontal));
@@ -213,21 +239,29 @@ const frameHeader = (data: Uint8Array, bounds: SegmentBounds): Frame => {
 };
 
 // ITU-T T.81 (1992), B.2.4.1 and Figure B.6 specify DQT element precision and zigzag ordering.
-const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: (Uint16Array | undefined)[]): void => {
+const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: Array<Uint16Array | undefined>): void => {
   const { start, end } = bounds;
   let position = start;
   while (position < end) {
     const selector = byte(data, position++);
     const precision = Math.floor(selector / 16);
     const destination = selector % 16;
-    if (precision > 1 || destination > 3) return invalid(position - 1, 'quantization table selector is invalid');
+    if (precision > 1 || destination > 3) {
+      return invalid(position - 1, 'quantization table selector is invalid');
+    }
     const size = precision === 0 ? 1 : 2;
-    if (position + 64 * size > end) return invalid(position, 'quantization table is short');
+    if (position + 64 * size > end) {
+      return invalid(position, 'quantization table is short');
+    }
     const table = new Uint16Array(64);
     for (let index = 0; index < 64; index++) {
       const value = precision === 0 ? byte(data, position++) : word(data, position);
-      if (precision === 1) position += 2;
-      if (value === 0) return invalid(position, 'zero quantization value');
+      if (precision === 1) {
+        position += 2;
+      }
+      if (value === 0) {
+        return invalid(position, 'zero quantization value');
+      }
       table[ZIGZAG[index] ?? 0] = value;
     }
     tables[destination] = table;
@@ -238,7 +272,7 @@ const quantizationTables = (data: Uint8Array, bounds: SegmentBounds, tables: (Ui
 const huffmanTables = (
   data: Uint8Array,
   bounds: SegmentBounds,
-  tables: { readonly dc: (HuffmanTable | undefined)[]; readonly ac: (HuffmanTable | undefined)[] },
+  tables: { readonly dc: Array<HuffmanTable | undefined>; readonly ac: Array<HuffmanTable | undefined> },
 ): void => {
   const { start, end } = bounds;
   let position = start;
@@ -246,11 +280,15 @@ const huffmanTables = (
     const selector = byte(data, position++);
     const tableClass = Math.floor(selector / 16);
     const destination = selector % 16;
-    if (tableClass > 1 || destination > 3 || position + 16 > end) return invalid(position - 1, 'Huffman table selector is invalid');
+    if (tableClass > 1 || destination > 3 || position + 16 > end) {
+      return invalid(position - 1, 'Huffman table selector is invalid');
+    }
     const counts = data.subarray(position, position + 16);
     position += 16;
     const symbolCount = counts.reduce((sum, count) => sum + count, 0);
-    if (position + symbolCount > end || symbolCount === 0) return invalid(position, 'Huffman values are invalid');
+    if (position + symbolCount > end || symbolCount === 0) {
+      return invalid(position, 'Huffman values are invalid');
+    }
     const symbols = data.slice(position, position + symbolCount);
     position += symbolCount;
     const minimum = new Int32Array(17);
@@ -262,7 +300,9 @@ const huffmanTables = (
     let offset = 0;
     for (let length = 1; length <= 16; length++) {
       const count = counts[length - 1] ?? 0;
-      if (code + count > 2 ** length) return invalid(position, 'Huffman code lengths oversubscribe the tree');
+      if (code + count > 2 ** length) {
+        return invalid(position, 'Huffman code lengths oversubscribe the tree');
+      }
       if (count > 0) {
         minimum[length] = code;
         maximum[length] = code + count - 1;
@@ -272,8 +312,11 @@ const huffmanTables = (
       offset += count;
     }
     const table = { minimum, maximum, offsets, symbols };
-    if (tableClass === 0) tables.dc[destination] = table;
-    else tables.ac[destination] = table;
+    if (tableClass === 0) {
+      tables.dc[destination] = table;
+    } else {
+      tables.ac[destination] = table;
+    }
   }
 };
 
@@ -282,34 +325,44 @@ const scanHeader = (
   bounds: SegmentBounds,
   setup: {
     readonly frame: Frame;
-    readonly quantization: readonly (Uint16Array | undefined)[];
-    readonly dc: readonly (HuffmanTable | undefined)[];
-    readonly ac: readonly (HuffmanTable | undefined)[];
+    readonly quantization: ReadonlyArray<Uint16Array | undefined>;
+    readonly dc: ReadonlyArray<HuffmanTable | undefined>;
+    readonly ac: ReadonlyArray<HuffmanTable | undefined>;
   },
-): ScanComponent[] => {
+): Array<ScanComponent> => {
   const { start, end } = bounds;
   const { frame, quantization, dc, ac } = setup;
   // ITU-T T.81 (1992), B.2.3: one SOS with every frame component is an interleaved sequential scan.
   const count = byte(data, start);
-  if (count !== frame.components.length) return unsupported('jpeg-multi-scan');
-  if (end - start !== 1 + count * 2 + 3) return invalid(start, 'scan header length is invalid');
-  const components: ScanComponent[] = [];
+  if (count !== frame.components.length) {
+    return unsupported('jpeg-multi-scan');
+  }
+  if (end - start !== 1 + count * 2 + 3) {
+    return invalid(start, 'scan header length is invalid');
+  }
+  const components: Array<ScanComponent> = [];
   for (let index = 0; index < count; index++) {
     const position = start + 1 + index * 2;
     const id = byte(data, position);
     const selector = byte(data, position + 1);
     const component = frame.components.find(item => item.id === id);
-    if (component === undefined || components.some(item => item.component.id === id)) return invalid(position, 'scan component is invalid');
+    if (component === undefined || components.some(item => item.component.id === id)) {
+      return invalid(position, 'scan component is invalid');
+    }
     const dcTable = dc[Math.floor(selector / 16)];
     const acTable = ac[selector % 16];
     const quantizationTable = quantization[component.quantization];
-    if (dcTable === undefined || acTable === undefined || quantizationTable === undefined) return invalid(position, 'scan table is missing');
+    if (dcTable === undefined || acTable === undefined || quantizationTable === undefined) {
+      return invalid(position, 'scan table is missing');
+    }
     components.push({ component, dc: dcTable, ac: acTable, quantization: quantizationTable });
   }
   const spectralStart = byte(data, end - 3);
   const spectralEnd = byte(data, end - 2);
   const approximation = byte(data, end - 1);
-  if (spectralStart !== 0 || spectralEnd !== 63 || approximation !== 0) return unsupported('jpeg-progressive');
+  if (spectralStart !== 0 || spectralEnd !== 63 || approximation !== 0) {
+    return unsupported('jpeg-progressive');
+  }
   return components;
 };
 
@@ -321,14 +374,20 @@ const scanEnd = (data: Uint8Array, start: number): number => {
       continue;
     }
     let markerPosition = position + 1;
-    while (data[markerPosition] === 0xff) markerPosition++;
+    while (data[markerPosition] === 0xff) {
+      markerPosition++;
+    }
     const marker = byte(data, markerPosition);
     if (marker === 0 || (marker >= 0xd0 && marker <= 0xd7)) {
       position = markerPosition + 1;
       continue;
     }
-    if (marker === 0xd9) return position;
-    if (marker === 0xda) return unsupported('jpeg-multi-scan');
+    if (marker === 0xd9) {
+      return position;
+    }
+    if (marker === 0xda) {
+      return unsupported('jpeg-multi-scan');
+    }
     return invalid(position, 'unexpected marker after entropy data');
   }
   return invalid(data.length, 'missing end of image', 'image-truncated');
@@ -350,9 +409,13 @@ class EntropyReader {
   bit(): number {
     if (this.count === 0) {
       const { position } = this;
-      if (position >= this.end) return invalid(position, 'truncated entropy data', 'image-truncated');
+      if (position >= this.end) {
+        return invalid(position, 'truncated entropy data', 'image-truncated');
+      }
       this.bits = byte(this.data, this.position++);
-      if (this.bits === 0xff && byte(this.data, this.position++) !== 0) return invalid(position, 'marker inside entropy code');
+      if (this.bits === 0xff && byte(this.data, this.position++) !== 0) {
+        return invalid(position, 'marker inside entropy code');
+      }
       this.count = 8;
     }
     this.count--;
@@ -361,7 +424,9 @@ class EntropyReader {
 
   bitsOf(length: number): number {
     let result = 0;
-    for (let index = 0; index < length; index++) result = result * 2 + this.bit();
+    for (let index = 0; index < length; index++) {
+      result = result * 2 + this.bit();
+    }
     return result;
   }
 
@@ -379,16 +444,24 @@ class EntropyReader {
   }
 
   signed(length: number): number {
-    if (length === 0) return 0;
+    if (length === 0) {
+      return 0;
+    }
     const value = this.bitsOf(length);
     return value < 2 ** (length - 1) ? value - (2 ** length - 1) : value;
   }
 
   restart(number: number): void {
     this.count = 0;
-    if (this.position >= this.end || byte(this.data, this.position++) !== 0xff) return invalid(this.position, 'restart marker is missing');
-    while (this.position < this.end && this.data[this.position] === 0xff) this.position++;
-    if (byte(this.data, this.position++) !== 0xd0 + number) return invalid(this.position, 'restart marker sequence is invalid');
+    if (this.position >= this.end || byte(this.data, this.position++) !== 0xff) {
+      return invalid(this.position, 'restart marker is missing');
+    }
+    while (this.position < this.end && this.data[this.position] === 0xff) {
+      this.position++;
+    }
+    if (byte(this.data, this.position++) !== 0xd0 + number) {
+      return invalid(this.position, 'restart marker sequence is invalid');
+    }
   }
 
   finish(): void {
@@ -437,19 +510,29 @@ const block = (reader: EntropyReader, component: ScanComponent, previous: number
   // ITU-T T.81 (1992), F.2.2.1 and F.2.2.2: DC differences and AC run/size symbols use separate Huffman tables.
   const coefficients = new Int32Array(64);
   const dcLength = reader.huffman(component.dc);
-  if (dcLength > 16) return invalid(0, 'DC category is invalid');
+  if (dcLength > 16) {
+    return invalid(0, 'DC category is invalid');
+  }
   const dc = previous + reader.signed(dcLength);
   coefficients[0] = dc * (component.quantization[0] ?? 0);
   for (let index = 1; index < 64;) {
     const symbol = reader.huffman(component.ac);
-    if (symbol === 0) break;
+    if (symbol === 0) {
+      break;
+    }
     const run = Math.floor(symbol / 16);
     const size = symbol % 16;
-    if (size === 0 && run !== 15) return invalid(0, 'AC run is invalid');
+    if (size === 0 && run !== 15) {
+      return invalid(0, 'AC run is invalid');
+    }
     index += size === 0 ? 16 : run;
     // ITU-T T.81 (1992), F.2.2.2: a final ZRL may cover coefficients through position 63.
-    if (index > 64 || (index === 64 && size !== 0)) return invalid(0, 'AC run exceeds block');
-    if (size === 0) continue;
+    if (index > 64 || (index === 64 && size !== 0)) {
+      return invalid(0, 'AC run exceeds block');
+    }
+    if (size === 0) {
+      continue;
+    }
     const natural = ZIGZAG[index] ?? 0;
     coefficients[natural] = reader.signed(size) * (component.quantization[natural] ?? 0);
     index++;
@@ -488,16 +571,20 @@ const decodeMcu = (input: {
         predictors.set(component.id, decoded.dc);
         const x = (mcuColumn * component.horizontal + horizontal) * 8;
         const y = vertical * 8;
-        for (let row = 0; row < 8; row++) plane.samples.set(decoded.samples.subarray(row * 8, row * 8 + 8), (y + row) * plane.width + x);
+        for (let row = 0; row < 8; row++) {
+          plane.samples.set(decoded.samples.subarray(row * 8, row * 8 + 8), (y + row) * plane.width + x);
+        }
       }
     }
   }
 };
 
-const componentSamples = (frame: Frame, planes: ReadonlyMap<number, Plane>, point: { readonly x: number; readonly localY: number }): number[] =>
+const componentSamples = (frame: Frame, planes: ReadonlyMap<number, Plane>, point: { readonly x: number; readonly localY: number }): Array<number> =>
   frame.components.map(component => {
     const plane = planes.get(component.id);
-    if (plane === undefined) return invalid(0, 'component plane is missing');
+    if (plane === undefined) {
+      return invalid(0, 'component plane is missing');
+    }
     const sourceX = Math.floor((point.x * component.horizontal) / frame.maxHorizontal);
     const sourceY = Math.floor((point.localY * component.vertical) / frame.maxVertical);
     return plane.samples[sourceY * plane.width + sourceX] ?? 0;
@@ -531,7 +618,9 @@ const rows = function* (scan: Scan, maxRowBytes: number): Generator<Uint8Array> 
   const mcuColumns = Math.ceil(frame.width / (8 * frame.maxHorizontal));
   const mcuRows = Math.ceil(frame.height / (8 * frame.maxVertical));
   const storage = mcuColumns * 64 * frame.components.reduce((sum, component) => sum + component.horizontal * component.vertical, 0);
-  if (storage + frame.width * frame.components.length > maxRowBytes) throw new ResourceLimitError('JPEG MCU row exceeds maxRowBytes');
+  if (storage + frame.width * frame.components.length > maxRowBytes) {
+    throw new ResourceLimitError('JPEG MCU row exceeds maxRowBytes');
+  }
   const reader = new EntropyReader(scan.data, scan.start, scan.end);
   const predictors = new Map<number, number>();
   let decodedMcus = 0;
@@ -545,7 +634,9 @@ const rows = function* (scan: Scan, maxRowBytes: number): Generator<Uint8Array> 
       decodeMcu({ scan, reader, predictors, planes, mcuColumn });
       decodedMcus++;
     }
-    if (mcuRow === mcuRows - 1) reader.finish();
+    if (mcuRow === mcuRows - 1) {
+      reader.finish();
+    }
     for (let localY = 0; localY < frame.maxVertical * 8 && mcuRow * frame.maxVertical * 8 + localY < frame.height; localY++) {
       yield renderRow(scan, planes, localY);
     }
@@ -560,20 +651,26 @@ const parseHeaderSegment = (input: {
 }): void => {
   const { state, data, marker, bounds } = input;
   if (marker === 0xc0 || marker === 0xc1) {
-    if (state.frame !== undefined) invalid(bounds.start, 'multiple frames');
+    if (state.frame !== undefined) {
+      invalid(bounds.start, 'multiple frames');
+    }
     state.frame = frameHeader(data, bounds);
   } else if (marker === 0xdb) {
     quantizationTables(data, bounds, state.quantization);
   } else if (marker === 0xc4) {
     huffmanTables(data, bounds, state);
   } else if (marker === 0xdd) {
-    if (bounds.end - bounds.start !== 2) invalid(bounds.start, 'restart interval length is invalid');
+    if (bounds.end - bounds.start !== 2) {
+      invalid(bounds.start, 'restart interval length is invalid');
+    }
     state.restartInterval = word(data, bounds.start);
   } else if (marker === 0xee) {
     const adobe = [65, 100, 111, 98, 101];
     if (bounds.end - bounds.start >= 12 && adobe.every((value, index) => data[bounds.start + index] === value)) {
       state.adobeColorTransform = byte(data, bounds.start + 11);
-      if (state.adobeColorTransform > 1) unsupported('jpeg-color-transform');
+      if (state.adobeColorTransform > 1) {
+        unsupported('jpeg-color-transform');
+      }
     }
   } else if (marker === 0xe2 && isIccSegment(data, bounds)) {
     readIccChunk(data, bounds, state.iccChunks);
@@ -596,13 +693,17 @@ const finishScan = (input: {
 }): DecodedJpeg => {
   const { state, data, bounds, start, maxRowBytes, maxDecodedBytes, colorTransform } = input;
   const { frame, quantization, dc, ac, restartInterval, adobeColorTransform } = state;
-  if (frame === undefined) return invalid(bounds.start, 'scan has no frame');
+  if (frame === undefined) {
+    return invalid(bounds.start, 'scan has no frame');
+  }
   const components = scanHeader(data, bounds, { frame, quantization, dc, ac });
   const end = scanEnd(data, start);
   const mcuColumns = Math.ceil(frame.width / (8 * frame.maxHorizontal));
   const rowBytes =
     mcuColumns * 64 * frame.components.reduce((sum, component) => sum + component.horizontal * component.vertical, 0) + frame.width * frame.components.length;
-  if (rowBytes > maxRowBytes) throw new ResourceLimitError('JPEG MCU row exceeds maxRowBytes');
+  if (rowBytes > maxRowBytes) {
+    throw new ResourceLimitError('JPEG MCU row exceeds maxRowBytes');
+  }
   if (frame.width * frame.height * frame.components.length > maxDecodedBytes) {
     throw new ResourceLimitError('JPEG decoded samples exceed maxDecodedBytes');
   }
@@ -630,10 +731,18 @@ const finishScan = (input: {
 };
 
 const checkFrameMarker = (marker: number): void => {
-  if (marker === 0xcc || (marker >= 0xc9 && marker <= 0xcf)) unsupported('jpeg-arithmetic');
-  if (marker === 0xc2 || marker === 0xc6) unsupported('jpeg-progressive');
-  if (marker === 0xc3 || marker === 0xc7) unsupported('jpeg-lossless');
-  if (marker === 0xc5 || marker === 0xc8 || marker === 0xf7) unsupported('jpeg-process');
+  if (marker === 0xcc || (marker >= 0xc9 && marker <= 0xcf)) {
+    unsupported('jpeg-arithmetic');
+  }
+  if (marker === 0xc2 || marker === 0xc6) {
+    unsupported('jpeg-progressive');
+  }
+  if (marker === 0xc3 || marker === 0xc7) {
+    unsupported('jpeg-lossless');
+  }
+  if (marker === 0xc5 || marker === 0xc8 || marker === 0xf7) {
+    unsupported('jpeg-process');
+  }
 };
 
 /**
@@ -641,11 +750,17 @@ const checkFrameMarker = (marker: number): void => {
  * Progressive, lossless, arithmetic-coded, 12-bit, four-component and multi-scan files throw UnsupportedFeatureError with a `jpeg-*` reason; malformed files throw ParseError with an `image-*` reason; images past `maxDecodedBytes` or `maxRowBytes` throw ResourceLimitError; invalid options throw InvalidArgumentError.
  */
 export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): DecodedJpeg => {
-  if (byte(data, 0) !== 0xff || byte(data, 1) !== 0xd8) return invalid(0, 'missing start of image');
+  if (byte(data, 0) !== 0xff || byte(data, 1) !== 0xd8) {
+    return invalid(0, 'missing start of image');
+  }
   const maxRowBytes = options.maxRowBytes ?? 4 * 1024 * 1024;
-  if (!Number.isSafeInteger(maxRowBytes) || maxRowBytes < 1) throw new InvalidArgumentError('maxRowBytes must be a positive integer');
+  if (!Number.isSafeInteger(maxRowBytes) || maxRowBytes < 1) {
+    throw new InvalidArgumentError('maxRowBytes must be a positive integer');
+  }
   const maxDecodedBytes = options.maxDecodedBytes ?? 16 * 1024 * 1024;
-  if (!Number.isSafeInteger(maxDecodedBytes) || maxDecodedBytes < 1) throw new InvalidArgumentError('maxDecodedBytes must be a positive integer');
+  if (!Number.isSafeInteger(maxDecodedBytes) || maxDecodedBytes < 1) {
+    throw new InvalidArgumentError('maxDecodedBytes must be a positive integer');
+  }
   const requestedTransform: unknown = options.colorTransform;
   if (requestedTransform !== undefined && requestedTransform !== 0 && requestedTransform !== 1) {
     throw new InvalidArgumentError('JPEG colorTransform must be 0 or 1');
@@ -665,8 +780,12 @@ export const decodeJpeg = (data: Uint8Array, options: DecodeJpegOptions = {}): D
   while (position < data.length) {
     const current = markerAt(data, position);
     position = current.next;
-    if (current.marker === 0xd9) return invalid(position, 'end of image precedes scan');
-    if (current.marker >= 0xd0 && current.marker <= 0xd7) return invalid(position, 'restart marker outside scan');
+    if (current.marker === 0xd9) {
+      return invalid(position, 'end of image precedes scan');
+    }
+    if (current.marker >= 0xd0 && current.marker <= 0xd7) {
+      return invalid(position, 'restart marker outside scan');
+    }
     checkFrameMarker(current.marker);
     const bounds = segment(data, position);
     position = bounds.end;

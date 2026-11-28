@@ -10,12 +10,14 @@ export class Huffman {
   private readonly maxBits: number;
   readonly empty: boolean;
 
-  constructor(codeLengths: readonly number[], offset: number) {
+  constructor(codeLengths: ReadonlyArray<number>, offset: number) {
     // RFC 1951, 3.2.2 assigns canonical codes by length and symbol order.
     const counts = new Uint16Array(16);
     let maxBits = 0;
     for (const length of codeLengths) {
-      if (length < 0 || length > 15) throw new ParseError('invalid Huffman code length', offset);
+      if (length < 0 || length > 15) {
+        throw new ParseError('invalid Huffman code length', offset);
+      }
       if (length > 0) {
         counts[length] = (counts[length] ?? 0) + 1;
         maxBits = Math.max(maxBits, length);
@@ -24,7 +26,9 @@ export class Huffman {
     let space = 1;
     for (let bits = 1; bits <= 15; bits++) {
       space = space * 2 - (counts[bits] ?? 0);
-      if (space < 0) throw new ParseError('oversubscribed Huffman tree', offset);
+      if (space < 0) {
+        throw new ParseError('oversubscribed Huffman tree', offset);
+      }
     }
     this.maxBits = maxBits;
     this.empty = maxBits === 0;
@@ -38,7 +42,9 @@ export class Huffman {
     }
     for (let symbol = 0; symbol < codeLengths.length; symbol++) {
       const length = codeLengths[symbol] ?? 0;
-      if (length === 0) continue;
+      if (length === 0) {
+        continue;
+      }
       const reversed = reverseBits(nextCodes[length] ?? 0, length);
       nextCodes[length] = (nextCodes[length] ?? 0) + 1;
       for (let index = reversed; index < this.symbols.length; index += 1 << length) {
@@ -50,11 +56,17 @@ export class Huffman {
 
   read(reader: BitReader): number {
     const available = Math.min(this.maxBits, reader.availableBits);
-    if (available === 0) throw new ParseError('truncated Huffman code', Math.ceil(reader.bitPosition / 8));
+    if (available === 0) {
+      throw new ParseError('truncated Huffman code', Math.ceil(reader.bitPosition / 8));
+    }
     const index = reader.peekBits(available);
     const length = this.lengths[index] ?? 0;
-    if (length === 0) throw new ParseError('invalid Huffman code', Math.ceil(reader.bitPosition / 8));
-    if (length > available) throw new ParseError('truncated Huffman code', Math.ceil(reader.bitPosition / 8));
+    if (length === 0) {
+      throw new ParseError('invalid Huffman code', Math.ceil(reader.bitPosition / 8));
+    }
+    if (length > available) {
+      throw new ParseError('truncated Huffman code', Math.ceil(reader.bitPosition / 8));
+    }
     reader.skipBits(length);
     return this.symbols[index] ?? 0;
   }

@@ -29,7 +29,7 @@ const source = () =>
     },
   ]);
 
-const boxed = (...pages: readonly string[]) =>
+const boxed = (...pages: ReadonlyArray<string>) =>
   loadDocument(
     buildPdf([
       {
@@ -49,9 +49,13 @@ const reloaded = (document: ReturnType<typeof loadDocument>) => loadDocument(doc
 
 const pageGroup = (document: ReturnType<typeof loadDocument>, index: number) => {
   const page = document.get(document.page(index).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is not a dictionary');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is not a dictionary');
+  }
   const group = page.entries.get(pdfName('Group').bytes);
-  if (group?.kind !== 'dictionary') throw new Error('group is not a dictionary');
+  if (group?.kind !== 'dictionary') {
+    throw new Error('group is not a dictionary');
+  }
   return group.entries;
 };
 

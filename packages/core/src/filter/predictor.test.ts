@@ -9,22 +9,32 @@ const paeth = (left: number, above: number, upperLeft: number): number => {
   const estimate = left + above - upperLeft;
   const distances = [Math.abs(estimate - left), Math.abs(estimate - above), Math.abs(estimate - upperLeft)];
   const smallest = Math.min(...distances);
-  if (distances[0] === smallest) return left;
+  if (distances[0] === smallest) {
+    return left;
+  }
   return distances[1] === smallest ? above : upperLeft;
 };
 
 const predict = (tag: number, [left, above, upperLeft]: readonly [number, number, number]): number => {
-  if (tag === 1) return left;
-  if (tag === 2) return above;
-  if (tag === 3) return Math.floor((left + above) / 2);
-  if (tag === 4) return paeth(left, above, upperLeft);
+  if (tag === 1) {
+    return left;
+  }
+  if (tag === 2) {
+    return above;
+  }
+  if (tag === 3) {
+    return Math.floor((left + above) / 2);
+  }
+  if (tag === 4) {
+    return paeth(left, above, upperLeft);
+  }
   return 0;
 };
 
 // Encodes rows with the PNG filter named by each row's tag (RFC 2083, 6).
-const pngEncode = (rows: number[][], tags: number[], bytesPerPixel: number): Uint8Array => {
-  const output: number[] = [];
-  let previous: number[] = [];
+const pngEncode = (rows: Array<Array<number>>, tags: Array<number>, bytesPerPixel: number): Uint8Array => {
+  const output: Array<number> = [];
+  let previous: Array<number> = [];
   for (const [rowIndex, row] of rows.entries()) {
     const tag = tags[rowIndex] ?? 0;
     output.push(tag);

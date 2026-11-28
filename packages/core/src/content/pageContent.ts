@@ -11,10 +11,10 @@ const CONTENTS = pdfName('Contents').bytes;
 
 /** A page's decoded content streams, and why any of them could not be read. */
 export interface PageContent {
-  readonly streams: readonly Uint8Array[];
+  readonly streams: ReadonlyArray<Uint8Array>;
   /** The index in the Contents array of each stream read. */
-  readonly indexes: readonly number[];
-  readonly problems: readonly string[];
+  readonly indexes: ReadonlyArray<number>;
+  readonly problems: ReadonlyArray<string>;
 }
 
 const label = (index: number): string => `content stream ${String(index)}`;
@@ -24,9 +24,9 @@ const label = (index: number): string => `content stream ${String(index)}`;
  * A stream that cannot be decoded is left out and reported; together the streams are held under the document's maxDecodedBytes, past which ResourceLimitError is thrown.
  */
 export const pageContent = (document: DocumentInternals, page: PageEntry): PageContent => {
-  const problems: string[] = [];
-  const streams: Uint8Array[] = [];
-  const indexes: number[] = [];
+  const problems: Array<string> = [];
+  const streams: Array<Uint8Array> = [];
+  const indexes: Array<number> = [];
   try {
     const dictionary = document.objects.resolve(page.reference.objectNumber, page.reference.generation);
     const contents = dictionary.kind === 'dictionary' ? document.objects.deref(dictionary.entries.get(CONTENTS)) : undefined;
@@ -35,7 +35,9 @@ export const pageContent = (document: DocumentInternals, page: PageEntry): PageC
     for (const [index, item] of items.entries()) {
       const stream = document.objects.deref(item);
       // 7.3.10: a reference to a missing object is a reference to null, which contributes no content.
-      if (stream === undefined || stream.kind === 'null') continue;
+      if (stream === undefined || stream.kind === 'null') {
+        continue;
+      }
       const data = stream.kind === 'stream' ? decodedData(document, stream) : `${label(index)} is not a stream`;
       if (typeof data === 'string') {
         problems.push(`${label(index)} cannot be read: ${data}`);
@@ -49,7 +51,9 @@ export const pageContent = (document: DocumentInternals, page: PageEntry): PageC
       indexes.push(index);
     }
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     problems.push(`the page's Contents cannot be read: ${error.message}`);
   }
   return { streams, indexes, problems };

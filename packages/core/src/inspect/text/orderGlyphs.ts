@@ -23,9 +23,9 @@ const placed = (glyph: PageGlyph): Placed => {
 };
 
 // Splits glyphs, already sorted along the grouping axis, into groups whose extents on that axis overlap by at least half the smaller extent.
-const groups = (sorted: readonly Placed[], extent: (item: Placed) => readonly [number, number]): Placed[][] => {
-  const result: Placed[][] = [];
-  let current: Placed[] = [];
+const groups = (sorted: ReadonlyArray<Placed>, extent: (item: Placed) => readonly [number, number]): Array<Array<Placed>> => {
+  const result: Array<Array<Placed>> = [];
+  let current: Array<Placed> = [];
   let [low, high] = [Infinity, -Infinity];
   for (const item of sorted) {
     const [start, end] = extent(item);
@@ -34,16 +34,20 @@ const groups = (sorted: readonly Placed[], extent: (item: Placed) => readonly [n
       current.push(item);
       [low, high] = [Math.min(low, start), Math.max(high, end)];
     } else {
-      if (current.length > 0) result.push(current);
+      if (current.length > 0) {
+        result.push(current);
+      }
       current = [item];
       [low, high] = [start, end];
     }
   }
-  if (current.length > 0) result.push(current);
+  if (current.length > 0) {
+    result.push(current);
+  }
   return result;
 };
 
-const LAYOUTS: readonly GlyphLayout[] = ['content', 'rows', 'columns-rtl'];
+const LAYOUTS: ReadonlyArray<GlyphLayout> = ['content', 'rows', 'columns-rtl'];
 
 const byIndex = (a: Placed, b: Placed): number => a.glyph.index - b.glyph.index;
 
@@ -54,10 +58,14 @@ const byIndex = (a: Placed, b: Placed): number => a.glyph.index - b.glyph.index;
  * A layout outside GlyphLayout throws InvalidArgumentError.
  * The layout is not detected: mixed layouts on one page, rotated pages and bidirectional text are not handled, and ruby set beside its base text becomes a row or column of its own; select the glyphs to order (by region, font or size) first.
  */
-export const orderGlyphs = (glyphs: readonly PageGlyph[], layout: GlyphLayout): readonly PageGlyph[] => {
-  if (!LAYOUTS.includes(layout)) throw new InvalidArgumentError(`orderGlyphs: layout ${JSON.stringify(layout)} is not one of ${LAYOUTS.join(', ')}`);
+export const orderGlyphs = (glyphs: ReadonlyArray<PageGlyph>, layout: GlyphLayout): ReadonlyArray<PageGlyph> => {
+  if (!LAYOUTS.includes(layout)) {
+    throw new InvalidArgumentError(`orderGlyphs: layout ${JSON.stringify(layout)} is not one of ${LAYOUTS.join(', ')}`);
+  }
   const items = glyphs.map(glyph => placed(glyph));
-  if (layout === 'content') return items.toSorted(byIndex).map(item => item.glyph);
+  if (layout === 'content') {
+    return items.toSorted(byIndex).map(item => item.glyph);
+  }
   if (layout === 'rows') {
     const sorted = items.toSorted((a, b) => b.top - a.top || byIndex(a, b));
     const rows = groups(sorted, item => [item.bottom, item.top]);

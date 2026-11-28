@@ -18,7 +18,7 @@ const PAGES = [
   { number: 5, body: 'null' },
 ];
 
-const load = (catalog: string, objects: readonly TestObject[], trailer = ''): LoadedDocument =>
+const load = (catalog: string, objects: ReadonlyArray<TestObject>, trailer = ''): LoadedDocument =>
   loadDocument(
     buildPdf([
       { xref: 'classic', objects: [{ number: 1, body: `<</Type/Catalog/Pages 2 0 R${catalog}>>` }, ...PAGES, ...objects], trailer: `/Root 1 0 R${trailer}` },
@@ -27,11 +27,13 @@ const load = (catalog: string, objects: readonly TestObject[], trailer = ''): Lo
 
 const internals = (document: LoadedDocument): DocumentInternals => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
-const numbers = (document: LoadedDocument): readonly number[] =>
+const numbers = (document: LoadedDocument): ReadonlyArray<number> =>
   [...reachableObjects(internals(document)).objects.keys()].toSorted((left, right) => left - right);
 
 describe('objects reachable from the trailer', () => {

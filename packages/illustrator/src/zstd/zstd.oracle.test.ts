@@ -12,9 +12,11 @@ const decodeWithLibzstd = promisify(zstdDecompress);
 const compressWithLibzstd = promisify(zstdCompress);
 
 describe('zstandard decoder agreement', () => {
-  it.each([0, 1, 131071, 131072, 131073, 2097153])('matches libzstd and fzstd for %i input bytes', async length => {
+  it.each([0, 1, 131_071, 131_072, 131_073, 2_097_153])('matches libzstd and fzstd for %i input bytes', async length => {
     const input = new Uint8Array(length);
-    for (let index = 0; index < length; index++) input[index] = (index * 43 + Math.floor(index / 163)) % 256;
+    for (let index = 0; index < length; index++) {
+      input[index] = (index * 43 + Math.floor(index / 163)) % 256;
+    }
     const frame = encodeRawFrame(input);
     const decoded = await decodeWithLibzstd(frame);
     expect(decoded.compare(input)).toBe(0);
@@ -49,9 +51,9 @@ describe('zstandard decoder agreement', () => {
 
   it('round-trips a 10 MB mixed raster payload with both decoders', async () => {
     const input = new Uint8Array(10_000_000);
-    let state = 123456789;
+    let state = 123_456_789;
     for (let index = 0; index < 3_000_000; index++) {
-      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
       input[index] = state >>> 24;
     }
     input.fill(255, 3_000_000, 6_000_000);

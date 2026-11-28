@@ -14,10 +14,14 @@ const ascii = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(by
 const nested =
   (levels: number) =>
   (content: ContentBuilder): void => {
-    for (let index = 0; index < levels; index++) content.save();
+    for (let index = 0; index < levels; index++) {
+      content.save();
+    }
     content.path(path => path.rect(0, 0, 1, 1));
     content.fill('nonzero');
-    for (let index = 0; index < levels; index++) content.restore();
+    for (let index = 0; index < levels; index++) {
+      content.restore();
+    }
   };
 
 describe('transparency groups', () => {
@@ -121,9 +125,13 @@ describe('transparency groups', () => {
     const inner = document.group({ bbox: box }, nested(20));
     const outer = document.group({ bbox: box }, content => {
       nested(3)(content);
-      for (let index = 0; index < 3; index++) content.save();
+      for (let index = 0; index < 3; index++) {
+        content.save();
+      }
       content.group(inner, [1, 0, 0, 1, 0, 0]);
-      for (let index = 0; index < 3; index++) content.restore();
+      for (let index = 0; index < 3; index++) {
+        content.restore();
+      }
     });
     const page = document.addPage({ mediaBox: box });
     page.draw(content => {

@@ -35,11 +35,17 @@ const signed = (value: number): number => (value >= 32_768 ? value - 65_536 : va
 export const readTrueTypeGlyphBounds = (program: Uint8Array): GlyphBoundsReading => {
   try {
     const [head, maxp, loca, glyf] = ['head', 'maxp', 'loca', 'glyf'].map(tag => findTable(program, tag));
-    if (loca === undefined || glyf === undefined) return { kind: 'absent' };
-    if (head === undefined || maxp === undefined) return { kind: 'unreadable', reason: 'the program has glyf outlines but no head or maxp table' };
+    if (loca === undefined || glyf === undefined) {
+      return { kind: 'absent' };
+    }
+    if (head === undefined || maxp === undefined) {
+      return { kind: 'unreadable', reason: 'the program has glyf outlines but no head or maxp table' };
+    }
     const unitsPerEm = sfntReader(head).u16(18);
     const locaFormat = sfntReader(head).u16(50);
-    if (locaFormat !== 0 && locaFormat !== 1) return { kind: 'unreadable', reason: 'the indexToLocFormat is neither short nor long' };
+    if (locaFormat !== 0 && locaFormat !== 1) {
+      return { kind: 'unreadable', reason: 'the indexToLocFormat is neither short nor long' };
+    }
     const long = locaFormat === 1;
     const count = sfntReader(maxp).u16(4);
     if (unitsPerEm < MIN_UNITS_PER_EM || unitsPerEm > MAX_UNITS_PER_EM) {
@@ -49,24 +55,40 @@ export const readTrueTypeGlyphBounds = (program: Uint8Array): GlyphBoundsReading
     const outlines = sfntReader(glyf);
     const offset = (index: number): number => (long ? locations.u32(4 * index) : 2 * locations.u16(2 * index));
     const bounds = (glyph: number): Rectangle | 'empty' | undefined => {
-      if (!Number.isInteger(glyph) || glyph < 0 || glyph >= count) return undefined;
+      if (!Number.isInteger(glyph) || glyph < 0 || glyph >= count) {
+        return undefined;
+      }
       try {
         const [start, end] = [offset(glyph), offset(glyph + 1)];
-        if (start > glyf.length || end > glyf.length) return undefined;
-        if (end === start) return 'empty';
-        if (end < start || end > glyf.length || start + 10 > end) return undefined;
+        if (start > glyf.length || end > glyf.length) {
+          return undefined;
+        }
+        if (end === start) {
+          return 'empty';
+        }
+        if (end < start || end > glyf.length || start + 10 > end) {
+          return undefined;
+        }
         const [xMin, yMin, xMax, yMax] = [2, 4, 6, 8].map(field => signed(outlines.u16(start + field)) / unitsPerEm);
-        if (xMin === undefined || yMin === undefined || xMax === undefined || yMax === undefined) return undefined;
-        if (xMin > xMax || yMin > yMax || xMax - xMin > MAX_GLYPH_EMS || yMax - yMin > MAX_GLYPH_EMS) return undefined;
+        if (xMin === undefined || yMin === undefined || xMax === undefined || yMax === undefined) {
+          return undefined;
+        }
+        if (xMin > xMax || yMin > yMax || xMax - xMin > MAX_GLYPH_EMS || yMax - yMin > MAX_GLYPH_EMS) {
+          return undefined;
+        }
         return [xMin, yMin, xMax, yMax];
       } catch (error) {
-        if (error instanceof ParseError) return undefined;
+        if (error instanceof ParseError) {
+          return undefined;
+        }
         throw error;
       }
     };
     return { kind: 'bounds', bounds: { unitsPerEm, bounds } };
   } catch (error) {
-    if (error instanceof ParseError) return { kind: 'unreadable', reason: error.message };
+    if (error instanceof ParseError) {
+      return { kind: 'unreadable', reason: error.message };
+    }
     throw error;
   }
 };

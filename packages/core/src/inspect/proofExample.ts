@@ -5,7 +5,7 @@ import { extractText, listFonts, loadDocument, matchText } from '@pdfwright/core
 export interface ProofCheck {
   readonly accepted: boolean;
   readonly match: TextMatch;
-  readonly unembedded: readonly string[];
+  readonly unembedded: ReadonlyArray<string>;
 }
 
 export const checkProof = (input: Uint8Array, name: string): ProofCheck => {

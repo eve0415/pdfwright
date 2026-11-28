@@ -47,7 +47,9 @@ const SUBTYPE = pdfName('Subtype').bytes;
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -62,7 +64,9 @@ interface EncodedDigest {
 }
 
 const encodedDigest = (data: Uint8Array, producer: StreamProducer | undefined): EncodedDigest => {
-  if (producer === undefined) return { length: data.length, digest: createMd5().update(data).digest() };
+  if (producer === undefined) {
+    return { length: data.length, digest: createMd5().update(data).digest() };
+  }
   const hash = createMd5();
   let length = 0;
   for (const chunk of producer()) {
@@ -80,7 +84,9 @@ const producedData = (
   const [left, right] = values;
   const producedA = sides.a.objects.producerFor(left);
   const producedB = sides.b.objects.producerFor(right);
-  if (producedA === undefined && producedB === undefined) return undefined;
+  if (producedA === undefined && producedB === undefined) {
+    return undefined;
+  }
   const a = encodedDigest(left.data, producedA);
   const b = encodedDigest(right.data, producedB);
   return { a, b, equal: sameEncoding && a.length === b.length && sameBytes(a.digest, b.digest) };
@@ -97,24 +103,38 @@ const serializedText = (value: PdfDirectObject): string => {
 
 /** A short description of a value for a difference report. */
 export const summarize = (value: Value): ValueSummary => {
-  if (value === undefined) return { kind: 'absent', text: '' };
-  if (value.kind === 'stream') return { kind: 'stream', text: `stream of ${String(value.data.length)} bytes` };
+  if (value === undefined) {
+    return { kind: 'absent', text: '' };
+  }
+  if (value.kind === 'stream') {
+    return { kind: 'stream', text: `stream of ${String(value.data.length)} bytes` };
+  }
   const text = serializedText(value);
   return { kind: value.kind, text: text.length > 120 ? `${text.slice(0, 117)}...` : text };
 };
 
 const numberOf = (value: Value): number | undefined => {
-  if (value?.kind === 'integer') return value.value;
-  if (value?.kind !== 'real') return undefined;
+  if (value?.kind === 'integer') {
+    return value.value;
+  }
+  if (value?.kind !== 'real') {
+    return undefined;
+  }
   return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
 };
 
 // Scalars compare by value: numbers whether integer or real (ISO 32000-1:2008, 7.3.3, NOTE 2), names, strings and invalid tokens by bytes, strings in either form.
 const scalarEqual = (left: Value, right: Value): boolean => {
   const leftNumber = numberOf(left);
-  if (leftNumber !== undefined) return leftNumber === numberOf(right);
-  if (left?.kind === 'string' && right?.kind === 'string') return sameBytes(left.bytes, right.bytes);
-  if (left === undefined || right === undefined) return left === right;
+  if (leftNumber !== undefined) {
+    return leftNumber === numberOf(right);
+  }
+  if (left?.kind === 'string' && right?.kind === 'string') {
+    return sameBytes(left.bytes, right.bytes);
+  }
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
   return deepEqual(left, right, 'strict');
 };
 
@@ -150,7 +170,7 @@ interface PathLink {
 type Where = ValuePath | PathLink;
 
 const pathOf = (where: Where): ValuePath => {
-  const keys: (string | number)[] = [];
+  const keys: Array<string | number> = [];
   let at = where;
   while ('key' in at) {
     keys.push(at.key);
@@ -194,8 +214,8 @@ export class ValueGraph {
   private readonly report: GraphReport;
   private readonly raw: boolean;
   private readonly settled: Set<string>;
-  private readonly tasks: Task[] = [];
-  private readonly open: Frame[] = [];
+  private readonly tasks: Array<Task> = [];
+  private readonly open: Array<Frame> = [];
   private readonly openAt = new Map<string, number>();
   /** Pairs finished in this walk, with whether they were found equal. */
   private readonly done = new Map<string, boolean>();
@@ -235,20 +255,30 @@ export class ValueGraph {
 
   private run(): void {
     for (let task = this.tasks.pop(); task !== undefined; task = this.tasks.pop()) {
-      if (task.kind === 'close') this.close();
-      else if (task.kind === 'data') this.data([task.left, task.right], task.path);
-      else this.step(task.left, task.right, task.path);
+      if (task.kind === 'close') {
+        this.close();
+      } else if (task.kind === 'data') {
+        this.data([task.left, task.right], task.path);
+      } else {
+        this.step(task.left, task.right, task.path);
+      }
     }
   }
 
   // Entries are pushed in reverse so that they are compared, and reported, in order.
   private pushEntries({ left, right, path, skip = new Set() }: EntryPair): void {
     const keys = new Map<string, Uint8Array>();
-    for (const [key] of left.entries()) keys.set(latin1(key), key);
-    for (const [key] of right.entries()) keys.set(latin1(key), key);
-    const tasks: Task[] = [];
+    for (const [key] of left.entries()) {
+      keys.set(latin1(key), key);
+    }
+    for (const [key] of right.entries()) {
+      keys.set(latin1(key), key);
+    }
+    const tasks: Array<Task> = [];
     for (const [name, key] of keys) {
-      if (!skip.has(name)) tasks.push({ kind: 'compare', left: left.get(key), right: right.get(key), path: { parent: path, key: name } });
+      if (!skip.has(name)) {
+        tasks.push({ kind: 'compare', left: left.get(key), right: right.get(key), path: { parent: path, key: name } });
+      }
     }
     this.tasks.push(...tasks.toReversed());
   }
@@ -257,7 +287,9 @@ export class ValueGraph {
   private samePage(left: Value, right: Value, path: Where): boolean {
     const pageA = left?.kind === 'reference' ? this.context.pagesA.get(referenceKey(left)) : undefined;
     const pageB = right?.kind === 'reference' ? this.context.pagesB.get(referenceKey(right)) : undefined;
-    if (pageA === undefined && pageB === undefined) return false;
+    if (pageA === undefined && pageB === undefined) {
+      return false;
+    }
     if (pageA !== pageB) {
       const summary = (page: number | undefined, value: Value): ValueSummary =>
         page === undefined ? summarize(value) : { kind: 'page', text: `page ${String(page)}` };
@@ -267,25 +299,35 @@ export class ValueGraph {
   }
 
   private mismatch(mismatch: Mismatch): void {
-    if (this.raw) return;
+    if (this.raw) {
+      return;
+    }
     this.report.mismatch(mismatch);
   }
 
   // Whether the pair needs comparing; a pair that does is opened, and closed once everything it leads to has been compared.
   private enter(left: Value, right: Value): boolean {
     const key = pairKey(left, right);
-    if (key === undefined) return true;
-    if (this.settled.has(key)) return false;
+    if (key === undefined) {
+      return true;
+    }
+    if (this.settled.has(key)) {
+      return false;
+    }
     const openAt = this.openAt.get(key);
     const top = this.open.at(-1);
     if (openAt !== undefined) {
-      if (top !== undefined) top.lowest = Math.min(top.lowest, openAt);
+      if (top !== undefined) {
+        top.lowest = Math.min(top.lowest, openAt);
+      }
       return false;
     }
     const equal = this.done.get(key);
     if (equal !== undefined) {
       // A pair already reported unequal in this walk makes the pairs that lead to it unequal too.
-      if (!equal) this.reported++;
+      if (!equal) {
+        this.reported++;
+      }
       return false;
     }
     this.openAt.set(key, this.open.length);
@@ -296,52 +338,77 @@ export class ValueGraph {
 
   private close(): void {
     const frame = this.open.pop();
-    if (frame === undefined) return;
+    if (frame === undefined) {
+      return;
+    }
     const index = this.open.length;
     this.openAt.delete(frame.key);
     const equal = frame.reported === this.reported && frame.lowest >= index;
     this.done.set(frame.key, equal);
-    if (equal) this.settled.add(frame.key);
+    if (equal) {
+      this.settled.add(frame.key);
+    }
     const parent = this.open.at(-1);
-    if (parent !== undefined) parent.lowest = Math.min(parent.lowest, frame.lowest);
+    if (parent !== undefined) {
+      parent.lowest = Math.min(parent.lowest, frame.lowest);
+    }
   }
 
   // A reference to a missing object reads as null, which is the same as absent (ISO 32000-1:2008, 7.3.10); an object that cannot be parsed is reported.
   private resolve(side: 'a' | 'b', value: Value, path: Where): Value | typeof UNREADABLE {
-    if (value?.kind !== 'reference') return value;
+    if (value?.kind !== 'reference') {
+      return value;
+    }
     try {
       // An object whose value is itself a reference is followed to what that names; a chain that returns to itself names nothing.
       let resolved: Value = value;
       const followed = new Set<string>();
       while (resolved?.kind === 'reference') {
         const key = referenceKey(resolved);
-        if (followed.has(key)) return undefined;
+        if (followed.has(key)) {
+          return undefined;
+        }
         followed.add(key);
         resolved = this.context[side].objects.deref(resolved);
       }
       return resolved?.kind === 'null' ? undefined : resolved;
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
       // The comparison by value reports it; the comparison by stored bytes walks the same objects.
-      if (this.raw) this.reported++;
-      else this.report.undecodable(pathOf(path), side, error.message);
+      if (this.raw) {
+        this.reported++;
+      } else {
+        this.report.undecodable(pathOf(path), side, error.message);
+      }
       return UNREADABLE;
     }
   }
 
   private step(left: Value, right: Value, path: Where): void {
-    if (this.samePage(left, right, path) || !this.enter(left, right)) return;
+    if (this.samePage(left, right, path) || !this.enter(left, right)) {
+      return;
+    }
     const a = this.resolve('a', left, path);
     const b = this.resolve('b', right, path);
-    if (a === UNREADABLE || b === UNREADABLE) return;
-    if (!this.raw) this.duplicates(left, right, path);
-    if (a?.kind === 'dictionary' && b?.kind === 'dictionary') this.pushEntries({ left: a.entries, right: b.entries, path });
-    else if (a?.kind === 'array' && b?.kind === 'array') this.items([a.items, b.items], path);
-    else if (a?.kind === 'stream' && b?.kind === 'stream') {
+    if (a === UNREADABLE || b === UNREADABLE) {
+      return;
+    }
+    if (!this.raw) {
+      this.duplicates(left, right, path);
+    }
+    if (a?.kind === 'dictionary' && b?.kind === 'dictionary') {
+      this.pushEntries({ left: a.entries, right: b.entries, path });
+    } else if (a?.kind === 'array' && b?.kind === 'array') {
+      this.items([a.items, b.items], path);
+    } else if (a?.kind === 'stream' && b?.kind === 'stream') {
       // Streams compare by dictionary, apart from the keys that describe the encoding, then by data.
       this.tasks.push({ kind: 'data', left: a, right: b, path });
       this.pushEntries({ left: a.dictionary, right: b.dictionary, path, skip: STREAM_KEYS });
-    } else if (!scalarEqual(a, b)) this.mismatch({ path: pathOf(path), a: summarize(a), b: summarize(b) });
+    } else if (!scalarEqual(a, b)) {
+      this.mismatch({ path: pathOf(path), a: summarize(a), b: summarize(b) });
+    }
   }
 
   // Readers disagree about which value a key held more than once has, so a duplicate in one document only is a difference (ISO 32000-1:2008, 7.3.7).
@@ -349,14 +416,18 @@ export class ValueGraph {
     const duplicatesA = left?.kind === 'reference' ? duplicateKeys(this.context.a, left.objectNumber) : undefined;
     const duplicatesB = right?.kind === 'reference' ? duplicateKeys(this.context.b, right.objectNumber) : undefined;
     for (const [place, { where, key }] of duplicatesA ?? []) {
-      if (duplicatesB?.has(place) !== true) this.report.duplicateKey([...pathOf(path), ...where], key, 'a');
+      if (duplicatesB?.has(place) !== true) {
+        this.report.duplicateKey([...pathOf(path), ...where], key, 'a');
+      }
     }
     for (const [place, { where, key }] of duplicatesB ?? []) {
-      if (duplicatesA?.has(place) !== true) this.report.duplicateKey([...pathOf(path), ...where], key, 'b');
+      if (duplicatesA?.has(place) !== true) {
+        this.report.duplicateKey([...pathOf(path), ...where], key, 'b');
+      }
     }
   }
 
-  private items([left, right]: readonly [readonly PdfDirectObject[], readonly PdfDirectObject[]], path: Where): void {
+  private items([left, right]: readonly [ReadonlyArray<PdfDirectObject>, ReadonlyArray<PdfDirectObject>], path: Where): void {
     if (left.length !== right.length) {
       this.mismatch({
         path: pathOf(path),
@@ -374,7 +445,9 @@ export class ValueGraph {
     const { a, b } = this.context;
     const produced = producedData({ a, b }, [left, right], sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right)));
     if (produced !== undefined) {
-      if (produced.equal) return;
+      if (produced.equal) {
+        return;
+      }
       this.report.mismatch({
         path: pathOf(path),
         a: { kind: 'stream', text: `${String(produced.a.length)} stored bytes` },
@@ -382,7 +455,9 @@ export class ValueGraph {
       });
       return;
     }
-    if (sameBytes(left.data, right.data) && sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right))) return;
+    if (sameBytes(left.data, right.data) && sameText(this.context.texts.a.encoding(left), this.context.texts.b.encoding(right))) {
+      return;
+    }
     if (this.raw) {
       this.report.mismatch({
         path: pathOf(path),
@@ -393,18 +468,32 @@ export class ValueGraph {
     }
     const decodedA = decodeForComparison(a, left);
     const decodedB = decodeForComparison(b, right);
-    if (!decodedA.ok) this.report.undecodable(pathOf(path), 'a', decodedA.reason);
-    if (!decodedB.ok) this.report.undecodable(pathOf(path), 'b', decodedB.reason);
-    if (!decodedA.ok || !decodedB.ok || sameBytes(decodedA.bytes, decodedB.bytes)) return;
+    if (!decodedA.ok) {
+      this.report.undecodable(pathOf(path), 'a', decodedA.reason);
+    }
+    if (!decodedB.ok) {
+      this.report.undecodable(pathOf(path), 'b', decodedB.reason);
+    }
+    if (!decodedA.ok || !decodedB.ok || sameBytes(decodedA.bytes, decodedB.bytes)) {
+      return;
+    }
     const subtype = left.dictionary.get(SUBTYPE);
     if (subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form') {
       const operationsA = readOperations(decodedA.bytes, a.maxNesting);
       const operationsB = readOperations(decodedB.bytes, b.maxNesting);
-      if (!operationsA.ok) this.report.undecodable(pathOf(path), 'a', operationsA.reason);
-      if (!operationsB.ok) this.report.undecodable(pathOf(path), 'b', operationsB.reason);
-      if (!operationsA.ok || !operationsB.ok) return;
+      if (!operationsA.ok) {
+        this.report.undecodable(pathOf(path), 'a', operationsA.reason);
+      }
+      if (!operationsB.ok) {
+        this.report.undecodable(pathOf(path), 'b', operationsB.reason);
+      }
+      if (!operationsA.ok || !operationsB.ok) {
+        return;
+      }
       const [listA, listB] = [operationsA.operations, operationsB.operations];
-      if (listA.length === listB.length && listA.every((operation, index) => operation === listB[index])) return;
+      if (listA.length === listB.length && listA.every((operation, index) => operation === listB[index])) {
+        return;
+      }
     }
     this.report.mismatch({
       path: pathOf(path),

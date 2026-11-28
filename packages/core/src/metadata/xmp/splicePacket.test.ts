@@ -30,7 +30,7 @@ const splice = (text: string | Uint8Array): ReturnType<typeof splicePacket> | un
   return read.ok ? splicePacket(read.packet, VALUES) : undefined;
 };
 
-const properties = (bytes: Uint8Array | undefined): readonly (readonly [string, unknown])[] => {
+const properties = (bytes: Uint8Array | undefined): ReadonlyArray<readonly [string, unknown]> => {
   const read = readXmp(bytes ?? new Uint8Array());
   return read.ok ? read.packet.properties.map(property => [`${property.namespace}${property.localName}`, property.value] as const) : [];
 };

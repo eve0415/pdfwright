@@ -4,7 +4,7 @@ import { annotationFlags } from './annotationFlags.ts';
 
 describe('annotation flags', () => {
   it('reads Hidden from bit 2 and Print from bit 3', () => {
-    const flags = [0, 2, 4, 6, 1, 5, 0xfffffffb].map(value => annotationFlags({ kind: 'integer', value }));
+    const flags = [0, 2, 4, 6, 1, 5, 0xff_ff_ff_fb].map(value => annotationFlags({ kind: 'integer', value }));
     expect(flags).toStrictEqual([
       { hidden: false, print: false, printable: false },
       { hidden: true, print: false, printable: false },

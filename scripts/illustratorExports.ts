@@ -9,7 +9,7 @@ export interface IllustratorExportSample {
   readonly rasters: number;
   readonly widthMm: number;
   readonly heightMm: number;
-  readonly paint: readonly number[];
+  readonly paint: ReadonlyArray<number>;
 }
 
 export interface IllustratorAcceptanceExport {
@@ -18,13 +18,13 @@ export interface IllustratorAcceptanceExport {
 }
 
 export interface IllustratorExportManifest {
-  readonly samples: readonly IllustratorExportSample[];
+  readonly samples: ReadonlyArray<IllustratorExportSample>;
   readonly ladderSample: number;
-  readonly acceptance: readonly IllustratorAcceptanceExport[];
+  readonly acceptance: ReadonlyArray<IllustratorAcceptanceExport>;
   readonly lockSample?: string;
 }
 
-const fileInside = (directory: string, relative: string, extensions: readonly string[]): string => {
+const fileInside = (directory: string, relative: string, extensions: ReadonlyArray<string>): string => {
   const root = path.resolve(directory);
   const file = path.resolve(root, relative);
   if (!file.startsWith(`${root}${path.sep}`) || !extensions.includes(path.extname(file).toLowerCase())) {
@@ -34,7 +34,9 @@ const fileInside = (directory: string, relative: string, extensions: readonly st
 };
 
 const numberField = (value: unknown, name: string): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`invalid Illustrator export ${name}`);
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new TypeError(`invalid Illustrator export ${name}`);
+  }
   return value;
 };
 
@@ -42,9 +44,13 @@ const sampleFrom = (value: unknown, directory: string): IllustratorExportSample 
   if (typeof value !== 'object' || value === null || !('file' in value) || typeof value.file !== 'string') {
     throw new Error('invalid Illustrator export sample');
   }
-  const paint: number[] = [];
-  if (!('paint' in value) || !Array.isArray(value.paint) || value.paint.length !== 5) throw new Error('invalid Illustrator paint counts');
-  for (const entry of value.paint) paint.push(numberField(entry, 'paint count'));
+  const paint: Array<number> = [];
+  if (!('paint' in value) || !Array.isArray(value.paint) || value.paint.length !== 5) {
+    throw new Error('invalid Illustrator paint counts');
+  }
+  for (const entry of value.paint) {
+    paint.push(numberField(entry, 'paint count'));
+  }
   return {
     file: fileInside(directory, value.file, ['.pdf']),
     blocks: numberField('blocks' in value ? value.blocks : undefined, 'block count'),
@@ -85,10 +91,14 @@ export const readIllustratorExportManifest = async (directory: string): Promise<
   ) {
     throw new Error('invalid Illustrator export manifest');
   }
-  const samples: IllustratorExportSample[] = [];
-  for (const entry of input.samples) samples.push(sampleFrom(entry, directory));
-  const acceptance: IllustratorAcceptanceExport[] = [];
-  for (const entry of input.acceptance) acceptance.push(acceptanceFrom(entry, directory));
+  const samples: Array<IllustratorExportSample> = [];
+  for (const entry of input.samples) {
+    samples.push(sampleFrom(entry, directory));
+  }
+  const acceptance: Array<IllustratorAcceptanceExport> = [];
+  for (const entry of input.acceptance) {
+    acceptance.push(acceptanceFrom(entry, directory));
+  }
   if (
     samples.length === 0 ||
     typeof input.ladderSample !== 'number' ||
@@ -99,7 +109,9 @@ export const readIllustratorExportManifest = async (directory: string): Promise<
     throw new Error('invalid Illustrator export ladder sample');
   }
   const lockSample = 'lockSample' in input ? input.lockSample : undefined;
-  if (lockSample !== undefined && typeof lockSample !== 'string') throw new Error('invalid Illustrator lock sample');
+  if (lockSample !== undefined && typeof lockSample !== 'string') {
+    throw new Error('invalid Illustrator lock sample');
+  }
   return lockSample === undefined
     ? { samples, ladderSample: input.ladderSample, acceptance }
     : { samples, ladderSample: input.ladderSample, acceptance, lockSample: fileInside(directory, lockSample, ['.pdf']) };

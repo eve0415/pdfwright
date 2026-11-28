@@ -27,10 +27,14 @@ const frame = zstdCompressSync(Buffer.from(native), {
     [constants.ZSTD_c_windowLog]: 21,
   },
 });
-if (frame[4] !== 0 || frame[5] !== 0x58) throw new Error('the Zstandard encoder changed the expected frame header');
+if (frame[4] !== 0 || frame[5] !== 0x58) {
+  throw new Error('the Zstandard encoder changed the expected frame header');
+}
 const wrapped = Buffer.concat([Buffer.from('%AI24_ZStandard_Data'), frame]);
 const chunks = Array.from({ length: Math.ceil(wrapped.length / 65_536) }, (_, index) => wrapped.subarray(index * 65_536, (index + 1) * 65_536));
-if (chunks.length < 2) throw new Error('the native data did not cross a chunk boundary');
+if (chunks.length < 2) {
+  throw new Error('the native data did not cross a chunk boundary');
+}
 
 const date = "D:20260927204901+09'00'";
 const page = `<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/TrimBox[0 0 200 200]/Group<</S/Transparency/CS/DeviceCMYK/I true>>/Resources<<>>/Contents 4 0 R/PieceInfo<< /Illustrator 5 0 R >>/LastModified(${date})>>`;
@@ -40,7 +44,7 @@ const stream = (bytes: Uint8Array, filtered: boolean): string => {
   return streamBody(filtered ? '/Filter/FlateDecode' : '', latin1Text(stored));
 };
 
-const objects = (filtered: boolean, pageTopLevel: boolean): TestObject[] => [
+const objects = (filtered: boolean, pageTopLevel: boolean): Array<TestObject> => [
   { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
   { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
   ...(pageTopLevel ? [{ number: 3, body: page }] : []),

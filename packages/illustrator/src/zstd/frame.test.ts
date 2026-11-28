@@ -5,7 +5,9 @@ import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from '.
 
 const samples = (length: number): Uint8Array => {
   const output = new Uint8Array(length);
-  for (let index = 0; index < length; index++) output[index] = (index * 37 + Math.floor(index / 127)) % 256;
+  for (let index = 0; index < length; index++) {
+    output[index] = (index * 37 + Math.floor(index / 127)) % 256;
+  }
   return output;
 };
 
@@ -15,13 +17,13 @@ describe('raw Zstandard frames', () => {
   });
 
   it('splits input at 128 KiB and marks only the final block', () => {
-    const frame = encodeRawFrame(samples(131073));
+    const frame = encodeRawFrame(samples(131_073));
     expect(frame.slice(6, 9)).toStrictEqual(new Uint8Array([0, 0, 16]));
-    expect(frame.slice(131081, 131084)).toStrictEqual(new Uint8Array([9, 0, 0]));
+    expect(frame.slice(131_081, 131_084)).toStrictEqual(new Uint8Array([9, 0, 0]));
   });
 
   it('round-trips boundary and large inputs through an independent decoder', () => {
-    for (const length of [0, 1, 127, 131071, 131072, 131073, 270000]) {
+    for (const length of [0, 1, 127, 131_071, 131_072, 131_073, 270_000]) {
       const input = samples(length);
       expect(decompress(encodeRawFrame(input))).toStrictEqual(input);
     }
@@ -36,7 +38,7 @@ describe('raw Zstandard frames', () => {
   });
 
   it('keeps a larger single-segment window when needed', () => {
-    const input = samples(2097153);
+    const input = samples(2_097_153);
     const blocks = encodeRawFrame(input).slice(6);
     const caller = new Uint8Array(9 + blocks.length);
     caller.set([0x28, 0xb5, 0x2f, 0xfd, 0xa0, 1, 0, 32, 0]);
@@ -46,7 +48,7 @@ describe('raw Zstandard frames', () => {
     const decoded = decompress(normalized);
     expect(decoded).toHaveLength(input.length);
     expect(decoded[0]).toBe(input[0]);
-    expect(decoded[2097152]).toBe(input[2097152]);
+    expect(decoded[2_097_152]).toBe(input[2_097_152]);
   });
 
   it('walks an RLE block by its one-byte body before removing a checksum', () => {
@@ -71,7 +73,7 @@ describe('raw Zstandard frames', () => {
     expect(compressed.length).toBeLessThan(repeated.length / 4);
     expect(decompress(compressed)).toStrictEqual(repeated);
     expect(encodeZstandardFrame(repeated)).toStrictEqual(compressed);
-    const random = samples(30000);
+    const random = samples(30_000);
     expect(decompress(encodeZstandardFrame(random))).toStrictEqual(random);
   });
 });

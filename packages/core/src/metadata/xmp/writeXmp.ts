@@ -40,18 +40,18 @@ export const checkRepresentable = (values: ManagedValues): void => {
   }
 };
 
-const simple = (name: string, value: string | undefined): string[] => (value === undefined ? [] : [`<${name}>${escapeText(value)}</${name}>`]);
+const simple = (name: string, value: string | undefined): Array<string> => (value === undefined ? [] : [`<${name}>${escapeText(value)}</${name}>`]);
 
 // XMP Part 1 8.2.2.4: a Language Alternative is an rdf:Alt whose items carry xml:lang, with x-default for the default value.
-const alternative = (name: string, value: string | undefined): string[] =>
+const alternative = (name: string, value: string | undefined): Array<string> =>
   value === undefined ? [] : [`<${name}><rdf:Alt><rdf:li xml:lang="x-default">${escapeText(value)}</rdf:li></rdf:Alt></${name}>`];
 
 // XMP Part 1 8.3: dc:creator is an ordered array, "An entity primarily responsible for making the resource".
-const sequence = (name: string, value: string | undefined): string[] =>
+const sequence = (name: string, value: string | undefined): Array<string> =>
   value === undefined ? [] : [`<${name}><rdf:Seq><rdf:li>${escapeText(value)}</rdf:li></rdf:Seq></${name}>`];
 
 /** The managed properties, one per line, in their fixed order. */
-const managedProperties = (values: ManagedValues): string[] => [
+const managedProperties = (values: ManagedValues): Array<string> => [
   ...alternative('dc:title', values.title),
   ...sequence('dc:creator', values.author),
   ...alternative('dc:description', values.subject),

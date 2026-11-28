@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { isUint8Array } from 'node:util/types';
 import { createDeflate } from 'node:zlib';
 
 import { convertImages } from '../packages/core/src/colorConvert/convertImages.ts';
@@ -11,15 +12,19 @@ import { buildPdf, latin1Text, streamBody } from '../packages/core/src/testing/p
 const width = 10_000;
 const height = 10_000;
 const row = new Uint8Array(width * 3);
-const compressed: Uint8Array[] = [];
+const compressed: Array<Uint8Array> = [];
 const rows = Readable.from(
   (function* (): Generator<Uint8Array> {
-    for (let index = 0; index < height; index++) yield row;
+    for (let index = 0; index < height; index++) {
+      yield row;
+    }
   })(),
 );
 for await (const value of rows.pipe(createDeflate())) {
   const chunk: unknown = value;
-  if (!(chunk instanceof Uint8Array)) throw new TypeError('deflate returned non-byte data');
+  if (!isUint8Array(chunk)) {
+    throw new TypeError('deflate returned non-byte data');
+  }
   compressed.push(Uint8Array.from(chunk));
 }
 const sourceBytes = new Uint8Array(compressed.reduce((sum, chunk) => sum + chunk.length, 0));

@@ -16,10 +16,10 @@ import { cmyk } from './color.ts';
 import { loadDocument } from './loadDocument.ts';
 import { rect } from './rect.ts';
 
-const load = (objects: readonly TestObject[]): LoadedDocument =>
+const load = (objects: ReadonlyArray<TestObject>): LoadedDocument =>
   loadDocument(buildPdf([{ xref: 'classic', objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, ...objects], trailer: '/Root 1 0 R' }]).bytes);
 
-const page = (extra: string): TestObject[] => [
+const page = (extra: string): Array<TestObject> => [
   { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
   { number: 3, body: `<</Type/Page/Parent 2 0 R${extra}>>` },
   { number: 4, body: streamBody('', '0 0 m 10 10 l S') },
@@ -32,7 +32,9 @@ const object = (document: LoadedDocument, number: number): string => text(docume
 // The content of a stream object, inflated when it is compressed.
 const content = (document: LoadedDocument, number: number): string => {
   const value = document.get(pdfReference(number, 0));
-  if (value.kind !== 'stream') return '';
+  if (value.kind !== 'stream') {
+    return '';
+  }
   return latin1Text(value.dictionary.has(pdfName('Filter').bytes) ? inflateZlib(value.data).data : value.data);
 };
 
@@ -44,6 +46,25 @@ describe('appending page content', () => {
     }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
     expect(() => {
       document.page(0).appendContent(latin1Bytes('0 0 0 0 k 0 0 10 10 re f'), { isolate: false });
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
+  });
+
+  it('checks raw content passed through a proxy over its bytes', () => {
+    const document = load(page('/Resources<<>>'));
+    const bytes = latin1Bytes('0 0 0 0 k 0 0 10 10 re f');
+    const proxied = new Proxy(bytes, {
+      get: (target, key) => {
+        if (key === 'length') {
+          return target.length;
+        }
+        if (key === 'subarray') {
+          return target.subarray.bind(target);
+        }
+        return typeof key === 'string' && /^\d+$/u.test(key) ? target[Number(key)] : undefined;
+      },
+    });
+    expect(() => {
+      document.page(0).appendContent(proxied, { isolate: false });
     }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
   });
 

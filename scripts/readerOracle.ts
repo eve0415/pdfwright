@@ -11,28 +11,30 @@ export interface ReaderReport {
   readonly tool: 'qpdf' | 'mutool' | 'gs' | 'poppler';
   readonly code: number;
   /** The TrimBox of page 1 as the reader reports it, as four numbers. */
-  readonly trimBox: readonly number[] | undefined;
+  readonly trimBox: ReadonlyArray<number> | undefined;
   /** Lines in which the reader reports damage, a repair, an error or a warning. */
-  readonly notices: readonly string[];
+  readonly notices: ReadonlyArray<string>;
   readonly output: string;
 }
 
-export const runTool = async (command: string, args: readonly string[]): Promise<ToolRun> => {
+export const runTool = async (command: string, args: ReadonlyArray<string>): Promise<ToolRun> => {
   const child = spawn(command, args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
   const code: unknown = closed[0];
   return { code: typeof code === 'number' ? code : -1, output: `${stdout}${stderr}` };
 };
 
-const numbers = (values: readonly (string | undefined)[]): readonly number[] | undefined => {
-  const parsed: number[] = [];
-  for (const value of values) parsed.push(Number(value));
+const numbers = (values: ReadonlyArray<string | undefined>): ReadonlyArray<number> | undefined => {
+  const parsed: Array<number> = [];
+  for (const value of values) {
+    parsed.push(Number(value));
+  }
   return parsed.length === 4 && parsed.every(value => Number.isFinite(value)) ? parsed : undefined;
 };
 
 const NOTICE = /warning|error|repair|damaged|recover|reconstruct/iu;
 
-const notices = (output: string): string[] =>
+const notices = (output: string): Array<string> =>
   output
     .split('\n')
     .filter(line => NOTICE.test(line) && !/^\s*No syntax or stream encoding errors found/u.test(line) && !line.includes('errors that qpdf cannot detect'));
@@ -65,10 +67,10 @@ const poppler = async (file: string): Promise<ReaderReport> => {
 };
 
 /** How qpdf, MuPDF, Ghostscript and poppler read page 1 of a file, and what damage each reports. */
-export const readerReports = async (file: string): Promise<ReaderReport[]> => Promise.all([qpdf(file), mutool(file), ghostscript(file), poppler(file)]);
+export const readerReports = async (file: string): Promise<Array<ReaderReport>> => Promise.all([qpdf(file), mutool(file), ghostscript(file), poppler(file)]);
 
 /** The spot colours Ghostscript finds on page 1. */
-export const spotColors = async (file: string): Promise<string[]> => {
+export const spotColors = async (file: string): Promise<Array<string>> => {
   const run = await runTool('gs', ['-dNODISPLAY', '-dNOSAFER', '-dBATCH', '-dNOPAUSE', '-dPDFINFO', file]);
   const section = run.output.split('Page Spot colors:')[1] ?? '';
   return [...section.matchAll(/^\s+'([^']*)'$/gmu)].map(match => match[1] ?? '');

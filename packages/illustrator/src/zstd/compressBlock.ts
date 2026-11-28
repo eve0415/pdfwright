@@ -22,16 +22,18 @@ const LITERAL_TABLE = buildFseTable(LITERAL_DISTRIBUTION, 6);
 const MATCH_TABLE = buildFseTable(MATCH_DISTRIBUTION, 6);
 const OFFSET_TABLE = buildFseTable(OFFSET_DISTRIBUTION, 5);
 
-const lengthCode = (length: number, bases: readonly number[], bits: readonly number[]): Code => {
+const lengthCode = (length: number, bases: ReadonlyArray<number>, bits: ReadonlyArray<number>): Code => {
   for (let symbol = 0; symbol < bases.length; symbol++) {
     const base = bases[symbol] ?? 0;
     const extraBits = bits[symbol] ?? 0;
-    if (length >= base && length < base + 2 ** extraBits) return { symbol, extra: length - base, bits: extraBits };
+    if (length >= base && length < base + 2 ** extraBits) {
+      return { symbol, extra: length - base, bits: extraBits };
+    }
   }
   throw new InvalidArgumentError('sequence length exceeds predefined code range');
 };
 
-const sequenceCodes = (parse: MatchParse): SequenceCodes[] =>
+const sequenceCodes = (parse: MatchParse): Array<SequenceCodes> =>
   parse.sequences.map(sequence => {
     // RFC 8878, 3.1.1.3.2.1.1: new offsets use Offset_Value = offset + 3, above the repeat-code range.
     const offsetValue = sequence.offset + 3;
@@ -43,16 +45,20 @@ const sequenceCodes = (parse: MatchParse): SequenceCodes[] =>
     };
   });
 
-const sequenceBits = (codes: readonly SequenceCodes[]): Uint8Array => {
+const sequenceBits = (codes: ReadonlyArray<SequenceCodes>): Uint8Array => {
   const last = codes.at(-1);
-  if (last === undefined) return new Uint8Array();
+  if (last === undefined) {
+    return new Uint8Array();
+  }
   const writer = createBackwardBitWriter();
   let literalState = LITERAL_TABLE.initialState(last.literal.symbol);
   let matchState = MATCH_TABLE.initialState(last.match.symbol);
   let offsetState = OFFSET_TABLE.initialState(last.offset.symbol);
   for (let index = codes.length - 1; index >= 0; index--) {
     const code = codes[index];
-    if (code === undefined) throw new InvalidArgumentError('sequence code is missing');
+    if (code === undefined) {
+      throw new InvalidArgumentError('sequence code is missing');
+    }
     // RFC 8878, 3.1.1.3.2.1.2: decode reads offset, match and literal extra bits, so encode emits their reverse order.
     writer.write(code.literal.extra, code.literal.bits);
     writer.write(code.match.extra, code.match.bits);
@@ -79,7 +85,9 @@ const sequenceBits = (codes: readonly SequenceCodes[]): Uint8Array => {
 
 const literalHeader = (size: number): Uint8Array => {
   // RFC 8878, 3.1.1.3.1.1: Raw_Literals_Block has one-, two- or three-byte regenerated-size headers.
-  if (size <= 31) return Uint8Array.of(size << 3);
+  if (size <= 31) {
+    return Uint8Array.of(size << 3);
+  }
   if (size <= 4095) {
     const value = (size << 4) | 4;
     return Uint8Array.of(value & 255, (value >>> 8) & 255);
@@ -93,9 +101,13 @@ const literalHeader = (size: number): Uint8Array => {
 
 const sequenceCount = (count: number): Uint8Array => {
   // RFC 8878, 3.1.1.3.2.1: Number_of_Sequences uses one, two or three bytes.
-  if (count < 128) return Uint8Array.of(count);
-  if (count < 0x7f00) return Uint8Array.of(128 + (count >>> 8), count & 255);
-  const value = count - 0x7f00;
+  if (count < 128) {
+    return Uint8Array.of(count);
+  }
+  if (count < 0x7f_00) {
+    return Uint8Array.of(128 + (count >>> 8), count & 255);
+  }
+  const value = count - 0x7f_00;
   return Uint8Array.of(255, value & 255, (value >>> 8) & 255);
 };
 

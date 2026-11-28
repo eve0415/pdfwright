@@ -11,7 +11,7 @@ import { colorSpaceColorants } from './colorSpaceColorants.ts';
 
 const TINT = '<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 1 0 0]/N 1>>';
 
-const REFERENCED: readonly TestObject[] = [
+const REFERENCED: ReadonlyArray<TestObject> = [
   { number: 101, body: '/Referenced' },
   { number: 102, body: '[/ICCBased 104 0 R]' },
   { number: 103, body: TINT },
@@ -19,18 +19,19 @@ const REFERENCED: readonly TestObject[] = [
 ];
 
 // The colorants of the colour space written as object 100, with the other objects it refers to.
-const colorants = (space: string, objects: readonly TestObject[] = []): SpaceColorants => {
+const colorants = (space: string, objects: ReadonlyArray<TestObject> = []): SpaceColorants => {
   const document = textPdf({ pages: [{}], objects: [{ number: 100, body: space }, ...objects] });
   return colorSpaceColorants(document.objects, document.objects.deref(pdfReference(100, 0)));
 };
 
-const summary = (result: SpaceColorants): string[] =>
+const summary = (result: SpaceColorants): Array<string> =>
   result.colorants.map(
     colorant =>
       `${latin1Text(colorant.name)}:${colorant.kind}${colorant.component ? '' : ':listed'}${colorant.alternate === undefined ? '' : `:${colorant.alternate.family}`}`,
   );
 
-const definition = (space: string, objects: readonly TestObject[] = []): string | undefined => colorants(space, objects).colorants[0]?.alternate?.definition;
+const definition = (space: string, objects: ReadonlyArray<TestObject> = []): string | undefined =>
+  colorants(space, objects).colorants[0]?.alternate?.definition;
 
 describe('colorants of colour spaces', () => {
   it('reads a Separation colorant with its kind and alternate space', () => {

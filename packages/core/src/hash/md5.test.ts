@@ -4,8 +4,8 @@ import { createMd5, md5 } from './md5.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 const nextState = (state: number): number => {
-  const signed = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
-  return signed < 0 ? signed + 4294967296 : signed;
+  const signed = (Math.imul(state, 1_664_525) + 1_013_904_223) % 4_294_967_296;
+  return signed < 0 ? signed + 4_294_967_296 : signed;
 };
 
 describe('message digest', () => {
@@ -27,7 +27,7 @@ describe('message digest', () => {
 
   it('matches an OpenSSL digest for one MiB of fixed-seed bytes', () => {
     const bytes = new Uint8Array(1024 * 1024);
-    let state = 0x12345678;
+    let state = 0x12_34_56_78;
     for (let index = 0; index < bytes.length; index++) {
       state = nextState(state);
       bytes[index] = state % 256;
@@ -37,14 +37,16 @@ describe('message digest', () => {
 
   it('gives the one-shot digest when the input arrives in chunks that straddle blocks', () => {
     const bytes = new Uint8Array(4096);
-    let state = 0x9e3779b9;
+    let state = 0x9e_37_79_b9;
     for (let index = 0; index < bytes.length; index++) {
       state = nextState(state);
       bytes[index] = state % 256;
     }
     for (const size of [1, 55, 56, 63, 64, 65, 200, 4096]) {
       const hash = createMd5();
-      for (let offset = 0; offset < bytes.length; offset += size) hash.update(bytes.subarray(offset, offset + size));
+      for (let offset = 0; offset < bytes.length; offset += size) {
+        hash.update(bytes.subarray(offset, offset + size));
+      }
       expect(hex(hash.digest()), `chunk size ${String(size)}`).toBe(hex(md5(bytes)));
     }
     const empty = createMd5().update(new Uint8Array()).digest();

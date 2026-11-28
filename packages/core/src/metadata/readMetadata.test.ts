@@ -18,7 +18,7 @@ const packet = (body: string): string =>
 
 const PRODUCER = packet('<pdf:Producer>P</pdf:Producer><xmp:MetadataDate>2024-01-01T00:00:00Z</xmp:MetadataDate>');
 
-const read = (catalog: string, objects: readonly TestObject[], trailer: string): DocumentMetadata =>
+const read = (catalog: string, objects: ReadonlyArray<TestObject>, trailer: string): DocumentMetadata =>
   readMetadata(
     loadDocument(
       buildPdf([
@@ -37,18 +37,18 @@ const read = (catalog: string, objects: readonly TestObject[], trailer: string):
   );
 
 const IMAGE = { number: 6, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray/Metadata 7 0 R', 'x') };
-const COMPONENTS: readonly TestObject[] = [
+const COMPONENTS: ReadonlyArray<TestObject> = [
   IMAGE,
   { number: 7, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
   { number: 8, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
 ];
 
-const infoKeys = (metadata: DocumentMetadata): readonly string[] => [...(metadata.info?.values.keys() ?? [])];
+const infoKeys = (metadata: DocumentMetadata): ReadonlyArray<string> => [...(metadata.info?.values.keys() ?? [])];
 
 const unreadable = (metadata: DocumentMetadata): string | undefined =>
   metadata.xmp !== undefined && 'unreadable' in metadata.xmp ? metadata.xmp.unreadable : undefined;
 
-const codes = (metadata: DocumentMetadata): readonly string[] => metadata.findings.map(finding => finding.code);
+const codes = (metadata: DocumentMetadata): ReadonlyArray<string> => metadata.findings.map(finding => finding.code);
 
 describe('reading document metadata', () => {
   it('finds an orphan XML metadata stream without a Type entry', () => {

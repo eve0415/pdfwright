@@ -1,6 +1,6 @@
 import { TRANSFORMED_VERTICAL_ORIENTATION } from './verticalOrientation.ts';
 
-const RANGES: readonly (readonly [number, number])[] = TRANSFORMED_VERTICAL_ORIENTATION.split('\n').map(line => {
+const RANGES: ReadonlyArray<readonly [number, number]> = TRANSFORMED_VERTICAL_ORIENTATION.split('\n').map(line => {
   const [first = '', last = ''] = line.split(';');
   return [Number.parseInt(first, 16), Number.parseInt(last, 16)] as const;
 });

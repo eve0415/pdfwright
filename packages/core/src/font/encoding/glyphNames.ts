@@ -3,15 +3,19 @@ import { LATIN_PDF_DOC_CODES, pdfDocEncodingUnicode } from './simpleEncodings.ts
 
 const UPPER_HEX = /^[0-9A-F]+$/u;
 
-const isScalar = (value: number): boolean => (value >= 0 && value <= 0xd7ff) || (value >= 0xe000 && value <= 0x10ffff);
+const isScalar = (value: number): boolean => (value >= 0 && value <= 0xd7_ff) || (value >= 0xe0_00 && value <= 0x10_ff_ff);
 
 // Adobe Glyph List Specification, section 2: "if the component is of the form ‘uni’ … followed by a sequence of uppercase hexadecimal digits …, if the length of that sequence is a multiple of four, and if each group of four digits represents a value in the ranges 0000 through D7FF or E000 through FFFF, then interpret each as a Unicode scalar value".
 const uniText = (digits: string): string | undefined => {
-  if (digits.length === 0 || digits.length % 4 !== 0 || !UPPER_HEX.test(digits)) return undefined;
+  if (digits.length === 0 || digits.length % 4 !== 0 || !UPPER_HEX.test(digits)) {
+    return undefined;
+  }
   let text = '';
   for (let index = 0; index < digits.length; index += 4) {
     const value = Number.parseInt(digits.slice(index, index + 4), 16);
-    if (!isScalar(value)) return undefined;
+    if (!isScalar(value)) {
+      return undefined;
+    }
     text += String.fromCodePoint(value);
   }
   return text;
@@ -19,7 +23,9 @@ const uniText = (digits: string): string | undefined => {
 
 // "if the component is of the form ‘u’ … followed by a sequence of four to six uppercase hexadecimal digits …, and those digits represents a value in the ranges 0000 through D7FF or E000 through 10FFFF, then interpret it as a Unicode scalar value".
 const uText = (digits: string): string | undefined => {
-  if (digits.length < 4 || digits.length > 6 || !UPPER_HEX.test(digits)) return undefined;
+  if (digits.length < 4 || digits.length > 6 || !UPPER_HEX.test(digits)) {
+    return undefined;
+  }
   const value = Number.parseInt(digits, 16);
   return isScalar(value) ? String.fromCodePoint(value) : undefined;
 };

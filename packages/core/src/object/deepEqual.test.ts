@@ -7,7 +7,7 @@ import { mm } from '../length/length.ts';
 import { deepEqual } from './deepEqual.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference, pdfString } from './pdfObject.ts';
 
-const dictionary = (entries: [string, PdfObject & { kind: Exclude<PdfObject['kind'], 'stream'> }][]): PdfObject =>
+const dictionary = (entries: Array<[string, PdfObject & { kind: Exclude<PdfObject['kind'], 'stream'> }]>): PdfObject =>
   pdfDictionary(new PdfDictionaryEntries(entries.map(([key, value]) => [pdfName(key).bytes, value])));
 
 const invalid = (text: string): PdfObject => ({ kind: 'invalid', bytes: new TextEncoder().encode(text), reason: 'malformed-number' });

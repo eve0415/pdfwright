@@ -132,7 +132,9 @@ describe('icc colour transforms', () => {
   it('reads lut8 Lab output with both neutral a and b midpoints', () => {
     const table = { kind: 'table' as const, values: Uint8Array.from({ length: 256 }, (_, sample) => sample) };
     const values = new Uint8Array(24);
-    for (let index = 0; index < 8; index++) values.set([128, 128, 128], index * 3);
+    for (let index = 0; index < 8; index++) {
+      values.set([128, 128, 128], index * 3);
+    }
     const lut: TableLut = {
       kind: 'lut8',
       matrix,
@@ -182,7 +184,9 @@ describe('icc colour transforms', () => {
     const output = new Float64Array(4);
     for (let index = 0; index < 4096; index++) {
       transform.convert(Float64Array.of((index + 0.5) / 4096, 0, 0), output);
-      for (let channel = 0; channel < 4; channel++) view.setFloat64((index * 4 + channel) * 8, Number(output[channel]), true);
+      for (let channel = 0; channel < 4; channel++) {
+        view.setFloat64((index * 4 + channel) * 8, Number(output[channel]), true);
+      }
     }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('cacc8d97316e725b4d13f347e0acdae6');
@@ -241,17 +245,21 @@ describe('icc colour transforms', () => {
         Float64Array.from(input8.subarray(pixel * 3, pixel * 3 + 3), value => value / 255),
         scalar,
       );
-      for (let channel = 0; channel < 4; channel++) expect(output8[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 255));
+      for (let channel = 0; channel < 4; channel++) {
+        expect(output8[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 255));
+      }
     }
-    const input16 = Uint16Array.of(0, 0, 0, 32768, 32768, 32768, 65535, 65535, 65535);
+    const input16 = Uint16Array.of(0, 0, 0, 32_768, 32_768, 32_768, 65_535, 65_535, 65_535);
     const output16 = new Uint16Array(12);
     transform.convertRow16(input16, output16, 3);
     for (let pixel = 0; pixel < 3; pixel++) {
       transform.convert(
-        Float64Array.from(input16.subarray(pixel * 3, pixel * 3 + 3), value => value / 65535),
+        Float64Array.from(input16.subarray(pixel * 3, pixel * 3 + 3), value => value / 65_535),
         scalar,
       );
-      for (let channel = 0; channel < 4; channel++) expect(output16[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 65535));
+      for (let channel = 0; channel < 4; channel++) {
+        expect(output16[pixel * 4 + channel]).toBe(Math.round(Number(scalar[channel]) * 65_535));
+      }
     }
   });
 

@@ -44,13 +44,17 @@ export class ObjectIndex {
   }
 
   /** Builds the index from entries in precedence order: the first entry for an object number wins. */
-  static fromEntries(entries: readonly XrefEntry[], shift = 0): ObjectIndex {
+  static fromEntries(entries: ReadonlyArray<XrefEntry>, shift = 0): ObjectIndex {
     let highest = -1;
-    for (const entry of entries) highest = Math.max(highest, entry.objectNumber);
+    for (const entry of entries) {
+      highest = Math.max(highest, entry.objectNumber);
+    }
     const size = highest + 1;
     if (size <= 4 * entries.length + 1024) {
       const index = new ObjectIndex(size, undefined, size);
-      for (const entry of entries) index.fill(entry.objectNumber, entry, shift);
+      for (const entry of entries) {
+        index.fill(entry.objectNumber, entry, shift);
+      }
       return index;
     }
     const order = entries
@@ -62,12 +66,14 @@ export class ObjectIndex {
       Uint32Array.from(unique, item => item.entry.objectNumber),
       unique.length,
     );
-    for (const [slot, item] of unique.entries()) index.fill(slot, item.entry, shift);
+    for (const [slot, item] of unique.entries()) {
+      index.fill(slot, item.entry, shift);
+    }
     return index;
   }
 
   /** Builds the index from cross-reference sections in search order. */
-  static fromSections(sections: readonly XrefSection[], shift = 0): ObjectIndex {
+  static fromSections(sections: ReadonlyArray<XrefSection>, shift = 0): ObjectIndex {
     return ObjectIndex.fromEntries(
       sections.flatMap(section => section.entries),
       shift,
@@ -79,7 +85,9 @@ export class ObjectIndex {
   }
 
   private fill(slot: number, entry: XrefEntry, shift: number): void {
-    if (this.types[slot] !== ABSENT) return;
+    if (this.types[slot] !== ABSENT) {
+      return;
+    }
     const type = TYPES[entry.type];
     this.types[slot] = type;
     this.locations[slot] = type === IN_FILE ? entry.location + shift : entry.location;
@@ -88,24 +96,35 @@ export class ObjectIndex {
 
   private slot(objectNumber: number): number {
     const { numbers } = this;
-    if (numbers === undefined) return objectNumber >= 0 && objectNumber < this.size ? objectNumber : -1;
+    if (numbers === undefined) {
+      return objectNumber >= 0 && objectNumber < this.size ? objectNumber : -1;
+    }
     let low = 0;
     let high = numbers.length - 1;
     while (low <= high) {
       const middle = Math.floor((low + high) / 2);
       const value = numbers[middle] ?? 0;
-      if (value === objectNumber) return middle;
-      if (value < objectNumber) low = middle + 1;
-      else high = middle - 1;
+      if (value === objectNumber) {
+        return middle;
+      }
+      if (value < objectNumber) {
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
     }
     return -1;
   }
 
   get(objectNumber: number): IndexEntry {
     const slot = this.slot(objectNumber);
-    if (slot < 0) return ABSENT_ENTRY;
+    if (slot < 0) {
+      return ABSENT_ENTRY;
+    }
     const type = this.types[slot] ?? ABSENT;
-    if (type === ABSENT) return ABSENT_ENTRY;
+    if (type === ABSENT) {
+      return ABSENT_ENTRY;
+    }
     return {
       type: type === FREE || type === IN_FILE || type === COMPRESSED ? type : ABSENT,
       location: this.locations[slot] ?? 0,
@@ -116,21 +135,27 @@ export class ObjectIndex {
   /** Marks an in-use entry as free, as for an in-file entry whose offset is 0. */
   free(objectNumber: number): void {
     const slot = this.slot(objectNumber);
-    if (slot >= 0) this.types[slot] = FREE;
+    if (slot >= 0) {
+      this.types[slot] = FREE;
+    }
   }
 
   /** Object numbers with an in-use entry, ascending. */
   *inUse(): Generator<number> {
     for (let slot = 0; slot < this.types.length; slot++) {
       const type = this.types[slot];
-      if (type === IN_FILE || type === COMPRESSED) yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
+      if (type === IN_FILE || type === COMPRESSED) {
+        yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
+      }
     }
   }
 
   /** Object numbers with an explicit free entry, ascending. */
   *freeEntries(): Generator<number> {
     for (let slot = 0; slot < this.types.length; slot++) {
-      if (this.types[slot] === FREE) yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
+      if (this.types[slot] === FREE) {
+        yield this.numbers === undefined ? slot : (this.numbers[slot] ?? 0);
+      }
     }
   }
 }
@@ -178,7 +203,9 @@ export const validateHeaders = (source: ByteSource, index: ObjectIndex, validati
   const { offsetZero } = validation;
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
-    if (entry.type !== IN_FILE || validation.skip.get(objectNumber) === entry.location) continue;
+    if (entry.type !== IN_FILE || validation.skip.get(objectNumber) === entry.location) {
+      continue;
+    }
     const header =
       entry.location > 0 && entry.location < source.length && headerMatches(source, entry.location, { objectNumber, generation: entry.generation });
     // An entry for a cross-reference stream's own number that points elsewhere described only that stream, which nothing locates through the index, so it is dropped.
@@ -191,7 +218,9 @@ export const validateHeaders = (source: ByteSource, index: ObjectIndex, validati
       offsetZero(objectNumber);
       continue;
     }
-    if (!header) return { objectNumber, offset: entry.location };
+    if (!header) {
+      return { objectNumber, offset: entry.location };
+    }
   }
   return undefined;
 };

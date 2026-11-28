@@ -36,45 +36,71 @@ const decompressZstd = promisify(zstdDecompress);
 
 const pieceBytes = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('missing document internals');
+  if (parts === undefined) {
+    throw new Error('missing document internals');
+  }
   const [page] = parts.pages;
-  if (page === undefined) throw new Error('missing page');
+  if (page === undefined) {
+    throw new Error('missing page');
+  }
   const original = originalValue(parts.objects.store, page.reference.objectNumber, parts.maxNesting);
   const node = original?.node.entries?.find(entry => text(entry.key) === 'PieceInfo')?.node;
-  if (original === undefined || node === undefined) throw new Error('missing direct PieceInfo source bytes');
+  if (original === undefined || node === undefined) {
+    throw new Error('missing direct PieceInfo source bytes');
+  }
   return original.bytes.slice(node.start, node.end);
 };
 
-const pieceReferences = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const pieceReferences = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is not a dictionary');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is not a dictionary');
+  }
   const piece = page.entries.get(pdfName('PieceInfo').bytes);
-  if (piece?.kind !== 'dictionary') throw new Error('PieceInfo is not direct');
+  if (piece?.kind !== 'dictionary') {
+    throw new Error('PieceInfo is not direct');
+  }
   const illustrator = piece.entries.get(pdfName('Illustrator').bytes);
-  if (illustrator?.kind !== 'reference') throw new Error('Illustrator data is not indirect');
+  if (illustrator?.kind !== 'reference') {
+    throw new Error('Illustrator data is not indirect');
+  }
   const data = document.get(illustrator);
-  if (data.kind !== 'dictionary') throw new Error('Illustrator data is not a dictionary');
+  if (data.kind !== 'dictionary') {
+    throw new Error('Illustrator data is not a dictionary');
+  }
   const privateRef = data.entries.get(pdfName('Private').bytes);
-  if (privateRef?.kind !== 'reference') throw new Error('Private data is not indirect');
+  if (privateRef?.kind !== 'reference') {
+    throw new Error('Private data is not indirect');
+  }
   const privateData = document.get(privateRef);
-  if (privateData.kind !== 'dictionary') throw new Error('Private data is not a dictionary');
+  if (privateData.kind !== 'dictionary') {
+    throw new Error('Private data is not a dictionary');
+  }
   const streams = [...privateData.entries.entries()].flatMap(([, value]) => (value.kind === 'reference' ? [value.objectNumber] : []));
   return [illustrator.objectNumber, privateRef.objectNumber, ...streams];
 };
 
-const privateStreams = async (document: ReturnType<typeof loadDocument>): Promise<readonly Uint8Array[]> => {
+const privateStreams = async (document: ReturnType<typeof loadDocument>): Promise<ReadonlyArray<Uint8Array>> => {
   const [, reference] = pieceReferences(document);
-  if (reference === undefined) throw new Error('missing Private reference');
+  if (reference === undefined) {
+    throw new Error('missing Private reference');
+  }
   const privateData = document.get({ kind: 'reference', objectNumber: reference, generation: 0 });
-  if (privateData.kind !== 'dictionary') throw new Error('Private data is not a dictionary');
+  if (privateData.kind !== 'dictionary') {
+    throw new Error('Private data is not a dictionary');
+  }
   const entries = [...privateData.entries.entries()]
     .filter(([key]) => text(key).startsWith('AIPDFPrivateData'))
     .toSorted(([left], [right]) => Number(text(left).slice(16)) - Number(text(right).slice(16)));
   return Promise.all(
     entries.map(async ([, value]) => {
-      if (value.kind !== 'reference') throw new Error('private block is not indirect');
+      if (value.kind !== 'reference') {
+        throw new Error('private block is not indirect');
+      }
       const stream = document.get(value);
-      if (stream.kind !== 'stream') throw new Error('private block is not a stream');
+      if (stream.kind !== 'stream') {
+        throw new Error('private block is not a stream');
+      }
       return stream.dictionary.has(pdfName('Filter').bytes) ? inflateBytes(stream.data) : stream.data;
     }),
   );
@@ -86,16 +112,22 @@ const assertPieceBytes = (before: ReturnType<typeof loadDocument>, after: Return
   expect(pieceReferences(after)).toStrictEqual(refs);
   const left = internalsOf(before);
   const right = internalsOf(after);
-  if (left === undefined || right === undefined) throw new Error('missing document internals');
+  if (left === undefined || right === undefined) {
+    throw new Error('missing document internals');
+  }
   for (const number of refs) {
     const original = originalValue(left.objects.store, number, left.maxNesting)?.bytes;
     const saved = originalValue(right.objects.store, number, right.maxNesting)?.bytes;
-    if (original === undefined || saved === undefined) throw new Error('missing source object');
+    if (original === undefined || saved === undefined) {
+      throw new Error('missing source object');
+    }
     expect(Buffer.compare(original, saved)).toBe(0);
     const reference = { kind: 'reference', objectNumber: number, generation: 0 } as const;
     const source = before.get(reference);
     const result = after.get(reference);
-    if (source.kind === 'stream' && result.kind === 'stream') expect(Buffer.compare(result.data, source.data)).toBe(0);
+    if (source.kind === 'stream' && result.kind === 'stream') {
+      expect(Buffer.compare(result.data, source.data)).toBe(0);
+    }
   }
 };
 
@@ -111,7 +143,9 @@ const edit = (source: Uint8Array, mode: (typeof modes)[number], updateDate: bool
     content.path(draw => draw.rect(pt(120), pt(120), pt(40), pt(30)));
     content.fill('nonzero');
   });
-  if (updateDate) page.setLastModified(changedDate);
+  if (updateDate) {
+    page.setLastModified(changedDate);
+  }
   return document.save({ mode }).toBytes();
 };
 
@@ -132,8 +166,11 @@ const assertAcceptance = (source: Uint8Array, saved: Uint8Array, updateDate: boo
     .differences.map(difference => difference.kind)
     .toSorted();
   expect(differences).toStrictEqual([...(updateDate ? ['last-modified'] : []), 'page-box', 'page-content', 'page-resources', 'page-resources'].toSorted());
-  if (updateDate) expect(after.page(0).lastModified()).not.toStrictEqual(before.page(0).lastModified());
-  else expect(after.page(0).lastModified()).toStrictEqual(before.page(0).lastModified());
+  if (updateDate) {
+    expect(after.page(0).lastModified()).not.toStrictEqual(before.page(0).lastModified());
+  } else {
+    expect(after.page(0).lastModified()).toStrictEqual(before.page(0).lastModified());
+  }
 };
 
 const variants = [
@@ -144,7 +181,9 @@ const variants = [
 
 const assertFixtureStructure = async (document: ReturnType<typeof loadDocument>, source: Uint8Array, variant: (typeof variants)[number]): Promise<void> => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('missing document internals');
+  if (parts === undefined) {
+    throw new Error('missing document internals');
+  }
   const chunks = await privateStreams(document);
   expect({
     status: document.structure.status,
@@ -173,7 +212,7 @@ const assertFixtureStructure = async (document: ReturnType<typeof loadDocument>,
   expect(decoded.length).toBeGreaterThan(2_097_152);
 };
 
-const processDifferenceOutsideMark = async (beforeFiles: readonly PlateFile[], afterFiles: readonly PlateFile[]): Promise<number> => {
+const processDifferenceOutsideMark = async (beforeFiles: ReadonlyArray<PlateFile>, afterFiles: ReadonlyArray<PlateFile>): Promise<number> => {
   const colors = ['Cyan', 'Magenta', 'Yellow', 'Black'];
   const pairs = await Promise.all(
     colors.map(async color => {
@@ -183,7 +222,9 @@ const processDifferenceOutsideMark = async (beforeFiles: readonly PlateFile[], a
   );
   let differences = 0;
   for (const [before, after] of pairs) {
-    if (before.width !== after.width || before.height !== after.height) return Number.POSITIVE_INFINITY;
+    if (before.width !== after.width || before.height !== after.height) {
+      return Number.POSITIVE_INFINITY;
+    }
     for (let y = 0; y < before.height; y++) {
       for (let x = 0; x < before.width; x++) {
         const outside = x < 118 || x > 162 || y < before.height - 152 || y > before.height - 118;
@@ -247,10 +288,14 @@ describe('synthetic Illustrator-shaped acceptance', () => {
 });
 
 const realExports = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
-if (realExports === undefined) stdout.write('Local Adobe export acceptance not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+if (realExports === undefined) {
+  stdout.write('Local Adobe export acceptance not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+}
 
 const localSource = async (file: string): Promise<Uint8Array> => {
-  if (realExports === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  if (realExports === undefined) {
+    throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  }
   return readFile(path.join(realExports, file));
 };
 

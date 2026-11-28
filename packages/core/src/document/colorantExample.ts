@@ -37,7 +37,9 @@ export const writeColorants = (): ColorantExample => {
       content.fill('nonzero');
     });
   } catch (error: unknown) {
-    if (!(error instanceof ValidationError)) throw error;
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
     whiteOverprintReason = error.reason;
   }
   const saved = document.save();

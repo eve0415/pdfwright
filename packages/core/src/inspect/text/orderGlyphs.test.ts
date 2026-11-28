@@ -22,10 +22,10 @@ const OBJECTS = [
   },
 ];
 
-const glyphs = (content: string): readonly PageGlyph[] =>
+const glyphs = (content: string): ReadonlyArray<PageGlyph> =>
   extractText(loadDocument(textPdfBytes({ pages: [{ content, resources: '/Font<</F1 101 0 R/H 102 0 R>>' }], objects: OBJECTS })), 0).glyphs;
 
-const indexes = (ordered: readonly PageGlyph[]): number[] => ordered.map(glyph => glyph.index);
+const indexes = (ordered: ReadonlyArray<PageGlyph>): Array<number> => ordered.map(glyph => glyph.index);
 
 describe('glyph order', () => {
   it('keeps content order', () => {

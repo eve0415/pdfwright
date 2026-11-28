@@ -8,13 +8,17 @@ import { latin1Bytes } from '../testing/pdfBuilder.ts';
 
 import { readContent, readContentSpans } from './contentOperations.ts';
 
-const operations = (content: string | readonly string[]): ContentOperation[] => [
+const operations = (content: string | ReadonlyArray<string>): Array<ContentOperation> => [
   ...readContent(typeof content === 'string' ? latin1Bytes(content) : content.map(text => latin1Bytes(text)), 32),
 ];
 
-const leftOver = (content: string): readonly ContentOperand[] => {
+const leftOver = (content: string): ReadonlyArray<ContentOperand> => {
   const reader = readContent(latin1Bytes(content), 32);
-  for (let step = reader.next(); ; step = reader.next()) if (step.done === true) return step.value;
+  for (let step = reader.next(); ; step = reader.next()) {
+    if (step.done === true) {
+      return step.value;
+    }
+  }
 };
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });

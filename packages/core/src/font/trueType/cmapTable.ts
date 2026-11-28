@@ -16,7 +16,7 @@ export interface TrueTypeCmap {
   /** The glyph index the subtable maps a Unicode code point to, or undefined when it maps it to nothing or to glyph 0. */
   readonly glyph: (codePoint: number) => number | undefined;
   /** Unicode code points in the chosen subtable that map to a glyph index, indexed once on the first reverse lookup. */
-  readonly characters: (glyphIndex: number) => readonly number[];
+  readonly characters: (glyphIndex: number) => ReadonlyArray<number>;
   /** For a variation sequence of format 14: `default` when the base character's own glyph is used, the glyph index of a non-default variant, or undefined when the sequence is not listed. */
   readonly variant: (codePoint: number, selector: number) => number | 'default' | undefined;
 }
@@ -34,35 +34,46 @@ interface Segment {
   readonly glyphs: number;
 }
 
-const bySearch = <T extends { readonly start: number; readonly end: number }>(items: readonly T[], key: number): T | undefined => {
+const bySearch = <T extends { readonly start: number; readonly end: number }>(items: ReadonlyArray<T>, key: number): T | undefined => {
   let first = 0;
   let last = items.length - 1;
   while (first <= last) {
     const middle = Math.floor((first + last) / 2);
     const item = items[middle];
-    if (item === undefined) return undefined;
-    if (key < item.start) last = middle - 1;
-    else if (key > item.end) first = middle + 1;
-    else return item;
+    if (item === undefined) {
+      return undefined;
+    }
+    if (key < item.start) {
+      last = middle - 1;
+    } else if (key > item.end) {
+      first = middle + 1;
+    } else {
+      return item;
+    }
   }
   return undefined;
 };
 
 const reverseCharacters = <T extends { readonly start: number; readonly end: number }>(
-  ranges: readonly T[],
+  ranges: ReadonlyArray<T>,
   glyph: (range: T, codePoint: number) => number | undefined,
 ): TrueTypeCmap['characters'] => {
-  let reverse: ReadonlyMap<number, readonly number[]> | undefined;
+  let reverse: ReadonlyMap<number, ReadonlyArray<number>> | undefined;
   return glyphIndex => {
     if (reverse === undefined) {
-      const index = new Map<number, number[]>();
+      const index = new Map<number, Array<number>>();
       for (const range of ranges) {
         for (let codePoint = range.start; codePoint <= range.end; codePoint++) {
           const mapped = glyph(range, codePoint);
-          if (mapped === undefined) continue;
+          if (mapped === undefined) {
+            continue;
+          }
           const characters = index.get(mapped);
-          if (characters === undefined) index.set(mapped, [codePoint]);
-          else characters.push(codePoint);
+          if (characters === undefined) {
+            index.set(mapped, [codePoint]);
+          } else {
+            characters.push(codePoint);
+          }
         }
       }
       reverse = index;
@@ -76,8 +87,10 @@ const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> 
   const read = sfntReader(table);
   const length = Math.min(read.u16(2), table.length);
   const count = read.u16(6) / 2;
-  if (!Number.isInteger(count) || 16 + 8 * count > length) throw new ParseError('the format 4 segment count does not fit the subtable', 0);
-  const segments: Segment[] = [];
+  if (!Number.isInteger(count) || 16 + 8 * count > length) {
+    throw new ParseError('the format 4 segment count does not fit the subtable', 0);
+  }
+  const segments: Array<Segment> = [];
   for (let index = 0; index < count; index++) {
     const rangeOffset = read.u16(16 + 6 * count + 2 * index);
     const end = read.u16(14 + 2 * index);
@@ -99,14 +112,18 @@ const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> 
     if (segment.glyphs !== 0) {
       const at = segment.glyphs + 2 * (codePoint - segment.start);
       base = at + 1 < length ? view.u16(at) : 0;
-      if (base === 0) return undefined;
+      if (base === 0) {
+        return undefined;
+      }
     }
     const mapped = (base + segment.delta) % 65_536;
     return mapped === 0 ? undefined : mapped;
   };
   return {
     glyph: (codePoint: number): number | undefined => {
-      if (codePoint > 0xffff) return undefined;
+      if (codePoint > 0xff_ff) {
+        return undefined;
+      }
       const segment = bySearch(segments, codePoint);
       return segment === undefined ? undefined : glyph(segment, codePoint);
     },
@@ -124,13 +141,15 @@ interface Group {
 const format12 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> => {
   const read = sfntReader(table);
   const count = read.u32(12);
-  if (16 + 12 * count > Math.min(read.u32(4), table.length)) throw new ParseError('the format 12 group count does not fit the subtable', 0);
-  const groups: Group[] = [];
+  if (16 + 12 * count > Math.min(read.u32(4), table.length)) {
+    throw new ParseError('the format 12 group count does not fit the subtable', 0);
+  }
+  const groups: Array<Group> = [];
   for (let index = 0; index < count; index++) {
     const at = 16 + 12 * index;
     const start = read.u32(at);
     const end = read.u32(at + 4);
-    if (start > end || end > 0x10ffff || (groups.length > 0 && start <= (groups.at(-1)?.end ?? 0))) {
+    if (start > end || end > 0x10_ff_ff || (groups.length > 0 && start <= (groups.at(-1)?.end ?? 0))) {
       throw new ParseError('the format 12 groups are not ordered and disjoint', 0);
     }
     groups.push({ start, end, glyph: read.u32(at + 8) });
@@ -150,7 +169,7 @@ const format12 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'>
 
 interface Selector {
   readonly selector: number;
-  readonly defaults: readonly { readonly start: number; readonly end: number }[];
+  readonly defaults: ReadonlyArray<{ readonly start: number; readonly end: number }>;
   readonly mappings: ReadonlyMap<number, number>;
 }
 
@@ -158,32 +177,46 @@ interface Selector {
 const MAX_VARIATION_ENTRIES = 16_384;
 
 // Format 14: numVarSelectorRecords at 6, then 11-byte records of varSelector (24-bit), defaultUVSOffset and nonDefaultUVSOffset, each offset from the subtable's start.
-const format14 = (table: Uint8Array): Selector[] => {
+const format14 = (table: Uint8Array): Array<Selector> => {
   const read = sfntReader(table);
   const count = read.u32(6);
-  if (10 + 11 * count > Math.min(read.u32(2), table.length)) throw new ParseError('the format 14 record count does not fit the subtable', 0);
-  if (count > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
-  const selectors: Selector[] = [];
+  if (10 + 11 * count > Math.min(read.u32(2), table.length)) {
+    throw new ParseError('the format 14 record count does not fit the subtable', 0);
+  }
+  if (count > MAX_VARIATION_ENTRIES) {
+    throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+  }
+  const selectors: Array<Selector> = [];
   let entries = count;
   for (let index = 0; index < count; index++) {
     const at = 10 + 11 * index;
     const defaultOffset = read.u32(at + 3);
     const mappingOffset = read.u32(at + 7);
-    const defaults: { start: number; end: number }[] = [];
+    const defaults: Array<{ start: number; end: number }> = [];
     const mappings = new Map<number, number>();
     const ranges = defaultOffset === 0 ? 0 : read.u32(defaultOffset);
-    if (defaultOffset !== 0 && defaultOffset + 4 + 4 * ranges > table.length) throw new ParseError('a default UVS table does not fit the subtable', 0);
+    if (defaultOffset !== 0 && defaultOffset + 4 + 4 * ranges > table.length) {
+      throw new ParseError('a default UVS table does not fit the subtable', 0);
+    }
     entries += ranges;
-    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    if (entries > MAX_VARIATION_ENTRIES) {
+      throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    }
     for (let range = 0; range < ranges; range++) {
       const start = read.u24(defaultOffset + 4 + 4 * range);
       defaults.push({ start, end: start + read.u8(defaultOffset + 7 + 4 * range) });
     }
     const pairs = mappingOffset === 0 ? 0 : read.u32(mappingOffset);
-    if (mappingOffset !== 0 && mappingOffset + 4 + 5 * pairs > table.length) throw new ParseError('a non-default UVS table does not fit the subtable', 0);
+    if (mappingOffset !== 0 && mappingOffset + 4 + 5 * pairs > table.length) {
+      throw new ParseError('a non-default UVS table does not fit the subtable', 0);
+    }
     entries += pairs;
-    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
-    for (let pair = 0; pair < pairs; pair++) mappings.set(read.u24(mappingOffset + 4 + 5 * pair), read.u16(mappingOffset + 7 + 5 * pair));
+    if (entries > MAX_VARIATION_ENTRIES) {
+      throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    }
+    for (let pair = 0; pair < pairs; pair++) {
+      mappings.set(read.u24(mappingOffset + 4 + 5 * pair), read.u16(mappingOffset + 7 + 5 * pair));
+    }
     selectors.push({ selector: read.u24(at), defaults, mappings });
   }
   return selectors;
@@ -197,7 +230,7 @@ interface Subtable {
 }
 
 // Unicode subtables in order of preference: full-repertoire format 12 before BMP format 4, Windows before Unicode platform.
-const RANK: readonly (readonly [number, number, number])[] = [
+const RANK: ReadonlyArray<readonly [number, number, number]> = [
   [3, 10, 12],
   [0, 6, 12],
   [0, 4, 12],
@@ -214,7 +247,7 @@ const rank = (subtable: Subtable): number =>
 const buildCmap = (table: Uint8Array): CmapReading => {
   const read = sfntReader(table);
   const count = read.u16(2);
-  const subtables: Subtable[] = [];
+  const subtables: Array<Subtable> = [];
   for (let index = 0; index < count; index++) {
     const record = 4 + 8 * index;
     const offset = read.u32(record + 4);
@@ -222,7 +255,9 @@ const buildCmap = (table: Uint8Array): CmapReading => {
   }
   const unicode = subtables.filter(subtable => rank(subtable) >= 0).toSorted((left, right) => rank(left) - rank(right));
   const [chosen] = unicode;
-  if (chosen === undefined) return { kind: 'absent' };
+  if (chosen === undefined) {
+    return { kind: 'absent' };
+  }
   const body = table.subarray(chosen.offset);
   const { glyph, characters } = chosen.format === 12 ? format12(body) : format4(body);
   const variations = subtables.find(subtable => subtable.platform === 0 && subtable.encoding === 5 && subtable.format === 14);
@@ -237,8 +272,12 @@ const buildCmap = (table: Uint8Array): CmapReading => {
       characters,
       variant: (codePoint: number, selector: number): number | 'default' | undefined => {
         const record = selectors.find(item => item.selector === selector);
-        if (record === undefined) return undefined;
-        if (record.defaults.some(range => codePoint >= range.start && codePoint <= range.end)) return 'default';
+        if (record === undefined) {
+          return undefined;
+        }
+        if (record.defaults.some(range => codePoint >= range.start && codePoint <= range.end)) {
+          return 'default';
+        }
         return record.mappings.get(codePoint);
       },
     },
@@ -251,7 +290,9 @@ export const readTrueTypeCmap = (program: Uint8Array): CmapReading => {
     const table = findTable(program, 'cmap');
     return table === undefined ? { kind: 'absent' } : buildCmap(table);
   } catch (error) {
-    if (error instanceof ParseError) return { kind: 'unreadable', reason: error.message };
+    if (error instanceof ParseError) {
+      return { kind: 'unreadable', reason: error.message };
+    }
     throw error;
   }
 };

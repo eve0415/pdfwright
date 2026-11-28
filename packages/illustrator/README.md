@@ -113,8 +113,8 @@ interface IllustratorPdfContents {
   readonly header: ReadonlyMap<string, string>;
   readonly native: Uint8Array;
   readonly lastModified: { readonly page: Uint8Array; readonly application: Uint8Array };
-  readonly privateDataKeys: readonly string[];
-  readonly blockLengths: readonly number[];
+  readonly privateDataKeys: ReadonlyArray<string>;
+  readonly blockLengths: ReadonlyArray<number>;
   readonly compression: NativePayloadCompression;
 }
 

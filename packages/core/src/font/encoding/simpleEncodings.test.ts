@@ -19,18 +19,21 @@ const defined = (table: EncodingTable): number => table.filter(name => name !== 
 
 // The codes from 0x20 to 0xFF at which the encoding's glyph name gives text other than the decoder's, and the codes the encoding leaves undefined.
 interface Comparison {
-  readonly differ: number[];
-  readonly undefinedCodes: number[];
+  readonly differ: Array<number>;
+  readonly undefinedCodes: Array<number>;
 }
 
 const against = (table: EncodingTable, label: string): Comparison => {
   const decoder = new TextDecoder(label);
-  const differ: number[] = [];
-  const undefinedCodes: number[] = [];
+  const differ: Array<number> = [];
+  const undefinedCodes: Array<number> = [];
   for (let code = 0x20; code <= 0xff; code++) {
     const name = table[code];
-    if (name === undefined) undefinedCodes.push(code);
-    else if (glyphNameText(name) !== decoder.decode(Uint8Array.of(code))) differ.push(code);
+    if (name === undefined) {
+      undefinedCodes.push(code);
+    } else if (glyphNameText(name) !== decoder.decode(Uint8Array.of(code))) {
+      differ.push(code);
+    }
   }
   return { differ, undefinedCodes };
 };
@@ -71,7 +74,18 @@ describe('the encodings of Annex D', () => {
 
   it('maps PDFDocEncoding codes to Unicode by D.3', () => {
     const codes = [0x00, 0x09, 0x18, 0x41, 0x7f, 0x80, 0x9f, 0xa0, 0xad, 0xe9];
-    expect(codes.map(code => pdfDocEncodingUnicode(code))).toStrictEqual([undefined, 0x09, 0x2d8, 0x41, undefined, 0x2022, undefined, 0x20ac, undefined, 0xe9]);
+    expect(codes.map(code => pdfDocEncodingUnicode(code))).toStrictEqual([
+      undefined,
+      0x09,
+      0x2_d8,
+      0x41,
+      undefined,
+      0x20_22,
+      undefined,
+      0x20_ac,
+      undefined,
+      0xe9,
+    ]);
   });
 
   it('selects the encodings Table 114 names', () => {

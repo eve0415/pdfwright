@@ -33,9 +33,13 @@ const parsed = new Map<string, Standard14Metrics>();
 /** The metrics of a standard 14 font by its exact PostScript name, or undefined for any other name. */
 export const standard14Metrics = (name: string): Standard14Metrics | undefined => {
   const known = parsed.get(name);
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    return known;
+  }
   const font = STANDARD_14.has(name) ? fonts.get(name) : undefined;
-  if (font === undefined) return undefined;
+  if (font === undefined) {
+    return undefined;
+  }
   const names = (font.names ?? CORE14_LATIN_NAMES).split(' ');
   const widths = font.widths.split(' ').map(Number);
   const table = new Map(names.map((glyph, index) => [glyph, widths[index] ?? 0]));

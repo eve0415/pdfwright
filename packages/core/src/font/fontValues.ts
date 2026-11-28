@@ -13,12 +13,16 @@ export type FontSource = Pick<DocumentInternals, 'objects' | 'maxDecodedBytes' |
 
 export const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 export const dictionaryOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
@@ -26,19 +30,27 @@ export const nameOf = (value: PdfObject | undefined): string | undefined => (val
 
 /** An integer or real value as a number; a real a created document holds as an exact rational is divided out. */
 export const numberOf = (value: PdfObject | undefined): number | undefined => {
-  if (value?.kind === 'integer') return value.value;
-  if (value?.kind !== 'real') return undefined;
+  if (value?.kind === 'integer') {
+    return value.value;
+  }
+  if (value?.kind !== 'real') {
+    return undefined;
+  }
   return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
 };
 
 /** The numbers of an array, resolving references to its items, or undefined when it is not an array of numbers. */
-export const numbersOf = (source: FontSource, value: PdfDirectObject | undefined): number[] | undefined => {
+export const numbersOf = (source: FontSource, value: PdfDirectObject | undefined): Array<number> | undefined => {
   const array = source.objects.deref(value);
-  if (array?.kind !== 'array') return undefined;
-  const numbers: number[] = [];
+  if (array?.kind !== 'array') {
+    return undefined;
+  }
+  const numbers: Array<number> = [];
   for (const item of array.items) {
     const number = numberOf(source.objects.deref(item));
-    if (number === undefined) return undefined;
+    if (number === undefined) {
+      return undefined;
+    }
     numbers.push(number);
   }
   return numbers;
@@ -58,7 +70,9 @@ export const decodedData = (source: FontSource, stream: PdfStream): Uint8Array |
       deref: value => source.objects.deref(value),
     });
   } catch (error) {
-    if (error instanceof ParseError || error instanceof UnsupportedFeatureError) return error.message;
+    if (error instanceof ParseError || error instanceof UnsupportedFeatureError) {
+      return error.message;
+    }
     throw error;
   }
 };

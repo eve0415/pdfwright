@@ -28,7 +28,7 @@ const shiftStartxref = (text: string, delta: number): string =>
 
 const offsetOf = (objectNumber: number): number => base.offsets.get(objectNumber) ?? 0;
 
-const summary = (document: LoadedDocument): (string | string[])[] => [document.structure.status, document.warnings.map(warning => warning.code)];
+const summary = (document: LoadedDocument): Array<string | Array<string>> => [document.structure.status, document.warnings.map(warning => warning.code)];
 
 describe('loading documents', () => {
   it('reads an intact file lazily and returns fresh values', () => {
@@ -203,6 +203,11 @@ describe('loading documents', () => {
       },
     ]);
     expect(() => load(withStartxref(packed.text, 5))).toThrow(EncryptedDocumentError);
+  });
+
+  it('reads segments only from Uint8Arrays, so a Uint16Array holding the same values is not a PDF', () => {
+    // @ts-expect-error A Uint16Array is not one of the byte inputs loadDocument accepts.
+    expect(() => loadDocument(Uint16Array.from(base.bytes))).toThrow(new ParseError('not a PDF file: no objects found', 0));
   });
 
   it('detects linearized files', () => {

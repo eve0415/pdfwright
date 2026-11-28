@@ -17,7 +17,9 @@ export class BitWriter {
   }
 
   alignByte(): void {
-    if (this.bitCount > 0) this.bytes.writeByte(this.bits & 255);
+    if (this.bitCount > 0) {
+      this.bytes.writeByte(this.bits & 255);
+    }
     this.bits = 0;
     this.bitCount = 0;
   }

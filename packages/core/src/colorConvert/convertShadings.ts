@@ -28,7 +28,7 @@ import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
 
 export interface ShadingConversionReport {
   readonly shadings: number;
-  readonly approximations: readonly { readonly maxDeltaE2000: number }[];
+  readonly approximations: ReadonlyArray<{ readonly maxDeltaE2000: number }>;
 }
 
 interface ShadingContext {
@@ -49,7 +49,7 @@ interface ShadingPlan {
   readonly shading: Extract<PdfObject, { kind: 'dictionary' }>;
   readonly sampled: ConvertedCmykFunction;
   readonly background: PdfDirectObject | undefined;
-  readonly discarded: readonly PdfReference[];
+  readonly discarded: ReadonlyArray<PdfReference>;
 }
 
 interface DirectShadingPlan {
@@ -93,20 +93,29 @@ const useKey = (scope: PdfReference, name: Uint8Array): string =>
 
 const rememberIntent = <Key>(values: Map<Key, RenderingIntent>, key: Key, intent: RenderingIntent): void => {
   const previous = values.get(key);
-  if (previous !== undefined && previous !== intent) throw new ValidationError('one shading is used with different rendering intents', 'color-space');
+  if (previous !== undefined && previous !== intent) {
+    throw new ValidationError('one shading is used with different rendering intents', 'color-space');
+  }
   values.set(key, intent);
 };
 
-const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference; uses: readonly ShadingUse[] }, usage: ShadingUsage): void => {
+const recordShadingUses = (input: { context: ShadingContext; scope: PdfReference; uses: ReadonlyArray<ShadingUse> }, usage: ShadingUsage): void => {
   const { context, scope, uses } = input;
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const category = internals.objects.deref(context.resources.get(SHADING));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const use of uses) {
     const value = category.entries.get(use.name);
-    if (value?.kind === 'reference') rememberIntent(usage.indirect, value.objectNumber, use.intent);
-    else if (value?.kind === 'dictionary') rememberIntent(usage.direct, useKey(scope, use.name), use.intent);
+    if (value?.kind === 'reference') {
+      rememberIntent(usage.indirect, value.objectNumber, use.intent);
+    } else if (value?.kind === 'dictionary') {
+      rememberIntent(usage.direct, useKey(scope, use.name), use.intent);
+    }
   }
 };
 
@@ -121,7 +130,9 @@ interface UsageStream {
 const scanUsageStream = (stream: UsageStream): void => {
   const { context, scope, bytes, usage, initialState } = stream;
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const rewritten = rewriteContentColors(context.document, bytes, {
     resources: context.resources,
     options: context.options,
@@ -130,19 +141,31 @@ const scanUsageStream = (stream: UsageStream): void => {
   });
   recordShadingUses({ context, scope, uses: rewritten.shadingUses }, usage);
   const category = internals.objects.deref(context.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const use of rewritten.formUses) {
     const reference = category.entries.get(use.name);
-    if (reference?.kind !== 'reference') continue;
+    if (reference?.kind !== 'reference') {
+      continue;
+    }
     const form = internals.objects.deref(reference);
-    if (form?.kind !== 'stream') continue;
+    if (form?.kind !== 'stream') {
+      continue;
+    }
     const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') continue;
-    if (usage.activeForms.has(reference.objectNumber)) throw new ResourceLimitError('recursive form shading walk is unsupported');
+    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
+      continue;
+    }
+    if (usage.activeForms.has(reference.objectNumber)) {
+      throw new ResourceLimitError('recursive form shading walk is unsupported');
+    }
     const own = internals.objects.deref(form.dictionary.get(RESOURCES));
     const resources = own?.kind === 'dictionary' ? own.entries : context.resources;
     const data = decodedData(internals, form);
-    if (typeof data === 'string') return invalid(`form content cannot be read: ${data}`);
+    if (typeof data === 'string') {
+      return invalid(`form content cannot be read: ${data}`);
+    }
     usage.activeForms.add(reference.objectNumber);
     try {
       scanUsageStream({
@@ -160,14 +183,22 @@ const scanUsageStream = (stream: UsageStream): void => {
 
 const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): ShadingUsage => {
   const usage: ShadingUsage = { indirect: new Map(), direct: new Map(), activeForms: new Set() };
-  if (options.intent !== undefined && options.intent !== 'document') return usage;
+  if (options.intent !== undefined && options.intent !== 'document') {
+    return usage;
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) return invalid('page entry is missing');
+    if (entry === undefined) {
+      return invalid('page entry is missing');
+    }
     const content = pageContent(internals, entry);
-    if (content.problems.length > 0) return invalid(`page content cannot be read: ${content.problems.join('; ')}`);
+    if (content.problems.length > 0) {
+      return invalid(`page content cannot be read: ${content.problems.join('; ')}`);
+    }
     scanUsageStream({
       context: { document, resources: document.page(page).resources(), options },
       scope: entry.reference,
@@ -179,34 +210,52 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
 };
 
 const numeric = (value: PdfDirectObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real') return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind === 'real') {
+    return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
+  }
   return invalid('shading function has a nonnumeric value');
 };
 
-const arrayNumbers = (value: PdfDirectObject | undefined, expected: number): number[] => {
-  if (value?.kind !== 'array' || value.items.length !== expected) return invalid('shading numeric array has the wrong length');
+const arrayNumbers = (value: PdfDirectObject | undefined, expected: number): Array<number> => {
+  if (value?.kind !== 'array' || value.items.length !== expected) {
+    return invalid('shading numeric array has the wrong length');
+  }
   return value.items.map(item => numeric(item));
 };
 
 const decodedFunction = (document: LoadedDocument, value: PdfObject): PdfObject => {
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const object = value.kind === 'stream' ? value : internals.objects.deref(value);
-  if (object === undefined) return invalid('shading function is missing');
-  if (object.kind !== 'stream') return object;
+  if (object === undefined) {
+    return invalid('shading function is missing');
+  }
+  if (object.kind !== 'stream') {
+    return object;
+  }
   const data = decodedData(internals, object);
-  if (typeof data === 'string') return invalid(`shading function cannot be decoded: ${data}`);
+  if (typeof data === 'string') {
+    return invalid(`shading function cannot be decoded: ${data}`);
+  }
   const decoded: PdfStream = { kind: 'stream', dictionary: object.dictionary, data };
   return decoded;
 };
 
 const functionReader = (document: LoadedDocument): PdfFunctionReader => createPdfFunctionReader(item => decodedFunction(document, item));
 
-const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
+const evaluator = (document: LoadedDocument, value: PdfDirectObject, channels: number): ((input: ReadonlyArray<number>) => Array<number>) => {
   const read = functionReader(document);
-  if (value.kind !== 'array') return read(value);
-  if (value.items.length !== channels) return invalid('shading Function array disagrees with its colour space');
+  if (value.kind !== 'array') {
+    return read(value);
+  }
+  if (value.items.length !== channels) {
+    return invalid('shading Function array disagrees with its colour space');
+  }
   const functions = value.items.map(item => read(item));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
@@ -222,7 +271,9 @@ const transformFor = (context: ShadingContext, source: ColorSource): ColorTransf
 };
 
 const backgroundFor = (value: PdfDirectObject | undefined, channels: number, transform: ColorTransform): PdfDirectObject | undefined => {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   const input = arrayNumbers(value, channels);
   const output = new Float64Array(4);
   transform.convert(Float64Array.from(input), output);
@@ -233,11 +284,15 @@ const stitchedShading = (context: ShadingContext, source: PdfObject, transform: 
   const read = functionReader(context.document);
   return stitchCmykFunction(context.document, source, child => {
     const decoded = decodedFunction(context.document, child);
-    if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('stitching subfunction is invalid');
+    if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') {
+      return invalid('stitching subfunction is invalid');
+    }
     const fn = read(decoded);
     const { domain } = fn;
-    if (domain.length !== 2) return invalid('stitching subfunction must take one input');
-    const evaluate = (input: readonly number[]): Float64Array => {
+    if (domain.length !== 2) {
+      return invalid('stitching subfunction must take one input');
+    }
+    const evaluate = (input: ReadonlyArray<number>): Float64Array => {
       const output = new Float64Array(4);
       transform.convert(Float64Array.from(fn(input)), output);
       return output;
@@ -252,17 +307,22 @@ const sampledShading = (config: {
   transform: ColorTransform;
   channels: number;
   dimensions: number;
-  domain: readonly number[];
+  domain: ReadonlyArray<number>;
 }): ConvertedCmykFunction => {
   const { context, value, transform, channels, dimensions, domain } = config;
   const sourceFunction = decodedFunction(context.document, value);
   let entries: PdfDictionaryEntries | undefined;
-  if (sourceFunction.kind === 'dictionary') ({ entries } = sourceFunction);
-  else if (sourceFunction.kind === 'stream') ({ dictionary: entries } = sourceFunction);
+  if (sourceFunction.kind === 'dictionary') {
+    ({ entries } = sourceFunction);
+  } else if (sourceFunction.kind === 'stream') {
+    ({ dictionary: entries } = sourceFunction);
+  }
   const functionType = entries?.get(pdfName('FunctionType').bytes);
-  if (functionType?.kind === 'integer' && functionType.value === 3 && dimensions === 1) return stitchedShading(context, sourceFunction, transform);
+  if (functionType?.kind === 'integer' && functionType.value === 3 && dimensions === 1) {
+    return stitchedShading(context, sourceFunction, transform);
+  }
   const fn = evaluator(context.document, value, channels);
-  const evaluate = (values: readonly number[]): Float64Array => {
+  const evaluate = (values: ReadonlyArray<number>): Float64Array => {
     const output = new Float64Array(4);
     transform.convert(Float64Array.from(fn(values)), output);
     return output;
@@ -270,9 +330,11 @@ const sampledShading = (config: {
   return sampleCmykFunction({ dimensions, domain, evaluate, destination: context.options.outputProfile, grid: 65, minimumGrid: 2, midpointTolerance: 0.5 });
 };
 
-const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): PdfReference[] => {
+const discardedFunctions = (document: LoadedDocument, functionValue: PdfDirectObject): Array<PdfReference> => {
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   return discardedFunctionObjects(internals, functionValue);
 };
 
@@ -282,15 +344,21 @@ const planShading = (
   shading: Extract<PdfObject, { kind: 'dictionary' }>,
 ): ShadingPlan | undefined => {
   const type = shading.entries.get(SHADING_TYPE);
-  if (type?.kind !== 'integer' || type.value < 1 || type.value > 3) return undefined;
+  if (type?.kind !== 'integer' || type.value < 1 || type.value > 3) {
+    return undefined;
+  }
   const color = shading.entries.get(COLOR_SPACE);
-  if (color === undefined) return invalid('shading ColorSpace is missing');
+  if (color === undefined) {
+    return invalid('shading ColorSpace is missing');
+  }
   const space = resolveSourceSpace(context.document, color, {
     resources: context.resources,
     sourceRgbProfile: context.options.sourceRgbProfile,
     options: { iccGray: context.options.iccGray ?? 'convert' },
   });
-  if (space.kind !== 'rgb' && space.kind !== 'gray') return undefined;
+  if (space.kind !== 'rgb' && space.kind !== 'gray') {
+    return undefined;
+  }
   const channels = space.kind === 'rgb' ? 3 : 1;
   const dimensions = type.value === 1 ? 2 : 1;
   const domain =
@@ -298,7 +366,9 @@ const planShading = (
       ? Array.from({ length: dimensions }, () => [0, 1]).flat()
       : arrayNumbers(shading.entries.get(DOMAIN), dimensions * 2);
   const functionValue = shading.entries.get(FUNCTION);
-  if (functionValue === undefined) return invalid('function shading has no Function');
+  if (functionValue === undefined) {
+    return invalid('function shading has no Function');
+  }
   const transform = transformFor(context, space.source);
   const sampled = sampledShading({ context, value: functionValue, transform, channels, dimensions, domain });
   return {
@@ -312,86 +382,146 @@ const planShading = (
 
 const scanResources = (context: ShadingContext, plans: Map<number, ShadingPlan>, usage: ShadingUsage): void => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const planReference = (value: PdfDirectObject): void => {
-    if (value.kind !== 'reference' || plans.has(value.objectNumber)) return;
+    if (value.kind !== 'reference' || plans.has(value.objectNumber)) {
+      return;
+    }
     const shading = internals.objects.deref(value);
-    if (shading?.kind !== 'dictionary') return;
+    if (shading?.kind !== 'dictionary') {
+      return;
+    }
     const planned = planShading({ ...context, intent: usage.indirect.get(value.objectNumber) }, value, shading);
-    if (planned !== undefined) plans.set(value.objectNumber, planned);
+    if (planned !== undefined) {
+      plans.set(value.objectNumber, planned);
+    }
   };
   const category = internals.objects.deref(context.resources.get(SHADING));
-  if (category?.kind === 'dictionary') for (const [, value] of category.entries.entries()) planReference(value);
+  if (category?.kind === 'dictionary') {
+    for (const [, value] of category.entries.entries()) {
+      planReference(value);
+    }
+  }
   const patterns = internals.objects.deref(context.resources.get(PATTERN));
-  if (patterns?.kind !== 'dictionary') return;
+  if (patterns?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of patterns.entries.entries()) {
     const pattern = internals.objects.deref(value);
-    if (pattern?.kind !== 'dictionary') continue;
+    if (pattern?.kind !== 'dictionary') {
+      continue;
+    }
     const type = pattern.entries.get(PATTERN_TYPE);
-    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    if (type?.kind !== 'integer' || type.value !== 2) {
+      continue;
+    }
     const shading = pattern.entries.get(SHADING);
-    if (shading !== undefined) planReference(shading);
+    if (shading !== undefined) {
+      planReference(shading);
+    }
   }
 };
 
 const directPatternPlans = (context: ShadingContext, plans: Map<number, PatternShadingPlan>): void => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const category = internals.objects.deref(context.resources.get(PATTERN));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || plans.has(value.objectNumber)) continue;
+    if (value.kind !== 'reference' || plans.has(value.objectNumber)) {
+      continue;
+    }
     const pattern = internals.objects.deref(value);
-    if (pattern?.kind !== 'dictionary') continue;
+    if (pattern?.kind !== 'dictionary') {
+      continue;
+    }
     const type = pattern.entries.get(PATTERN_TYPE);
-    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    if (type?.kind !== 'integer' || type.value !== 2) {
+      continue;
+    }
     const direct = pattern.entries.get(SHADING);
-    if (direct?.kind !== 'dictionary') continue;
+    if (direct?.kind !== 'dictionary') {
+      continue;
+    }
     const shading = planShading(context, undefined, direct);
-    if (shading !== undefined) plans.set(value.objectNumber, { pattern: value, shading });
+    if (shading !== undefined) {
+      plans.set(value.objectNumber, { pattern: value, shading });
+    }
   }
 };
 
-const directPagePlans = (context: ShadingContext, page: PdfReference, usage: ShadingUsage): DirectShadingPlan[] => {
+const directPagePlans = (context: ShadingContext, page: PdfReference, usage: ShadingUsage): Array<DirectShadingPlan> => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const category = internals.objects.deref(context.resources.get(SHADING));
-  if (category?.kind !== 'dictionary') return [];
-  const plans: DirectShadingPlan[] = [];
+  if (category?.kind !== 'dictionary') {
+    return [];
+  }
+  const plans: Array<DirectShadingPlan> = [];
   for (const [name, value] of category.entries.entries()) {
-    if (value.kind !== 'dictionary') continue;
+    if (value.kind !== 'dictionary') {
+      continue;
+    }
     const shading = planShading({ ...context, intent: usage.direct.get(useKey(page, name)) }, undefined, value);
-    if (shading !== undefined) plans.push({ page, resources: context.resources, name, shading });
+    if (shading !== undefined) {
+      plans.push({ page, resources: context.resources, name, shading });
+    }
   }
   return plans;
 };
 
-const formShadingResources = (context: ShadingContext, target: { reference: PdfReference; form: PdfStream }, usage: ShadingUsage): FormShadingPlan[] => {
+const formShadingResources = (context: ShadingContext, target: { reference: PdfReference; form: PdfStream }, usage: ShadingUsage): Array<FormShadingPlan> => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const shadings = internals.objects.deref(context.resources.get(SHADING));
-  if (shadings?.kind !== 'dictionary') return [];
-  const plans: FormShadingPlan[] = [];
+  if (shadings?.kind !== 'dictionary') {
+    return [];
+  }
+  const plans: Array<FormShadingPlan> = [];
   for (const [name, entry] of shadings.entries.entries()) {
-    if (entry.kind !== 'dictionary') continue;
+    if (entry.kind !== 'dictionary') {
+      continue;
+    }
     const shading = planShading({ ...context, intent: usage.direct.get(useKey(target.reference, name)) }, undefined, entry);
-    if (shading !== undefined) plans.push({ form: target.reference, stream: target.form, resources: context.resources, name, shading });
+    if (shading !== undefined) {
+      plans.push({ form: target.reference, stream: target.form, resources: context.resources, name, shading });
+    }
   }
   return plans;
 };
 
-const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; usage: ShadingUsage }): FormShadingPlan[] => {
+const directFormPlans = (context: ShadingContext, state: { seen: Set<number>; usage: ShadingUsage }): Array<FormShadingPlan> => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const category = internals.objects.deref(context.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') return [];
-  const plans: FormShadingPlan[] = [];
+  if (category?.kind !== 'dictionary') {
+    return [];
+  }
+  const plans: Array<FormShadingPlan> = [];
   for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) continue;
+    if (value.kind !== 'reference' || state.seen.has(value.objectNumber)) {
+      continue;
+    }
     const form = internals.objects.deref(value);
-    if (form?.kind !== 'stream') continue;
+    if (form?.kind !== 'stream') {
+      continue;
+    }
     const subtype = internals.objects.deref(form.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') continue;
+    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
+      continue;
+    }
     state.seen.add(value.objectNumber);
     const own = internals.objects.deref(form.dictionary.get(RESOURCES));
     const resources = own?.kind === 'dictionary' ? own.entries : context.resources;
@@ -408,27 +538,37 @@ const convertedDictionary = (document: LoadedDocument, plan: ShadingPlan): PdfDi
   const dictionary = new PdfDictionaryEntries(plan.shading.entries.entries());
   dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
   dictionary.set(FUNCTION, functionReference);
-  if (plan.background !== undefined) dictionary.set(BACKGROUND, plan.background);
+  if (plan.background !== undefined) {
+    dictionary.set(BACKGROUND, plan.background);
+  }
   return dictionary;
 };
 
-const applyDirectPages = (document: LoadedDocument, plans: readonly DirectShadingPlan[]): PdfReference[] => {
+const applyDirectPages = (document: LoadedDocument, plans: ReadonlyArray<DirectShadingPlan>): Array<PdfReference> => {
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
-  const grouped = new Map<number, DirectShadingPlan[]>();
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
+  const grouped = new Map<number, Array<DirectShadingPlan>>();
   for (const plan of plans) {
     const list = grouped.get(plan.page.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.page.objectNumber, list);
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
     const [first] = group;
-    if (first === undefined) continue;
+    if (first === undefined) {
+      continue;
+    }
     const page = document.get(first.page);
-    if (page.kind !== 'dictionary') return invalid('page is not a dictionary');
+    if (page.kind !== 'dictionary') {
+      return invalid('page is not a dictionary');
+    }
     const category = internals.objects.deref(first.resources.get(SHADING));
-    if (category?.kind !== 'dictionary') return invalid('Shading resources are missing');
+    if (category?.kind !== 'dictionary') {
+      return invalid('Shading resources are missing');
+    }
     const mapped = new PdfDictionaryEntries(category.entries.entries());
     for (const plan of group) {
       mapped.set(plan.name, { kind: 'dictionary', entries: convertedDictionary(document, plan.shading) });
@@ -436,31 +576,41 @@ const applyDirectPages = (document: LoadedDocument, plans: readonly DirectShadin
     }
     const resources = new PdfDictionaryEntries(first.resources.entries());
     const oldShadings = resources.get(SHADING);
-    if (oldShadings?.kind === 'reference') discarded.push(oldShadings);
+    if (oldShadings?.kind === 'reference') {
+      discarded.push(oldShadings);
+    }
     resources.set(SHADING, pdfDictionary(mapped));
     const oldResources = page.entries.get(RESOURCES);
-    if (oldResources?.kind === 'reference') discarded.push(oldResources);
+    if (oldResources?.kind === 'reference') {
+      discarded.push(oldResources);
+    }
     page.entries.set(RESOURCES, pdfDictionary(resources));
     document.set(first.page, page);
   }
   return discarded;
 };
 
-const applyDirectForms = (document: LoadedDocument, plans: readonly FormShadingPlan[]): PdfReference[] => {
+const applyDirectForms = (document: LoadedDocument, plans: ReadonlyArray<FormShadingPlan>): Array<PdfReference> => {
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
-  const grouped = new Map<number, FormShadingPlan[]>();
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
+  const grouped = new Map<number, Array<FormShadingPlan>>();
   for (const plan of plans) {
     const list = grouped.get(plan.form.objectNumber) ?? [];
     list.push(plan);
     grouped.set(plan.form.objectNumber, list);
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const group of grouped.values()) {
     const [first] = group;
-    if (first === undefined) continue;
+    if (first === undefined) {
+      continue;
+    }
     const category = internals.objects.deref(first.resources.get(SHADING));
-    if (category?.kind !== 'dictionary') return invalid('form Shading resources are missing');
+    if (category?.kind !== 'dictionary') {
+      return invalid('form Shading resources are missing');
+    }
     const mapped = new PdfDictionaryEntries(category.entries.entries());
     for (const plan of group) {
       mapped.set(plan.name, { kind: 'dictionary', entries: convertedDictionary(document, plan.shading) });
@@ -468,11 +618,15 @@ const applyDirectForms = (document: LoadedDocument, plans: readonly FormShadingP
     }
     const resources = new PdfDictionaryEntries(first.resources.entries());
     const oldShadings = resources.get(SHADING);
-    if (oldShadings?.kind === 'reference') discarded.push(oldShadings);
+    if (oldShadings?.kind === 'reference') {
+      discarded.push(oldShadings);
+    }
     resources.set(SHADING, pdfDictionary(mapped));
     const dictionary = new PdfDictionaryEntries(first.stream.dictionary.entries());
     const oldResources = dictionary.get(RESOURCES);
-    if (oldResources?.kind === 'reference') discarded.push(oldResources);
+    if (oldResources?.kind === 'reference') {
+      discarded.push(oldResources);
+    }
     dictionary.set(RESOURCES, pdfDictionary(resources));
     document.set(first.form, { kind: 'stream', dictionary, data: first.stream.data });
   }
@@ -483,16 +637,20 @@ const applyDirectForms = (document: LoadedDocument, plans: readonly FormShadingP
 export const convertShadings = (document: LoadedDocument, options: RewriteColorOptions): ShadingConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const usage = collectUsage(document, options);
   const plans = new Map<number, ShadingPlan>();
   const patternPlans = new Map<number, PatternShadingPlan>();
-  const direct: DirectShadingPlan[] = [];
-  const formDirect: FormShadingPlan[] = [];
+  const direct: Array<DirectShadingPlan> = [];
+  const formDirect: Array<FormShadingPlan> = [];
   const seenForms = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) return invalid('page entry is missing');
+    if (entry === undefined) {
+      return invalid('page entry is missing');
+    }
     const effective = document.page(page).resources();
     direct.push(...directPagePlans({ document, resources: effective, options }, entry.reference, usage));
     formDirect.push(...directFormPlans({ document, resources: effective, options }, { seen: seenForms, usage }));
@@ -504,17 +662,23 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
         directPatternPlans({ document, resources: visit.resources, options }, patternPlans);
       },
     });
-    if (unreadable.length > 0) throw new ValidationError('shading resources cannot be read', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('shading resources cannot be read', 'unreadable-resource');
+    }
   }
-  const discarded: PdfReference[] = [];
+  const discarded: Array<PdfReference> = [];
   for (const plan of plans.values()) {
-    if (plan.reference === undefined) return invalid('indirect shading reference is missing');
+    if (plan.reference === undefined) {
+      return invalid('indirect shading reference is missing');
+    }
     document.set(plan.reference, { kind: 'dictionary', entries: convertedDictionary(document, plan) });
     discarded.push(...plan.discarded);
   }
   for (const plan of patternPlans.values()) {
     const pattern = document.get(plan.pattern);
-    if (pattern.kind !== 'dictionary') return invalid('shading pattern is missing');
+    if (pattern.kind !== 'dictionary') {
+      return invalid('shading pattern is missing');
+    }
     const dictionary = new PdfDictionaryEntries(pattern.entries.entries());
     dictionary.set(SHADING, pdfDictionary(convertedDictionary(document, plan.shading)));
     document.set(plan.pattern, pdfDictionary(dictionary));

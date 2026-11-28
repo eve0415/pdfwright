@@ -25,14 +25,16 @@ interface Size {
   readonly interlaced?: boolean;
 }
 
-const pattern = (count: number, limit: number): number[] => Array.from({ length: count }, (_, index) => (index * 7919 + 13) % limit);
+const pattern = (count: number, limit: number): Array<number> => Array.from({ length: count }, (_, index) => (index * 7919 + 13) % limit);
 
-const palette = (entries: number): number[] => Array.from({ length: entries * 3 }, (_, index) => (index * 37) % 256);
+const palette = (entries: number): Array<number> => Array.from({ length: entries * 3 }, (_, index) => (index * 37) % 256);
 
 const image = (colorType: number, bitDepth: number, size: Size): TestPng => {
   const count = size.width * size.height * (CHANNELS.get(colorType) ?? 1);
   const levels = Math.min(256, 2 ** bitDepth);
-  if (colorType === 3) return { ...size, colorType, bitDepth, samples: pattern(count, levels), before: [pngChunk('PLTE', palette(levels))] };
+  if (colorType === 3) {
+    return { ...size, colorType, bitDepth, samples: pattern(count, levels), before: [pngChunk('PLTE', palette(levels))] };
+  }
   return { ...size, colorType, bitDepth, samples: pattern(count, 2 ** bitDepth) };
 };
 
@@ -42,7 +44,9 @@ const reason = (run: () => void): ParseReason | UnsupportedFeatureReason | undef
   try {
     run();
   } catch (error: unknown) {
-    if (error instanceof ParseError || error instanceof UnsupportedFeatureError) return error.reason;
+    if (error instanceof ParseError || error instanceof UnsupportedFeatureError) {
+      return error.reason;
+    }
     throw error;
   }
   throw new Error('PNG was accepted');
@@ -62,9 +66,9 @@ const flipped = (png: Uint8Array, index: number): Uint8Array => {
   return copy;
 };
 
-const rgba = (source: TestPng): number[] => [...pngToRgba8(decodePng(encodeTestPng(source)))];
+const rgba = (source: TestPng): Array<number> => [...pngToRgba8(decodePng(encodeTestPng(source)))];
 
-const SIZES: readonly Size[] = [
+const SIZES: ReadonlyArray<Size> = [
   { width: 1, height: 1 },
   { width: 3, height: 2 },
   { width: 5, height: 5 },
@@ -101,13 +105,13 @@ describe('png chunk CRC-32', () => {
 describe('decoding PNG datastreams', () => {
   it.each(CASES)('decodes colour type $colorType at bit depth $bitDepth, $width × $height, interlaced $interlaced', source => {
     const decoded = decodePng(encodeTestPng({ ...source, idatChunks: 3 }));
-    expect([decoded.width, decoded.height, decoded.bitDepth, decoded.interlaced, decoded.samples instanceof Uint16Array]).toStrictEqual([
-      source.width,
-      source.height,
-      source.bitDepth,
-      source.interlaced,
-      source.bitDepth === 16,
-    ]);
+    expect([
+      decoded.width,
+      decoded.height,
+      decoded.bitDepth,
+      decoded.interlaced,
+      decoded.samples.BYTES_PER_ELEMENT === Uint16Array.BYTES_PER_ELEMENT,
+    ]).toStrictEqual([source.width, source.height, source.bitDepth, source.interlaced, source.bitDepth === 16]);
     expect([...decoded.samples]).toStrictEqual(source.samples);
   });
 
@@ -179,7 +183,9 @@ describe('decoding PNG datastreams', () => {
     const short = deflateZlib(filtered.subarray(0, 20));
     const long = deflateZlib(Uint8Array.from([...filtered, 0]));
     expect(streamReason(source, flipped(stream, stream.length - 1))).toBe('image-checksum-mismatch');
-    for (const length of [4, 20, 40, png.length - 12, png.length - 1]) expect(decodeReason(png.subarray(0, length))).toBe('image-truncated');
+    for (const length of [4, 20, 40, png.length - 12, png.length - 1]) {
+      expect(decodeReason(png.subarray(0, length))).toBe('image-truncated');
+    }
     expect(streamReason(source, short)).toBe('image-truncated');
     expect(streamReason(source, long)).toBe('image-invalid');
     expect(streamReason(source, Uint8Array.from([...stream, 0]))).toBe('image-invalid');
@@ -216,7 +222,9 @@ describe('decoding PNG datastreams', () => {
     // Four rows of four 16-bit RGBA pixels inflate to 4 × (1 + 32) bytes, which is more than the 128 sample bytes.
     expect(decodePng(png, { maxDecodedBytes: 132 }).width).toBe(4);
     expect(() => decodePng(png, { maxDecodedBytes: 131 })).toThrow(ResourceLimitError);
-    for (const value of [0, -1, 0.5, Number.POSITIVE_INFINITY]) expect(() => decodePng(png, { maxDecodedBytes: value })).toThrow(InvalidArgumentError);
+    for (const value of [0, -1, 0.5, Number.POSITIVE_INFINITY]) {
+      expect(() => decodePng(png, { maxDecodedBytes: value })).toThrow(InvalidArgumentError);
+    }
     const profile = encodeTestPng({
       ...image(0, 8, { width: 1, height: 1 }),
       before: [pngChunk('iCCP', [...asciiBytes('p'), 0, 0, ...deflateZlib(srgbV4Bytes)])],

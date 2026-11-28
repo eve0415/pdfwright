@@ -11,7 +11,9 @@ import { readXrefStream } from './xrefStream.ts';
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -19,13 +21,13 @@ const encode = (text: string): Uint8Array => Uint8Array.from(text, character => 
 
 interface Read {
   section: StreamSection;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
   text: string;
 }
 
 // Writes "prefix n 0 obj <<dictionary /Length …>> stream … endstream endobj" and reads the section at the object header.
 const read = (dictionary: string, data: Uint8Array, prefix = ''): Read => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -35,18 +37,20 @@ const read = (dictionary: string, data: Uint8Array, prefix = ''): Read => {
 };
 
 // PNG Up filtering (RFC 2083, 6.3): each byte minus the byte above it, after a tag byte of 2.
-const upRows = (rows: readonly number[][]): number[] => {
-  const encoded: number[] = [];
-  let previous: readonly number[] = [];
+const upRows = (rows: ReadonlyArray<Array<number>>): Array<number> => {
+  const encoded: Array<number> = [];
+  let previous: ReadonlyArray<number> = [];
   for (const row of rows) {
     encoded.push(2);
-    for (const [index, byte] of row.entries()) encoded.push((byte - (previous[index] ?? 0) + 256) % 256);
+    for (const [index, byte] of row.entries()) {
+      encoded.push((byte - (previous[index] ?? 0) + 256) % 256);
+    }
     previous = row;
   }
   return encoded;
 };
 
-const entries = (section: StreamSection): (number | string)[][] =>
+const entries = (section: StreamSection): Array<Array<number | string>> =>
   section.entries.map(entry => [entry.objectNumber, entry.type, entry.location, entry.generation]);
 
 describe('cross-reference streams', () => {
@@ -81,7 +85,7 @@ describe('cross-reference streams', () => {
     const { section } = read('/Type/XRef/Size 30/W[1 4 2]/Index[3 1 20 2]/Filter/FlateDecode/DecodeParms<</Columns 7/Predictor 12>>', data);
     expect(entries(section)).toStrictEqual([
       [3, 'file', 16, 0],
-      [20, 'file', 65536, 1],
+      [20, 'file', 65_536, 1],
       [21, 'compressed', 7, 4],
     ]);
   });

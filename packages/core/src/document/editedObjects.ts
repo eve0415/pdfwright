@@ -65,7 +65,9 @@ export class EditedObjects implements ObjectResolver {
       const streams = new Set<number>();
       for (const number of this.store.index.inUse()) {
         const entry = this.store.index.get(number);
-        if (entry.type === COMPRESSED) streams.add(entry.location);
+        if (entry.type === COMPRESSED) {
+          streams.add(entry.location);
+        }
       }
       this.objectStreams = streams;
     }
@@ -80,21 +82,31 @@ export class EditedObjects implements ObjectResolver {
   /** The generation of the in-use object `objectNumber`, or undefined when it is free or absent. */
   generationOf(objectNumber: number): number | undefined {
     const change = this.changes.get(objectNumber);
-    if (change !== undefined) return 'deleted' in change ? undefined : change.generation;
+    if (change !== undefined) {
+      return 'deleted' in change ? undefined : change.generation;
+    }
     const entry = this.store.index.get(objectNumber);
-    if (entry.type === IN_FILE) return entry.generation;
+    if (entry.type === IN_FILE) {
+      return entry.generation;
+    }
     return entry.type === COMPRESSED ? 0 : undefined;
   }
 
   resolve(objectNumber: number, generation: number): PdfObject {
     const change = this.changes.get(objectNumber);
-    if (change === undefined) return this.store.resolve(objectNumber, generation);
-    if ('deleted' in change || change.generation !== generation) return { kind: 'null' };
+    if (change === undefined) {
+      return this.store.resolve(objectNumber, generation);
+    }
+    if ('deleted' in change || change.generation !== generation) {
+      return { kind: 'null' };
+    }
     return change.value;
   }
 
   deref(value: PdfDirectObject | undefined): PdfObject | undefined {
-    if (value?.kind !== 'reference') return value;
+    if (value?.kind !== 'reference') {
+      return value;
+    }
     return this.resolve(value.objectNumber, value.generation);
   }
 
@@ -134,18 +146,24 @@ export class EditedObjects implements ObjectResolver {
   producerFor(value: PdfObject): StreamProducer | undefined {
     for (const [number, producer] of this.producedStreams) {
       const change = this.changes.get(number);
-      if (change !== undefined && 'value' in change && change.value === value) return producer;
+      if (change !== undefined && 'value' in change && change.value === value) {
+        return producer;
+      }
     }
     return undefined;
   }
 
   private current(reference: PdfReference): void {
     const generation = this.generationOf(reference.objectNumber);
-    if (generation === undefined) throw new InvalidArgumentError(`object ${label(reference)} is not in use; create objects with object()`);
+    if (generation === undefined) {
+      throw new InvalidArgumentError(`object ${label(reference)} is not in use; create objects with object()`);
+    }
     if (generation !== reference.generation) {
       throw new InvalidArgumentError(`object ${String(reference.objectNumber)} has generation ${String(generation)}, not ${String(reference.generation)}`);
     }
-    if (this.holdsObjects(reference.objectNumber)) throw new InvalidArgumentError(`object ${label(reference)} is an object stream that holds objects in use`);
+    if (this.holdsObjects(reference.objectNumber)) {
+      throw new InvalidArgumentError(`object ${label(reference)} is an object stream that holds objects in use`);
+    }
   }
 
   // ISO 32000-1:2008, 7.5.6, EXAMPLE: a changed object "retains the same object number and generation number as before".
@@ -167,7 +185,9 @@ export class EditedObjects implements ObjectResolver {
    */
   setTrailerEntry(key: Uint8Array, value: PdfDirectObject | undefined): void {
     const name = new TextDecoder('latin1').decode(key);
-    if (WRITER_KEYS.has(name)) throw new InvalidArgumentError(`the trailer ${name} entry is written by the save`);
+    if (WRITER_KEYS.has(name)) {
+      throw new InvalidArgumentError(`the trailer ${name} entry is written by the save`);
+    }
     this.trailerEdits.delete(name);
     this.trailerEdits.set(name, { key: Uint8Array.from(key), value: value === undefined ? undefined : cloneDirect(value) });
   }
@@ -200,7 +220,7 @@ export class EditedObjects implements ObjectResolver {
   }
 
   /** The trailer entry changes, in the order they were last made. */
-  get trailerChanges(): readonly TrailerChange[] {
+  get trailerChanges(): ReadonlyArray<TrailerChange> {
     return [...this.trailerEdits.values()];
   }
 
@@ -219,13 +239,19 @@ export class EditedObjects implements ObjectResolver {
   /** Takes every edit of `other`, a fork of these edits, in place of these; nothing in it can fail, so a caller can make every edit that may fail on a fork first. */
   adopt(other: EditedObjects): void {
     this.changes.clear();
-    for (const [objectNumber, change] of other.changes) this.changes.set(objectNumber, change);
+    for (const [objectNumber, change] of other.changes) {
+      this.changes.set(objectNumber, change);
+    }
     this.producedStreams.clear();
-    for (const [objectNumber, producer] of other.producedStreams) this.producedStreams.set(objectNumber, producer);
+    for (const [objectNumber, producer] of other.producedStreams) {
+      this.producedStreams.set(objectNumber, producer);
+    }
     this.next = other.next;
     this.objectStreams = other.objectStreams;
     this.trailerEdits.clear();
-    for (const [name, change] of other.trailerEdits) this.trailerEdits.set(name, change);
+    for (const [name, change] of other.trailerEdits) {
+      this.trailerEdits.set(name, change);
+    }
     this.rewriteReason = other.rewriteReason;
     this.incrementalRequired = other.incrementalRequired;
     this.hook = other.hook;

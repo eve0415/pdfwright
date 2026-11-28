@@ -38,7 +38,7 @@ interface Scope {
   readonly resources: PdfDictionaryEntries;
   readonly assignments: Map<string, Assignment>;
   readonly sourceBytes: Uint8Array;
-  readonly nameEdits: NameEdit[];
+  readonly nameEdits: Array<NameEdit>;
 }
 
 interface NameEdit {
@@ -63,7 +63,7 @@ interface FormPlan extends Scope {
   readonly entry: ColorEntryState;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
-  readonly newInlineImages: readonly NamedInlineImage[];
+  readonly newInlineImages: ReadonlyArray<NamedInlineImage>;
   readonly clone: boolean;
   output?: PdfReference;
 }
@@ -89,11 +89,15 @@ const spaceKey = (space: SourceSpace): string => {
     const { source } = space;
     return `${space.kind}:${source.kind === 'icc' ? bytesKey(source.profile.identity) : JSON.stringify(source)}`;
   }
-  if (space.kind === 'indexed') return `indexed:${spaceKey(space.base)}:${space.hival}:${bytesKey(space.lookup)}`;
+  if (space.kind === 'indexed') {
+    return `indexed:${spaceKey(space.base)}:${String(space.hival)}:${bytesKey(space.lookup)}`;
+  }
   if (space.kind === 'separation' || space.kind === 'deviceN') {
     return `${space.kind}:${space.names.map(name => bytesKey(name)).join(',')}:${spaceKey(space.alternate)}`;
   }
-  if (space.kind === 'pattern') return `pattern:${space.underlying === undefined ? '' : spaceKey(space.underlying)}`;
+  if (space.kind === 'pattern') {
+    return `pattern:${space.underlying === undefined ? '' : spaceKey(space.underlying)}`;
+  }
   return space.kind;
 };
 
@@ -111,7 +115,9 @@ const stateKey = (state: ColorEntryState): string =>
   ]);
 
 const outputReference = (plan: FormPlan): PdfReference => {
-  if (plan.output === undefined) throw new ValidationError('converted form has no output reference', 'color-operator');
+  if (plan.output === undefined) {
+    throw new ValidationError('converted form has no output reference', 'color-operator');
+  }
   return plan.output;
 };
 
@@ -128,12 +134,20 @@ const samePlan = (left: FormPlan, right: FormPlan): boolean => {
   }
   for (const [index, image] of left.newInlineImages.entries()) {
     const other = right.newInlineImages[index];
-    if (other?.name !== image.name || !sameBytes(other.data, image.data)) return false;
+    if (other?.name !== image.name || !sameBytes(other.data, image.data)) {
+      return false;
+    }
   }
-  for (const [key, assignment] of left.assignments) if (right.assignments.get(key)?.plan !== assignment.plan) return false;
+  for (const [key, assignment] of left.assignments) {
+    if (right.assignments.get(key)?.plan !== assignment.plan) {
+      return false;
+    }
+  }
   for (const [index, edit] of left.nameEdits.entries()) {
     const other = right.nameEdits[index];
-    if (other?.start !== edit.start || other.end !== edit.end || other.text !== edit.text) return false;
+    if (other?.start !== edit.start || other.end !== edit.end || other.text !== edit.text) {
+      return false;
+    }
   }
   return true;
 };
@@ -147,7 +161,9 @@ const assign = (scope: Scope, use: FormUse, plan: FormPlan): void => {
     for (let index = 0; ; index++) {
       const name = pdfName(`PWFORM${String(index)}`).bytes;
       const generatedKey = bytesKey(name);
-      if (used?.has(name) === true || scope.assignments.has(generatedKey)) continue;
+      if (used?.has(name) === true || scope.assignments.has(generatedKey)) {
+        continue;
+      }
       scope.assignments.set(generatedKey, { name, plan });
       scope.nameEdits.push({ start: use.start, end: use.end, text: `/${new TextDecoder('ascii').decode(name)} Do` });
       return;
@@ -156,12 +172,16 @@ const assign = (scope: Scope, use: FormUse, plan: FormPlan): void => {
   scope.assignments.set(key, { name: Uint8Array.from(use.name), plan });
 };
 
-const applyNameEdits = (bytes: Uint8Array, edits: readonly NameEdit[]): Uint8Array => {
-  if (edits.length === 0) return bytes;
+const applyNameEdits = (bytes: Uint8Array, edits: ReadonlyArray<NameEdit>): Uint8Array => {
+  if (edits.length === 0) {
+    return bytes;
+  }
   const writer = new ByteWriter();
   let offset = 0;
   for (const edit of edits.toSorted((left, right) => left.start - right.start)) {
-    if (edit.start < offset) throw new ValidationError('overlapping form calls', 'color-operator');
+    if (edit.start < offset) {
+      throw new ValidationError('overlapping form calls', 'color-operator');
+    }
     writer.writeBytes(bytes.subarray(offset, edit.start));
     writer.writeAscii(edit.text);
     offset = edit.end;
@@ -171,7 +191,7 @@ const applyNameEdits = (bytes: Uint8Array, edits: readonly NameEdit[]): Uint8Arr
 };
 
 class FormPlanner {
-  readonly plans: FormPlan[] = [];
+  readonly plans: Array<FormPlan> = [];
   private readonly variants = new Map<string, Map<string, FormPlan>>();
   private readonly active = new Set<string>();
   private readonly document: LoadedDocument;
@@ -187,13 +207,21 @@ class FormPlanner {
 
   private form(resources: PdfDictionaryEntries, name: Uint8Array): { reference: PdfReference; stream: PdfStream } | undefined {
     const category = this.internals.objects.deref(resources.get(XOBJECT));
-    if (category?.kind !== 'dictionary') return undefined;
+    if (category?.kind !== 'dictionary') {
+      return undefined;
+    }
     const value = category.entries.get(name);
     const stream = this.internals.objects.deref(value);
-    if (stream?.kind !== 'stream') return undefined;
+    if (stream?.kind !== 'stream') {
+      return undefined;
+    }
     const subtype = this.internals.objects.deref(stream.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') return undefined;
-    if (value?.kind !== 'reference') throw new ValidationError('form XObject must be an indirect stream', 'color-operator');
+    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Form') {
+      return undefined;
+    }
+    if (value?.kind !== 'reference') {
+      throw new ValidationError('form XObject must be an indirect stream', 'color-operator');
+    }
     return { reference: value, stream };
   }
 
@@ -203,7 +231,9 @@ class FormPlanner {
     const own = this.internals.objects.deref(stream.dictionary.get(RESOURCES));
     const resources = own?.kind === 'dictionary' ? own.entries : inherited;
     const bytes = decodedData(this.internals, stream);
-    if (typeof bytes === 'string') throw new ValidationError(`form content cannot be converted: ${bytes}`, 'color-operator');
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`form content cannot be converted: ${bytes}`, 'color-operator');
+    }
     const names = chooseOverprintNames(this.document, resources);
     const rewritten = rewriteContentColors(this.document, bytes, {
       resources,
@@ -235,12 +265,16 @@ class FormPlanner {
     return plan;
   }
 
-  private scanUses(scope: Scope, uses: readonly FormUse[]): void {
+  private scanUses(scope: Scope, uses: ReadonlyArray<FormUse>): void {
     for (const use of uses) {
       const found = this.form(scope.resources, use.name);
-      if (found === undefined) continue;
+      if (found === undefined) {
+        continue;
+      }
       const key = referenceKey(found.reference);
-      if (this.active.has(key)) throw new ResourceLimitError('recursive form XObject conversion is unsupported');
+      if (this.active.has(key)) {
+        throw new ResourceLimitError('recursive form XObject conversion is unsupported');
+      }
       let variants = this.variants.get(key);
       if (variants === undefined) {
         variants = new Map();
@@ -258,19 +292,25 @@ class FormPlanner {
         });
         plan = [...new Set(variants.values())].find(previous => samePlan(previous, candidate)) ?? candidate;
         variants.set(entry, plan);
-        if (plan === candidate) this.plans.push(plan);
+        if (plan === candidate) {
+          this.plans.push(plan);
+        }
       }
       assign(scope, use, plan);
     }
   }
 
-  pageScopes(): PageScope[] {
-    const scopes: PageScope[] = [];
+  pageScopes(): Array<PageScope> {
+    const scopes: Array<PageScope> = [];
     for (let page = 0; page < this.document.pageCount; page++) {
       const entry = this.internals.pages[page];
-      if (entry === undefined) throw new ValidationError('page entry is missing', 'color-operator');
+      if (entry === undefined) {
+        throw new ValidationError('page entry is missing', 'color-operator');
+      }
       const content = pageContent(this.internals, entry);
-      if (content.problems.length > 0) throw new ValidationError(`page content cannot be read: ${content.problems.join('; ')}`, 'color-operator');
+      if (content.problems.length > 0) {
+        throw new ValidationError(`page content cannot be read: ${content.problems.join('; ')}`, 'color-operator');
+      }
       const resources = this.document.page(page).resources();
       const sourceBytes = combineContentStreams(content.streams);
       const rewritten = rewriteContentColors(this.document, sourceBytes, {
@@ -285,15 +325,21 @@ class FormPlanner {
     return scopes;
   }
 
-  private carrier(reference: PdfReference, inherited: PdfDictionaryEntries, scopes: CarrierScope[]): void {
-    if (this.seenCarriers.has(reference.objectNumber)) return;
+  private carrier(reference: PdfReference, inherited: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
+    if (this.seenCarriers.has(reference.objectNumber)) {
+      return;
+    }
     const stream = this.internals.objects.deref(reference);
-    if (stream?.kind !== 'stream') return;
+    if (stream?.kind !== 'stream') {
+      return;
+    }
     this.seenCarriers.add(reference.objectNumber);
     const own = this.internals.objects.deref(stream.dictionary.get(RESOURCES));
     const resources = own?.kind === 'dictionary' ? own.entries : inherited;
     const sourceBytes = decodedData(this.internals, stream);
-    if (typeof sourceBytes === 'string') throw new ValidationError(`carrier content cannot be read: ${sourceBytes}`, 'color-operator');
+    if (typeof sourceBytes === 'string') {
+      throw new ValidationError(`carrier content cannot be read: ${sourceBytes}`, 'color-operator');
+    }
     const rewritten = rewriteContentColors(this.document, sourceBytes, {
       resources,
       options: this.options,
@@ -304,44 +350,70 @@ class FormPlanner {
     scopes.push(scope);
   }
 
-  private patterns(resources: PdfDictionaryEntries, scopes: CarrierScope[]): void {
+  private patterns(resources: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
     const category = this.internals.objects.deref(resources.get(PATTERN));
-    if (category?.kind !== 'dictionary') return;
+    if (category?.kind !== 'dictionary') {
+      return;
+    }
     for (const [, value] of category.entries.entries()) {
-      if (value.kind !== 'reference') continue;
+      if (value.kind !== 'reference') {
+        continue;
+      }
       const pattern = this.internals.objects.deref(value);
-      if (pattern?.kind !== 'stream') continue;
+      if (pattern?.kind !== 'stream') {
+        continue;
+      }
       const type = pattern.dictionary.get(PATTERN_TYPE);
       const paint = pattern.dictionary.get(PAINT_TYPE);
-      if (type?.kind === 'integer' && type.value === 1 && paint?.kind === 'integer' && paint.value === 1) this.carrier(value, resources, scopes);
-    }
-  }
-
-  private appearances(page: PdfReference, resources: PdfDictionaryEntries, scopes: CarrierScope[]): void {
-    const owner = this.internals.objects.deref(page);
-    if (owner?.kind !== 'dictionary') return;
-    const annotations = this.internals.objects.deref(owner.entries.get(ANNOTS));
-    if (annotations?.kind !== 'array') return;
-    for (const annotation of annotations.items) {
-      const item = this.internals.objects.deref(annotation);
-      if (item?.kind !== 'dictionary') continue;
-      const appearance = this.internals.objects.deref(item.entries.get(AP));
-      if (appearance?.kind !== 'dictionary') continue;
-      for (const state of ['N', 'R', 'D']) {
-        const entry = appearance.entries.get(pdfName(state).bytes);
-        if (entry?.kind === 'reference') this.carrier(entry, resources, scopes);
-        const variants = this.internals.objects.deref(entry);
-        if (variants?.kind !== 'dictionary') continue;
-        for (const [, value] of variants.entries.entries()) if (value.kind === 'reference') this.carrier(value, resources, scopes);
+      if (type?.kind === 'integer' && type.value === 1 && paint?.kind === 'integer' && paint.value === 1) {
+        this.carrier(value, resources, scopes);
       }
     }
   }
 
-  carrierScopes(): CarrierScope[] {
-    const scopes: CarrierScope[] = [];
+  private appearances(page: PdfReference, resources: PdfDictionaryEntries, scopes: Array<CarrierScope>): void {
+    const owner = this.internals.objects.deref(page);
+    if (owner?.kind !== 'dictionary') {
+      return;
+    }
+    const annotations = this.internals.objects.deref(owner.entries.get(ANNOTS));
+    if (annotations?.kind !== 'array') {
+      return;
+    }
+    for (const annotation of annotations.items) {
+      const item = this.internals.objects.deref(annotation);
+      if (item?.kind !== 'dictionary') {
+        continue;
+      }
+      const appearance = this.internals.objects.deref(item.entries.get(AP));
+      if (appearance?.kind !== 'dictionary') {
+        continue;
+      }
+      for (const state of ['N', 'R', 'D']) {
+        const entry = appearance.entries.get(pdfName(state).bytes);
+        if (entry?.kind === 'reference') {
+          this.carrier(entry, resources, scopes);
+        }
+        const variants = this.internals.objects.deref(entry);
+        if (variants?.kind !== 'dictionary') {
+          continue;
+        }
+        for (const [, value] of variants.entries.entries()) {
+          if (value.kind === 'reference') {
+            this.carrier(value, resources, scopes);
+          }
+        }
+      }
+    }
+  }
+
+  carrierScopes(): Array<CarrierScope> {
+    const scopes: Array<CarrierScope> = [];
     for (let page = 0; page < this.document.pageCount; page++) {
       const entry = this.internals.pages[page];
-      if (entry === undefined) throw new ValidationError('page entry is missing', 'color-operator');
+      if (entry === undefined) {
+        throw new ValidationError('page entry is missing', 'color-operator');
+      }
       const resources = this.document.page(page).resources();
       this.patterns(resources, scopes);
       this.appearances(entry.reference, resources, scopes);
@@ -351,24 +423,32 @@ class FormPlanner {
           this.patterns(visit.resources, scopes);
         },
       });
-      if (unreadable.length > 0) throw new ValidationError('form carriers cannot be read', 'unreadable-resource');
+      if (unreadable.length > 0) {
+        throw new ValidationError('form carriers cannot be read', 'unreadable-resource');
+      }
     }
     return scopes;
   }
 
   private mappedResources(scope: Scope): PdfDictionaryEntries | undefined {
     const category = this.internals.objects.deref(scope.resources.get(XOBJECT));
-    if (category?.kind !== 'dictionary') return undefined;
+    if (category?.kind !== 'dictionary') {
+      return undefined;
+    }
     const mapped = new PdfDictionaryEntries(category.entries.entries());
     let changed = false;
     for (const { name, plan } of scope.assignments.values()) {
       const reference = outputReference(plan);
       const original = category.entries.get(name);
-      if (original?.kind === 'reference' && original.objectNumber === reference.objectNumber && original.generation === reference.generation) continue;
+      if (original?.kind === 'reference' && original.objectNumber === reference.objectNumber && original.generation === reference.generation) {
+        continue;
+      }
       mapped.set(name, reference);
       changed = true;
     }
-    if (!changed) return undefined;
+    if (!changed) {
+      return undefined;
+    }
     const resources = new PdfDictionaryEntries(scope.resources.entries());
     resources.set(XOBJECT, pdfDictionary(mapped));
     return resources;
@@ -385,7 +465,9 @@ class FormPlanner {
             initialState: plan.entry,
             overprintNames: plan.overprintNames,
           }).bytes;
-    if (data.length > this.internals.maxDecodedBytes) throw new ResourceLimitError('converted form exceeds maxDecodedBytes');
+    if (data.length > this.internals.maxDecodedBytes) {
+      throw new ResourceLimitError('converted form exceeds maxDecodedBytes');
+    }
     return data;
   }
 
@@ -395,9 +477,13 @@ class FormPlanner {
     let discarded: PdfReference | undefined;
     if (mapped !== undefined || plan.overprintAdjustments > 0 || plan.newInlineImages.length > 0) {
       const old = dictionary.get(RESOURCES);
-      if (old?.kind === 'reference') discarded = old;
+      if (old?.kind === 'reference') {
+        discarded = old;
+      }
       const resources = new PdfDictionaryEntries((mapped ?? plan.resources).entries());
-      if (plan.overprintAdjustments > 0) addOverprintStates(this.document, resources, plan.overprintNames);
+      if (plan.overprintAdjustments > 0) {
+        addOverprintStates(this.document, resources, plan.overprintNames);
+      }
       addInlineXObjects(this.document, resources, plan.newInlineImages);
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
@@ -408,21 +494,35 @@ class FormPlanner {
     return discarded;
   }
 
-  private writePage(scope: PageScope, renamed: Uint8Array | undefined): PdfReference[] {
+  private writePage(scope: PageScope, renamed: Uint8Array | undefined): Array<PdfReference> {
     const resources = this.mappedResources(scope);
-    if (resources === undefined && renamed === undefined) return [];
+    if (resources === undefined && renamed === undefined) {
+      return [];
+    }
     const page = this.document.get(scope.reference);
-    if (page.kind !== 'dictionary') throw new ValidationError('page is not a dictionary', 'color-operator');
-    const discarded: PdfReference[] = [];
+    if (page.kind !== 'dictionary') {
+      throw new ValidationError('page is not a dictionary', 'color-operator');
+    }
+    const discarded: Array<PdfReference> = [];
     if (resources !== undefined) {
       const oldResources = page.entries.get(RESOURCES);
-      if (oldResources?.kind === 'reference') discarded.push(oldResources);
+      if (oldResources?.kind === 'reference') {
+        discarded.push(oldResources);
+      }
       page.entries.set(RESOURCES, pdfDictionary(resources));
     }
     if (renamed !== undefined) {
       const old = page.entries.get(CONTENTS);
-      if (old?.kind === 'reference') discarded.push(old);
-      if (old?.kind === 'array') for (const item of old.items) if (item.kind === 'reference') discarded.push(item);
+      if (old?.kind === 'reference') {
+        discarded.push(old);
+      }
+      if (old?.kind === 'array') {
+        for (const item of old.items) {
+          if (item.kind === 'reference') {
+            discarded.push(item);
+          }
+        }
+      }
       const stream = this.document.object({
         kind: 'stream',
         dictionary: new PdfDictionaryEntries([[FILTER, pdfName('FlateDecode')]]),
@@ -434,21 +534,29 @@ class FormPlanner {
     return discarded;
   }
 
-  private writeCarrier(scope: CarrierScope): PdfReference[] {
-    if (this.plans.some(plan => plan.original.objectNumber === scope.reference.objectNumber)) return [];
+  private writeCarrier(scope: CarrierScope): Array<PdfReference> {
+    if (this.plans.some(plan => plan.original.objectNumber === scope.reference.objectNumber)) {
+      return [];
+    }
     const resources = this.mappedResources(scope);
-    if (resources === undefined && scope.nameEdits.length === 0) return [];
+    if (resources === undefined && scope.nameEdits.length === 0) {
+      return [];
+    }
     const dictionary = new PdfDictionaryEntries(scope.stream.dictionary.entries());
-    const discarded: PdfReference[] = [];
+    const discarded: Array<PdfReference> = [];
     if (resources !== undefined) {
       const old = dictionary.get(RESOURCES);
-      if (old?.kind === 'reference') discarded.push(old);
+      if (old?.kind === 'reference') {
+        discarded.push(old);
+      }
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
     let { data } = scope.stream;
     if (scope.nameEdits.length > 0) {
       const renamed = applyNameEdits(scope.sourceBytes, scope.nameEdits);
-      if (renamed.length > this.internals.maxDecodedBytes) throw new ResourceLimitError('renamed carrier content exceeds maxDecodedBytes');
+      if (renamed.length > this.internals.maxDecodedBytes) {
+        throw new ResourceLimitError('renamed carrier content exceeds maxDecodedBytes');
+      }
       data = deflateZlib(renamed);
       dictionary.set(FILTER, pdfName('FlateDecode'));
       dictionary.delete(DECODE_PARMS);
@@ -458,27 +566,43 @@ class FormPlanner {
     return discarded;
   }
 
-  write(pages: readonly PageScope[], carriers: readonly CarrierScope[]): FormConversionReport {
+  write(pages: ReadonlyArray<PageScope>, carriers: ReadonlyArray<CarrierScope>): FormConversionReport {
     const formData = new Map(this.plans.map(plan => [plan, this.finalFormData(plan)] as const));
     const pageData = new Map<PageScope, Uint8Array>();
     for (const page of pages) {
-      if (page.nameEdits.length === 0) continue;
+      if (page.nameEdits.length === 0) {
+        continue;
+      }
       const data = applyNameEdits(page.sourceBytes, page.nameEdits);
-      if (data.length > this.internals.maxDecodedBytes) throw new ResourceLimitError('renamed page content exceeds maxDecodedBytes');
+      if (data.length > this.internals.maxDecodedBytes) {
+        throw new ResourceLimitError('renamed page content exceeds maxDecodedBytes');
+      }
       pageData.set(page, data);
     }
-    for (const plan of this.plans) plan.output = plan.clone ? this.document.object({ kind: 'null' }) : plan.original;
-    const discarded: PdfReference[] = [];
+    for (const plan of this.plans) {
+      plan.output = plan.clone ? this.document.object({ kind: 'null' }) : plan.original;
+    }
+    const discarded: Array<PdfReference> = [];
     for (const plan of this.plans) {
       const data = formData.get(plan);
-      if (data === undefined) throw new ValidationError('converted form has no content', 'color-operator');
+      if (data === undefined) {
+        throw new ValidationError('converted form has no content', 'color-operator');
+      }
       const oldResources = this.writeForm(plan, data);
-      if (oldResources !== undefined) discarded.push(oldResources);
+      if (oldResources !== undefined) {
+        discarded.push(oldResources);
+      }
     }
-    for (const page of pages) discarded.push(...this.writePage(page, pageData.get(page)));
-    for (const carrier of carriers) discarded.push(...this.writeCarrier(carrier));
+    for (const page of pages) {
+      discarded.push(...this.writePage(page, pageData.get(page)));
+    }
+    for (const carrier of carriers) {
+      discarded.push(...this.writeCarrier(carrier));
+    }
     deleteDiscarded(this.document, this.internals, discarded);
-    if (this.plans.length > 0) this.internals.objects.requireFullRewrite('color-conversion');
+    if (this.plans.length > 0) {
+      this.internals.objects.requireFullRewrite('color-conversion');
+    }
     return { forms: this.plans.length, clones: this.plans.filter(plan => plan.clone).length };
   }
 }
@@ -487,7 +611,9 @@ class FormPlanner {
 export const convertForms = (document: LoadedDocument, options: RewriteColorOptions): FormConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const planner = new FormPlanner(document, internals, options);
   const pages = planner.pageScopes();
   const carriers = planner.carrierScopes();

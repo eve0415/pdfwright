@@ -15,10 +15,10 @@ import { textPdf, textPdfBytes } from '../testing/textPdf.ts';
 import { interpretPage } from './interpreter.ts';
 
 interface Run {
-  readonly covers: CoverEvent[];
-  readonly paints: PaintEvent[];
-  readonly texts: TextShowEvent[];
-  readonly selects: ColorSelectEvent[];
+  readonly covers: Array<CoverEvent>;
+  readonly paints: Array<PaintEvent>;
+  readonly texts: Array<TextShowEvent>;
+  readonly selects: Array<ColorSelectEvent>;
   readonly result: InterpretResult;
 }
 
@@ -41,11 +41,11 @@ const form = (number: number, dictionary: string, content: string): TestObject =
   body: streamBody(`/Type/XObject/Subtype/Form${dictionary}`, content),
 });
 
-const run = (page: TestPage, objects: readonly TestObject[] = [], options: InterpretOptions = {}): Run => {
-  const paints: PaintEvent[] = [];
-  const texts: TextShowEvent[] = [];
-  const selects: ColorSelectEvent[] = [];
-  const covers: CoverEvent[] = [];
+const run = (page: TestPage, objects: ReadonlyArray<TestObject> = [], options: InterpretOptions = {}): Run => {
+  const paints: Array<PaintEvent> = [];
+  const texts: Array<TextShowEvent> = [];
+  const selects: Array<ColorSelectEvent> = [];
+  const covers: Array<CoverEvent> = [];
   const document = textPdf({ pages: [page], objects: [...FONTS, ...objects] });
   const result = interpretPage(document, 0, {
     ...options,
@@ -65,18 +65,19 @@ const run = (page: TestPage, objects: readonly TestObject[] = [], options: Inter
   return { covers, paints, texts, selects, result };
 };
 
-const textRun = (content: string, objects: readonly TestObject[] = [], resources = ''): Run =>
+const textRun = (content: string, objects: ReadonlyArray<TestObject> = [], resources = ''): Run =>
   run({ content, resources: `${FONT_RESOURCES}${resources}` }, objects);
 
 const round = (value: number): number => Math.round(value * 1e6) / 1e6;
 
 // The translation of the text matrix at each shown glyph: where the glyph's origin is in unscaled text space.
-const positions = (texts: readonly TextShowEvent[]): (readonly [number, number])[] =>
+const positions = (texts: ReadonlyArray<TextShowEvent>): Array<readonly [number, number]> =>
   texts.flatMap(text => text.glyphs.map(({ textMatrix }) => [round(textMatrix[4]), round(textMatrix[5])] as const));
 
 const spaceName = (use: ColorSpaceUse): string => (use.space?.kind === 'name' ? latin1Text(use.space.bytes) : (use.space?.kind ?? 'unknown'));
 
-const paintSpaces = (paints: readonly PaintEvent[]): string[] => paints.map(paint => `${paint.kind}:${paint.colorSpaces.map(use => spaceName(use)).join(',')}`);
+const paintSpaces = (paints: ReadonlyArray<PaintEvent>): Array<string> =>
+  paints.map(paint => `${paint.kind}:${paint.colorSpaces.map(use => spaceName(use)).join(',')}`);
 
 describe('graphics state', () => {
   it('concatenates cm with the CTM and restores it with Q', () => {
@@ -133,7 +134,7 @@ describe('graphics state', () => {
 
   it('takes resources inherited from the page tree', () => {
     const document = textPdf({ pages: [{ content: 'BT /F1 10 Tf (A) Tj ET' }], objects: FONTS, root: `/Resources<<${FONT_RESOURCES}>>` });
-    const texts: TextShowEvent[] = [];
+    const texts: Array<TextShowEvent> = [];
     interpretPage(document, 0, {
       text: event => {
         texts.push(event);
@@ -411,11 +412,13 @@ describe('marked content', () => {
 
 const internalsWith = (bytes: Uint8Array, maxNesting: number): DocumentInternals => {
   const parts = internalsOf(loadDocument(bytes, { maxNesting }));
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
-const sourceKinds = (events: readonly { readonly context: { readonly sources: readonly { readonly kind: string }[] } }[]): string[] =>
+const sourceKinds = (events: ReadonlyArray<{ readonly context: { readonly sources: ReadonlyArray<{ readonly kind: string }> } }>): Array<string> =>
   events.map(event => event.context.sources.map(source => source.kind).join('/'));
 
 describe('forms', () => {
@@ -502,7 +505,7 @@ describe('forms', () => {
 
 describe('patterns', () => {
   const PATTERNS = '/ColorSpace<</RGBPattern[/Pattern/DeviceRGB]>>/Pattern<</Coloured 110 0 R/Uncoloured 111 0 R/Shaded 112 0 R>>';
-  const OBJECTS: readonly TestObject[] = [
+  const OBJECTS: ReadonlyArray<TestObject> = [
     {
       number: 110,
       body: streamBody(
@@ -542,7 +545,7 @@ describe('patterns', () => {
     const plain = streamBody('/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 5 5]/XStep 5/YStep 5/Resources<<>>', '0 0 5 5 re f');
     const glyphFont =
       '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>';
-    const objects: TestObject[] = [
+    const objects: Array<TestObject> = [
       { number: 115, body: plain },
       form(116, '/BBox[0 0 10 10]', '0 0 10 10 re f'),
       { number: 120, body: glyphFont },
@@ -588,7 +591,7 @@ describe('patterns', () => {
 describe('glyph procedures of Type 3 fonts', () => {
   const TYPE3_FONT =
     '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R/b 112 0 R>>/Encoding<</Differences[97/a/b]>>/FirstChar 97/LastChar 98/Widths[1000 1000]>>';
-  const TYPE3: readonly TestObject[] = [
+  const TYPE3: ReadonlyArray<TestObject> = [
     {
       number: 110,
       body: TYPE3_FONT,
@@ -662,7 +665,7 @@ const annotation = (number: number, entries: string): TestObject => ({ number, b
 
 describe('annotations and soft masks', () => {
   const ANNOTATED: TestPage = { content: '', entries: '/Annots[120 0 R 121 0 R 122 0 R]' };
-  const OBJECTS: readonly TestObject[] = [
+  const OBJECTS: ReadonlyArray<TestObject> = [
     annotation(120, '/F 4/AP<</N 130 0 R>>'),
     annotation(121, '/F 0/AP<</N 131 0 R>>'),
     annotation(122, '/F 4/AS/On/AP<</N<</Off 130 0 R/On 132 0 R>>>>'),
@@ -746,7 +749,7 @@ describe('damaged content', () => {
         trailer: '/Root 1 0 R',
       },
     ]);
-    const texts: TextShowEvent[] = [];
+    const texts: Array<TextShowEvent> = [];
     const result = interpretPage(internalsWith(bytes, 256), 0, {
       text: event => {
         texts.push(event);

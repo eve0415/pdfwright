@@ -12,14 +12,14 @@ import { readClassicSection } from './classicSection.ts';
 const encode = (text: string): Uint8Array => Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
 
 const read = (text: string, offset = 0): ClassicSection => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
   return readClassicSection(new ByteSource(encode(text)), offset, { warn, names: new Map(), maxNesting: 256 });
 };
 
-const entries = (section: ClassicSection): (number | string)[][] =>
+const entries = (section: ClassicSection): Array<Array<number | string>> =>
   section.entries.map(entry => [entry.objectNumber, entry.type, entry.location, entry.generation]);
 
 const size = (section: ClassicSection): number | undefined => {
@@ -32,7 +32,7 @@ describe('classic cross-reference sections', () => {
     const text = 'xx\nxref\n0 3\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00002 n\r\n7 1\n0000000331 00000 n \ntrailer\n<</Size 8>>\nstartxref';
     const section = read(text, 3);
     expect(entries(section)).toStrictEqual([
-      [0, 'free', 3, 65535],
+      [0, 'free', 3, 65_535],
       [1, 'file', 17, 0],
       [2, 'file', 81, 2],
       [7, 'file', 331, 0],
@@ -47,7 +47,7 @@ describe('classic cross-reference sections', () => {
     const cr = read('xref\r595 2\r0000000000 65535 f\r0000000017 00000 n\rtrailer\r<</Size 597>>');
     expect([entries(cr), cr.entryLengths]).toStrictEqual([
       [
-        [595, 'free', 0, 65535],
+        [595, 'free', 0, 65_535],
         [596, 'file', 17, 0],
       ],
       [19],

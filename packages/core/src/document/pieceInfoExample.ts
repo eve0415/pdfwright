@@ -22,7 +22,9 @@ export const preservePagePieceData = (): PieceInfoExample => {
   loaded.page(0).setBox('TrimBox', rect(pt(5), pt(5), pt(95), pt(95)));
   const saved = loaded.save();
   const preserved = loadDocument(saved.chunks).page(0).pieceInfo();
-  if (original === undefined || preserved === undefined) throw new Error('page-piece data is missing');
+  if (original === undefined || preserved === undefined) {
+    throw new Error('page-piece data is missing');
+  }
   const before = serializeObject(original, { fractionDigits: 5 });
   const after = serializeObject(preserved, { fractionDigits: 5 });
   return { saved, retained: before.length === after.length && before.every((value, index) => value === after[index]) };

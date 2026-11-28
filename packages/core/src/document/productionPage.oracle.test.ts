@@ -26,44 +26,56 @@ interface QpdfField {
   value: unknown;
 }
 
-const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+const runQpdf = async (args: Array<string>): Promise<{ stdout: string; stderr: string }> => {
   const child = spawn('qpdf', args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-  if (closed[0] !== 0) throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
+  if (closed[0] !== 0) {
+    throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
+  }
   return { stdout, stderr };
 };
 
 const entry = (dictionary: unknown, name: string): QpdfField => {
-  if (typeof dictionary !== 'object' || dictionary === null) throw new Error('qpdf omitted a dictionary');
+  if (typeof dictionary !== 'object' || dictionary === null) {
+    throw new Error('qpdf omitted a dictionary');
+  }
   return { value: Object.entries(dictionary).find(([keyName]) => keyName === name)?.[1] };
 };
 
 const pageDictionary = (json: unknown): QpdfField => {
   const pages = entry(json, 'pages').value;
   const qpdf = entry(json, 'qpdf').value;
-  if (!Array.isArray(pages) || !Array.isArray(qpdf)) throw new TypeError('qpdf omitted pages or objects');
+  if (!Array.isArray(pages) || !Array.isArray(qpdf)) {
+    throw new TypeError('qpdf omitted pages or objects');
+  }
   const reference = entry(pages[0], 'object').value;
-  if (typeof reference !== 'string') throw new TypeError('qpdf omitted page reference');
+  if (typeof reference !== 'string') {
+    throw new TypeError('qpdf omitted page reference');
+  }
   const object = entry(qpdf[1], `obj:${reference}`).value;
   return entry(object, 'value');
 };
 
 const qpdfObjects = (json: unknown): QpdfField => {
   const sections = entry(json, 'qpdf').value;
-  if (!Array.isArray(sections)) throw new TypeError('qpdf omitted objects');
+  if (!Array.isArray(sections)) {
+    throw new TypeError('qpdf omitted objects');
+  }
   return { value: sections[1] };
 };
 
-const scanNumbers = (bytes: Uint8Array): string[] => {
+const scanNumbers = (bytes: Uint8Array): Array<string> => {
   const pdf = ascii(bytes);
   let cursor = 0;
   let nonstream = '';
-  const contents: string[] = [];
+  const contents: Array<string> = [];
   let marker = pdf.indexOf('\nstream\n', cursor);
   while (marker !== -1) {
     const start = marker + 8;
     const end = pdf.indexOf('\nendstream', start);
-    if (end === -1) throw new Error('unterminated PDF stream');
+    if (end === -1) {
+      throw new Error('unterminated PDF stream');
+    }
     nonstream += pdf.slice(cursor, start);
     const objectMarker = pdf.lastIndexOf(' obj\n', marker);
     const dictionary = pdf.slice(objectMarker + 5, marker);
@@ -82,7 +94,9 @@ const scanNumbers = (bytes: Uint8Array): string[] => {
 const hasInk = (plate: Awaited<ReturnType<typeof readPlate>>): boolean => {
   for (let y = 0; y < plate.height; y++) {
     for (let x = 0; x < plate.width; x++) {
-      if (plate.inkAt(x, y) > 0) return true;
+      if (plate.inkAt(x, y) > 0) {
+        return true;
+      }
     }
   }
   return false;
@@ -99,7 +113,9 @@ const hasInkOutsideDie = (plate: Awaited<ReturnType<typeof readPlate>>): boolean
   const bottom = Math.ceil(plate.height - dieBottom) + 1;
   for (let y = 0; y < plate.height; y++) {
     for (let x = 0; x < plate.width; x++) {
-      if ((x < left || x > right || y < top || y > bottom) && plate.inkAt(x, y) > 0) return true;
+      if ((x < left || x > right || y < top || y > bottom) && plate.inkAt(x, y) > 0) {
+        return true;
+      }
     }
   }
   return false;

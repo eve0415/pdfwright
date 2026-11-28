@@ -7,7 +7,7 @@ export interface BackwardBitWriter {
 
 /** Appends little-endian bit groups in the reverse order a Zstandard decoder reads them. */
 export const createBackwardBitWriter = (): BackwardBitWriter => {
-  const bytes: number[] = [];
+  const bytes: Array<number> = [];
   let bitCount = 0;
   return {
     write: (value, bits) => {

@@ -11,7 +11,7 @@ import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBui
 
 import { compareDocuments } from './compareDocuments.ts';
 
-const pdfBytes = (resources: string, extra: readonly TestObject[] = []): Uint8Array =>
+const pdfBytes = (resources: string, extra: ReadonlyArray<TestObject> = []): Uint8Array =>
   buildPdf([
     {
       xref: 'classic',
@@ -25,9 +25,9 @@ const pdfBytes = (resources: string, extra: readonly TestObject[] = []): Uint8Ar
     },
   ]).bytes;
 
-const load = (resources: string, extra: readonly TestObject[] = []): ReturnType<typeof loadDocument> => loadDocument(pdfBytes(resources, extra));
+const load = (resources: string, extra: ReadonlyArray<TestObject> = []): ReturnType<typeof loadDocument> => loadDocument(pdfBytes(resources, extra));
 
-const kinds = (differences: readonly PdfDifference[]): string[] => differences.map(difference => difference.kind);
+const kinds = (differences: ReadonlyArray<PdfDifference>): Array<string> => differences.map(difference => difference.kind);
 
 const helvetica = { number: 8, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>' };
 const courier = { number: 9, body: '<</Type/Font/Subtype/Type1/BaseFont/Courier>>' };
@@ -39,7 +39,7 @@ const image = (data: string): ReturnType<typeof load> =>
 const filtered = (filter: string): ReturnType<typeof load> =>
   load('<</XObject<</X1 10 0 R>>>>', [form('302030206D>', '/Filter 6 0 R'), { number: 6, body: filter }]);
 
-const encoded = (encoding: string, extra: readonly TestObject[] = []): ReturnType<typeof load> =>
+const encoded = (encoding: string, extra: ReadonlyArray<TestObject> = []): ReturnType<typeof load> =>
   load('<</Font<</F1 8 0 R>>>>', [{ number: 8, body: `<</Type/Font/Subtype/Type1/BaseFont/Custom/Encoding${encoding}>>` }, ...extra]);
 
 describe('resource and font comparison', () => {

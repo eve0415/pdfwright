@@ -37,12 +37,14 @@ const cubic = ([p0, p1, p2, p3]: readonly [number, number, number, number], t: n
 
 // Solves the derivative 3a t² + 2b t + c = 0 in the form that never subtracts nearly equal terms: q = −(b + sgn(b) √(b² − 3ac)), with roots q / 3a and c / q.
 // A raised quadratic has a = 0 in exact arithmetic but a rounding residual in floating point that grows with the coordinates, so no fixed threshold on a can tell the cases apart; with this form the residual sends q / 3a far outside (0, 1) and c / q stays the quadratic's own extremum.
-const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): number[] => {
+const extrema = ([p0, p1, p2, p3]: readonly [number, number, number, number]): Array<number> => {
   const a = -p0 + 3 * p1 - 3 * p2 + p3;
   const b = 3 * p0 - 6 * p1 + 3 * p2;
   const c = -3 * p0 + 3 * p1;
   const discriminant = b * b - 3 * a * c;
-  if (discriminant < 0) return [];
+  if (discriminant < 0) {
+    return [];
+  }
   const q = -(b + (b < 0 ? -1 : 1) * Math.sqrt(discriminant));
   // A zero a or q makes its quotient infinite or NaN, which the range test drops.
   return [q / (3 * a), c / q].filter(t => t > 0 && t < 1);
@@ -73,8 +75,12 @@ const subpathBounds = (subpath: Subpath): Bounds => {
 /** Returns the exact geometric bounds of every subpath's cubic segments. */
 export const pathBounds = (geometry: PathGeometry): Bounds => {
   let bounds: Bounds | undefined;
-  for (const subpath of geometry.subpaths) bounds = union(bounds, subpathBounds(subpath));
-  if (bounds === undefined) throw new Error('path geometry has no subpath');
+  for (const subpath of geometry.subpaths) {
+    bounds = union(bounds, subpathBounds(subpath));
+  }
+  if (bounds === undefined) {
+    throw new Error('path geometry has no subpath');
+  }
   return bounds;
 };
 
@@ -93,18 +99,20 @@ const direction = (from: Vector, to: Vector): Vector | undefined => {
   return length === 0 ? undefined : [dx / length, dy / length];
 };
 
-const firstDirection = (from: Vector, points: readonly Vector[]): Vector | undefined => {
+const firstDirection = (from: Vector, points: ReadonlyArray<Vector>): Vector | undefined => {
   for (const point of points) {
     const tangent = direction(from, point);
-    if (tangent !== undefined) return tangent;
+    if (tangent !== undefined) {
+      return tangent;
+    }
   }
   return undefined;
 };
 
-const segmentTangents = (subpath: Subpath): SegmentTangents[] => {
+const segmentTangents = (subpath: Subpath): Array<SegmentTangents> => {
   const start = xy(subpath.start);
   let current = start;
-  const segments: SegmentTangents[] = [];
+  const segments: Array<SegmentTangents> = [];
   for (const segment of cubicSegments(subpath)) {
     const end = xy(segment.to);
     const control1 = segment.kind === 'curve' ? xy(segment.control1) : end;
@@ -133,13 +141,19 @@ const miterBounds = (subpath: Subpath, radius: number): Bounds => {
     const next = segments[index];
     const incoming = previous?.entering;
     const outgoing = next?.leaving;
-    if (incoming === undefined || outgoing === undefined || next === undefined) continue;
+    if (incoming === undefined || outgoing === undefined || next === undefined) {
+      continue;
+    }
     const dot = Math.max(-1, Math.min(1, incoming[0] * outgoing[0] + incoming[1] * outgoing[1]));
     const sinHalf = Math.sqrt((1 + dot) / 2);
     // ISO 32000-1:2008, 8.4.3.4-8.4.3.5: miter joins bevel when the full miter length / line width exceeds 10.
-    if (sinHalf === 0 || 1 / sinHalf > 10) continue;
+    if (sinHalf === 0 || 1 / sinHalf > 10) {
+      continue;
+    }
     const cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0];
-    if (cross === 0) continue;
+    if (cross === 0) {
+      continue;
+    }
     const side = cross < 0 ? 1 : -1;
     const scale = (side * radius) / (1 + dot);
     stroked = includePoint(stroked, next.start[0] + scale * (-incoming[1] - outgoing[1]), next.start[1] + scale * (incoming[0] + outgoing[0]));
@@ -150,8 +164,12 @@ const miterBounds = (subpath: Subpath, radius: number): Bounds => {
 const strokedBounds = (geometry: PathGeometry, radius: number): Bounds => {
   const bounds = pathBounds(geometry);
   let stroked: Bounds = { minX: bounds.minX - radius, minY: bounds.minY - radius, maxX: bounds.maxX + radius, maxY: bounds.maxY + radius };
-  if (radius === 0) return stroked;
-  for (const subpath of geometry.subpaths) stroked = union(stroked, miterBounds(subpath, radius));
+  if (radius === 0) {
+    return stroked;
+  }
+  for (const subpath of geometry.subpaths) {
+    stroked = union(stroked, miterBounds(subpath, radius));
+  }
   return stroked;
 };
 
@@ -173,7 +191,9 @@ const itemBounds = (item: Item): Bounds | undefined => {
       let bounds: Bounds | undefined;
       for (const child of item.items) {
         const next = itemBounds(child);
-        if (next !== undefined) bounds = union(bounds, next);
+        if (next !== undefined) {
+          bounds = union(bounds, next);
+        }
       }
       return bounds;
     }
@@ -187,10 +207,14 @@ const itemBounds = (item: Item): Bounds | undefined => {
 export const artBounds = (document: IllustratorDocument): Bounds => {
   let bounds: Bounds | undefined;
   for (const layer of document.layers) {
-    if (layer.visible === false) continue;
+    if (layer.visible === false) {
+      continue;
+    }
     for (const item of layer.items) {
       const next = itemBounds(item);
-      if (next !== undefined) bounds = union(bounds, next);
+      if (next !== undefined) {
+        bounds = union(bounds, next);
+      }
     }
   }
   return bounds ?? { minX: 0, minY: 0, maxX: number(document.artboard.width), maxY: number(document.artboard.height) };

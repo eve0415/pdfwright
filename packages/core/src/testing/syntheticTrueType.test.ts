@@ -18,9 +18,9 @@ const FONT = syntheticTrueType({
     [0x41, 1],
     [0x42, 2],
     [0x20, 3],
-    [0x20bb7, 2],
+    [0x2_0b_b7, 2],
   ],
-  variations: [{ selector: 0xe0100, defaults: [0x41], glyphs: [[0x42, 1]] }],
+  variations: [{ selector: 0xe_01_00, defaults: [0x41], glyphs: [[0x42, 1]] }],
 });
 
 const u16 = (bytes: Uint8Array, offset: number): number => (bytes[offset] ?? 0) * 256 + (bytes[offset + 1] ?? 0);
@@ -28,7 +28,9 @@ const u32 = (bytes: Uint8Array, offset: number): number => u16(bytes, offset) * 
 
 const checksum = (bytes: Uint8Array): number => {
   let sum = 0;
-  for (let offset = 0; offset < bytes.length; offset += 4) sum = (sum + u32(bytes, offset)) % 4_294_967_296;
+  for (let offset = 0; offset < bytes.length; offset += 4) {
+    sum = (sum + u32(bytes, offset)) % 4_294_967_296;
+  }
   return sum;
 };
 
@@ -44,13 +46,17 @@ const tables = (bytes: Uint8Array): Map<string, { readonly data: Uint8Array; rea
 };
 
 const cmapOf = (reading: CmapReading): TrueTypeCmap => {
-  if (reading.kind !== 'cmap') throw new Error(`the cmap table does not read: ${reading.kind}`);
+  if (reading.kind !== 'cmap') {
+    throw new Error(`the cmap table does not read: ${reading.kind}`);
+  }
   return reading.cmap;
 };
 
 const tableData = (found: ReturnType<typeof tables>, tag: string): Uint8Array => {
   const table = found.get(tag);
-  if (table === undefined) throw new Error(`the program has no ${tag} table`);
+  if (table === undefined) {
+    throw new Error(`the program has no ${tag} table`);
+  }
   return table.data;
 };
 
@@ -66,7 +72,7 @@ describe('synthetic TrueType programs', () => {
   });
 
   it('sets checkSumAdjustment so that the whole program sums to 0xB1B0AFBA', () => {
-    expect(checksum(FONT)).toBe(0xb1b0afba);
+    expect(checksum(FONT)).toBe(0xb1_b0_af_ba);
   });
 
   it('writes the glyph count, advance widths and vertical advances it was given', () => {
@@ -80,7 +86,7 @@ describe('synthetic TrueType programs', () => {
 
   it('maps characters and variation sequences through its cmap table', () => {
     const cmap = cmapOf(readTrueTypeCmap(FONT));
-    expect([cmap.format, cmap.glyph(0x41), cmap.glyph(0x42), cmap.glyph(0x20bb7), cmap.glyph(0x43)]).toStrictEqual([12, 1, 2, 2, undefined]);
-    expect([cmap.variant(0x41, 0xe0100), cmap.variant(0x42, 0xe0100)]).toStrictEqual(['default', 1]);
+    expect([cmap.format, cmap.glyph(0x41), cmap.glyph(0x42), cmap.glyph(0x2_0b_b7), cmap.glyph(0x43)]).toStrictEqual([12, 1, 2, 2, undefined]);
+    expect([cmap.variant(0x41, 0xe_01_00), cmap.variant(0x42, 0xe_01_00)]).toStrictEqual(['default', 1]);
   });
 });

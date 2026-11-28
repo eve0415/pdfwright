@@ -11,7 +11,7 @@ import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBui
 import { compareDocuments } from './compareDocuments.ts';
 import { contentOperations } from './contentTokens.ts';
 
-const document = (contents: string, streams: readonly TestObject[]): ReturnType<typeof loadDocument> =>
+const document = (contents: string, streams: ReadonlyArray<TestObject>): ReturnType<typeof loadDocument> =>
   loadDocument(
     buildPdf([
       {
@@ -27,7 +27,7 @@ const document = (contents: string, streams: readonly TestObject[]): ReturnType<
     ]).bytes,
   );
 
-const content = (comparison: DocumentComparison): readonly PdfDifference[] => comparison.differences;
+const content = (comparison: DocumentComparison): ReadonlyArray<PdfDifference> => comparison.differences;
 
 const single = document('4 0 R', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S 0.50 g') }]);
 

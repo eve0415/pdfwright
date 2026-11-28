@@ -30,7 +30,7 @@ import { comparePageContent } from './pageContent.ts';
 import { comparePieceInfo } from './pieceInfo.ts';
 import { ValueGraph, graphContext } from './valueGraph.ts';
 
-const AREAS: readonly DifferenceArea[] = [
+const AREAS: ReadonlyArray<DifferenceArea> = [
   'pages',
   'boxes',
   'content',
@@ -41,7 +41,7 @@ const AREAS: readonly DifferenceArea[] = [
   'pageAttributes',
   'documentAttributes',
 ];
-const BOXES: readonly BoxName[] = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
+const BOXES: ReadonlyArray<BoxName> = ['MediaBox', 'CropBox', 'BleedBox', 'TrimBox', 'ArtBox'];
 const RESOURCES = pdfName('Resources').bytes;
 const INHERITABLE = ['Resources', 'MediaBox', 'CropBox', 'Rotate'];
 
@@ -52,15 +52,17 @@ interface Sides {
 
 const internals = (document: LoadedDocument, name: string): DocumentInternals => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new InvalidArgumentError(`document ${name} was not loaded by loadDocument`);
+  if (parts === undefined) {
+    throw new InvalidArgumentError(`document ${name} was not loaded by loadDocument`);
+  }
   return parts;
 };
 
-const sameNumbers = (left: readonly number[], right: readonly number[]): boolean =>
+const sameNumbers = (left: ReadonlyArray<number>, right: ReadonlyArray<number>): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
 // ISO 32000-1:2008, 7.7.3.3, Table 30 and 7.7.3.4: the five boxes with inheritance and defaults, and the inheritable Rotate and non-inheritable UserUnit.
-const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, EffectiveBoxes], differences: PdfDifference[]): void => {
+const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, EffectiveBoxes], differences: Array<PdfDifference>): void => {
   for (const box of BOXES) {
     const a = left[box];
     const b = right[box];
@@ -80,18 +82,20 @@ const compareBoxes = (page: number, [left, right]: readonly [EffectiveBoxes, Eff
 const compareFonts = (
   page: number | 'document',
   [left, right]: readonly [ReadonlyMap<string, FontIdentity>, ReadonlyMap<string, FontIdentity>],
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
-  const added = [...right].filter(([key]) => !left.has(key)).map(([, font]) => font);
-  const removed = [...left].filter(([key]) => !right.has(key)).map(([, font]) => font);
-  if (added.length > 0 || removed.length > 0) differences.push({ kind: 'font-set', page, added, removed });
+  const added = [...right].flatMap(([key, font]) => (left.has(key) ? [] : [font]));
+  const removed = [...left].flatMap(([key, font]) => (right.has(key) ? [] : [font]));
+  if (added.length > 0 || removed.length > 0) {
+    differences.push({ kind: 'font-set', page, added, removed });
+  }
 };
 
 class Comparison {
   private readonly sides: GraphContext;
   private readonly include: ReadonlySet<DifferenceArea>;
-  readonly differences: PdfDifference[] = [];
-  private readonly pieces: PdfDifference[] = [];
+  readonly differences: Array<PdfDifference> = [];
+  private readonly pieces: Array<PdfDifference> = [];
   private readonly fonts = { a: new Map<string, FontIdentity>(), b: new Map<string, FontIdentity>() };
   private readonly documentFonts: { readonly a: DocumentFonts; readonly b: DocumentFonts };
   private readonly inheritance = { a: createInheritedCache(), b: createInheritedCache() };
@@ -107,7 +111,9 @@ class Comparison {
     try {
       return read();
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
       this.differences.push({ kind: 'undecodable', where, document: side, reason: error.message });
       return undefined;
     }
@@ -130,17 +136,23 @@ class Comparison {
         return found?.from === undefined ? new Map<string, DuplicateKey>() : withinEntry(duplicateKeys(this.sides[side], found.from.objectNumber), key);
       } catch (error: unknown) {
         // The areas that read the attribute report a value that cannot be parsed.
-        if (error instanceof ParseError) return new Map<string, DuplicateKey>();
+        if (error instanceof ParseError) {
+          return new Map<string, DuplicateKey>();
+        }
         throw error;
       }
     };
-    for (const key of INHERITABLE) reportDuplicates(['page', page], [holderDuplicates('a', key), holderDuplicates('b', key)], this.differences);
+    for (const key of INHERITABLE) {
+      reportDuplicates(['page', page], [holderDuplicates('a', key), holderDuplicates('b', key)], this.differences);
+    }
   }
 
   private boxes(page: number, [entryA, entryB]: readonly [PageEntry, PageEntry]): void {
     const boxesA = this.read('a', ['page', page], () => effectiveBoxes(this.sides.a.objects, entryA, this.inheritance.a));
     const boxesB = this.read('b', ['page', page], () => effectiveBoxes(this.sides.b.objects, entryB, this.inheritance.b));
-    if (boxesA !== undefined && boxesB !== undefined) compareBoxes(page, [boxesA, boxesB], this.differences);
+    if (boxesA !== undefined && boxesB !== undefined) {
+      compareBoxes(page, [boxesA, boxesB], this.differences);
+    }
   }
 
   private resources(page: number, [resourcesA, resourcesB]: readonly [PdfDirectObject | undefined, PdfDirectObject | undefined]): void {
@@ -163,11 +175,15 @@ class Comparison {
     const found = fontSet(this.documentFonts[side], entry, resources);
     const reported = new Set<string>();
     for (const { from, reason } of found.unreadable) {
-      if (reported.has(`${from}|${reason}`)) continue;
+      if (reported.has(`${from}|${reason}`)) {
+        continue;
+      }
       reported.add(`${from}|${reason}`);
       this.differences.push({ kind: 'undecodable', where: ['page', page, from], document: side, reason });
     }
-    for (const [key, font] of found.fonts) this.fonts[side].set(key, font);
+    for (const [key, font] of found.fonts) {
+      this.fonts[side].set(key, font);
+    }
     return found.fonts;
   }
 
@@ -183,10 +199,16 @@ class Comparison {
 
   page(page: number, [entryA, entryB]: readonly [PageEntry, PageEntry]): void {
     const { sides, include, differences } = this;
-    if (include.has('boxes')) this.boxes(page, [entryA, entryB]);
-    if (include.has('content')) comparePageContent(page, { ...sides, pageA: entryA, pageB: entryB }, differences);
+    if (include.has('boxes')) {
+      this.boxes(page, [entryA, entryB]);
+    }
+    if (include.has('content')) {
+      comparePageContent(page, { ...sides, pageA: entryA, pageB: entryB }, differences);
+    }
     const resources = [this.pageResources('a', page, entryA), this.pageResources('b', page, entryB)] as const;
-    if (include.has('resources')) this.resources(page, resources);
+    if (include.has('resources')) {
+      this.resources(page, resources);
+    }
     if (include.has('pieceInfo') || include.has('lastModified')) {
       const owner = {
         owner: { kind: 'page', page } as const,
@@ -199,14 +221,18 @@ class Comparison {
         this.pieces.push({ kind: 'undecodable', where, document, reason });
       };
       const forms = formOwners(sides, { page, a: resources[0], b: resources[1] }, unreadable);
-      for (const each of [owner, ...forms]) comparePieceInfo(sides, each, this.pieces);
+      for (const each of [owner, ...forms]) {
+        comparePieceInfo(sides, each, this.pieces);
+      }
     }
     if (include.has('pageAttributes')) {
       comparePageAttributes(sides, { page, a: entryA, b: entryB }, differences);
       compareDuplicateKeys(sides, { where: ['page', page], a: entryA.reference, b: entryB.reference }, differences);
       this.inheritedDuplicates(page, [entryA, entryB]);
     }
-    if (include.has('fonts')) this.pageFonts(page, [entryA, entryB], resources);
+    if (include.has('fonts')) {
+      this.pageFonts(page, [entryA, entryB], resources);
+    }
   }
 
   document(): void {
@@ -217,7 +243,9 @@ class Comparison {
         const { pages } = sides[side];
         for (let page = Math.min(sides.a.pages.length, sides.b.pages.length); page < pages.length; page++) {
           const entry = pages[page];
-          if (entry !== undefined) this.fontsOn(side, page, [entry, this.pageResources(side, page, entry)]);
+          if (entry !== undefined) {
+            this.fontsOn(side, page, [entry, this.pageResources(side, page, entry)]);
+          }
         }
       }
       compareFonts('document', [this.fonts.a, this.fonts.b], differences);
@@ -234,7 +262,9 @@ class Comparison {
     }
     for (const difference of this.pieces) {
       const area = difference.kind === 'last-modified' ? 'lastModified' : 'pieceInfo';
-      if (difference.kind === 'undecodable' || include.has(area)) differences.push(difference);
+      if (difference.kind === 'undecodable' || include.has(area)) {
+        differences.push(difference);
+      }
     }
     if (include.has('documentAttributes')) {
       compareDocumentAttributes(sides, differences);
@@ -254,11 +284,15 @@ export const compareDocuments = (a: LoadedDocument, b: LoadedDocument, options: 
   const comparison = new Comparison(sides, include);
   const pagesA = sides.a.pages;
   const pagesB = sides.b.pages;
-  if (include.has('pages') && pagesA.length !== pagesB.length) comparison.differences.push({ kind: 'page-count', a: pagesA.length, b: pagesB.length });
+  if (include.has('pages') && pagesA.length !== pagesB.length) {
+    comparison.differences.push({ kind: 'page-count', a: pagesA.length, b: pagesB.length });
+  }
   for (let page = 0; page < Math.min(pagesA.length, pagesB.length); page++) {
     const entryA = pagesA[page];
     const entryB = pagesB[page];
-    if (entryA !== undefined && entryB !== undefined) comparison.page(page, [entryA, entryB]);
+    if (entryA !== undefined && entryB !== undefined) {
+      comparison.page(page, [entryA, entryB]);
+    }
   }
   comparison.document();
   return { equal: comparison.differences.length === 0, differences: comparison.differences };

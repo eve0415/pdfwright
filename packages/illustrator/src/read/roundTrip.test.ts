@@ -20,7 +20,7 @@ const outline: Subpath = {
 };
 const cut: Stroke = { paint: { kind: 'spot', spot: { name: 'ＣＵＴ', alternate: [0, 1, 0, 0] } }, width: 0 };
 const die: PathItem = { kind: 'path', geometry: { subpaths: [outline] }, stroke: cut };
-const moves = (native: Uint8Array): string[] => [...new TextDecoder().decode(native).matchAll(/(?<=\r)\S+ \S+(?= m\r)/gu)].map(match => match[0]);
+const moves = (native: Uint8Array): Array<string> => [...new TextDecoder().decode(native).matchAll(/(?<=\r)\S+ \S+(?= m\r)/gu)].map(match => match[0]);
 const model: IllustratorDocument = {
   artboard: { width: mm(100), height: mm(70), bleed: mm(3) },
   layers: [

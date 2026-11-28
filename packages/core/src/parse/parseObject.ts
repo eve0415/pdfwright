@@ -10,9 +10,9 @@ export interface SourceNode {
   readonly value: PdfDirectObject;
   readonly start: number;
   readonly end: number;
-  readonly items?: readonly SourceNode[];
+  readonly items?: ReadonlyArray<SourceNode>;
   /** Every entry in source order, duplicates included; `value` uses the last occurrence of a key. */
-  readonly entries?: readonly SourceEntry[];
+  readonly entries?: ReadonlyArray<SourceEntry>;
 }
 
 export interface SourceEntry {
@@ -24,7 +24,9 @@ export interface SourceEntry {
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -35,9 +37,13 @@ const fail = (lexer: Lexer, message: string, token: Token): never => {
 // ISO 32000-1:2008, 7.3.10: an indirect reference is "the object number, the generation number, and the keyword R". A reference to an object that does not exist resolves to null later, so any two integers are kept.
 const referenceAfter = (lexer: Lexer, first: Extract<Token, { kind: 'integer' }>): PdfDirectObject => {
   const second = lexer.peek();
-  if (second.kind !== 'integer') return { kind: 'integer', value: first.value };
+  if (second.kind !== 'integer') {
+    return { kind: 'integer', value: first.value };
+  }
   const keyword = lexer.peekSecond();
-  if (keyword.kind !== 'keyword' || keyword.keyword !== 'R') return { kind: 'integer', value: first.value };
+  if (keyword.kind !== 'keyword' || keyword.keyword !== 'R') {
+    return { kind: 'integer', value: first.value };
+  }
   lexer.next();
   lexer.next();
   return { kind: 'reference', objectNumber: first.value, generation: second.value };
@@ -51,7 +57,9 @@ const invalid = (lexer: Lexer, token: Token, reason: Extract<PdfDirectObject, { 
 
 const checkDepth = (depth: number, maxNesting: number): void => {
   // House limit, not a PDF rule: nesting deeper than maxNesting is refused so that hostile input cannot exhaust the stack.
-  if (depth > maxNesting) throw new ResourceLimitError(`arrays and dictionaries are nested deeper than maxNesting (${String(maxNesting)})`);
+  if (depth > maxNesting) {
+    throw new ResourceLimitError(`arrays and dictionaries are nested deeper than maxNesting (${String(maxNesting)})`);
+  }
 };
 
 class DirectObjectParser {
@@ -67,15 +75,21 @@ class DirectObjectParser {
   }
 
   node(token: Token, depth: number): SourceNode {
-    if (token.kind === 'arrayOpen') return this.annotatedArray(token.start, depth + 1);
-    if (token.kind === 'dictionaryOpen') return this.annotatedDictionary(token.start, depth + 1);
+    if (token.kind === 'arrayOpen') {
+      return this.annotatedArray(token.start, depth + 1);
+    }
+    if (token.kind === 'dictionaryOpen') {
+      return this.annotatedDictionary(token.start, depth + 1);
+    }
     const value = this.value(token, depth);
     return { value, start: token.start, end: this.lexer.position };
   }
 
   value(token: Token, depth: number): PdfDirectObject {
     this.nodes++;
-    if (this.nodes > this.maxNodes) throw new ResourceLimitError(`a direct object has more than ${String(this.maxNodes)} values`);
+    if (this.nodes > this.maxNodes) {
+      throw new ResourceLimitError(`a direct object has more than ${String(this.maxNodes)} values`);
+    }
     const { lexer } = this;
     switch (token.kind) {
       case 'integer': {
@@ -91,13 +105,21 @@ class DirectObjectParser {
         return { kind: 'string', bytes: token.bytes, encoding: token.encoding };
       }
       case 'invalid': {
-        if (token.reason === 'stray-delimiter') return fail(lexer, 'unexpected delimiter', token);
+        if (token.reason === 'stray-delimiter') {
+          return fail(lexer, 'unexpected delimiter', token);
+        }
         return invalid(lexer, token, token.reason);
       }
       case 'keyword': {
-        if (token.keyword === 'true' || token.keyword === 'false') return { kind: 'boolean', value: token.keyword === 'true' };
-        if (token.keyword === 'null') return { kind: 'null' };
-        if (token.keyword === 'other') return invalid(lexer, token, 'unknown-keyword');
+        if (token.keyword === 'true' || token.keyword === 'false') {
+          return { kind: 'boolean', value: token.keyword === 'true' };
+        }
+        if (token.keyword === 'null') {
+          return { kind: 'null' };
+        }
+        if (token.keyword === 'other') {
+          return invalid(lexer, token, 'unknown-keyword');
+        }
         return fail(lexer, `unexpected keyword ${token.keyword}`, token);
       }
       case 'arrayOpen': {
@@ -123,14 +145,16 @@ class DirectObjectParser {
 
   private annotatedArray(start: number, depth: number): SourceNode {
     checkDepth(depth, this.maxNesting);
-    const items: SourceNode[] = [];
-    for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) items.push(this.node(token, depth));
+    const items: Array<SourceNode> = [];
+    for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) {
+      items.push(this.node(token, depth));
+    }
     return { value: { kind: 'array', items: items.map(item => item.value) }, start, end: this.lexer.position, items };
   }
 
   private annotatedDictionary(start: number, depth: number): SourceNode {
     checkDepth(depth, this.maxNesting);
-    const entries: SourceEntry[] = [];
+    const entries: Array<SourceEntry> = [];
     this.entries((key, token) => {
       entries.push({ key: key.bytes, keyStart: key.start, keyEnd: key.end, node: this.node(token, depth) });
     });
@@ -142,11 +166,19 @@ class DirectObjectParser {
     const { lexer } = this;
     const seen = new Set<Uint8Array>();
     for (let key = lexer.next(); key.kind !== 'dictionaryClose'; key = lexer.next()) {
-      if (key.kind === 'eof') fail(lexer, 'unexpected end of data', key);
-      if (key.kind !== 'name') return fail(lexer, 'a dictionary key must be a name', key);
+      if (key.kind === 'eof') {
+        fail(lexer, 'unexpected end of data', key);
+      }
+      if (key.kind !== 'name') {
+        return fail(lexer, 'a dictionary key must be a name', key);
+      }
       const token = lexer.next();
-      if (token.kind === 'dictionaryClose') fail(lexer, 'a dictionary key has no value', token);
-      if (seen.has(key.bytes)) lexer.warn({ code: 'duplicate-key', detail: `duplicate dictionary key /${latin1(key.bytes)}` }, key.start);
+      if (token.kind === 'dictionaryClose') {
+        fail(lexer, 'a dictionary key has no value', token);
+      }
+      if (seen.has(key.bytes)) {
+        lexer.warn({ code: 'duplicate-key', detail: `duplicate dictionary key /${latin1(key.bytes)}` }, key.start);
+      }
       seen.add(key.bytes);
       read(key, token);
     }
@@ -155,8 +187,10 @@ class DirectObjectParser {
   // ISO 32000-1:2008, 7.3.6: "An array shall be written as a sequence of objects enclosed in SQUARE BRACKETS (using LEFT SQUARE BRACKET (5Bh) and RIGHT SQUARE BRACKET (5Dh))."
   private array(depth: number): PdfDirectObject {
     checkDepth(depth, this.maxNesting);
-    const items: PdfDirectObject[] = [];
-    for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) items.push(this.value(token, depth));
+    const items: Array<PdfDirectObject> = [];
+    for (let token = this.lexer.next(); token.kind !== 'arrayClose'; token = this.lexer.next()) {
+      items.push(this.value(token, depth));
+    }
     return { kind: 'array', items };
   }
 
@@ -164,7 +198,7 @@ class DirectObjectParser {
   // "Multiple entries in the same dictionary shall not have the same key." When they do, the last one is used and a warning names it.
   private dictionary(depth: number): PdfDirectObject {
     checkDepth(depth, this.maxNesting);
-    const entries: [Uint8Array, PdfDirectObject][] = [];
+    const entries: Array<[Uint8Array, PdfDirectObject]> = [];
     this.entries((key, token) => {
       entries.push([key.bytes, this.value(token, depth)]);
     });

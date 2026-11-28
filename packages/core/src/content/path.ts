@@ -20,22 +20,28 @@ export type Rectangle = readonly [number, number, number, number];
 export const MAX_RECTANGLES = 64;
 
 // The corners of a polygon that is a rectangle with sides parallel to the page axes and positive area, closed implicitly or by a last point equal to the first.
-const rectangleOf = (polygon: readonly Point[]): Rectangle | undefined => {
+const rectangleOf = (polygon: ReadonlyArray<Point>): Rectangle | undefined => {
   const [first] = polygon;
   const last = polygon.at(-1);
   const corners =
     polygon.length === 5 && first !== undefined && last !== undefined && first[0] === last[0] && first[1] === last[1] ? polygon.slice(0, 4) : polygon;
-  if (corners.length !== 4) return undefined;
+  if (corners.length !== 4) {
+    return undefined;
+  }
   const xs = new Set(corners.map(([x]) => x));
   const ys = new Set(corners.map(([, y]) => y));
   // Each side is horizontal or vertical, and they alternate.
   const sides = corners.map((corner, index) => {
     const next = corners[(index + 1) % 4] ?? corner;
-    if (corner[1] === next[1] && corner[0] !== next[0]) return 'horizontal';
+    if (corner[1] === next[1] && corner[0] !== next[0]) {
+      return 'horizontal';
+    }
     return corner[0] === next[0] && corner[1] !== next[1] ? 'vertical' : 'other';
   });
   const alternate = sides.every((side, index) => side !== 'other' && side !== sides[(index + 1) % 4]);
-  if (xs.size !== 2 || ys.size !== 2 || !alternate) return undefined;
+  if (xs.size !== 2 || ys.size !== 2 || !alternate) {
+    return undefined;
+  }
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
@@ -45,9 +51,9 @@ const overlap = (a: Rectangle, b: Rectangle): boolean => a[0] < b[2] && b[0] < a
 /** Collects a path's subpaths in page space as polygons, with the points, which ISO 32000-1:2008, 8.5.2.1, Table 59 gives in user space, transformed by the CTM in force when the path is built, and curves flattened. */
 export class PathBuilder {
   private readonly matrix: Matrix;
-  private readonly subpaths: Point[][] = [];
+  private readonly subpaths: Array<Array<Point>> = [];
   private count = 0;
-  private current: Point[] | undefined = undefined;
+  private current: Array<Point> | undefined = undefined;
   // The current point in user space, which v uses as a control point (Table 59: "using the current point and (x2 , y2 ) as the Bézier control points"), and the start of the current subpath, which h returns to.
   private user: Point | undefined = undefined;
   private start: Point = [0, 0];
@@ -61,9 +67,11 @@ export class PathBuilder {
   }
 
   // Adds a point to a subpath while the path is within the vertex limit.
-  private keep(points: Point[], point: Point): void {
+  private keep(points: Array<Point>, point: Point): void {
     this.count++;
-    if (this.count <= MAX_CLIP_VERTICES + 1) points.push(point);
+    if (this.count <= MAX_CLIP_VERTICES + 1) {
+      points.push(point);
+    }
   }
 
   /** The number of vertices the path has, including those past the limit that it does not keep. */
@@ -74,13 +82,15 @@ export class PathBuilder {
   moveTo(x: number, y: number): void {
     this.current = [];
     this.keep(this.current, this.point(x, y));
-    if (this.count <= MAX_CLIP_VERTICES + 1) this.subpaths.push(this.current);
+    if (this.count <= MAX_CLIP_VERTICES + 1) {
+      this.subpaths.push(this.current);
+    }
     this.user = [x, y];
     this.start = [x, y];
   }
 
   // The subpath a segment extends: after h, Table 59 says "Appending another segment to the current path shall begin a new subpath", at the closed subpath's start; with no current point at all, the segment's own first point starts one.
-  private extended(x: number, y: number): Point[] {
+  private extended(x: number, y: number): Array<Point> {
     if (this.current === undefined) {
       const [startX, startY] = this.user ?? [x, y];
       this.moveTo(startX, startY);
@@ -122,7 +132,9 @@ export class PathBuilder {
 
   /** h: closes the current subpath. Its polygon is closed implicitly, so no point is added. */
   close(): void {
-    if (this.current === undefined) return;
+    if (this.current === undefined) {
+      return;
+    }
     this.current = undefined;
     this.user = this.start;
   }
@@ -136,7 +148,7 @@ export class PathBuilder {
     this.close();
   }
 
-  polygons(): readonly (readonly Point[])[] {
+  polygons(): ReadonlyArray<ReadonlyArray<Point>> {
     return this.subpaths;
   }
 
@@ -144,12 +156,16 @@ export class PathBuilder {
    * The corners [left bottom right top] of each subpath when every one is a rectangle with sides parallel to the page axes and positive area, as re draws it under a CTM without rotation or skew, and no two overlap; otherwise undefined.
    * Rectangles that do not overlap are each filled entirely by both fill rules, while overlapping ones can cancel by the nonzero rule when drawn in opposite directions and leave a hole by the even-odd rule (ISO 32000-1:2008, 8.5.3.3.2 and 8.5.3.3.3). A path of more than MAX_RECTANGLES subpaths gives undefined.
    */
-  axisAlignedRectangles(): readonly Rectangle[] | undefined {
-    if (this.subpaths.length === 0 || this.subpaths.length > MAX_RECTANGLES || this.count > MAX_CLIP_VERTICES) return undefined;
-    const rectangles: Rectangle[] = [];
+  axisAlignedRectangles(): ReadonlyArray<Rectangle> | undefined {
+    if (this.subpaths.length === 0 || this.subpaths.length > MAX_RECTANGLES || this.count > MAX_CLIP_VERTICES) {
+      return undefined;
+    }
+    const rectangles: Array<Rectangle> = [];
     for (const polygon of this.subpaths) {
       const rectangle = rectangleOf(polygon);
-      if (rectangle === undefined) return undefined;
+      if (rectangle === undefined) {
+        return undefined;
+      }
       rectangles.push(rectangle);
     }
     const overlapping = rectangles.some((rectangle, index) => rectangles.slice(index + 1).some(other => overlap(rectangle, other)));

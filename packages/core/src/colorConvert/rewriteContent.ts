@@ -40,10 +40,10 @@ export interface RewrittenContent {
   readonly operators: number;
   readonly kOnly: number;
   readonly overprintAdjustments: number;
-  readonly formUses: readonly FormUse[];
-  readonly shadingUses: readonly ShadingUse[];
+  readonly formUses: ReadonlyArray<FormUse>;
+  readonly shadingUses: ReadonlyArray<ShadingUse>;
   readonly inlineImages: number;
-  readonly newInlineImages: readonly (ConvertedInlineImage & { readonly name: string })[];
+  readonly newInlineImages: ReadonlyArray<ConvertedInlineImage & { readonly name: string }>;
 }
 
 export interface OverprintNames {
@@ -86,17 +86,17 @@ interface RewriteContext {
   readonly resources: PdfDictionaryEntries;
   readonly options: RewriteColorOptions;
   readonly transforms: Map<string, ColorTransform>;
-  readonly edits: ContentEdit[];
-  readonly formUses: FormUse[];
-  readonly shadingUses: ShadingUse[];
-  readonly newInlineImages: (ConvertedInlineImage & { readonly name: string })[];
+  readonly edits: Array<ContentEdit>;
+  readonly formUses: Array<FormUse>;
+  readonly shadingUses: Array<ShadingUse>;
+  readonly newInlineImages: Array<ConvertedInlineImage & { readonly name: string }>;
   readonly overprintNames: OverprintNames | undefined;
   kOnly: number;
   inlineImages: number;
   overprintAdjustments: number;
   pathStart: number | undefined;
   state: ColorEntryState;
-  readonly stack: ColorEntryState[];
+  readonly stack: Array<ColorEntryState>;
 }
 
 const EXT_G_STATE = pdfName('ExtGState').bytes;
@@ -108,20 +108,30 @@ const invalid = (detail: string): never => {
 };
 
 const numberValue = (operand: ContentOperand): number | undefined => {
-  if (operand.kind === 'integer') return operand.value;
-  if (operand.kind === 'real' && typeof operand.value === 'number') return operand.value;
+  if (operand.kind === 'integer') {
+    return operand.value;
+  }
+  if (operand.kind === 'real' && typeof operand.value === 'number') {
+    return operand.value;
+  }
   return undefined;
 };
 
-const colorValues = (operands: readonly ContentOperand[], count: number): number[] => {
-  if (operands.length !== count) return invalid(`colour operator requires ${String(count)} components`);
+const colorValues = (operands: ReadonlyArray<ContentOperand>, count: number): Array<number> => {
+  if (operands.length !== count) {
+    return invalid(`colour operator requires ${String(count)} components`);
+  }
   const values = operands.map(operand => numberValue(operand));
-  if (values.some(value => value === undefined)) return invalid('colour operator has a nonnumeric component');
+  if (values.some(value => value === undefined)) {
+    return invalid('colour operator has a nonnumeric component');
+  }
   return values.map(value => value ?? 0);
 };
 
 const nameBytes = (operand: ContentOperand | undefined): Uint8Array => {
-  if (operand?.kind !== 'name') return invalid('colour operator requires a name');
+  if (operand?.kind !== 'name') {
+    return invalid('colour operator requires a name');
+  }
   return operand.bytes;
 };
 
@@ -129,23 +139,33 @@ const nameText = (bytes: Uint8Array): string => new TextDecoder('latin1').decode
 
 const intentOf = (bytes: Uint8Array): RenderingIntent => {
   const name = nameText(bytes);
-  if (name === 'Perceptual') return 'perceptual';
-  if (name === 'Saturation') return 'saturation';
-  if (name === 'AbsoluteColorimetric') return 'absoluteColorimetric';
+  if (name === 'Perceptual') {
+    return 'perceptual';
+  }
+  if (name === 'Saturation') {
+    return 'saturation';
+  }
+  if (name === 'AbsoluteColorimetric') {
+    return 'absoluteColorimetric';
+  }
   // ISO 32000-1:2008, 8.6.5.8: an unrecognised intent defaults to RelativeColorimetric.
   return 'relativeColorimetric';
 };
 
 const deref = (context: RewriteContext, value: PdfDirectObject | undefined): PdfDirectObject | undefined => {
   const internals = internalsOf(context.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const found = internals.objects.deref(value);
   return found?.kind === 'stream' ? undefined : found;
 };
 
 const gsEntries = (context: RewriteContext, name: Uint8Array): PdfDictionaryEntries | undefined => {
   const category = deref(context, context.resources.get(EXT_G_STATE));
-  if (category?.kind !== 'dictionary') return undefined;
+  if (category?.kind !== 'dictionary') {
+    return undefined;
+  }
   const state = deref(context, category.entries.get(name));
   return state?.kind === 'dictionary' ? state.entries : undefined;
 };
@@ -156,8 +176,12 @@ const updateOverprint = (context: RewriteContext, entries: PdfDictionaryEntries)
   const mode = deref(context, entries.get(pdfName('OPM').bytes));
   // ISO 32000-1:2008, 8.4.5 Table 58: OP sets both flags when op is absent.
   let { fillOverprint } = context.state;
-  if (stroke?.kind === 'boolean') fillOverprint = stroke.value;
-  if (fill?.kind === 'boolean') fillOverprint = fill.value;
+  if (stroke?.kind === 'boolean') {
+    fillOverprint = stroke.value;
+  }
+  if (fill?.kind === 'boolean') {
+    fillOverprint = fill.value;
+  }
   context.state = {
     ...context.state,
     fillOverprint,
@@ -175,7 +199,9 @@ const transformFor = (context: RewriteContext, source: ColorSource): ColorTransf
   const intent = context.options.intent === undefined || context.options.intent === 'document' ? context.state.intent : context.options.intent;
   const key = keyFor(source, intent, context.options);
   const cached = context.transforms.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const transform = createColorTransform(source, context.options.outputProfile, {
     intent,
     blackPointCompensation: context.options.blackPointCompensation !== false,
@@ -185,7 +211,7 @@ const transformFor = (context: RewriteContext, source: ColorSource): ColorTransf
   return transform;
 };
 
-const deviceCmyk = (context: RewriteContext, source: ColorSource, values: readonly number[]): number[] => {
+const deviceCmyk = (context: RewriteContext, source: ColorSource, values: ReadonlyArray<number>): Array<number> => {
   if (context.options.pureBlack !== 'convert' && values.every(value => value === 0)) {
     context.kOnly++;
     return [0, 0, 0, 1];
@@ -195,14 +221,14 @@ const deviceCmyk = (context: RewriteContext, source: ColorSource, values: readon
   return [...output];
 };
 
-const formatted = (values: readonly number[], operator: string): string =>
+const formatted = (values: ReadonlyArray<number>, operator: string): string =>
   `${values.map(value => formatNumber(value, DEFAULT_FRACTION_DIGITS)).join(' ')} ${operator}`;
 
 const setSpace = (context: RewriteContext, stroke: boolean, space: SourceSpace): void => {
   context.state = stroke ? { ...context.state, stroke: space, strokeConvertedZero: false } : { ...context.state, fill: space, fillConvertedZero: false };
 };
 
-const setConvertedZero = (context: RewriteContext, stroke: boolean, values: readonly number[]): void => {
+const setConvertedZero = (context: RewriteContext, stroke: boolean, values: ReadonlyArray<number>): void => {
   const zero = values.some(value => value === 0);
   context.state = stroke ? { ...context.state, strokeConvertedZero: zero } : { ...context.state, fillConvertedZero: zero };
 };
@@ -260,7 +286,9 @@ const setComponents = (context: RewriteContext, operation: SpannedContentOperati
 const directRgb = (context: RewriteContext, operation: SpannedContentOperation): string => {
   const stroke = operation.operator === 'RG';
   const space = sourceFor(context, pdfName('DeviceRGB'));
-  if (space.kind !== 'rgb') return invalid('DefaultRGB is not an RGB colour space');
+  if (space.kind !== 'rgb') {
+    return invalid('DefaultRGB is not an RGB colour space');
+  }
   setSpace(context, stroke, space);
   const values = colorValues(operation.operands, 3);
   const converted = deviceCmyk(context, space.source, values);
@@ -270,7 +298,9 @@ const directRgb = (context: RewriteContext, operation: SpannedContentOperation):
 
 const directGray = (context: RewriteContext, operation: SpannedContentOperation): string | undefined => {
   setSpace(context, operation.operator === 'G', { kind: 'deviceGray' });
-  if (context.options.deviceGray !== 'promote-to-cmyk') return undefined;
+  if (context.options.deviceGray !== 'promote-to-cmyk') {
+    return undefined;
+  }
   const gray = colorValues(operation.operands, 1)[0] ?? 0;
   const converted = [0, 0, 0, 1 - gray];
   setConvertedZero(context, operation.operator === 'G', converted);
@@ -282,7 +312,9 @@ const inlineResourceName = (context: RewriteContext): string => {
   const entries = category?.kind === 'dictionary' ? category.entries : undefined;
   for (let index = context.inlineImages; ; index++) {
     const name = `PWIM${String(index)}`;
-    if (entries?.has(pdfName(name).bytes) === true || context.newInlineImages.some(image => image.name === name)) continue;
+    if (entries?.has(pdfName(name).bytes) === true || context.newInlineImages.some(image => image.name === name)) {
+      continue;
+    }
     return name;
   }
 };
@@ -295,7 +327,9 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
   }
   if (operator === 'Q') {
     const saved = context.stack.pop();
-    if (saved === undefined) return invalid('unbalanced graphics state in page content');
+    if (saved === undefined) {
+      return invalid('unbalanced graphics state in page content');
+    }
     context.state = saved;
     return;
   }
@@ -307,7 +341,9 @@ const updateGraphicsState = (context: RewriteContext, operation: SpannedContentO
     const entries = gsEntries(context, nameBytes(operation.operands[0]));
     if (entries !== undefined) {
       const intent = deref(context, entries.get(RENDERING_INTENT));
-      if (intent?.kind === 'name') context.state = { ...context.state, intent: intentOf(intent.bytes) };
+      if (intent?.kind === 'name') {
+        context.state = { ...context.state, intent: intentOf(intent.bytes) };
+      }
       updateOverprint(context, entries);
     }
     return;
@@ -338,9 +374,13 @@ const objectOperation = (context: RewriteContext, operation: SpannedContentOpera
       intent: context.state.intent,
       xObjectName: name,
     });
-    if (converted === undefined) return undefined;
+    if (converted === undefined) {
+      return undefined;
+    }
     context.inlineImages++;
-    if (converted.asXObject) context.newInlineImages.push({ ...converted, name });
+    if (converted.asXObject) {
+      context.newInlineImages.push({ ...converted, name });
+    }
     return converted.replacement;
   }
   return undefined;
@@ -352,14 +392,22 @@ const rewriteOperation = (context: RewriteContext, operation: SpannedContentOper
     updateGraphicsState(context, operation);
     return undefined;
   }
-  if (operator === 'rg' || operator === 'RG') return directRgb(context, operation);
-  if (operator === 'g' || operator === 'G') return directGray(context, operation);
+  if (operator === 'rg' || operator === 'RG') {
+    return directRgb(context, operation);
+  }
+  if (operator === 'g' || operator === 'G') {
+    return directGray(context, operation);
+  }
   if (operator === 'k' || operator === 'K') {
     setSpace(context, operator === 'K', { kind: 'untouched' });
     return undefined;
   }
-  if (operator === 'cs' || operator === 'CS') return setColorSpace(context, operation);
-  if (operator === 'sc' || operator === 'SC' || operator === 'scn' || operator === 'SCN') return setComponents(context, operation);
+  if (operator === 'cs' || operator === 'CS') {
+    return setColorSpace(context, operation);
+  }
+  if (operator === 'sc' || operator === 'SC' || operator === 'scn' || operator === 'SCN') {
+    return setComponents(context, operation);
+  }
   return objectOperation(context, operation);
 };
 
@@ -373,14 +421,20 @@ const TEXT_STROKE = new Set([1, 2, 5, 6]);
 
 const needsNeutralisation = (context: RewriteContext, fill: boolean, stroke: boolean): boolean => {
   const { state } = context;
-  if (state.overprintMode !== 1) return false;
+  if (state.overprintMode !== 1) {
+    return false;
+  }
   return (fill && state.fillOverprint && state.fillConvertedZero) || (stroke && state.strokeOverprint && state.strokeConvertedZero);
 };
 
 const neutralise = (context: RewriteContext, start: number, end: number): void => {
-  if (context.options.overprintMode === 'refuse') throw new ValidationError('converted paint changes overprint mode 1 behaviour', 'overprint-mode-change');
+  if (context.options.overprintMode === 'refuse') {
+    throw new ValidationError('converted paint changes overprint mode 1 behaviour', 'overprint-mode-change');
+  }
   const names = context.overprintNames;
-  if (names === undefined) return invalid('overprint resource names are missing');
+  if (names === undefined) {
+    return invalid('overprint resource names are missing');
+  }
   // ISO 32000-1:2008, 8.6.7: OPM 1 affects zero DeviceCMYK components; Figure 9 forbids gs within a path object.
   context.edits.push({ start, end: start, text: `/${names.off} gs\n` }, { start: end, end, text: `\n/${names.on} gs` });
   context.overprintAdjustments++;
@@ -388,7 +442,9 @@ const neutralise = (context: RewriteContext, start: number, end: number): void =
 
 const recordPaint = (context: RewriteContext, operation: SpannedContentOperation): void => {
   const { operator } = operation;
-  if (operator === 'BI' && operation.inlineImage === undefined) throw new UnsupportedFeatureError('malformed inline image cannot be converted');
+  if (operator === 'BI' && operation.inlineImage === undefined) {
+    throw new UnsupportedFeatureError('malformed inline image cannot be converted');
+  }
   if (PATH_CONSTRUCTION.has(operator)) {
     context.pathStart ??= operation.start;
     return;
@@ -400,7 +456,9 @@ const recordPaint = (context: RewriteContext, operation: SpannedContentOperation
   const fill = FILL_PATH.has(operator) || BOTH_PATH.has(operator);
   const stroke = STROKE_PATH.has(operator) || BOTH_PATH.has(operator);
   if (fill || stroke) {
-    if (needsNeutralisation(context, fill, stroke)) neutralise(context, context.pathStart ?? operation.start, operation.end);
+    if (needsNeutralisation(context, fill, stroke)) {
+      neutralise(context, context.pathStart ?? operation.start, operation.end);
+    }
     context.pathStart = undefined;
     return;
   }
@@ -471,7 +529,9 @@ export const rewriteContentColors = (
   const writer = new ByteWriter();
   let cursor = 0;
   for (const edit of context.edits.toSorted((left, right) => left.start - right.start || left.end - right.end)) {
-    if (edit.start < cursor) return invalid('overlapping colour edits');
+    if (edit.start < cursor) {
+      return invalid('overlapping colour edits');
+    }
     writer.writeBytes(bytes.subarray(cursor, edit.start));
     writer.writeAscii(edit.text);
     cursor = edit.end;

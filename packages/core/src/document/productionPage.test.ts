@@ -20,7 +20,9 @@ const sharedSpotMask = (bytes: Uint8Array): readonly [number, number, boolean] =
   const document = loadDocument(bytes);
   const objects = Array.from({ length: 30 }, (_, index) => ({ number: index + 1, value: document.get(pdfReference(index + 1, 0)) }));
   const spotImages = objects.filter(({ value }) => {
-    if (value.kind !== 'stream' || subtype(value) !== 'Image') return false;
+    if (value.kind !== 'stream' || subtype(value) !== 'Image') {
+      return false;
+    }
     const space = value.dictionary.get(pdfName('ColorSpace').bytes);
     return space?.kind === 'array' && space.items[0]?.kind === 'name' && ascii(space.items[0].bytes) === 'Separation';
   });

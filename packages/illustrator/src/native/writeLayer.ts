@@ -87,7 +87,9 @@ export const writeLayer = (writer: NativeWriter, layer: Layer, options: NativeLa
   writer.line(locked ? '1 A' : '0 A');
   if (visible === 0) {
     writer.line('1 Xw');
-    if (locked && layer.items.length > 0) writer.line('0 A');
+    if (locked && layer.items.length > 0) {
+      writer.line('0 A');
+    }
   }
   writer.line('0 Xw');
   const lockState = { value: locked && (visible !== 0 || layer.items.length === 0) };

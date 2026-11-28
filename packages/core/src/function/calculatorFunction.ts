@@ -12,7 +12,7 @@ import {
 
 interface Procedure {
   readonly kind: 'procedure';
-  readonly tokens: readonly Token[];
+  readonly tokens: ReadonlyArray<Token>;
 }
 type Value = number | boolean | Procedure;
 type Token = Value | string;
@@ -20,61 +20,89 @@ type Token = Value | string;
 const error = (message: string): ParseError => new ParseError(`calculator function: ${message}`, 0);
 
 const literal = (word: string): Token => {
-  if (word === 'true' || word === 'false') return word === 'true';
-  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$/u.test(word)) return Number(word);
+  if (word === 'true' || word === 'false') {
+    return word === 'true';
+  }
+  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$/u.test(word)) {
+    return Number(word);
+  }
   return word;
 };
 
-const lex = (data: Uint8Array): Token[] => {
+const lex = (data: Uint8Array): Array<Token> => {
   // ISO 32000-1:2008, 7.10.5.1: calculator code is enclosed in braces; conditional expressions use nested braces.
   const source = new TextDecoder('latin1').decode(data).replaceAll(/%[^\r\n]*/gu, ' ');
   const words = source.match(/\{|\}|[^\s{}]+/gu) ?? [];
-  if (words.length > 10_000) throw new ResourceLimitError('calculator function has too many tokens');
-  const frames: Token[][] = [[]];
+  if (words.length > 10_000) {
+    throw new ResourceLimitError('calculator function has too many tokens');
+  }
+  const frames: Array<Array<Token>> = [[]];
   for (const word of words) {
     if (word === '{') {
-      if (frames.length > 16) throw new ResourceLimitError('calculator function nesting exceeds 16');
+      if (frames.length > 16) {
+        throw new ResourceLimitError('calculator function nesting exceeds 16');
+      }
       frames.push([]);
     } else if (word === '}') {
       const closed = frames.pop();
-      if (closed === undefined || frames.length === 0) throw error('unmatched brace');
+      if (closed === undefined || frames.length === 0) {
+        throw error('unmatched brace');
+      }
       frames.at(-1)?.push({ kind: 'procedure', tokens: closed });
-    } else frames.at(-1)?.push(literal(word));
+    } else {
+      frames.at(-1)?.push(literal(word));
+    }
   }
-  if (frames.length !== 1) throw error('unclosed brace');
+  if (frames.length !== 1) {
+    throw error('unclosed brace');
+  }
   const [outer] = frames;
-  if (outer?.length !== 1) throw error('expected one outer procedure');
+  if (outer?.length !== 1) {
+    throw error('expected one outer procedure');
+  }
   const [first] = outer;
-  if (typeof first !== 'object') throw error('expected outer braces');
+  if (typeof first !== 'object') {
+    throw error('expected outer braces');
+  }
   return [...first.tokens];
 };
 
-const pop = (stack: Value[]): Value => {
+const pop = (stack: Array<Value>): Value => {
   const value = stack.pop();
-  if (value === undefined) throw error('stack underflow');
+  if (value === undefined) {
+    throw error('stack underflow');
+  }
   return value;
 };
 
-const number = (stack: Value[]): number => {
+const number = (stack: Array<Value>): number => {
   const value = pop(stack);
-  if (typeof value !== 'number') throw error('expected number');
+  if (typeof value !== 'number') {
+    throw error('expected number');
+  }
   return value;
 };
 
-const boolean = (stack: Value[]): boolean => {
+const boolean = (stack: Array<Value>): boolean => {
   const value = pop(stack);
-  if (typeof value !== 'boolean') throw error('expected boolean');
+  if (typeof value !== 'boolean') {
+    throw error('expected boolean');
+  }
   return value;
 };
 
-const procedure = (stack: Value[]): Procedure => {
+const procedure = (stack: Array<Value>): Procedure => {
   const value = pop(stack);
-  if (typeof value !== 'object') throw error('expected procedure');
+  if (typeof value !== 'object') {
+    throw error('expected procedure');
+  }
   return value;
 };
 
 const int = (value: number): number => {
-  if (!Number.isFinite(value)) throw error('non-finite integer');
+  if (!Number.isFinite(value)) {
+    throw error('non-finite integer');
+  }
   return Math.trunc(value);
 };
 
@@ -173,11 +201,17 @@ const binary = (operator: string, left: number, right: number): number | boolean
 
 const logic = (operator: string, left: Value, right: Value): Value => {
   if (typeof left === 'boolean' && typeof right === 'boolean') {
-    if (operator === 'and') return left && right;
-    if (operator === 'or') return left || right;
+    if (operator === 'and') {
+      return left && right;
+    }
+    if (operator === 'or') {
+      return left || right;
+    }
     return left !== right;
   }
-  if (typeof left !== 'number' || typeof right !== 'number') throw error('invalid boolean operands');
+  if (typeof left !== 'number' || typeof right !== 'number') {
+    throw error('invalid boolean operands');
+  }
   let a = unsigned32(left);
   let b = unsigned32(right);
   let result = 0;
@@ -186,9 +220,14 @@ const logic = (operator: string, left: Value, right: Value): Value => {
     const first = a % 2 === 1;
     const second = b % 2 === 1;
     let set = first !== second;
-    if (operator === 'and') set = first && second;
-    else if (operator === 'or') set = first || second;
-    if (set) result += place;
+    if (operator === 'and') {
+      set = first && second;
+    } else if (operator === 'or') {
+      set = first || second;
+    }
+    if (set) {
+      result += place;
+    }
     a = Math.floor(a / 2);
     b = Math.floor(b / 2);
     place *= 2;
@@ -196,7 +235,7 @@ const logic = (operator: string, left: Value, right: Value): Value => {
   return signed32(result);
 };
 
-const stackOperation = (operator: string, stack: Value[]): boolean => {
+const stackOperation = (operator: string, stack: Array<Value>): boolean => {
   if (operator === 'pop') {
     pop(stack);
     return true;
@@ -214,20 +253,28 @@ const stackOperation = (operator: string, stack: Value[]): boolean => {
   }
   if (operator === 'copy') {
     const count = int(number(stack));
-    if (count < 0 || count > stack.length) throw error('invalid copy count');
-    if (count > 0) stack.push(...stack.slice(-count));
+    if (count < 0 || count > stack.length) {
+      throw error('invalid copy count');
+    }
+    if (count > 0) {
+      stack.push(...stack.slice(-count));
+    }
     return true;
   }
   if (operator === 'index') {
     const index = int(number(stack));
-    if (index < 0 || index >= stack.length) throw error('invalid index');
+    if (index < 0 || index >= stack.length) {
+      throw error('invalid index');
+    }
     stack.push(stack[stack.length - index - 1] ?? 0);
     return true;
   }
   if (operator === 'roll') {
     const shift = int(number(stack));
     const count = int(number(stack));
-    if (count < 0 || count > stack.length) throw error('invalid roll count');
+    if (count < 0 || count > stack.length) {
+      throw error('invalid roll count');
+    }
     if (count > 0) {
       const items = stack.splice(-count);
       const offset = ((shift % count) + count) % count;
@@ -238,22 +285,31 @@ const stackOperation = (operator: string, stack: Value[]): boolean => {
   return false;
 };
 
-const controlOperation = (operator: string, stack: Value[], run: (tokens: readonly Token[]) => void): boolean => {
-  if (operator !== 'if' && operator !== 'ifelse') return false;
+const controlOperation = (operator: string, stack: Array<Value>, run: (tokens: ReadonlyArray<Token>) => void): boolean => {
+  if (operator !== 'if' && operator !== 'ifelse') {
+    return false;
+  }
   const falseBranch = operator === 'ifelse' ? procedure(stack) : undefined;
   const trueBranch = procedure(stack);
   const condition = boolean(stack);
-  if (condition) run(trueBranch.tokens);
-  else if (falseBranch !== undefined) run(falseBranch.tokens);
+  if (condition) {
+    run(trueBranch.tokens);
+  } else if (falseBranch !== undefined) {
+    run(falseBranch.tokens);
+  }
   return true;
 };
 
-const logicalOperation = (operator: string, stack: Value[]): boolean => {
+const logicalOperation = (operator: string, stack: Array<Value>): boolean => {
   if (operator === 'not') {
     const value = pop(stack);
-    if (typeof value === 'boolean') stack.push(!value);
-    else if (typeof value === 'number') stack.push(-int(value) - 1);
-    else throw error('invalid not operand');
+    if (typeof value === 'boolean') {
+      stack.push(!value);
+    } else if (typeof value === 'number') {
+      stack.push(-int(value) - 1);
+    } else {
+      throw error('invalid not operand');
+    }
     return true;
   }
   if (operator === 'and' || operator === 'or' || operator === 'xor') {
@@ -265,17 +321,22 @@ const logicalOperation = (operator: string, stack: Value[]): boolean => {
     // ISO 32000-1:2008, 7.10.5.1 defers to the PostScript bitshift operator: the 32-bit pattern shifts with zero fill, so a right shift does not keep the sign bit and bits shifted past 32 are lost.
     const shift = int(number(stack));
     const pattern = unsigned32(number(stack));
-    if (Math.abs(shift) >= 32) stack.push(0);
-    else stack.push(signed32(shift >= 0 ? (pattern * 2 ** shift) % 2 ** 32 : Math.floor(pattern / 2 ** -shift)));
+    if (Math.abs(shift) >= 32) {
+      stack.push(0);
+    } else {
+      stack.push(signed32(shift >= 0 ? (pattern * 2 ** shift) % 2 ** 32 : Math.floor(pattern / 2 ** -shift)));
+    }
     return true;
   }
   return false;
 };
 
-const arithmeticOperation = (operator: string, stack: Value[]): boolean => {
+const arithmeticOperation = (operator: string, stack: Array<Value>): boolean => {
   if (['abs', 'ceiling', 'cvi', 'cvr', 'floor', 'neg', 'round', 'sqrt', 'sin', 'cos', 'ln', 'log', 'truncate'].includes(operator)) {
     const result = unary(operator, number(stack));
-    if (result === undefined || !Number.isFinite(result)) throw error('invalid arithmetic result');
+    if (result === undefined || !Number.isFinite(result)) {
+      throw error('invalid arithmetic result');
+    }
     stack.push(result);
     return true;
   }
@@ -289,40 +350,60 @@ const arithmeticOperation = (operator: string, stack: Value[]): boolean => {
   if (['add', 'sub', 'mul', 'div', 'idiv', 'mod', 'exp', 'atan', 'lt', 'le', 'gt', 'ge'].includes(operator)) {
     const right = number(stack);
     const result = binary(operator, number(stack), right);
-    if (result === undefined || (typeof result === 'number' && !Number.isFinite(result))) throw error('invalid arithmetic result');
+    if (result === undefined || (typeof result === 'number' && !Number.isFinite(result))) {
+      throw error('invalid arithmetic result');
+    }
     stack.push(result);
     return true;
   }
   return false;
 };
 
-const execute = (tokens: readonly Token[], stack: Value[]): void => {
+const execute = (tokens: ReadonlyArray<Token>, stack: Array<Value>): void => {
   let steps = 0;
   let depth = 0;
-  const run = (body: readonly Token[]): void => {
-    if (++depth > 16) throw new ResourceLimitError('calculator execution nesting exceeds 16');
+  const run = (body: ReadonlyArray<Token>): void => {
+    if (++depth > 16) {
+      throw new ResourceLimitError('calculator execution nesting exceeds 16');
+    }
     for (const token of body) {
-      if (++steps > 10_000) throw new ResourceLimitError('calculator execution exceeds 10000 steps');
-      if (typeof token !== 'string') stack.push(token);
-      else if (!controlOperation(token, stack, run) && !stackOperation(token, stack) && !logicalOperation(token, stack) && !arithmeticOperation(token, stack)) {
+      if (++steps > 10_000) {
+        throw new ResourceLimitError('calculator execution exceeds 10000 steps');
+      }
+      if (typeof token !== 'string') {
+        stack.push(token);
+      } else if (
+        !controlOperation(token, stack, run) &&
+        !stackOperation(token, stack) &&
+        !logicalOperation(token, stack) &&
+        !arithmeticOperation(token, stack)
+      ) {
         throw error(`unknown operator ${token}`);
       }
-      if (stack.length > 100) throw new ResourceLimitError('calculator stack exceeds 100 values');
+      if (stack.length > 100) {
+        throw new ResourceLimitError('calculator stack exceeds 100 values');
+      }
     }
     depth--;
   };
   run(tokens);
 };
 
-export const createCalculatorFunction = (data: Uint8Array, inputs: number, outputs: number): ((values: readonly number[]) => number[]) => {
+export const createCalculatorFunction = (data: Uint8Array, inputs: number, outputs: number): ((values: ReadonlyArray<number>) => Array<number>) => {
   const tokens = lex(data);
   return values => {
-    if (values.length !== inputs) throw error('input dimension mismatch');
-    const stack: Value[] = [...values];
+    if (values.length !== inputs) {
+      throw error('input dimension mismatch');
+    }
+    const stack: Array<Value> = [...values];
     execute(tokens, stack);
-    if (stack.length !== outputs || stack.some(value => typeof value !== 'number')) throw error('output dimension mismatch');
+    if (stack.length !== outputs || stack.some(value => typeof value !== 'number')) {
+      throw error('output dimension mismatch');
+    }
     return stack.map(value => {
-      if (typeof value !== 'number') throw error('non-number output');
+      if (typeof value !== 'number') {
+        throw error('non-number output');
+      }
       return value;
     });
   };

@@ -6,7 +6,7 @@ const withoutLiteralStrings = (line: string): string => {
   let output = '';
   let depth = 0;
   for (let index = 0; index < line.length; index++) {
-    const character = line[index];
+    const character = line.charAt(index);
     if (character === '\\' && depth > 0) {
       index++;
     } else if (character === '(') {
@@ -21,19 +21,25 @@ const withoutLiteralStrings = (line: string): string => {
 };
 
 /** Reports exponent-form numeric tokens outside native strings and binary or ASCII85 data. */
-export const findExponentTokens = (native: Uint8Array): string[] => {
-  const found: string[] = [];
+export const findExponentTokens = (native: Uint8Array): Array<string> => {
+  const found: Array<string> = [];
   let ascii85 = false;
   let hexPayload = false;
   for (const record of tokenizeNative(native)) {
-    if (record.kind === 'rasterData') continue;
+    if (record.kind === 'rasterData') {
+      continue;
+    }
     const { text } = record;
     if (ascii85) {
-      if (text.includes('~>')) ascii85 = false;
+      if (text.includes('~>')) {
+        ascii85 = false;
+      }
       continue;
     }
     if (hexPayload) {
-      if (text === '%%EndData') hexPayload = false;
+      if (text === '%%EndData') {
+        hexPayload = false;
+      }
       continue;
     }
     if (text.includes('/ASCII85Decode ,')) {
@@ -44,7 +50,9 @@ export const findExponentTokens = (native: Uint8Array): string[] => {
       hexPayload = true;
       continue;
     }
-    for (const match of withoutLiteralStrings(text).matchAll(EXPONENT)) found.push(match[0]);
+    for (const match of withoutLiteralStrings(text).matchAll(EXPONENT)) {
+      found.push(match[0]);
+    }
   }
   return found;
 };

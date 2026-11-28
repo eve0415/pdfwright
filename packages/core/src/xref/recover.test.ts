@@ -13,11 +13,11 @@ import { reconstructIndex } from './recover.ts';
 
 interface Result {
   reconstruction: Reconstruction;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
 const reconstruct = (text: string, maxObjectStreamMembers = 100, maxDecodedBytes = 1_048_576): Result => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
@@ -25,13 +25,13 @@ const reconstruct = (text: string, maxObjectStreamMembers = 100, maxDecodedBytes
   return { reconstruction: reconstructIndex(new ByteSource(latin1Bytes(text)), context), warnings };
 };
 
-const located = (reconstruction: Reconstruction): (number | string)[][] =>
+const located = (reconstruction: Reconstruction): Array<Array<number | string>> =>
   [...reconstruction.index.inUse()].map(number => {
     const entry = reconstruction.index.get(number);
     return [number, entry.type === IN_FILE ? 'file' : 'compressed', entry.location];
   });
 
-const rootOf = (reconstruction: Reconstruction): string[] =>
+const rootOf = (reconstruction: Reconstruction): Array<string> =>
   reconstruction.trailers.map(trailer => {
     const root = trailer.get(pdfName('Root').bytes);
     return root?.kind === 'reference' ? `${String(root.objectNumber)} R` : '-';

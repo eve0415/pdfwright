@@ -13,7 +13,9 @@ export class BoundedOutput {
   }
 
   private reserve(count: number): void {
-    if (this.writer.length + count > this.limit) throw new ResourceLimitError(`${this.filter} output exceeds maxDecodedBytes (${String(this.limit)} bytes)`);
+    if (this.writer.length + count > this.limit) {
+      throw new ResourceLimitError(`${this.filter} output exceeds maxDecodedBytes (${String(this.limit)} bytes)`);
+    }
   }
 
   push(byte: number): void {

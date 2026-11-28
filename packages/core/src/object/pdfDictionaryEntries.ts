@@ -4,7 +4,9 @@ import { assertNameBytes } from './nameBytes.ts';
 
 const byteKey = (bytes: Uint8Array): string => {
   let key = '';
-  for (const byte of bytes) key += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    key += String.fromCodePoint(byte);
+  }
   return key;
 };
 
@@ -16,7 +18,9 @@ export class PdfDictionaryEntries {
   private readonly values = new Map<string, { key: Uint8Array; value: PdfDirectObject }>();
 
   constructor(entries: Iterable<readonly [Uint8Array, PdfDirectObject]> = []) {
-    for (const [key, value] of entries) this.set(key, value);
+    for (const [key, value] of entries) {
+      this.set(key, value);
+    }
   }
 
   get(nameBytes: Uint8Array): PdfDirectObject | undefined {
@@ -45,19 +49,25 @@ export class PdfDictionaryEntries {
 
   *entries(): IterableIterator<[Uint8Array, PdfDirectObject]> {
     for (const { key, value } of this.values.values()) {
-      if (value.kind !== 'null') yield [Uint8Array.from(key), value];
+      if (value.kind !== 'null') {
+        yield [Uint8Array.from(key), value];
+      }
     }
   }
 
   get size(): number {
     let count = 0;
-    for (const value of this.values.values()) if (value.value.kind !== 'null') count++;
+    for (const value of this.values.values()) {
+      if (value.value.kind !== 'null') {
+        count++;
+      }
+    }
     return count;
   }
 }
 
 /** Builds entries from keys a parser read, without the validation and copying that keys from callers get; a later key replaces an earlier equal one. */
-export const parsedDictionaryEntries = (entries: readonly (readonly [Uint8Array, PdfDirectObject])[]): PdfDictionaryEntries => {
+export const parsedDictionaryEntries = (entries: ReadonlyArray<readonly [Uint8Array, PdfDirectObject]>): PdfDictionaryEntries => {
   parsedKeys = true;
   try {
     return new PdfDictionaryEntries(entries);

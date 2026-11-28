@@ -15,7 +15,9 @@ const quiet = (): LexContext => ({
 
 const hex = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += byte.toString(16).padStart(2, '0');
+  for (const byte of bytes) {
+    text += byte.toString(16).padStart(2, '0');
+  }
   return text;
 };
 
@@ -64,16 +66,18 @@ const operatorText = (lexer: Lexer, token: Token): string => new TextDecoder('la
  * ISO 32000-1:2008, 7.8.2: "A content stream is a PDF stream object whose data consists of a sequence of instructions describing the graphical elements to be painted on a page."
  * Throws ParseError for operands that cannot be read, such as an unterminated string.
  */
-export const contentOperations = (bytes: Uint8Array, maxNesting: number): string[] => {
+export const contentOperations = (bytes: Uint8Array, maxNesting: number): Array<string> => {
   const lexer = new Lexer({ bytes, base: 0, final: true }, 0, quiet());
-  const operations: string[] = [];
-  let operands: string[] = [];
-  let imageParameters: PdfDirectObject[] = [];
+  const operations: Array<string> = [];
+  let operands: Array<string> = [];
+  let imageParameters: Array<PdfDirectObject> = [];
   for (let token = lexer.peek(); token.kind !== 'eof'; token = lexer.peek()) {
     if (token.kind === 'keyword' && token.keyword !== 'true' && token.keyword !== 'false' && token.keyword !== 'null') {
       lexer.next();
       const operator = operatorText(lexer, token);
-      if (operator === 'ID') operands.push(`ID${hex(inlineImageData(lexer, imageParameters))}`);
+      if (operator === 'ID') {
+        operands.push(`ID${hex(inlineImageData(lexer, imageParameters))}`);
+      }
       operations.push(`${operands.join(' ')} ${operator}`);
       operands = [];
       imageParameters = [];
@@ -86,18 +90,22 @@ export const contentOperations = (bytes: Uint8Array, maxNesting: number): string
       imageParameters.push(value);
     }
   }
-  if (operands.length > 0) operations.push(operands.join(' '));
+  if (operands.length > 0) {
+    operations.push(operands.join(' '));
+  }
   return operations;
 };
 
-export type ContentOperations = { readonly ok: true; readonly operations: readonly string[] } | { readonly ok: false; readonly reason: string };
+export type ContentOperations = { readonly ok: true; readonly operations: ReadonlyArray<string> } | { readonly ok: false; readonly reason: string };
 
 /** The operations of decoded content, or why they cannot be read; resource limits propagate. */
 export const readOperations = (bytes: Uint8Array, maxNesting: number): ContentOperations => {
   try {
     return { ok: true, operations: contentOperations(bytes, maxNesting) };
   } catch (error: unknown) {
-    if (error instanceof ParseError) return { ok: false, reason: error.message };
+    if (error instanceof ParseError) {
+      return { ok: false, reason: error.message };
+    }
     throw error;
   }
 };

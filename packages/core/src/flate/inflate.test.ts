@@ -14,13 +14,15 @@ import { deflateZlib } from './deflate.ts';
 import { canonicalCodes } from './huffmanEncoder.ts';
 import { inflateChunks, inflateRaw, inflateZlib } from './inflate.ts';
 
-const dataSet = (): Uint8Array[] => {
+const dataSet = (): Array<Uint8Array> => {
   const random = new Uint8Array(1024 * 1024);
-  let state = 0x12345678;
+  let state = 0x12_34_56_78;
   for (let index = 0; index < random.length; index++) {
-    state = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
-    if (state < 0) state += 4294967296;
-    random[index] = Math.floor(state / 16777216);
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) % 4_294_967_296;
+    if (state < 0) {
+      state += 4_294_967_296;
+    }
+    random[index] = Math.floor(state / 16_777_216);
   }
   const text = new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
   return [new Uint8Array(), new Uint8Array([123]), text, random];
@@ -28,27 +30,35 @@ const dataSet = (): Uint8Array[] => {
 
 const largeData = (): Uint8Array => {
   const data = new Uint8Array(10 * 1024 * 1024);
-  for (let index = 0; index < data.length; index++) data[index] = 65 + (index % 4);
+  for (let index = 0; index < data.length; index++) {
+    data[index] = 65 + (index % 4);
+  }
   return data;
 };
 
 const CODE_LENGTH_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-const lengths = (count: number, used: Record<number, number>): number[] => Array.from({ length: count }, (_, symbol) => used[symbol] ?? 0);
+const lengths = (count: number, used: Record<number, number>): Array<number> => Array.from({ length: count }, (_, symbol) => used[symbol] ?? 0);
 
 // One final dynamic block whose code lengths use four-bit codes for lengths 0-15, followed by the given literal/length symbols.
-const dynamicBlock = (literal: number[], distance: number[], symbols: number[]): Uint8Array => {
+const dynamicBlock = (literal: Array<number>, distance: Array<number>, symbols: Array<number>): Uint8Array => {
   const writer = new BitWriter();
   writer.writeBits(0b101, 3);
   writer.writeBits(literal.length - 257, 5);
   writer.writeBits(distance.length - 1, 5);
   writer.writeBits(19 - 4, 4);
   const codeLengths = lengths(19, Object.fromEntries(Array.from({ length: 16 }, (_, symbol) => [symbol, 4])));
-  for (const symbol of CODE_LENGTH_ORDER) writer.writeBits(codeLengths[symbol] ?? 0, 3);
+  for (const symbol of CODE_LENGTH_ORDER) {
+    writer.writeBits(codeLengths[symbol] ?? 0, 3);
+  }
   const codeCodes = canonicalCodes(codeLengths);
-  for (const length of [...literal, ...distance]) writer.writeBits(codeCodes[length] ?? 0, 4);
+  for (const length of [...literal, ...distance]) {
+    writer.writeBits(codeCodes[length] ?? 0, 4);
+  }
   const literalCodes = canonicalCodes(literal);
-  for (const symbol of symbols) writer.writeBits(literalCodes[symbol] ?? 0, literal[symbol] ?? 0);
+  for (const symbol of symbols) {
+    writer.writeBits(literalCodes[symbol] ?? 0, literal[symbol] ?? 0);
+  }
   return writer.finish();
 };
 
@@ -118,7 +128,9 @@ describe('zlib inflation', () => {
       expect(inflateZlib(compressed, { maxOutputBytes: zeros.length }).data).toHaveLength(zeros.length);
     }
     expect(() => inflateZlib(compressFflate(new Uint8Array([1])), { maxOutputBytes: 0 })).toThrow(ResourceLimitError);
-    for (const maxOutputBytes of [-1, 1.5, Number.NaN]) expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
+    for (const maxOutputBytes of [-1, 1.5, Number.NaN]) {
+      expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
+    }
   });
 
   it('rejects more literal/length or distance codes than zlib accepts', () => {
@@ -162,7 +174,7 @@ describe('chunked zlib inflate', () => {
       { data: corrupted, code: 'checksum-mismatch' },
       { data: Uint8Array.from([...compressed, 0]), code: 'trailing-data' },
     ]) {
-      const warnings: FlateWarning[] = [];
+      const warnings: Array<FlateWarning> = [];
       const chunks = [
         ...inflateChunks(data, {
           onWarning: warning => {
@@ -182,10 +194,10 @@ describe('chunked zlib inflate', () => {
   });
 
   it('rejects malformed later blocks before yielding earlier decoded bytes', () => {
-    const bytes = new Uint8Array(2 + 5 + 65535 + 6 + 1 + 4);
+    const bytes = new Uint8Array(2 + 5 + 65_535 + 6 + 1 + 4);
     bytes.set([0x78, 0x01, 0, 255, 255, 0, 0]);
-    bytes.fill(65, 7, 7 + 65535);
-    bytes.set([0, 1, 0, 254, 255, 65, 7], 7 + 65535);
+    bytes.fill(65, 7, 7 + 65_535);
+    bytes.set([0, 1, 0, 254, 255, 65, 7], 7 + 65_535);
     const stream = inflateChunks(bytes);
     expect(() => stream.next()).toThrow(ParseError);
   });
@@ -194,7 +206,7 @@ describe('chunked zlib inflate', () => {
     const input = Uint8Array.from({ length: 1_100_000 }, (_, index) => (index * 31 + (index >>> 8)) & 255);
     const chunks = [...inflateChunks(deflateZlib(input))];
     expect(chunks.length).toBeGreaterThan(1);
-    expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65536);
+    expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(65_536);
     const restored = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
     let offset = 0;
     for (const chunk of chunks) {

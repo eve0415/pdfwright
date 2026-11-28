@@ -15,7 +15,7 @@ export interface XrefSection {
   readonly kind: 'classic' | 'stream';
   /** Offset of the keyword xref, or of the cross-reference stream's object header. */
   readonly offset: number;
-  readonly entries: readonly XrefEntry[];
+  readonly entries: ReadonlyArray<XrefEntry>;
   readonly trailer: PdfDictionaryEntries;
   /** Byte span of the trailer dictionary, or of the cross-reference stream's dictionary. */
   readonly trailerStart: number;

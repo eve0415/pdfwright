@@ -37,10 +37,12 @@ const validWhite = (white: Xyz): void => {
 };
 
 const validGamma = (value: number): void => {
-  if (!Number.isFinite(value) || value <= 0) throw new InvalidArgumentError('calibrated gamma must be positive');
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new InvalidArgumentError('calibrated gamma must be positive');
+  }
 };
 
-const adapt = (value: readonly number[], from: Xyz): number[] => {
+const adapt = (value: ReadonlyArray<number>, from: Xyz): Array<number> => {
   // ICC.1:2022, Annex E.3 Equations E.1–E.4: linear Bradford adaptation scales cone responses from the declared white to PCS D50.
   const fromCone = applyMatrix([from.x, from.y, from.z], BRADFORD);
   const toCone = applyMatrix([D50.x, D50.y, D50.z], BRADFORD);
@@ -51,7 +53,7 @@ const adapt = (value: readonly number[], from: Xyz): number[] => {
   );
 };
 
-const xyz = (values: readonly number[]): Xyz => ({ x: values[0] ?? 0, y: values[1] ?? 0, z: values[2] ?? 0 });
+const xyz = (values: ReadonlyArray<number>): Xyz => ({ x: values[0] ?? 0, y: values[1] ?? 0, z: values[2] ?? 0 });
 
 const calibration = (source: CalRgbSource | CalGraySource): Calibration => {
   // ISO 32000-1:2008, 8.6.5.2–8.6.5.3: gamma precedes the CalGray white-point scale or the CalRGB column-major matrix.
@@ -59,8 +61,14 @@ const calibration = (source: CalRgbSource | CalGraySource): Calibration => {
     validGamma(source.gamma);
     return { colorants: undefined, trc: { gray: { kind: 'gamma', gamma: source.gamma } } };
   }
-  for (const gamma of source.gamma) validGamma(gamma);
-  for (const value of source.matrix) if (!Number.isFinite(value)) throw new InvalidArgumentError('calibrated matrix entries must be finite');
+  for (const gamma of source.gamma) {
+    validGamma(gamma);
+  }
+  for (const value of source.matrix) {
+    if (!Number.isFinite(value)) {
+      throw new InvalidArgumentError('calibrated matrix entries must be finite');
+    }
+  }
   const { matrix } = source;
   return {
     colorants: {

@@ -14,7 +14,7 @@ import { buildPdf, latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
 import { PREDEFINED_CMAPS } from './cmapProvider.ts';
 import { CMapResolver } from './cmapResolver.ts';
 
-const document = (objects: readonly TestObject[] = []): DocumentInternals => {
+const document = (objects: ReadonlyArray<TestObject> = []): DocumentInternals => {
   const loaded = loadDocument(
     buildPdf([
       {
@@ -25,7 +25,9 @@ const document = (objects: readonly TestObject[] = []): DocumentInternals => {
     ]).bytes,
   );
   const parts = internalsOf(loaded);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
@@ -34,7 +36,9 @@ const provider = (files: Readonly<Record<string, string>>): CMapProvider => ({
 });
 
 const cmapOf = (result: CMapResult): CMap => {
-  if (result.kind !== 'cmap') throw new Error(`expected a CMap, got ${result.kind}`);
+  if (result.kind !== 'cmap') {
+    throw new Error(`expected a CMap, got ${result.kind}`);
+  }
   return result.cmap;
 };
 
@@ -49,8 +53,8 @@ describe('resolved CMaps', () => {
   it('builds in Identity-H and Identity-V without a provider', () => {
     const resolver = new CMapResolver(document(), undefined);
     const horizontal = cmapOf(resolver.named('Identity-H'));
-    expect(horizontal.read(Uint8Array.of(0x4e, 0x00, 0x41), 0)).toStrictEqual({ code: { value: 0x4e00, length: 2 }, valid: true });
-    expect(horizontal.cid({ value: 0x4e00, length: 2 })).toBe(0x4e00);
+    expect(horizontal.read(Uint8Array.of(0x4e, 0x00, 0x41), 0)).toStrictEqual({ code: { value: 0x4e_00, length: 2 }, valid: true });
+    expect(horizontal.cid({ value: 0x4e_00, length: 2 })).toBe(0x4e_00);
     expect([horizontal.writingMode, cmapOf(resolver.named('Identity-V')).writingMode]).toStrictEqual([0, 1]);
   });
 

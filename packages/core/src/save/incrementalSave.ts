@@ -29,7 +29,7 @@ export interface SaveInput {
   readonly changes: ReadonlyMap<number, ObjectChange>;
   readonly produced: ReadonlyMap<number, MeasuredStream>;
   /** Trailer entries set or removed since loading, applied over the entries copied from the source trailer. */
-  readonly trailerChanges: readonly TrailerChange[];
+  readonly trailerChanges: ReadonlyArray<TrailerChange>;
   /** One above the highest object number in use or assigned. */
   readonly size: number;
   readonly structure: DocumentStructure;
@@ -42,7 +42,7 @@ export interface SaveInput {
   readonly maxGeneratedXrefEntries: number;
   readonly fileIdentifier: 'derive' | readonly [Uint8Array, Uint8Array];
   /** Warnings found before serialization, such as a raised version. */
-  readonly warnings: readonly SaveWarning[];
+  readonly warnings: ReadonlyArray<SaveWarning>;
 }
 
 const quiet = (): LexContext => ({
@@ -53,11 +53,13 @@ const quiet = (): LexContext => ({
 });
 
 // ISO 32000-1:2008, 7.5.4: a deleted object's entry is added to the linked list of free entries, and "The entry's generation number shall be incremented by 1"; at 65,535 "it shall never be reused".
-const freeEntries = (store: ObjectStore, freed: readonly { objectNumber: number; generation: number }[]): Entry[] => {
-  if (freed.length === 0) return [];
+const freeEntries = (store: ObjectStore, freed: ReadonlyArray<{ objectNumber: number; generation: number }>): Array<Entry> => {
+  if (freed.length === 0) {
+    return [];
+  }
   const head = store.index.get(0);
   const previousHead = head.type === FREE ? head.location : 0;
-  const entries: Entry[] = [{ objectNumber: 0, type: 0, field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
+  const entries: Array<Entry> = [{ objectNumber: 0, type: 0, field: freed[0]?.objectNumber ?? 0, generation: 65_535 }];
   for (const [index, object] of freed.entries()) {
     entries.push({
       objectNumber: object.objectNumber,
@@ -70,21 +72,25 @@ const freeEntries = (store: ObjectStore, freed: readonly { objectNumber: number;
 };
 
 const baseTrailerNode = (input: SaveInput): OriginalValue | undefined => {
-  if (input.base === undefined) return undefined;
+  if (input.base === undefined) {
+    return undefined;
+  }
   const { bytes } = input.store.source.copy(input.base.trailerStart, input.base.trailerEnd);
   return { node: parseAnnotated(new Lexer({ bytes, base: 0, final: true }, 0, quiet()), input.maxNesting), bytes };
 };
 
 const identifiers = (trailer: PdfDictionaryEntries): readonly [Uint8Array, Uint8Array] | undefined => {
   const id = trailer.get(TRAILER_KEYS.id);
-  if (id?.kind !== 'array') return undefined;
+  if (id?.kind !== 'array') {
+    return undefined;
+  }
   const [first, second] = id.items;
   return first?.kind === 'string' && second?.kind === 'string' ? [first.bytes, second.bytes] : undefined;
 };
 
 interface Written {
-  readonly entries: Entry[];
-  readonly freed: { objectNumber: number; generation: number }[];
+  readonly entries: Array<Entry>;
+  readonly freed: Array<{ objectNumber: number; generation: number }>;
 }
 
 // Writes each changed and new object once, in ascending number, against its parsed original.
@@ -93,7 +99,9 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
   const written: Written = { entries: [], freed: [] };
   for (const objectNumber of [...input.changes.keys()].toSorted((left, right) => left - right)) {
     const change = input.changes.get(objectNumber);
-    if (change === undefined) continue;
+    if (change === undefined) {
+      continue;
+    }
     if ('deleted' in change) {
       written.freed.push({ objectNumber, generation: change.generation });
       continue;
@@ -104,8 +112,9 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
     const original = originalValue(input.store, objectNumber, input.maxNesting);
     const context = { original: original?.node, bytes: original?.bytes ?? new Uint8Array(), fractionDigits: input.fractionDigits, warn };
     const produced = input.produced.get(objectNumber);
-    if (produced === undefined) mergeSerialize(writer, change.value, context);
-    else {
+    if (produced === undefined) {
+      mergeSerialize(writer, change.value, context);
+    } else {
       writeProducedStream(emitter, change.value, { stream: produced, context });
       emitter.writer.writeAscii('\nendobj\n');
       written.entries.push({ objectNumber: produced.lengthNumber, type: 1, field: emitter.offset - shift, generation: 0 });
@@ -120,7 +129,7 @@ const writeObjects = (emitter: PdfEmitter, input: SaveInput, warn: (warning: Sav
 interface SectionRequest {
   readonly appendStart: number;
   readonly previousSection: number;
-  readonly entries: readonly Entry[];
+  readonly entries: ReadonlyArray<Entry>;
   readonly warn: (warning: SaveWarning) => void;
 }
 
@@ -144,14 +153,20 @@ interface Identified {
 
 // ISO 32000-1:2008, 14.4: the first identifier "shall not change when the file is incrementally updated"; the second is "a changing identifier based on the file's contents at the time it was last updated". A source without ID gets none unless the caller supplies one.
 const fileIdentifier = (input: SaveInput, request: Identified): readonly [Uint8Array, Uint8Array] | undefined => {
-  if (input.fileIdentifier !== 'derive') return input.fileIdentifier;
+  if (input.fileIdentifier !== 'derive') {
+    return input.fileIdentifier;
+  }
   const previous = identifiers(input.structure.trailer);
-  if (previous === undefined) return undefined;
+  if (previous === undefined) {
+    return undefined;
+  }
   const hash = createMd5().update(previous[0]).update(previous[1]);
   let offset = 0;
   for (const chunk of emittedChunks(request.emitter.finishParts())) {
     const start = Math.max(0, request.appendStart - offset);
-    if (start < chunk.length) hash.update(chunk.subarray(start));
+    if (start < chunk.length) {
+      hash.update(chunk.subarray(start));
+    }
     offset += chunk.length;
   }
   return [previous[0], hash.update(request.withoutId()).digest()];
@@ -172,7 +187,9 @@ const writeClassicSection = (emitter: PdfEmitter, input: SaveInput, request: Sec
       return writer.toUint8Array();
     },
   });
-  if (pair !== undefined) trailer.set(TRAILER_KEYS.id, idArray(pair));
+  if (pair !== undefined) {
+    trailer.set(TRAILER_KEYS.id, idArray(pair));
+  }
   emitter.writer.writeAscii('trailer\n');
   mergeSerialize(emitter.writer, { kind: 'dictionary', entries: trailer }, context);
   return offset;
@@ -188,7 +205,9 @@ const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: Sect
   );
   const widths = fieldWidths(entries);
   const dictionary = new PdfDictionaryEntries([[TRAILER_KEYS.type, pdfName('XRef')]]);
-  for (const [key, value] of trailerEntries(input, request, number + 1).entries()) dictionary.set(key, value);
+  for (const [key, value] of trailerEntries(input, request, number + 1).entries()) {
+    dictionary.set(key, value);
+  }
   dictionary.set(TRAILER_KEYS.index, indexRuns(entries));
   dictionary.set(TRAILER_KEYS.w, pdfArray([pdfInteger(1), pdfInteger(widths[0]), pdfInteger(widths[1])]));
   const original = baseTrailerNode(input);
@@ -203,7 +222,9 @@ const writeStreamSection = (emitter: PdfEmitter, input: SaveInput, request: Sect
       return writer.toUint8Array();
     },
   });
-  if (pair !== undefined) dictionary.set(TRAILER_KEYS.id, idArray(pair));
+  if (pair !== undefined) {
+    dictionary.set(TRAILER_KEYS.id, idArray(pair));
+  }
   emitter.writer.writeAscii(`${String(number)} 0 obj\n`);
   mergeSerialize(emitter.writer, { kind: 'stream', dictionary, data }, context);
   emitter.writer.writeAscii('\nendobj');
@@ -223,7 +244,7 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
       'the cross-reference data of this file was reconstructed; an incremental update would inherit sections that pdfwright could not verify',
     );
   }
-  const warnings: SaveWarning[] = [...input.warnings];
+  const warnings: Array<SaveWarning> = [...input.warnings];
   const warn = (warning: SaveWarning): void => {
     warnings.push(warning);
   };
@@ -236,9 +257,13 @@ export const incrementalSave = (input: SaveInput): SavedPdf => {
     warn({ code: 'linearization-invalidated', detail: 'the update makes the file an ordinary PDF; its linearization data no longer applies' });
   }
   const emitter = new PdfEmitter();
-  for (const segment of store.source.segments) emitter.view(segment);
+  for (const segment of store.source.segments) {
+    emitter.view(segment);
+  }
   const last = store.source.byteAt(store.source.length - 1);
-  if (last !== 0x0a && last !== 0x0d) emitter.writer.writeByte(0x0a);
+  if (last !== 0x0a && last !== 0x0d) {
+    emitter.writer.writeByte(0x0a);
+  }
   const appendStart = emitter.offset;
   const written = writeObjects(emitter, input, warn);
   const entries = [...written.entries, ...freeEntries(store, written.freed)].toSorted((left, right) => left.objectNumber - right.objectNumber);

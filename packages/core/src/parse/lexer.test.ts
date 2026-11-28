@@ -17,54 +17,74 @@ const ignore = (): void => {
 const lexer = (text: string, final = true): Lexer => new Lexer({ bytes: encode(text), base: 0, final }, 0, { warn: ignore, names: new Map() });
 
 interface Lexed {
-  tokens: Token[];
-  warnings: LoadWarning[];
+  tokens: Array<Token>;
+  warnings: Array<LoadWarning>;
 }
 
 const lex = (text: string): Lexed => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const source = new Lexer({ bytes: encode(text), base: 0, final: true }, 0, {
     warn: warning => {
       warnings.push(warning);
     },
     names: new Map(),
   });
-  const tokens: Token[] = [];
-  for (let token = source.next(); token.kind !== 'eof'; token = source.next()) tokens.push(token);
+  const tokens: Array<Token> = [];
+  for (let token = source.next(); token.kind !== 'eof'; token = source.next()) {
+    tokens.push(token);
+  }
   return { tokens, warnings };
 };
 
 const summary = (token: Token): number | string => {
-  if (token.kind === 'integer' || token.kind === 'real') return token.value;
-  if (token.kind === 'invalid') return token.reason;
-  if (token.kind === 'keyword') return token.keyword;
-  if (token.kind === 'name') return `/${String.fromCodePoint(...token.bytes)}`;
-  if (token.kind === 'string') return token.encoding;
+  if (token.kind === 'integer' || token.kind === 'real') {
+    return token.value;
+  }
+  if (token.kind === 'invalid') {
+    return token.reason;
+  }
+  if (token.kind === 'keyword') {
+    return token.keyword;
+  }
+  if (token.kind === 'name') {
+    return `/${String.fromCodePoint(...token.bytes)}`;
+  }
+  if (token.kind === 'string') {
+    return token.encoding;
+  }
   return token.kind;
 };
 
-const summaries = (text: string): (number | string)[] => lex(text).tokens.map(token => summary(token));
+const summaries = (text: string): Array<number | string> => lex(text).tokens.map(token => summary(token));
 
-const stringBytes = (text: string): number[][] => {
-  const strings: number[][] = [];
-  for (const token of lex(text).tokens) if (token.kind === 'string') strings.push([...token.bytes]);
+const stringBytes = (text: string): Array<Array<number>> => {
+  const strings: Array<Array<number>> = [];
+  for (const token of lex(text).tokens) {
+    if (token.kind === 'string') {
+      strings.push([...token.bytes]);
+    }
+  }
   return strings;
 };
 
-const nameLengths = (text: string): number[] => lex(text).tokens.map(token => (token.kind === 'name' ? token.bytes.length : -1));
+const nameLengths = (text: string): Array<number> => lex(text).tokens.map(token => (token.kind === 'name' ? token.bytes.length : -1));
 
 const sameNameArray = (left: Token, right: Token): boolean => left.kind === 'name' && right.kind === 'name' && left.bytes === right.bytes;
 
 describe('pdf lexer', () => {
   it('reads the integer and real forms of 7.3.3', () => {
-    expect(summaries('123 43445 +17 -98 0')).toStrictEqual([123, 43445, 17, -98, 0]);
+    expect(summaries('123 43445 +17 -98 0')).toStrictEqual([123, 43_445, 17, -98, 0]);
     expect(summaries('34.5 -3.62 +123.6 4. -.002 0.0 .5')).toStrictEqual([34.5, -3.62, 123.6, 4, -0.002, 0, 0.5]);
     expect(lex('4. 4').tokens.map(token => token.kind)).toStrictEqual(['real', 'integer']);
   });
 
   it('keeps malformed numbers as invalid tokens instead of inventing values', () => {
     expect(summaries('--5 1.2.3 3e2 - . +')).toStrictEqual(Array.from({ length: 6 }, () => 'malformed-number'));
-    expect(summaries('9007199254740991 9007199254740993 -9007199254740993')).toStrictEqual([9007199254740991, 'integer-out-of-range', 'integer-out-of-range']);
+    expect(summaries('9007199254740991 9007199254740993 -9007199254740993')).toStrictEqual([
+      9_007_199_254_740_991,
+      'integer-out-of-range',
+      'integer-out-of-range',
+    ]);
     expect(summaries(`1${'0'.repeat(400)}.0`)).toStrictEqual(['real-out-of-range']);
     expect(lex(' --300 ').tokens).toStrictEqual([{ kind: 'invalid', reason: 'malformed-number', start: 1, end: 6 }]);
   });

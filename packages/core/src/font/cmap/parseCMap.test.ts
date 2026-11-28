@@ -15,9 +15,9 @@ const cmapOf = (text: string, parent?: CMap): CMap => new CMap(parse(text), pare
 const hexBytes = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../gu) ?? [], pair => Number.parseInt(pair, 16));
 
 // The codes a CMap splits a string into, as hex, with a mark on each invalid one.
-const split = (cmap: CMap, hex: string): string[] => {
+const split = (cmap: CMap, hex: string): Array<string> => {
   const bytes = hexBytes(hex);
-  const codes: string[] = [];
+  const codes: Array<string> = [];
   for (let offset = 0; offset < bytes.length;) {
     const { code, valid } = cmap.read(bytes, offset);
     codes.push(`${code.value.toString(16).padStart(code.length * 2, '0')}${valid ? '' : '!'}`);
@@ -167,7 +167,9 @@ describe('embedded and ToUnicode CMaps', () => {
     const cmap = '5000 begincodespacerange '.concat('<00> <FF> '.repeat(5000), 'endcodespacerange ').repeat(4);
     let parent = new CMap(parse(cmap));
     expect(() => {
-      for (let index = 0; index < 3; index++) parent = new CMap(parse(cmap), parent);
+      for (let index = 0; index < 3; index++) {
+        parent = new CMap(parse(cmap), parent);
+      }
     }).toThrow(ResourceLimitError);
   });
 
@@ -178,7 +180,9 @@ describe('embedded and ToUnicode CMaps', () => {
     });
     const cmap = new CMap(parse(`2000 begincodespacerange ${entries.join(' ')} endcodespacerange`));
     expect(() => {
-      for (let index = 0; index < 1000; index++) cmap.read(Uint8Array.of(0xff, 0xff), 0);
+      for (let index = 0; index < 1000; index++) {
+        cmap.read(Uint8Array.of(0xff, 0xff), 0);
+      }
     }).toThrow(ResourceLimitError);
   });
 

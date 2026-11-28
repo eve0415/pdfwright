@@ -23,13 +23,13 @@ import { MAX_GENERATION, MAX_OBJECT_NUMBER } from './xrefSection.ts';
 export interface Reconstruction {
   readonly index: ObjectIndex;
   /** Trailer dictionaries and cross-reference stream dictionaries, in file order. */
-  readonly trailers: readonly PdfDictionaryEntries[];
+  readonly trailers: ReadonlyArray<PdfDictionaryEntries>;
   /** Top-level objects that are dictionaries with Type Catalog and a Pages entry, in file order. */
-  readonly catalogs: readonly number[];
+  readonly catalogs: ReadonlyArray<number>;
   /** Object numbers with differing readable copies, or with both readable and unreadable copies. */
-  readonly ambiguous: readonly number[];
+  readonly ambiguous: ReadonlyArray<number>;
   /** Object numbers whose only copies cannot be parsed or decoded; they resolve to null. */
-  readonly unreadable: readonly number[];
+  readonly unreadable: ReadonlyArray<number>;
   readonly objects: number;
   readonly objectStreams: number;
 }
@@ -58,21 +58,30 @@ const quiet = (): LexContext => ({
 
 const typeName = (value: PdfObject): string => {
   let entries: PdfDictionaryEntries | undefined;
-  if (value.kind === 'dictionary') ({ entries } = value);
-  else if (value.kind === 'stream') entries = value.dictionary;
+  if (value.kind === 'dictionary') {
+    ({ entries } = value);
+  } else if (value.kind === 'stream') {
+    entries = value.dictionary;
+  }
   const type = entries?.get(TYPE);
-  if (type?.kind !== 'name') return '';
+  if (type?.kind !== 'name') {
+    return '';
+  }
   let text = '';
-  for (const byte of type.bytes) text += String.fromCodePoint(byte);
+  for (const byte of type.bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
-const matchesAt = (bytes: Uint8Array, position: number, pattern: readonly number[]): boolean =>
+const matchesAt = (bytes: Uint8Array, position: number, pattern: ReadonlyArray<number>): boolean =>
   pattern.every((byte, index) => bytes[position + index] === byte);
 
-const indexOfPattern = (bytes: Uint8Array, pattern: readonly number[], from: number): number => {
+const indexOfPattern = (bytes: Uint8Array, pattern: ReadonlyArray<number>, from: number): number => {
   for (let position = bytes.indexOf(pattern[0] ?? 0, from); position >= 0; position = bytes.indexOf(pattern[0] ?? 0, position + 1)) {
-    if (matchesAt(bytes, position, pattern)) return position;
+    if (matchesAt(bytes, position, pattern)) {
+      return position;
+    }
   }
   return -1;
 };
@@ -85,12 +94,14 @@ interface IndexedEndstream {
   readonly recovered: number;
 }
 
-const indexEndstreams = (source: ByteSource, bytes: Uint8Array): IndexedEndstream[] => {
+const indexEndstreams = (source: ByteSource, bytes: Uint8Array): Array<IndexedEndstream> => {
   const positions = source.indexesOf(ENDSTREAM);
   // Check following white space once too: many damaged streams can share the same candidate.
   const preferred = positions.map(position => {
     let after = position + ENDSTREAM.length;
-    while (isWhitespace(bytes[after] ?? -1)) after++;
+    while (isWhitespace(bytes[after] ?? -1)) {
+      after++;
+    }
     return matchesAt(bytes, after, ENDOBJ);
   });
   return positions.map((position, index) => ({
@@ -103,39 +114,57 @@ const isBoundary = (byte: number | undefined): boolean => byte === undefined || 
 
 const skipDigitsBack = (bytes: Uint8Array, end: number): number => {
   let position = end;
-  while (position > 0 && (bytes[position - 1] ?? 0) >= 0x30 && (bytes[position - 1] ?? 0) <= 0x39) position--;
+  while (position > 0 && (bytes[position - 1] ?? 0) >= 0x30 && (bytes[position - 1] ?? 0) <= 0x39) {
+    position--;
+  }
   return position;
 };
 
 const skipDigitsForward = (bytes: Uint8Array, start: number): number => {
   let position = start;
-  while ((bytes[position] ?? 0) >= 0x30 && (bytes[position] ?? 0) <= 0x39) position++;
+  while ((bytes[position] ?? 0) >= 0x30 && (bytes[position] ?? 0) <= 0x39) {
+    position++;
+  }
   return position;
 };
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const skipWhitespaceBack = (bytes: Uint8Array, end: number): number => {
   let position = end;
-  while (position > 0 && isWhitespace(bytes[position - 1] ?? 0)) position--;
+  while (position > 0 && isWhitespace(bytes[position - 1] ?? 0)) {
+    position--;
+  }
   return position;
 };
 
 // Walks back from the keyword obj over white space, the generation, white space and the object number, which must follow a delimiter, white space or the start of the file.
 const headerStart = (bytes: Uint8Array, keyword: number): number | undefined => {
-  if (!isBoundary(bytes[keyword + 3])) return undefined;
+  if (!isBoundary(bytes[keyword + 3])) {
+    return undefined;
+  }
   const generationEnd = skipWhitespaceBack(bytes, keyword);
-  if (generationEnd === keyword) return undefined;
+  if (generationEnd === keyword) {
+    return undefined;
+  }
   const generationStart = skipDigitsBack(bytes, generationEnd);
-  if (generationStart === generationEnd) return undefined;
+  if (generationStart === generationEnd) {
+    return undefined;
+  }
   const numberEnd = skipWhitespaceBack(bytes, generationStart);
-  if (numberEnd === generationStart) return undefined;
+  if (numberEnd === generationStart) {
+    return undefined;
+  }
   const numberStart = skipDigitsBack(bytes, numberEnd);
-  if (numberStart === numberEnd || !isBoundary(bytes[numberStart - 1]) || numberEnd - numberStart > 10) return undefined;
+  if (numberStart === numberEnd || !isBoundary(bytes[numberStart - 1]) || numberEnd - numberStart > 10) {
+    return undefined;
+  }
   return numberStart;
 };
 
@@ -145,14 +174,14 @@ class Scanner {
   private readonly source: ByteSource;
   private readonly bytes: Uint8Array;
   private readonly context: ObjectStreamContext;
-  readonly candidates = new Map<number, Candidate[]>();
-  readonly trailers: PdfDictionaryEntries[] = [];
-  readonly catalogs: number[] = [];
-  readonly objectStreams: { object: ParsedIndirectObject; candidate: Candidate }[] = [];
+  readonly candidates = new Map<number, Array<Candidate>>();
+  readonly trailers: Array<PdfDictionaryEntries> = [];
+  readonly catalogs: Array<number> = [];
+  readonly objectStreams: Array<{ object: ParsedIndirectObject; candidate: Candidate }> = [];
   /** Object numbers with copies that cannot be parsed or decoded, including object-stream members. */
   readonly unreadable = new Set<number>();
 
-  private readonly endstreams: readonly IndexedEndstream[];
+  private readonly endstreams: ReadonlyArray<IndexedEndstream>;
 
   constructor(source: ByteSource, context: ObjectStreamContext) {
     // A reconstruction scans one contiguous buffer; a source held as several segments is joined for it.
@@ -167,16 +196,22 @@ class Scanner {
     let high = this.endstreams.length;
     while (low < high) {
       const middle = Math.floor((low + high) / 2);
-      if ((this.endstreams[middle]?.position ?? 0) < dataStart) low = middle + 1;
-      else high = middle;
+      if ((this.endstreams[middle]?.position ?? 0) < dataStart) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
     }
     return this.endstreams[low]?.recovered;
   }
 
   private add(candidate: Candidate): void {
     const list = this.candidates.get(candidate.entry.objectNumber);
-    if (list === undefined) this.candidates.set(candidate.entry.objectNumber, [candidate]);
-    else list.push(candidate);
+    if (list === undefined) {
+      this.candidates.set(candidate.entry.objectNumber, [candidate]);
+    } else {
+      list.push(candidate);
+    }
   }
 
   private parseObjectAt(offset: number): ParsedIndirectObject | undefined {
@@ -186,7 +221,9 @@ class Scanner {
       );
     } catch (error: unknown) {
       // A match that does not parse as an object is not one; the scan goes on after its keyword.
-      if (error instanceof ParseError) return undefined;
+      if (error instanceof ParseError) {
+        return undefined;
+      }
       throw error;
     }
   }
@@ -195,10 +232,14 @@ class Scanner {
     const lexer = new Lexer({ bytes: this.bytes, base: 0, final: true }, keyword + TRAILER.length, quiet());
     try {
       const value = parseObject(lexer, this.context.maxNesting);
-      if (value.kind === 'dictionary') this.trailers.push(value.entries);
+      if (value.kind === 'dictionary') {
+        this.trailers.push(value.entries);
+      }
       return lexer.position;
     } catch (error: unknown) {
-      if (error instanceof ParseError) return keyword + TRAILER.length;
+      if (error instanceof ParseError) {
+        return keyword + TRAILER.length;
+      }
       throw error;
     }
   }
@@ -211,7 +252,9 @@ class Scanner {
       return keyword + OBJ.length;
     }
     const { objectNumber, generation, value, source } = object;
-    if (objectNumber > MAX_OBJECT_NUMBER || generation > MAX_GENERATION) return keyword + OBJ.length;
+    if (objectNumber > MAX_OBJECT_NUMBER || generation > MAX_GENERATION) {
+      return keyword + OBJ.length;
+    }
     const candidate: Candidate = {
       entry: { objectNumber, type: 'file', location: header, generation },
       position: header,
@@ -219,10 +262,17 @@ class Scanner {
       value: () => value,
     };
     const type = typeName(value);
-    if (type === 'XRef' && value.kind === 'stream') this.trailers.push(value.dictionary);
-    if (type === 'ObjStm') this.objectStreams.push({ object, candidate });
-    else this.add(candidate);
-    if (type === 'Catalog' && value.kind === 'dictionary' && value.entries.has(PAGES)) this.catalogs.push(objectNumber);
+    if (type === 'XRef' && value.kind === 'stream') {
+      this.trailers.push(value.dictionary);
+    }
+    if (type === 'ObjStm') {
+      this.objectStreams.push({ object, candidate });
+    } else {
+      this.add(candidate);
+    }
+    if (type === 'Catalog' && value.kind === 'dictionary' && value.entries.has(PAGES)) {
+      this.catalogs.push(objectNumber);
+    }
     // Scanning resumes after the object, so bytes inside stream data whose extent is known never produce objects; a stream whose Length is indirect has its extent found from endstream.
     return source.objectEnd;
   }
@@ -243,8 +293,12 @@ class Scanner {
     let nextTrailer = indexOfPattern(bytes, TRAILER, 0);
     while (nextObj >= 0 || nextTrailer >= 0) {
       const position = nextTrailer >= 0 && (nextObj < 0 || nextTrailer < nextObj) ? this.afterTrailer(nextTrailer) : this.afterObject(nextObj);
-      if (nextObj >= 0 && nextObj < position) nextObj = indexOfPattern(bytes, OBJ, position);
-      if (nextTrailer >= 0 && nextTrailer < position) nextTrailer = indexOfPattern(bytes, TRAILER, position);
+      if (nextObj >= 0 && nextObj < position) {
+        nextObj = indexOfPattern(bytes, OBJ, position);
+      }
+      if (nextTrailer >= 0 && nextTrailer < position) {
+        nextTrailer = indexOfPattern(bytes, TRAILER, position);
+      }
     }
   }
 
@@ -252,18 +306,22 @@ class Scanner {
     try {
       return decodeObjectStream(object.objectNumber, object.value, this.context);
     } catch (error: unknown) {
-      if (!(error instanceof ParseError || error instanceof UnsupportedFeatureError)) throw error;
+      if (!(error instanceof ParseError || error instanceof UnsupportedFeatureError)) {
+        throw error;
+      }
       this.unreadable.add(object.objectNumber);
       return undefined;
     }
   }
 
   // Members of every object stream found rank at the stream's position.
-  members(): DecodedObjectStream[] {
-    const decoded: DecodedObjectStream[] = [];
+  members(): Array<DecodedObjectStream> {
+    const decoded: Array<DecodedObjectStream> = [];
     for (const { object, candidate } of this.objectStreams) {
       const stream = this.decode(object);
-      if (stream === undefined) continue;
+      if (stream === undefined) {
+        continue;
+      }
       this.add(candidate);
       decoded.push(stream);
       for (const [index, member] of stream.members.entries()) {
@@ -272,7 +330,9 @@ class Scanner {
           const value = parseMember(stream, { objectNumber: member.objectNumber, index }, this.context);
           this.add({ entry, position: candidate.position, bytes: stream.data.subarray(member.start, member.end), value: () => value });
         } catch (error: unknown) {
-          if (!(error instanceof ParseError)) throw error;
+          if (!(error instanceof ParseError)) {
+            throw error;
+          }
           this.unreadable.add(member.objectNumber);
         }
       }
@@ -281,7 +341,7 @@ class Scanner {
   }
 }
 
-const reportExtendsCycles = (streams: readonly DecodedObjectStream[], context: ObjectStreamContext): void => {
+const reportExtendsCycles = (streams: ReadonlyArray<DecodedObjectStream>, context: ObjectStreamContext): void => {
   const extending = new Map(streams.map(stream => [stream.objectNumber, stream.extends]));
   for (const stream of streams) {
     const seen = new Set<number>();
@@ -311,15 +371,19 @@ export const reconstructIndex = (input: ByteSource, context: ObjectStreamContext
   refuseEncryption(scanner.trailers);
   const streams = scanner.members();
   reportExtendsCycles(streams, context);
-  const ranked: XrefEntry[] = [];
-  const ambiguous: number[] = [];
+  const ranked: Array<XrefEntry> = [];
+  const ambiguous: Array<number> = [];
   for (const [objectNumber, list] of scanner.candidates) {
     const ordered = list.toSorted((left, right) => right.position - left.position);
     const [latest] = ordered;
-    if (latest === undefined) continue;
+    if (latest === undefined) {
+      continue;
+    }
     ranked.push(latest.entry);
     const differs = ordered.some(candidate => !sameBytes(candidate.bytes, latest.bytes) && !deepEqual(candidate.value(), latest.value(), 'strict'));
-    if (differs || scanner.unreadable.has(objectNumber)) ambiguous.push(objectNumber);
+    if (differs || scanner.unreadable.has(objectNumber)) {
+      ambiguous.push(objectNumber);
+    }
   }
   const unreadable = [...scanner.unreadable].filter(objectNumber => !scanner.candidates.has(objectNumber));
   return {

@@ -10,7 +10,7 @@ describe('serialized document-data dictionaries', () => {
     const data = createSerializedDictionaryWriter(writer);
     data.open('Document');
     data.open('Dictionary');
-    data.int('AIDocumentCanvasSize', 16383);
+    data.int('AIDocumentCanvasSize', 16_383);
     data.open('Array');
     data.open('Dictionary');
     data.bool('IsArtboardSelected', true);

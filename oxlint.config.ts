@@ -1,127 +1,114 @@
+import type { DummyRuleMap } from 'oxlint';
+
+import cloudflare from '@cloudflare/oxlint-config';
 import { defineConfig } from 'oxlint';
 
+// typescript-eslint v8.74.0, configs/flat/strict-type-checked.ts.
+const strictTypeChecked = {
+  'typescript/await-thenable': 'error',
+  'typescript/ban-ts-comment': ['error', { minimumDescriptionLength: 10 }],
+  'no-array-constructor': 'error',
+  'typescript/no-array-delete': 'error',
+  'typescript/no-base-to-string': 'error',
+  'typescript/no-confusing-void-expression': 'error',
+  'typescript/no-deprecated': 'error',
+  'typescript/no-duplicate-enum-values': 'error',
+  'typescript/no-duplicate-type-constituents': 'error',
+  'typescript/no-dynamic-delete': 'error',
+  'typescript/no-empty-object-type': 'error',
+  'typescript/no-explicit-any': 'error',
+  'typescript/no-extra-non-null-assertion': 'error',
+  'typescript/no-extraneous-class': 'error',
+  'typescript/no-floating-promises': 'error',
+  'typescript/no-for-in-array': 'error',
+  'typescript/no-generated-empty-object-type': 'error',
+  'no-implied-eval': 'off',
+  'typescript/no-implied-eval': 'error',
+  'typescript/no-invalid-void-type': 'error',
+  'typescript/no-meaningless-void-operator': 'error',
+  'typescript/no-misused-new': 'error',
+  'typescript/no-misused-promises': 'error',
+  'typescript/no-misused-spread': 'error',
+  'typescript/no-mixed-enums': 'error',
+  'typescript/no-namespace': 'error',
+  'typescript/no-non-null-asserted-nullish-coalescing': 'error',
+  'typescript/no-non-null-asserted-optional-chain': 'error',
+  'typescript/no-non-null-assertion': 'error',
+  'typescript/no-redundant-type-constituents': 'error',
+  'typescript/no-require-imports': 'error',
+  'typescript/no-this-alias': 'error',
+  'typescript/no-unnecessary-boolean-literal-compare': 'error',
+  'typescript/no-unnecessary-condition': 'error',
+  'typescript/no-unnecessary-template-expression': 'error',
+  'typescript/no-unnecessary-type-arguments': 'error',
+  'typescript/no-unnecessary-type-assertion': 'error',
+  'typescript/no-unnecessary-type-constraint': 'error',
+  'typescript/no-unnecessary-type-conversion': 'error',
+  'typescript/no-unnecessary-type-parameters': 'error',
+  'typescript/no-unsafe-argument': 'error',
+  'typescript/no-unsafe-assignment': 'error',
+  'typescript/no-unsafe-call': 'error',
+  'typescript/no-unsafe-class-instance-assignment': 'error',
+  'typescript/no-unsafe-declaration-merging': 'error',
+  'typescript/no-unsafe-enum-assignment': 'error',
+  'typescript/no-unsafe-enum-comparison': 'error',
+  'typescript/no-unsafe-function-type': 'error',
+  'typescript/no-unsafe-member-access': 'error',
+  'typescript/no-unsafe-return': 'error',
+  'typescript/no-unsafe-unary-minus': 'error',
+  'no-unused-expressions': 'error',
+  'no-unused-vars': 'error',
+  'no-useless-constructor': 'error',
+  'typescript/no-useless-default-assignment': 'error',
+  'typescript/no-wrapper-object-types': 'error',
+  'no-throw-literal': 'off',
+  'typescript/only-throw-error': 'error',
+  'typescript/prefer-as-const': 'error',
+  'typescript/prefer-literal-enum-member': 'error',
+  'typescript/prefer-namespace-keyword': 'error',
+  'prefer-promise-reject-errors': 'off',
+  'typescript/prefer-promise-reject-errors': 'error',
+  'typescript/prefer-reduce-type-parameter': 'error',
+  'typescript/prefer-return-this-type': 'error',
+  'typescript/related-getter-setter-pairs': 'error',
+  'require-await': 'off',
+  'typescript/require-await': 'error',
+  'typescript/restrict-plus-operands': [
+    'error',
+    { allowAny: false, allowBoolean: false, allowNullish: false, allowNumberAndString: false, allowRegExp: false },
+  ],
+  'typescript/restrict-template-expressions': [
+    'error',
+    { allowAny: false, allowBoolean: false, allowNever: false, allowNullish: false, allowNumber: false, allowRegExp: false },
+  ],
+  'typescript/return-await': ['error', 'error-handling-correctness-only'],
+  'typescript/triple-slash-reference': 'error',
+  'typescript/unbound-method': 'error',
+  'typescript/unified-signatures': 'error',
+  'typescript/use-unknown-in-catch-callback-variable': 'error',
+} satisfies DummyRuleMap;
+
 export default defineConfig({
-  plugins: ['eslint', 'typescript', 'unicorn', 'oxc', 'import', 'node', 'promise', 'vitest'],
-  jsPlugins: [{ name: 'anti-slop', specifier: './tools/oxlint/anti-slop/src/index.ts' }],
-  ignorePatterns: ['dist', 'tools/oxlint/anti-slop'],
+  extends: [cloudflare],
+  env: cloudflare.env,
+  ignorePatterns: [...cloudflare.ignorePatterns, 'dist'],
+  categories: {
+    correctness: 'error',
+  },
   options: {
     typeAware: true,
     typeCheck: true,
     reportUnusedDisableDirectives: 'error',
   },
-  categories: {
-    correctness: 'error',
-    suspicious: 'error',
-    pedantic: 'error',
-    perf: 'error',
-    style: 'error',
-    restriction: 'error',
-    nursery: 'error',
-  },
   rules: {
-    'array-callback-return': ['error', { checkForEach: true }],
-    curly: ['error', 'multi-line'],
-    'func-style': ['error', 'expression', { allowArrowFunctions: true }],
-    'no-bitwise': ['error', { allow: ['~'], int32Hint: true }],
-    // import/consistent-type-specifier-style requires types to come from a separate top-level `import type`, which this rule at its default rejects as a second import of the same module.
-    'no-duplicate-imports': ['error', { allowSeparateTypeImports: true }],
-    // A `void` statement is the one form typescript/no-floating-promises accepts for a promise deliberately not awaited, and promise/prefer-await-to-then rejects the `.catch()` that would otherwise be it.
-    // At its default this rule's fix rewrites `void f();` to `undefined;`, deleting the call, so the three rules have no fixed point and the fixer destroys code.
-    // `void` as an expression stays rejected.
-    'no-void': ['error', { allowAsStatement: true }],
+    ...strictTypeChecked,
     // A variable a closure reads before its one assignment cannot be const: declared at the assignment, a call to the closure before it would throw a ReferenceError.
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
-    'sort-imports': ['error', { allowSeparatedGroups: true, ignoreDeclarationSort: true }],
-    'unicorn/filename-case': ['error', { case: 'camelCase' }],
-    'unicorn/numeric-separators-style': ['error', { onlyIfContainsSeparator: true }],
-    'typescript/return-await': ['error', 'error-handling-correctness-only'],
-    'typescript/strict-boolean-expressions': ['error', { allowNullableString: true }],
-
-    'no-undef': 'off',
-    'no-undefined': 'off',
-    // It requires `let value: T | undefined = undefined`, which unicorn/no-useless-undefined rejects, so the two rules have no fixed point.
-    // Outside a closure, TypeScript already reports a read of a variable that is declared without a value and whose type excludes undefined.
-    'init-declarations': 'off',
-    'unicorn/no-null': 'off',
-    'no-ternary': 'off',
-    'oxc/no-async-await': 'off',
-    'oxc/no-optional-chaining': 'off',
-    'oxc/no-rest-spread-properties': 'off',
-    'node/no-top-level-await': 'off',
-    'promise/catch-or-return': 'off',
-    'no-inline-comments': 'off',
-    'no-underscore-dangle': 'off',
-    // It and typescript/promise-function-async contradict each other on a function that returns a promise and awaits nothing: this one rejects the `async`, that one requires it.
-    // Its fix inserts a space before the keyword instead of removing it, so the fixer never settles the pair.
-    // promise-function-async is the one kept, because a promise-returning function reads as asynchronous at its call site whether or not its body awaits.
-    'require-await': 'off',
-    // oxfmt lowercases numeric literals and runs after the linter, so this rule's uppercase fix is undone on every formatting pass.
-    'unicorn/number-literal-case': 'off',
-    // Its fix rewrites `JSON.parse(JSON.stringify(x))` into `structuredClone(x)`, which keeps the `Date`, `Map` and `Set` values the JSON round trip drops.
-    // The lint script applies dangerous fixes, so that change in behaviour would land without review.
-    'unicorn/prefer-structured-clone': 'off',
-
-    'import/no-default-export': 'off',
-    'import/prefer-default-export': 'off',
-    'import/no-named-export': 'off',
-    'import/group-exports': 'off',
-    'import/exports-last': 'off',
-    'import/extensions': 'off',
-    'import/unambiguous': 'off',
-    'import/no-relative-parent-imports': 'off',
-
-    'typescript/explicit-function-return-type': 'off',
-    'typescript/explicit-module-boundary-types': 'off',
-    'typescript/explicit-member-accessibility': 'off',
-    'typescript/prefer-readonly-parameter-types': 'off',
-
-    'id-length': 'off',
-    'id-match': 'off',
-    'id-denylist': 'off',
-    'no-magic-numbers': 'off',
-    'sort-keys': 'off',
-    'one-var': 'off',
-    'capitalized-comments': 'off',
-    'func-names': 'off',
-    'max-statements': 'off',
-    'max-lines': 'off',
-    'max-lines-per-function': 'off',
-    'no-continue': 'off',
-    'no-plusplus': 'off',
-    'prefer-named-capture-group': 'off',
-    'vars-on-top': 'off',
-    'import/max-dependencies': 'off',
-
-    'anti-slop/no-chained-type-assertions': 'error',
-    'anti-slop/no-conditional-empty-object-spread': 'error',
-    'anti-slop/no-known-value-widening': 'error',
-    'anti-slop/no-module-mocking': 'error',
-    'anti-slop/no-object-parameters': 'error',
-    'anti-slop/no-reflect-apply': 'error',
-    'anti-slop/no-reflect-get': 'error',
-    'anti-slop/no-shape-in-symbol-names': 'error',
-    'anti-slop/no-unknown-returns': 'error',
-    'anti-slop/no-unknown-type-aliases': 'error',
-    'anti-slop/no-unsafe-dictionary-type': 'error',
-    'anti-slop/no-widen-then-assert': 'error',
-    'anti-slop/require-safety-comment-for-type-assertion': 'error',
-    // Narrowing an `unknown` value with `typeof` and `in` is how this repository reads untyped input, and both rules reject that pattern.
-    'anti-slop/no-runtime-typeof': 'off',
-    'anti-slop/no-unknown-parameters': 'off',
+    // The rule takes any function whose name starts with `use` for a React hook, and this repository has no React.
+    'react-hooks/rules-of-hooks': 'off',
+    'import/no-nodejs-modules': 'error',
   },
   overrides: [
-    {
-      files: [
-        'packages/core/src/hash/md5.ts',
-        'packages/core/src/flate/**/*.ts',
-        'packages/core/src/png/crc32.ts',
-        'packages/illustrator/src/zstd/**/*.ts',
-        'packages/illustrator/src/native/nameBasedUuid.ts',
-      ],
-      rules: {
-        'no-bitwise': 'off',
-      },
-    },
     {
       files: ['scripts/**/*.ts', '**/*.config.ts', '**/*.oracle.test.ts'],
       rules: {
@@ -129,28 +116,15 @@ export default defineConfig({
       },
     },
     {
-      // The vitest rules read any module-level statement as test setup, so outside a test file they fire on ordinary top-level code.
-      files: ['**/*.ts'],
-      rules: {
-        'vitest/require-hook': 'off',
-      },
-    },
-    {
-      files: ['**/*.test.ts'],
-      rules: {
-        'vitest/require-hook': 'error',
-        'vitest/prefer-expect-assertions': 'off',
-        'vitest/require-test-timeout': 'off',
-        // The rule assumes Vitest runs with globals enabled, which this repository does not, and its fix deletes the import, leaving a test file that cannot run.
-        'vitest/no-importing-vitest-globals': 'off',
-      },
-    },
-    {
       files: ['scripts/**/*.ts'],
       rules: {
         'no-console': 'off',
-        'node/no-sync': 'off',
       },
+    },
+    {
+      // The preset turns some of these off in test files.
+      files: ['**/*.test.ts'],
+      rules: strictTypeChecked,
     },
   ],
 });

@@ -5,7 +5,9 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { readLut } from './iccLut.ts';
 
 const matrix = (view: DataView): void => {
-  for (let index = 0; index < 9; index++) view.setInt32(12 + index * 4, index % 4 === 0 ? 65536 : 0);
+  for (let index = 0; index < 9; index++) {
+    view.setInt32(12 + index * 4, index % 4 === 0 ? 65_536 : 0);
+  }
 };
 
 describe('icc lut8 and lut16 tags', () => {
@@ -40,14 +42,14 @@ describe('icc lut8 and lut16 tags', () => {
     view.setUint16(48, 2);
     view.setUint16(50, 2);
     view.setUint16(52, 0);
-    view.setUint16(54, 65535);
+    view.setUint16(54, 65_535);
     view.setUint16(56, 0);
-    view.setUint16(58, 65535);
+    view.setUint16(58, 65_535);
     view.setUint16(60, 0);
-    view.setUint16(62, 65535);
+    view.setUint16(62, 65_535);
     const lut = readLut(bytes, 0, bytes.length);
     expect(lut.kind).toBe('lut16');
-    expect([...lut.clut.values]).toStrictEqual([0, 65535]);
+    expect([...lut.clut.values]).toStrictEqual([0, 65_535]);
     expect(() => readLut(bytes, 0, 58)).toThrow(InvalidProfileError);
   });
 });

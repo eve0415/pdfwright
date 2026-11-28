@@ -19,7 +19,9 @@ const unsupportedReason = (bytes: Uint8Array): string | undefined => {
   try {
     decodeJpeg(bytes);
   } catch (error: unknown) {
-    if (error instanceof UnsupportedFeatureError) return error.reason;
+    if (error instanceof UnsupportedFeatureError) {
+      return error.reason;
+    }
     throw error;
   }
   throw new Error('JPEG was accepted');
@@ -27,9 +29,9 @@ const unsupportedReason = (bytes: Uint8Array): string | undefined => {
 
 const coefficients = (): Int32Array => Int32Array.from(Array.from({ length: 64 }, (_, index) => (index === 0 ? 128 : ((index * 37) % 23) - 11)));
 
-const jpegSegment = (marker: number, payload: readonly number[]): number[] => [255, marker, 0, payload.length + 2, ...payload];
+const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [255, marker, 0, payload.length + 2, ...payload];
 
-const grayJpeg = (entropy: readonly number[]): Uint8Array =>
+const grayJpeg = (entropy: ReadonlyArray<number>): Uint8Array =>
   Uint8Array.from([
     255,
     0xd8,

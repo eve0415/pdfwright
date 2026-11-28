@@ -15,7 +15,7 @@ const sharedLutProfile = (): Uint8Array => {
   bytes.set(new TextEncoder().encode('acsp'), 36);
   view.setUint32(128, 6);
   for (let index = 0; index < 6; index++) {
-    bytes.set(new TextEncoder().encode(index < 3 ? `A2B${index}` : `B2A${index - 3}`), 132 + index * 12);
+    bytes.set(new TextEncoder().encode(index < 3 ? `A2B${String(index)}` : `B2A${String(index - 3)}`), 132 + index * 12);
     view.setUint32(136 + index * 12, offset);
     view.setUint32(140 + index * 12, length);
   }
@@ -59,14 +59,14 @@ describe('icc profile basic tags', () => {
     view.setUint32(152, 20);
     bytes.set(new TextEncoder().encode('curv'), 156);
     view.setUint32(164, 1);
-    view.setUint16(168, 0x0200);
+    view.setUint16(168, 0x02_00);
     bytes.set(new TextEncoder().encode('XYZ '), 172);
-    view.setInt32(180, 0x0000f6d6);
-    view.setInt32(184, 0x00010000);
-    view.setInt32(188, 0x0000d32d);
+    view.setInt32(180, 0x00_00_f6_d6);
+    view.setInt32(184, 0x00_01_00_00);
+    view.setInt32(188, 0x00_00_d3_2d);
     const profile = parseIccProfile(bytes);
     expect(profile.trc).toStrictEqual({ gray: { kind: 'gamma', gamma: 2 } });
-    expect(profile.mediaWhitePoint).toStrictEqual({ x: 0xf6d6 / 65536, y: 1, z: 0xd32d / 65536 });
+    expect(profile.mediaWhitePoint).toStrictEqual({ x: 0xf6_d6 / 65_536, y: 1, z: 0xd3_2d / 65_536 });
     expect(profile.identity).toHaveLength(16);
   });
 
@@ -107,7 +107,9 @@ describe('icc profile basic tags', () => {
     bytes[152] = 3;
     bytes[153] = 3;
     view.setUint32(156, 32);
-    for (let index = 0; index < 3; index++) bytes.set(new TextEncoder().encode('curv'), 176 + index * 12);
+    for (let index = 0; index < 3; index++) {
+      bytes.set(new TextEncoder().encode('curv'), 176 + index * 12);
+    }
     expect(parseIccProfile(bytes).deviceToPcs[0]?.kind).toBe('lutAtoB');
   });
 });

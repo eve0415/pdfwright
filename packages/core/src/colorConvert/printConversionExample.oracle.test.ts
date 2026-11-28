@@ -17,7 +17,9 @@ const generatedJpeg = async (): Promise<Uint8Array> => {
     const output = path.join(directory, 'image.jpg');
     await writeFile(input, Uint8Array.of(...new TextEncoder().encode('P6\n2 1\n255\n'), 255, 0, 0, 0, 0, 255));
     const encoded = await runTool('magick', [input, '-sampling-factor', '1x1,1x1,1x1', '-quality', '90', output]);
-    if (encoded.code !== 0) throw new Error(encoded.output);
+    if (encoded.code !== 0) {
+      throw new Error(encoded.output);
+    }
     return Uint8Array.from(await readFile(output));
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -57,7 +59,9 @@ describe('print conversion example', () => {
     });
     expect([result.conversion.images.converted, result.saved.kind]).toStrictEqual([1, 'streamed']);
     let bytes = 0;
-    for await (const chunk of result.saved.toStream()) bytes += chunk.length;
+    for await (const chunk of result.saved.toStream()) {
+      bytes += chunk.length;
+    }
     expect(bytes).toBeGreaterThan(0);
     expect(result.structure.findings.map(finding => [finding.rule, finding.status])).toContainEqual(['X4-OI-PRESENT', 'passed']);
   });

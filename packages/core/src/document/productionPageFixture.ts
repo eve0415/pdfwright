@@ -72,8 +72,11 @@ export const createProductionPage = ({ clipArtwork = true }: { readonly clipArtw
     const drawArtwork = (): void => {
       content.image(artwork, [mm(50), 0, 0, mm(40), 0, 0]);
     };
-    if (clipArtwork) clipped(drawArtwork);
-    else drawArtwork();
+    if (clipArtwork) {
+      clipped(drawArtwork);
+    } else {
+      drawArtwork();
+    }
     clipped(() => {
       content.image(whiteImage, [mm(30), 0, 0, mm(10), mm(10), mm(10)]);
     });

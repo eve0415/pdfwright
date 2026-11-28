@@ -29,7 +29,7 @@ const FIRST_ID = Uint8Array.of(0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0
 const MODIFIED = pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: { sign: '+', hours: 9, minutes: 0 } });
 const INPUT: MetadataInput = { title: 'Proof', author: '山田 太郎', producer: 'pdfwright', modificationDate: MODIFIED };
 
-const source = (catalog: string, objects: readonly TestObject[], trailer: string): Uint8Array =>
+const source = (catalog: string, objects: ReadonlyArray<TestObject>, trailer: string): Uint8Array =>
   buildPdf([
     {
       xref: 'classic',
@@ -43,21 +43,21 @@ const source = (catalog: string, objects: readonly TestObject[], trailer: string
     },
   ]).bytes;
 
-const load = (catalog: string, objects: readonly TestObject[] = [], trailer = ID): LoadedDocument => loadDocument(source(catalog, objects, trailer));
+const load = (catalog: string, objects: ReadonlyArray<TestObject> = [], trailer = ID): LoadedDocument => loadDocument(source(catalog, objects, trailer));
 
 const saved = (document: LoadedDocument): LoadedDocument => loadDocument(document.save().chunks);
 
 const agreements = (document: LoadedDocument): Record<string, string> =>
   Object.fromEntries(readMetadata(document).properties.map(property => [property.key, property.agreement]));
 
-const codes = (document: LoadedDocument): readonly string[] => readMetadata(document).findings.map(finding => finding.code);
+const codes = (document: LoadedDocument): ReadonlyArray<string> => readMetadata(document).findings.map(finding => finding.code);
 
 const infoText = (document: LoadedDocument, key: string): string | undefined => {
   const value = readMetadata(document).info?.values.get(key);
   return value?.kind === 'text' ? value.text : undefined;
 };
 
-const packetProperties = (document: LoadedDocument): readonly string[] => {
+const packetProperties = (document: LoadedDocument): ReadonlyArray<string> => {
   const { xmp } = readMetadata(document);
   return xmp !== undefined && 'packet' in xmp ? xmp.packet.properties.map(property => property.localName) : [];
 };
@@ -74,10 +74,12 @@ const signed = (): LoadedDocument =>
   load('/AcroForm<</Fields[]/SigFlags 3>>/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) }]);
 
 // The InstanceID setMetadata reports and the one the save writes, for the default edit with or without one more object added after it.
-const instanceIds = (extra: readonly PdfDirectObject[]): readonly [string, string] => {
+const instanceIds = (extra: ReadonlyArray<PdfDirectObject>): readonly [string, string] => {
   const document = load('');
   const change = setMetadata(document, INPUT);
-  for (const value of extra) document.object(value);
+  for (const value of extra) {
+    document.object(value);
+  }
   return [change.instanceId, instanceIdOf(saved(document))];
 };
 
@@ -88,7 +90,7 @@ const editedBytes = (): string => {
 };
 
 // The object numbers changed, the trailer changes, the full-rewrite reason and whether a save hook is set.
-const editState = (document: LoadedDocument): readonly unknown[] => {
+const editState = (document: LoadedDocument): ReadonlyArray<unknown> => {
   const objects = internalsOf(document)?.objects;
   return [[...(objects?.changes.keys() ?? [])], objects?.trailerChanges, objects?.fullRewriteReason, objects?.saveHook !== undefined];
 };
@@ -126,7 +128,7 @@ const withArrays = (info = '<<>>'): LoadedDocument =>
   );
 
 // The Info CreationDate and the xmp:CreateDate a save writes after an edit that leaves the creation date out.
-const creationDates = (info: string, xmp: string): readonly unknown[] => {
+const creationDates = (info: string, xmp: string): ReadonlyArray<unknown> => {
   const document = load(
     '/Metadata 4 0 R',
     [

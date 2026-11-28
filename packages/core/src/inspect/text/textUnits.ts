@@ -16,7 +16,7 @@ export interface ActualTextSpan {
   /** The language of the first language escape in the text, as `ja` or `ja-JP`, else the property list's Lang entry; undefined when neither gives one. */
   readonly language: string | undefined;
   /** The indexes of the glyphs shown inside the span, in content order. A span inside which no glyph is shown is not listed. */
-  readonly glyphs: readonly number[];
+  readonly glyphs: ReadonlyArray<number>;
 }
 
 /** A decoded text string and the language its first language escape names. */
@@ -31,20 +31,26 @@ const ESCAPE = 0x1b;
 // The ASCII bytes of a language escape's codes: a 2-byte ISO 639 language code and an optional 2-byte ISO 3166 country code.
 const languageOf = (codes: Uint8Array): string | undefined => {
   const text = latin1(codes);
-  if (!/^[A-Za-z]{2}(?:[A-Za-z]{2})?$/u.test(text)) return undefined;
+  if (!/^[A-Za-z]{2}(?:[A-Za-z]{2})?$/u.test(text)) {
+    return undefined;
+  }
   return text.length === 4 ? `${text.slice(0, 2)}-${text.slice(2)}` : text;
 };
 
 // 7.9.2.2: in a Unicode text string, "An escape sequence may appear anywhere … to indicate the language in which subsequent text shall be written": U+001B, "A 2- byte ISO 639 language code", "(Optional) A 2-byte ISO 3166 country code" and U+001B, the codes "encoded as ASCII characters".
 const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
   const decoder = new TextDecoder('utf-16be');
-  const parts: string[] = [];
+  const parts: Array<string> = [];
   let language: string | undefined;
   let start = 2;
   for (let offset = 2; offset + 1 < bytes.length; offset += 2) {
-    if (bytes[offset] !== 0 || bytes[offset + 1] !== ESCAPE) continue;
+    if (bytes[offset] !== 0 || bytes[offset + 1] !== ESCAPE) {
+      continue;
+    }
     const end = [6, 8].map(length => offset + length).find(close => bytes[close - 2] === 0 && bytes[close - 1] === ESCAPE);
-    if (end === undefined) continue;
+    if (end === undefined) {
+      continue;
+    }
     parts.push(decoder.decode(bytes.subarray(start, offset)));
     language ??= languageOf(bytes.subarray(offset + 2, end - 2));
     start = end;
@@ -58,7 +64,9 @@ const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
  * Decodes a text string (ISO 32000-1:2008, 7.9.2.2): "For text strings encoded in Unicode, the first two bytes shall be 254 followed by 255", and the rest is UTF-16BE; any other string is PDFDocEncoding (Annex D), whose undefined codes become U+FFFD.
  */
 export const decodeTextString = (bytes: Uint8Array): DecodedText => {
-  if (bytes[0] === 254 && bytes[1] === 255) return decodeUtf16(bytes);
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    return decodeUtf16(bytes);
+  }
   const text = [...bytes].map(code => {
     const unicode = pdfDocEncodingUnicode(code);
     return unicode === undefined ? REPLACEMENT : String.fromCodePoint(unicode);
@@ -71,7 +79,7 @@ export const decodeTextString = (bytes: Uint8Array): DecodedText => {
  * A glyph inside nested spans belongs to each of them; the outermost is the one whose text replaces it.
  */
 export class ActualTextSpans {
-  readonly spans: { text: string; language: string | undefined; glyphs: number[] }[] = [];
+  readonly spans: Array<{ text: string; language: string | undefined; glyphs: Array<number> }> = [];
   private readonly document: DocumentInternals;
   // The span index of each marked-content sequence by its id, or null for a sequence that is not an ActualText span.
   private readonly sequences = new Map<number, number | null>();
@@ -85,14 +93,18 @@ export class ActualTextSpans {
       const resolved = this.document.objects.deref(value?.get(key));
       return resolved?.kind === 'string' ? decodeTextString(resolved.bytes) : undefined;
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       return undefined;
     }
   }
 
   private spanOf(sequence: MarkedContent): number | null {
     const known = this.sequences.get(sequence.id);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      return known;
+    }
     const actual = latin1(sequence.tag) === 'Span' ? this.text(sequence.properties, ACTUAL_TEXT) : undefined;
     let index: number | null = null;
     if (actual !== undefined) {
@@ -104,11 +116,13 @@ export class ActualTextSpans {
   }
 
   /** Records a glyph shown inside the open sequences, outermost first, and returns the outermost ActualText span it lies in. */
-  add(glyph: number, markedContent: readonly MarkedContent[]): number | undefined {
+  add(glyph: number, markedContent: ReadonlyArray<MarkedContent>): number | undefined {
     let outermost: number | undefined;
     for (const sequence of markedContent) {
       const index = this.spanOf(sequence);
-      if (index === null) continue;
+      if (index === null) {
+        continue;
+      }
       this.spans[index]?.glyphs.push(glyph);
       outermost ??= index;
     }

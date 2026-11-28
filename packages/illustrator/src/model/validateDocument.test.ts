@@ -86,7 +86,7 @@ describe('illustrator document validation', () => {
   });
 
   it('rejects invalid geometry, opacity, color components and raster sizes', () => {
-    expect(validates({ ...document, artboard: { width: 16384, height: 10 } })).toThrow(ValidationError);
+    expect(validates({ ...document, artboard: { width: 16_384, height: 10 } })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', opacity: 1.1, items: [path] }] })).toThrow(ValidationError);
     expect(validates({ ...document, layers: [{ name: 'A', items: [{ ...path, geometry: { subpaths: [{ ...square, start: [Infinity, 0] }] } }] }] })).toThrow(
       ValidationError,
@@ -96,7 +96,7 @@ describe('illustrator document validation', () => {
   });
 
   it('gives caller validation failures a typed reason', () => {
-    const invalid: IllustratorDocument[] = [
+    const invalid: Array<IllustratorDocument> = [
       { ...document, layers: [layer, layer] },
       { ...document, layers: [{ ...layer, opacity: 2 }] },
       { ...document, layers: [{ ...layer, items: [{ ...raster, alpha: new Uint8Array(1) }] }] },
@@ -159,12 +159,14 @@ describe('illustrator document validation', () => {
 
   it('reports deeply nested groups as a validation error', () => {
     let item: Item = path;
-    for (let index = 0; index < 20_000; index++) item = { kind: 'group', items: [item] };
+    for (let index = 0; index < 20_000; index++) {
+      item = { kind: 'group', items: [item] };
+    }
     expect(validates({ ...document, layers: [{ name: 'A', items: [item] }] })).toThrow(ValidationError);
   });
 
   it('reports malformed bleed and non-boolean flags as validation errors', () => {
-    const malformed: IllustratorDocument[] = [
+    const malformed: Array<IllustratorDocument> = [
       corrupt(document, 'artboard', { width: 100, height: 100, bleed: { top: 1 } }),
       corrupt(document, 'layers', [{ ...layer, visible: 'false' }]),
       corrupt(document, 'layers', [{ ...layer, locked: 'true' }]),

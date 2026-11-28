@@ -11,13 +11,13 @@ const entry = (objectNumber: number, type: XrefEntry['type'], [location, generat
 
 interface Validation {
   mismatch: ReturnType<typeof validateHeaders>;
-  freed: number[];
+  freed: Array<number>;
 }
 
 const offsetOf = (offsets: ReadonlyMap<number, number>, objectNumber: number): number => offsets.get(objectNumber) ?? 0;
 
 const validate = (text: string, index: ObjectIndex): Validation => {
-  const freed: number[] = [];
+  const freed: Array<number> = [];
   const mismatch = validateHeaders(new ByteSource(latin1Bytes(text)), index, {
     skip: new Map([[99, 7]]),
     offsetZero: number => {
@@ -27,7 +27,7 @@ const validate = (text: string, index: ObjectIndex): Validation => {
   return { mismatch, freed };
 };
 
-const mismatchOf = (text: string, entries: XrefEntry[]): ReturnType<typeof validateHeaders> => validate(text, ObjectIndex.fromEntries(entries)).mismatch;
+const mismatchOf = (text: string, entries: Array<XrefEntry>): ReturnType<typeof validateHeaders> => validate(text, ObjectIndex.fromEntries(entries)).mismatch;
 
 describe('object index', () => {
   it('keeps the first entry for each object number, free entries included', () => {

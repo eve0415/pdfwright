@@ -12,11 +12,13 @@ import { gammaCurveTag, iccProfileBytes, matrixLutTag, sampledCurveTag, xyzTag }
 
 import { createColorTransform } from './createColorTransform.ts';
 
-const execute = async (file: string, args: readonly string[], input: string): Promise<string> => {
+const execute = async (file: string, args: ReadonlyArray<string>, input: string): Promise<string> => {
   const child = spawn(file, [...args]);
   child.stdin.end(input);
   const [stdout, stderr, close] = await Promise.all([streamText(child.stdout), streamText(child.stderr), once(child, 'close')]);
-  if (close[0] !== 0) throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  if (close[0] !== 0) {
+    throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  }
   return stdout;
 };
 
@@ -24,7 +26,7 @@ const execute = async (file: string, args: readonly string[], input: string): Pr
 const TOLERANCE = 1e-4;
 
 // transicc reads and writes RGB and gray components on a 0–255 scale, one colour per line.
-const transicc = async (source: Uint8Array, destination: Uint8Array, colors: readonly (readonly number[])[]): Promise<number[][]> => {
+const transicc = async (source: Uint8Array, destination: Uint8Array, colors: ReadonlyArray<ReadonlyArray<number>>): Promise<Array<Array<number>>> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-transicc-'));
   try {
     const sourcePath = path.join(directory, 'source.icc');
@@ -47,7 +49,7 @@ const transicc = async (source: Uint8Array, destination: Uint8Array, colors: rea
   }
 };
 
-const convert = (source: Uint8Array, destination: Uint8Array, colors: readonly (readonly number[])[]): number[][] => {
+const convert = (source: Uint8Array, destination: Uint8Array, colors: ReadonlyArray<ReadonlyArray<number>>): Array<Array<number>> => {
   const destinationProfile = parseIccProfile(destination);
   const transform = createColorTransform({ kind: 'icc', profile: parseIccProfile(source) }, destinationProfile, {
     intent: 'relativeColorimetric',
@@ -61,13 +63,19 @@ const convert = (source: Uint8Array, destination: Uint8Array, colors: readonly (
 };
 
 // The largest absolute component difference between two colour lists, or infinity when their shapes differ.
-const largestDifference = (actual: readonly (readonly number[])[], expected: readonly (readonly number[])[]): number => {
-  if (actual.length !== expected.length) return Number.POSITIVE_INFINITY;
+const largestDifference = (actual: ReadonlyArray<ReadonlyArray<number>>, expected: ReadonlyArray<ReadonlyArray<number>>): number => {
+  if (actual.length !== expected.length) {
+    return Number.POSITIVE_INFINITY;
+  }
   let largest = 0;
   for (const [index, row] of actual.entries()) {
     const reference = expected[index] ?? [];
-    if (row.length !== reference.length) return Number.POSITIVE_INFINITY;
-    for (const [channel, value] of row.entries()) largest = Math.max(largest, Math.abs(value - (reference[channel] ?? Number.NaN)));
+    if (row.length !== reference.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+    for (const [channel, value] of row.entries()) {
+      largest = Math.max(largest, Math.abs(value - (reference[channel] ?? Number.NaN)));
+    }
   }
   return largest;
 };
@@ -123,7 +131,7 @@ describe('profile pipelines against LittleCMS transicc', () => {
     expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);
   });
 
-  it.each([[[65535, 0]], [[65535, 40000, 12000, 0]], [[65535, 52000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
+  it.each([[[65_535, 0]], [[65_535, 40_000, 12_000, 0]], [[65_535, 52_000, 9000, 0]]])('inverts a decreasing gray destination curve %j', async samples => {
     const from = grayProfile('XYZ ', 1);
     const to = iccProfileBytes({ profileClass: 'mntr', colorSpace: 'GRAY', pcs: 'XYZ ', tags: [['kTRC', sampledCurveTag(samples)]] });
     expect(largestDifference(convert(from, to, grayColors), await transicc(from, to, grayColors))).toBeLessThan(TOLERANCE);

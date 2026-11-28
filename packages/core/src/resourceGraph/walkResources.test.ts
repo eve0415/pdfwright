@@ -14,7 +14,7 @@ import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { walkResources } from './walkResources.ts';
 
-const internals = (page: string, objects: readonly TestObject[], tree = ''): DocumentInternals => {
+const internals = (page: string, objects: ReadonlyArray<TestObject>, tree = ''): DocumentInternals => {
   const document = loadDocument(
     buildPdf([
       {
@@ -30,24 +30,28 @@ const internals = (page: string, objects: readonly TestObject[], tree = ''): Doc
     ]).bytes,
   );
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
 interface Walked {
-  readonly visits: readonly ResourceVisit[];
-  readonly fonts: readonly PdfDirectObject[];
+  readonly visits: ReadonlyArray<ResourceVisit>;
+  readonly fonts: ReadonlyArray<PdfDirectObject>;
   /** The key the content interpreter gives each font, from the name and owner the walk reports. */
-  readonly keys: readonly string[];
-  readonly unreadable: readonly UnreadableObject[];
+  readonly keys: ReadonlyArray<string>;
+  readonly unreadable: ReadonlyArray<UnreadableObject>;
 }
 
 const walk = (document: DocumentInternals): Walked => {
   const [page] = document.pages;
-  if (page === undefined) throw new Error('the document has no page');
-  const visits: ResourceVisit[] = [];
-  const fonts: PdfDirectObject[] = [];
-  const keys: string[] = [];
+  if (page === undefined) {
+    throw new Error('the document has no page');
+  }
+  const visits: Array<ResourceVisit> = [];
+  const fonts: Array<PdfDirectObject> = [];
+  const keys: Array<string> = [];
   const found = inherited(document.objects, page, { key: pdfName('Resources').bytes });
   const unreadable = walkResources(document, page, {
     resources: found?.value,
@@ -64,7 +68,7 @@ const walk = (document: DocumentInternals): Walked => {
 };
 
 // The origins of the visit whose dictionary is the given indirect object, or of the page's direct dictionary.
-const originsOf = (walked: Walked, objectNumber?: number): readonly ResourceOrigin[] | undefined =>
+const originsOf = (walked: Walked, objectNumber?: number): ReadonlyArray<ResourceOrigin> | undefined =>
   walked.visits.find(visit => visit.reference?.objectNumber === objectNumber)?.origins;
 
 const reference = (objectNumber: number): PdfDirectObject => ({ kind: 'reference', objectNumber, generation: 0 });
@@ -77,7 +81,7 @@ const annotation = (number: number, flags: string): TestObject => ({
 const describeOrigin = (origin: ResourceOrigin): string =>
   origin.kind === 'annotation' ? `${String(origin.index)}${origin.state}:${String(origin.printable)}` : origin.kind;
 
-const reads = (calls: readonly (readonly [PdfDirectObject | undefined])[], objectNumber: number): number =>
+const reads = (calls: ReadonlyArray<readonly [PdfDirectObject | undefined]>, objectNumber: number): number =>
   calls.filter(([value]) => value?.kind === 'reference' && value.objectNumber === objectNumber).length;
 
 const form = (number: number, resources: string): TestObject => ({

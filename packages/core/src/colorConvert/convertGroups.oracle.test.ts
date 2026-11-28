@@ -255,7 +255,9 @@ const meshMaskPdf = (): Uint8Array => {
     writer.write(2, 0);
     writer.write(8, x ?? 0);
     writer.write(8, y ?? 0);
-    for (const sample of [255, 0, 0]) writer.write(8, sample);
+    for (const sample of [255, 0, 0]) {
+      writer.write(8, sample);
+    }
     writer.alignByte();
   }
   const meshBytes = latin1Text(writer.finish(1024));
@@ -286,23 +288,37 @@ const meshMaskPdf = (): Uint8Array => {
 
 const maskShading = (document: ReturnType<typeof loadDocument>) => {
   const group = document.get(pdfReference(6, 0));
-  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  if (group.kind !== 'stream') {
+    throw new Error('mask group is missing');
+  }
   const resources = group.dictionary.get(pdfName('Resources').bytes);
-  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('mask resources are missing');
+  }
   const shadings = resources.entries.get(pdfName('Shading').bytes);
-  if (shadings?.kind !== 'dictionary') throw new Error('mask Shading resources are missing');
+  if (shadings?.kind !== 'dictionary') {
+    throw new Error('mask Shading resources are missing');
+  }
   const reference = shadings.entries.get(pdfName('Sh1').bytes);
-  if (reference?.kind !== 'reference') throw new Error('mask shading reference is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('mask shading reference is missing');
+  }
   return document.get(reference);
 };
 
 const meshMaskSample = (document: ReturnType<typeof loadDocument>) => {
   const shading = maskShading(document);
-  if (shading.kind !== 'stream') throw new Error('mesh shading is not a stream');
+  if (shading.kind !== 'stream') {
+    throw new Error('mesh shading is not a stream');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('internals are unavailable');
+  }
   const data = decodedData(internals, shading);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   const reader = new MeshBitReader(data);
   reader.read(2);
   reader.read(8);
@@ -312,21 +328,33 @@ const meshMaskSample = (document: ReturnType<typeof loadDocument>) => {
 
 const maskFunction = (document: ReturnType<typeof loadDocument>) => {
   const shading = maskShading(document);
-  if (shading.kind !== 'dictionary') throw new Error('mask shading is not a dictionary');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('mask shading is not a dictionary');
+  }
   const reference = shading.entries.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('gray function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('gray function is missing');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('internals are unavailable');
+  }
   const decoded = (value: ReturnType<typeof document.get>) => {
-    if (value.kind !== 'stream') return value;
+    if (value.kind !== 'stream') {
+      return value;
+    }
     const data = decodedData(internals, value);
-    if (typeof data === 'string') throw new TypeError(data);
+    if (typeof data === 'string') {
+      throw new TypeError(data);
+    }
     return { kind: 'stream' as const, dictionary: value.dictionary, data };
   };
   const root = decoded(document.get(reference));
   const evaluate = createPdfFunction(root, child => {
     const object = internals.objects.deref(child);
-    if (object === undefined) throw new Error('gray child function is missing');
+    if (object === undefined) {
+      throw new Error('gray child function is missing');
+    }
     return decoded(object);
   });
   return { root, evaluate };
@@ -334,97 +362,162 @@ const maskFunction = (document: ReturnType<typeof loadDocument>) => {
 
 const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
   const shading = maskShading(document);
-  if (shading.kind !== 'dictionary') throw new Error('mask shading is not a dictionary');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('mask shading is not a dictionary');
+  }
   const reference = shading.entries.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('gray function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('gray function is missing');
+  }
   const functionObject = document.get(reference);
-  if (functionObject.kind !== 'stream') throw new Error('gray function is not a stream');
+  if (functionObject.kind !== 'stream') {
+    throw new Error('gray function is not a stream');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('internals are unavailable');
+  }
   const data = decodedData(internals, functionObject);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: functionObject.dictionary, data });
   return { color: shading.entries.get(pdfName('ColorSpace').bytes), start: evaluate([0])[0], end: evaluate([1])[0] };
 };
 
 const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const form = document.get(pdfReference(6, 0));
-  if (form.kind !== 'stream') throw new Error('mask form is missing');
+  if (form.kind !== 'stream') {
+    throw new Error('mask form is missing');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('internals are unavailable');
+  }
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   const [operation] = readContent(data, internals.maxNesting);
-  if (operation?.inlineImage === undefined) throw new Error('inline image is missing');
+  if (operation?.inlineImage === undefined) {
+    throw new Error('inline image is missing');
+  }
   const decoded = inflateZlib(operation.inlineImage.data);
   return decoded.data;
 };
 
 const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
   const group = document.get(pdfReference(6, 0));
-  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  if (group.kind !== 'stream') {
+    throw new Error('mask group is missing');
+  }
   const resources = group.dictionary.get(pdfName('Resources').bytes);
-  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('mask resources are missing');
+  }
   const xobjects = resources.entries.get(pdfName('XObject').bytes);
-  if (xobjects?.kind !== 'dictionary') throw new Error('mask XObjects are missing');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('mask XObjects are missing');
+  }
   const reference = xobjects.entries.get(pdfName(name).bytes);
-  if (reference?.kind !== 'reference') throw new Error('mask XObject is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('mask XObject is missing');
+  }
   return reference;
 };
 
 const maskImage = (document: ReturnType<typeof loadDocument>) => {
   const group = document.get(pdfReference(6, 0));
-  if (group.kind !== 'stream') throw new Error('mask group is missing');
+  if (group.kind !== 'stream') {
+    throw new Error('mask group is missing');
+  }
   const resources = group.dictionary.get(pdfName('Resources').bytes);
-  if (resources?.kind !== 'dictionary') throw new Error('mask resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('mask resources are missing');
+  }
   const xobjects = resources.entries.get(pdfName('XObject').bytes);
-  if (xobjects?.kind !== 'dictionary') throw new Error('mask XObjects are missing');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('mask XObjects are missing');
+  }
   const reference = xobjects.entries.get(pdfName('Im').bytes);
-  if (reference?.kind !== 'reference') throw new Error('mask image is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('mask image is missing');
+  }
   const image = document.get(reference);
-  if (image.kind !== 'stream') throw new Error('mask image is not a stream');
+  if (image.kind !== 'stream') {
+    throw new Error('mask image is not a stream');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('internals are unavailable');
+  }
   const data = decodedData(internals, image);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return { color: image.dictionary.get(pdfName('ColorSpace').bytes), data, reference: reference.objectNumber };
 };
 
 const groupSpace = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): string => {
   const owner = document.get(reference);
   let group: PdfDirectObject | undefined;
-  if (owner.kind === 'stream') group = owner.dictionary.get(pdfName('Group').bytes);
-  else if (owner.kind === 'dictionary') group = owner.entries.get(pdfName('Group').bytes);
-  if (group?.kind !== 'dictionary') throw new Error('transparency group is missing');
+  if (owner.kind === 'stream') {
+    group = owner.dictionary.get(pdfName('Group').bytes);
+  } else if (owner.kind === 'dictionary') {
+    group = owner.entries.get(pdfName('Group').bytes);
+  }
+  if (group?.kind !== 'dictionary') {
+    throw new Error('transparency group is missing');
+  }
   const color = group.entries.get(pdfName('CS').bytes);
-  if (color?.kind !== 'name') throw new Error('group colour space is missing');
+  if (color?.kind !== 'name') {
+    throw new Error('group colour space is missing');
+  }
   return new TextDecoder('latin1').decode(color.bytes);
 };
 
 const contentAt = (document: ReturnType<typeof loadDocument>, number: number): string => {
   const form = document.get(pdfReference(number, 0));
-  if (form.kind !== 'stream') throw new Error('mask group is missing');
+  if (form.kind !== 'stream') {
+    throw new Error('mask group is missing');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('document internals are missing');
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
 const luminosityContent = (document: ReturnType<typeof loadDocument>): string => contentAt(document, 6);
 
-const backdrop = (document: ReturnType<typeof loadDocument>): readonly number[] => {
+const backdrop = (document: ReturnType<typeof loadDocument>): ReadonlyArray<number> => {
   const state = document.page(0).resources().get(pdfName('ExtGState').bytes);
-  if (state?.kind !== 'dictionary') throw new Error('ExtGState is missing');
+  if (state?.kind !== 'dictionary') {
+    throw new Error('ExtGState is missing');
+  }
   const gs = state.entries.get(pdfName('GS').bytes);
-  if (gs?.kind !== 'dictionary') throw new Error('graphics state is missing');
+  if (gs?.kind !== 'dictionary') {
+    throw new Error('graphics state is missing');
+  }
   const mask = gs.entries.get(pdfName('SMask').bytes);
-  if (mask?.kind !== 'dictionary') throw new Error('soft mask is missing');
+  if (mask?.kind !== 'dictionary') {
+    throw new Error('soft mask is missing');
+  }
   const color = mask.entries.get(pdfName('BC').bytes);
-  if (color?.kind !== 'array') throw new Error('mask backdrop is missing');
+  if (color?.kind !== 'array') {
+    throw new Error('mask backdrop is missing');
+  }
   return color.items.map(value => {
-    if (value.kind === 'integer') return value.value;
-    if (value.kind === 'real' && typeof value.value === 'number') return value.value;
+    if (value.kind === 'integer') {
+      return value.value;
+    }
+    if (value.kind === 'real' && typeof value.value === 'number') {
+      return value.value;
+    }
     return -1;
   });
 };

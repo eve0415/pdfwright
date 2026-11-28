@@ -29,11 +29,14 @@ const band = (value: number, low: number, high: number): number => {
   return Math.min(LARGE_BANDS - 1, Math.max(0, at));
 };
 
-const addBand = (index: Map<number, CoverEvent[]>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
+const addBand = (index: Map<number, Array<CoverEvent>>, span: { readonly first: number; readonly last: number }, cover: CoverEvent): void => {
   for (let at = span.first; at <= span.last; at++) {
     const list = index.get(at);
-    if (list === undefined) index.set(at, [cover]);
-    else list.push(cover);
+    if (list === undefined) {
+      index.set(at, [cover]);
+    } else {
+      list.push(cover);
+    }
   }
 };
 
@@ -57,9 +60,9 @@ export class CoverIndex {
   private readonly bounds: Bounds;
   private readonly columns: number;
   private readonly rows: number;
-  private readonly cells = new Map<number, CoverEvent[]>();
-  private readonly rowBands = new Map<number, CoverEvent[]>();
-  private readonly columnBands = new Map<number, CoverEvent[]>();
+  private readonly cells = new Map<number, Array<CoverEvent>>();
+  private readonly rowBands = new Map<number, Array<CoverEvent>>();
+  private readonly columnBands = new Map<number, Array<CoverEvent>>();
   private readonly seen = new WeakMap<CoverEvent['clip'], Set<string>>();
   private comparisons = 0;
 
@@ -89,27 +92,40 @@ export class CoverIndex {
     const [left, bottom, right, top] = cover.rectangle;
     const { bounds } = this;
     const tolerance = COVER_TOLERANCE;
-    if (right < bounds.left - tolerance || left > bounds.right + tolerance || top < bounds.bottom - tolerance || bottom > bounds.top + tolerance) return;
+    if (right < bounds.left - tolerance || left > bounds.right + tolerance || top < bounds.bottom - tolerance || bottom > bounds.top + tolerance) {
+      return;
+    }
     const rectangleKey = cover.rectangle.join(',');
     const rectangles = this.seen.get(cover.clip);
-    if (rectangles?.has(rectangleKey) === true) return;
-    if (rectangles === undefined) this.seen.set(cover.clip, new Set([rectangleKey]));
-    else rectangles.add(rectangleKey);
+    if (rectangles?.has(rectangleKey) === true) {
+      return;
+    }
+    if (rectangles === undefined) {
+      this.seen.set(cover.clip, new Set([rectangleKey]));
+    } else {
+      rectangles.add(rectangleKey);
+    }
     const [firstColumn, lastColumn] = [this.column(left - tolerance), this.column(right + tolerance)];
     const [firstRow, lastRow] = [this.row(bottom - tolerance), this.row(top + tolerance)];
     if ((lastColumn - firstColumn + 1) * (lastRow - firstRow + 1) > MAX_CELLS_PER_COVER) {
       const [firstBandRow, lastBandRow] = [band(bottom - tolerance, bounds.bottom, bounds.top), band(top + tolerance, bounds.bottom, bounds.top)];
       const [firstBandColumn, lastBandColumn] = [band(left - tolerance, bounds.left, bounds.right), band(right + tolerance, bounds.left, bounds.right)];
-      if (lastBandRow - firstBandRow <= lastBandColumn - firstBandColumn) addBand(this.rowBands, { first: firstBandRow, last: lastBandRow }, cover);
-      else addBand(this.columnBands, { first: firstBandColumn, last: lastBandColumn }, cover);
+      if (lastBandRow - firstBandRow <= lastBandColumn - firstBandColumn) {
+        addBand(this.rowBands, { first: firstBandRow, last: lastBandRow }, cover);
+      } else {
+        addBand(this.columnBands, { first: firstBandColumn, last: lastBandColumn }, cover);
+      }
       return;
     }
     for (let row = firstRow; row <= lastRow; row++) {
       for (let column = firstColumn; column <= lastColumn; column++) {
         const key = row * this.columns + column;
         const list = this.cells.get(key);
-        if (list === undefined) this.cells.set(key, [cover]);
-        else list.push(cover);
+        if (list === undefined) {
+          this.cells.set(key, [cover]);
+        } else {
+          list.push(cover);
+        }
       }
     }
   }
@@ -120,7 +136,9 @@ export class CoverIndex {
     const rows = this.rowBands.get(band(y, this.bounds.bottom, this.bounds.top)) ?? [];
     const columns = this.columnBands.get(band(x, this.bounds.left, this.bounds.right)) ?? [];
     const paints = (cover: CoverEvent): boolean => {
-      if (++this.comparisons > MAX_COVER_COMPARISONS) throw new ResourceLimitError(`cover queries exceed ${String(MAX_COVER_COMPARISONS)} comparisons`);
+      if (++this.comparisons > MAX_COVER_COMPARISONS) {
+        throw new ResourceLimitError(`cover queries exceed ${String(MAX_COVER_COMPARISONS)} comparisons`);
+      }
       return insideRectangle(cover.rectangle, x, y) && cover.clip.classifyPoint(x, y) === 'inside';
     };
     return near.some(cover => paints(cover)) || rows.some(cover => paints(cover)) || columns.some(cover => paints(cover));

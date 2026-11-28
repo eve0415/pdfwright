@@ -24,7 +24,7 @@ const VALUES: ManagedValues = {
 
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
-const readBack = (bytes: Uint8Array): readonly (readonly [string, unknown])[] => {
+const readBack = (bytes: Uint8Array): ReadonlyArray<readonly [string, unknown]> => {
   const result = readXmp(bytes);
   return result.ok ? result.packet.properties.map(property => [`${property.namespace}${property.localName}`, property.value] as const) : [];
 };

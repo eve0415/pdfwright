@@ -28,17 +28,19 @@ const IEC_WHITE = { x: 0.9505, y: 1, z: 1.089 };
 // The Bradford adaptation to the D50 PCS white that calibrated sources use, applied to the IEC matrix, with the standard's decoding function as the tone curve.
 const analytic = calibratedProfile({ kind: 'calRGB', whitePoint: IEC_WHITE, gamma: [1, 1, 1], matrix: IEC_MATRIX });
 const analyticXyz = sourceEvaluator(analytic, 'relativeColorimetric', 'icc');
-const iec = (input: readonly number[]): PcsValue => analyticXyz(input.map(value => decode(value)));
+const iec = (input: ReadonlyArray<number>): PcsValue => analyticXyz(input.map(value => decode(value)));
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
-const rgbCurves = (profile: IccProfile): readonly Curve[] => {
+const rgbCurves = (profile: IccProfile): ReadonlyArray<Curve> => {
   const { trc } = profile;
-  if (trc === undefined || !('red' in trc)) throw new Error('the profile has no RGB TRCs');
+  if (trc === undefined || !('red' in trc)) {
+    throw new Error('the profile has no RGB TRCs');
+  }
   return [trc.red, trc.green, trc.blue];
 };
 
-const worstDifference = (reference: (input: readonly number[]) => PcsValue): number => {
+const worstDifference = (reference: (input: ReadonlyArray<number>) => PcsValue): number => {
   const builtIn = sourceEvaluator(srgbColorSource().profile, 'relativeColorimetric', 'icc');
   return Math.max(
     ...samples().map(([red, green, blue]) => {
@@ -75,11 +77,13 @@ describe('built-in sRGB source', () => {
   it('follows the IEC 61966-2-1 decoding function within the 16-bit precision of its curv table', () => {
     const curves = rgbCurves(srgbColorSource().profile);
     let maximum = 0;
-    for (let index = 0; index <= 65535; index++) {
-      const value = index / 65535;
-      for (const curve of curves) maximum = Math.max(maximum, Math.abs(evaluateCurve(curve, value) - decode(value)));
+    for (let index = 0; index <= 65_535; index++) {
+      const value = index / 65_535;
+      for (const curve of curves) {
+        maximum = Math.max(maximum, Math.abs(evaluateCurve(curve, value) - decode(value)));
+      }
     }
-    expect(maximum).toBeLessThan(1 / 65535);
+    expect(maximum).toBeLessThan(1 / 65_535);
   });
 
   it('agrees with the IEC 61966-2-1 definition and with other sRGB profiles within 0.035 ΔE2000', () => {

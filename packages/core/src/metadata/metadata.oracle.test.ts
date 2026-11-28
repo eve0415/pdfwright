@@ -40,7 +40,7 @@ interface Run {
 }
 
 // Standard output alone, so that warnings on standard error cannot corrupt the JSON or the metadata a tool prints.
-const run = async (command: string, args: readonly string[]): Promise<Run> => {
+const run = async (command: string, args: ReadonlyArray<string>): Promise<Run> => {
   const child = spawn(command, args);
   child.stderr.resume();
   const [closed, stdout] = await Promise.all([once(child, 'close'), streamText(child.stdout)]);
@@ -51,16 +51,22 @@ const run = async (command: string, args: readonly string[]): Promise<Run> => {
 const isRecord = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
 // qpdf --json lists every object under qpdf[1]; each stream's dictionary is under stream.dict.
-const metadataStreams = (json: string): readonly (readonly [string, boolean])[] => {
+const metadataStreams = (json: string): ReadonlyArray<readonly [string, boolean]> => {
   const parsed: unknown = JSON.parse(json);
-  if (!isRecord(parsed) || !('qpdf' in parsed) || !Array.isArray(parsed.qpdf)) return [];
+  if (!isRecord(parsed) || !('qpdf' in parsed) || !Array.isArray(parsed.qpdf)) {
+    return [];
+  }
   const objects: unknown = parsed.qpdf[1];
-  if (!isRecord(objects)) return [];
-  const streams: (readonly [string, boolean])[] = [];
+  if (!isRecord(objects)) {
+    return [];
+  }
+  const streams: Array<readonly [string, boolean]> = [];
   for (const [key, value] of new Map<string, unknown>(Object.entries(objects))) {
     const stream: unknown = isRecord(value) && 'stream' in value ? value.stream : undefined;
     const dictionary: unknown = isRecord(stream) && 'dict' in stream ? stream.dict : undefined;
-    if (isRecord(dictionary) && '/Type' in dictionary && dictionary['/Type'] === '/Metadata') streams.push([key, '/Filter' in dictionary]);
+    if (isRecord(dictionary) && '/Type' in dictionary && dictionary['/Type'] === '/Metadata') {
+      streams.push([key, '/Filter' in dictionary]);
+    }
   }
   return streams;
 };
@@ -96,7 +102,7 @@ const source = (): Uint8Array =>
 
 interface ToolView {
   readonly check: number;
-  readonly streams: readonly (readonly [string, boolean])[];
+  readonly streams: ReadonlyArray<readonly [string, boolean]>;
   readonly meta: string;
   readonly info: string;
   readonly headers: number;
@@ -168,22 +174,30 @@ describe('metadata saves against qpdf and poppler', () => {
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
   for (const [file, entry] of Object.entries(parsed)) {
-    if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
   }
   return failing;
 };
 
 // Without the fetched govdocs1 files, a set has no files and the tests over it have nothing to check.
-const corpusFiles = async (directory: string): Promise<readonly string[]> => {
+const corpusFiles = async (directory: string): Promise<ReadonlyArray<string>> => {
   try {
     const names = await readdir(directory);
     const files = names.filter(name => name.endsWith('.pdf')).toSorted();
-    if (directory === GOVDOCS && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+    if (directory === GOVDOCS && env['CI'] !== undefined && files.length === 0) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return files;
   } catch {
-    if (directory === GOVDOCS && env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+    if (directory === GOVDOCS && env['CI'] !== undefined) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return [];
   }
 };
@@ -198,7 +212,7 @@ const SETS = [
 interface FileSummary {
   readonly orphans: number;
   readonly superseded: number;
-  readonly mismatches: readonly string[];
+  readonly mismatches: ReadonlyArray<string>;
 }
 
 // The metadata findings the summary records for one document: orphaned metadata objects, packets only earlier revisions hold, and the Table 20 keys on which Info and XMP disagree.
@@ -213,7 +227,7 @@ const summarize = (document: LoadedDocument): FileSummary => {
 
 interface CorpusSummary {
   /** The sets whose files are present. */
-  readonly sets: readonly string[];
+  readonly sets: ReadonlyArray<string>;
   readonly files: Record<string, FileSummary>;
 }
 
@@ -227,10 +241,14 @@ const corpusSummary = async (): Promise<CorpusSummary> => {
   const files: Record<string, FileSummary> = {};
   const readFrom = async (index: number): Promise<Record<string, FileSummary>> => {
     const item = queue[index];
-    if (item === undefined) return files;
+    if (item === undefined) {
+      return files;
+    }
     const bytes = await readFile(item.file);
     const summary = summarize(loadDocument(bytes));
-    if (summary.orphans > 0 || summary.superseded > 0 || summary.mismatches.length > 0) files[item.key] = summary;
+    if (summary.orphans > 0 || summary.superseded > 0 || summary.mismatches.length > 0) {
+      files[item.key] = summary;
+    }
     return readFrom(index + 1);
   };
   await readFrom(0);
@@ -238,9 +256,11 @@ const corpusSummary = async (): Promise<CorpusSummary> => {
 };
 
 // The summary entries of the sets that are present.
-const recordedSummary = async (sets: readonly string[]): Promise<ReadonlyMap<string, unknown>> => {
+const recordedSummary = async (sets: ReadonlyArray<string>): Promise<ReadonlyMap<string, unknown>> => {
   const recorded: unknown = JSON.parse(await readFile(SUMMARY, 'utf8'));
-  if (typeof recorded !== 'object' || recorded === null) return new Map();
+  if (typeof recorded !== 'object' || recorded === null) {
+    return new Map();
+  }
   return new Map([...new Map<string, unknown>(Object.entries(recorded))].filter(([file]) => sets.some(set => file.startsWith(`${set}/`))));
 };
 
@@ -260,7 +280,7 @@ const rewritten = async (name: string): Promise<Rewritten> => {
 };
 
 // The dc:creator items of a file after an edit that sets only Keywords.
-const creatorsAfterKeywords = async (name: string): Promise<readonly string[]> => {
+const creatorsAfterKeywords = async (name: string): Promise<ReadonlyArray<string>> => {
   const document = loadDocument(await readFile(path.join(GOVDOCS, name)));
   setMetadata(document, { modificationDate: MODIFIED, keywords: 'keywords' });
   const creator = readMetadata(loadDocument(document.save().chunks)).properties.find(property => property.key === 'Author')?.xmp;

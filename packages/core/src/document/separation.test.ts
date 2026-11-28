@@ -49,7 +49,9 @@ describe('separation colour spaces', () => {
       content.stroke();
     });
     const pdf = ascii(document.save().toBytes());
-    for (const fragment of ['/#E7#99#BD', '/#82b#82t#82s', '/ColorSpace<</CS1', '/CS2', '/C0[0 0 0 0]', '/C0[1]']) expect(pdf).toContain(fragment);
+    for (const fragment of ['/#E7#99#BD', '/#82b#82t#82s', '/ColorSpace<</CS1', '/CS2', '/C0[0 0 0 0]', '/C0[1]']) {
+      expect(pdf).toContain(fragment);
+    }
   });
 
   it('guards special names, ASCII policy, and conflicting alternates', () => {

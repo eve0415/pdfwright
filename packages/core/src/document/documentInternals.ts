@@ -6,7 +6,7 @@ import type { DocumentStructure, SaveBase } from './readStructure.ts';
 /** What other parts of the library read from a loaded document; the public interface does not expose it. */
 export interface DocumentInternals {
   readonly objects: EditedObjects;
-  readonly pages: readonly PageEntry[];
+  readonly pages: ReadonlyArray<PageEntry>;
   readonly structure: DocumentStructure;
   /** Where the newest trailer is in the source, when the cross-reference data was read rather than reconstructed. */
   readonly base: SaveBase | undefined;

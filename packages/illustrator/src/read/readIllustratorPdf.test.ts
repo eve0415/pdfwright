@@ -87,7 +87,9 @@ const thrown = (action: () => void): Error | undefined => {
   try {
     action();
   } catch (error: unknown) {
-    if (error instanceof Error) return error;
+    if (error instanceof Error) {
+      return error;
+    }
     throw error;
   }
   return undefined;
@@ -149,7 +151,7 @@ describe('reading package output', () => {
   });
 
   it('passes the caller decoder the Zstandard frame after the wrapper', () => {
-    const frames: Uint8Array[] = [];
+    const frames: Array<Uint8Array> = [];
     const recording: ReadIllustratorPdfOptions = {
       zstandard: frame => {
         frames.push(frame);

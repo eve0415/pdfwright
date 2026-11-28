@@ -20,7 +20,7 @@ export type PdfDirectObject =
   | { kind: 'real'; value: number | Length }
   | { kind: 'name'; bytes: Uint8Array }
   | { kind: 'string'; bytes: Uint8Array; encoding: 'literal' | 'hex' }
-  | { kind: 'array'; items: PdfDirectObject[] }
+  | { kind: 'array'; items: Array<PdfDirectObject> }
   | { kind: 'dictionary'; entries: PdfDictionaryEntries }
   | { kind: 'reference'; objectNumber: number; generation: number }
   // A token a parser read but could not interpret; its bytes are one run of regular characters and are written back verbatim.
@@ -51,7 +51,9 @@ export const pdfName = (ascii: string): Extract<PdfObject, { kind: 'name' }> => 
   const bytes = new Uint8Array(ascii.length);
   for (let index = 0; index < ascii.length; index++) {
     const code = ascii.codePointAt(index) ?? 0;
-    if (code < 0x21 || code > 0x7e) throw new InvalidArgumentError('name must use printable ASCII');
+    if (code < 0x21 || code > 0x7e) {
+      throw new InvalidArgumentError('name must use printable ASCII');
+    }
     bytes[index] = code;
   }
   return pdfNameFromBytes(bytes);
@@ -77,7 +79,9 @@ export const pdfLiteralString = (text: string): Extract<PdfObject, { kind: 'stri
   const bytes = new Uint8Array(text.length);
   for (let index = 0; index < text.length; index++) {
     const code = text.codePointAt(index) ?? 0;
-    if (code > 127) throw new InvalidArgumentError('literal text must be ASCII');
+    if (code > 127) {
+      throw new InvalidArgumentError('literal text must be ASCII');
+    }
     bytes[index] = code;
   }
   return pdfString(bytes);
@@ -100,7 +104,9 @@ export const pdfInteger = (value: number): Extract<PdfObject, { kind: 'integer' 
  * @throws InvalidArgumentError with no reason for a nonfinite number or nonpositive denominator.
  */
 export const pdfReal = (value: number | Length): Extract<PdfObject, { kind: 'real' }> => {
-  if (typeof value === 'number' ? !Number.isFinite(value) : value.denominator <= 0n) throw new InvalidArgumentError('real must be finite');
+  if (typeof value === 'number' ? !Number.isFinite(value) : value.denominator <= 0n) {
+    throw new InvalidArgumentError('real must be finite');
+  }
   return { kind: 'real', value };
 };
 
@@ -108,7 +114,7 @@ export const pdfReal = (value: number | Length): Extract<PdfObject, { kind: 'rea
  * Wraps direct PDF values in an array under ISO 32000-1:2008, 7.3.6.
  * @param items Direct values in order; this wrapper adds no default, validation, or length limit.
  */
-export const pdfArray = (items: PdfDirectObject[]): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
+export const pdfArray = (items: Array<PdfDirectObject>): Extract<PdfObject, { kind: 'array' }> => ({ kind: 'array', items });
 
 /**
  * Wraps PDF dictionary entries, using an empty dictionary by default, under ISO 32000-1:2008, 7.3.7.
@@ -126,10 +132,10 @@ export const pdfDictionary = (entries: PdfDictionaryEntries = new PdfDictionaryE
  * @throws InvalidArgumentError with no reason for either invalid bound.
  */
 export const pdfReference = (objectNumber: number, generation: number): Extract<PdfObject, { kind: 'reference' }> => {
-  if (!Number.isSafeInteger(objectNumber) || objectNumber < 1 || objectNumber > 2147483647) {
+  if (!Number.isSafeInteger(objectNumber) || objectNumber < 1 || objectNumber > 2_147_483_647) {
     throw new InvalidArgumentError('invalid object number');
   }
-  if (!Number.isSafeInteger(generation) || generation < 0 || generation > 65535) {
+  if (!Number.isSafeInteger(generation) || generation < 0 || generation > 65_535) {
     throw new InvalidArgumentError('invalid generation');
   }
   return { kind: 'reference', objectNumber, generation };

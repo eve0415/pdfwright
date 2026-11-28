@@ -10,22 +10,30 @@ import { pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObjec
 export interface StitchedCmykFunction {
   readonly kind: 'stitched';
   readonly dictionary: PdfDictionaryEntries;
-  readonly functions: readonly SampledCmykFunction[];
+  readonly functions: ReadonlyArray<SampledCmykFunction>;
 }
 
 export type ConvertedCmykFunction = SampledCmykFunction | StitchedCmykFunction;
 
 /** Keeps Domain, Bounds and Encode while replacing each Type 3 child with a sampled CMYK function. */
 export const stitchCmykFunction = (document: LoadedDocument, source: PdfObject, compose: (child: PdfObject) => SampledCmykFunction): StitchedCmykFunction => {
-  if (source.kind !== 'dictionary') throw new ValidationError('stitching function is not a dictionary', 'color-space');
+  if (source.kind !== 'dictionary') {
+    throw new ValidationError('stitching function is not a dictionary', 'color-space');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const children = internals.objects.deref(source.entries.get(pdfName('Functions').bytes));
-  if (children?.kind !== 'array' || children.items.length === 0) throw new ValidationError('stitching function has no subfunctions', 'color-space');
-  const functions: SampledCmykFunction[] = [];
+  if (children?.kind !== 'array' || children.items.length === 0) {
+    throw new ValidationError('stitching function has no subfunctions', 'color-space');
+  }
+  const functions: Array<SampledCmykFunction> = [];
   for (const item of children.items) {
     const child = internals.objects.deref(item);
-    if (child === undefined || child.kind === 'null') throw new ValidationError('stitching subfunction is missing', 'color-space');
+    if (child === undefined || child.kind === 'null') {
+      throw new ValidationError('stitching subfunction is missing', 'color-space');
+    }
     functions.push(compose(child));
   }
   const dictionary = new PdfDictionaryEntries(source.entries.entries());
@@ -35,7 +43,9 @@ export const stitchCmykFunction = (document: LoadedDocument, source: PdfObject, 
 };
 
 export const writeCmykFunction = (document: LoadedDocument, converted: ConvertedCmykFunction): PdfReference => {
-  if (converted.kind === 'sampled') return document.object({ kind: 'stream', dictionary: converted.dictionary, data: converted.data });
+  if (converted.kind === 'sampled') {
+    return document.object({ kind: 'stream', dictionary: converted.dictionary, data: converted.data });
+  }
   const functions = converted.functions.map(item => document.object({ kind: 'stream', dictionary: item.dictionary, data: item.data }));
   const entries = new PdfDictionaryEntries(converted.dictionary.entries());
   entries.set(pdfName('Functions').bytes, pdfArray(functions));

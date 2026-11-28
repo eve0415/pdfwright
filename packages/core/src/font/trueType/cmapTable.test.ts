@@ -7,19 +7,19 @@ import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { readTrueTypeCmap } from './cmapTable.ts';
 
 // Big-endian bytes of unsigned integers of the given byte widths.
-const bytes = (...fields: readonly (readonly [number, number])[]): number[] =>
+const bytes = (...fields: ReadonlyArray<readonly [number, number]>): Array<number> =>
   fields.flatMap(([value, width]) => Array.from({ length: width }, (_, index) => Math.floor(value / 256 ** (width - 1 - index)) % 256));
 
-const u16 = (...values: readonly number[]): number[] => bytes(...values.map(value => [value, 2] as const));
-const u32 = (...values: readonly number[]): number[] => bytes(...values.map(value => [value, 4] as const));
-const u24 = (value: number): number[] => bytes([value, 3]);
+const u16 = (...values: ReadonlyArray<number>): Array<number> => bytes(...values.map(value => [value, 2] as const));
+const u32 = (...values: ReadonlyArray<number>): Array<number> => bytes(...values.map(value => [value, 4] as const));
+const u24 = (value: number): Array<number> => bytes([value, 3]);
 
 // A font program holding only a table directory and the given tables, each at a 4-byte aligned offset.
-const program = (tables: readonly (readonly [string, readonly number[]])[]): Uint8Array => {
-  const header = [...u32(0x00010000), ...u16(tables.length, 0, 0, 0)];
+const program = (tables: ReadonlyArray<readonly [string, ReadonlyArray<number>]>): Uint8Array => {
+  const header = [...u32(0x00_01_00_00), ...u16(tables.length, 0, 0, 0)];
   let offset = header.length + 16 * tables.length;
-  const directory: number[] = [];
-  const bodies: number[] = [];
+  const directory: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [tag, body] of tables) {
     directory.push(...Array.from(tag, character => character.codePointAt(0) ?? 0), ...u32(0, offset, body.length));
     const padded = [...body, ...Array.from({ length: (4 - (body.length % 4)) % 4 }, () => 0)];
@@ -30,10 +30,10 @@ const program = (tables: readonly (readonly [string, readonly number[]])[]): Uin
 };
 
 // A cmap table with the given subtables, as [platform, encoding, subtable bytes].
-const cmapTable = (subtables: readonly (readonly [number, number, readonly number[]])[]): number[] => {
+const cmapTable = (subtables: ReadonlyArray<readonly [number, number, ReadonlyArray<number>]>): Array<number> => {
   let offset = 4 + 8 * subtables.length;
-  const records: number[] = [];
-  const bodies: number[] = [];
+  const records: Array<number> = [];
+  const bodies: Array<number> = [];
   for (const [platform, encoding, body] of subtables) {
     records.push(...u16(platform, encoding), ...u32(offset));
     bodies.push(...body);
@@ -47,15 +47,17 @@ interface TestSegment {
   readonly start: number;
   readonly end: number;
   readonly delta: number;
-  readonly glyphs?: readonly number[];
+  readonly glyphs?: ReadonlyArray<number>;
 }
 
-const format4 = (segments: readonly TestSegment[]): number[] => {
-  const all: readonly TestSegment[] = [...segments, { start: 0xffff, end: 0xffff, delta: 1 }];
+const format4 = (segments: ReadonlyArray<TestSegment>): Array<number> => {
+  const all: ReadonlyArray<TestSegment> = [...segments, { start: 0xff_ff, end: 0xff_ff, delta: 1 }];
   const count = all.length;
-  const glyphArrays: number[] = [];
+  const glyphArrays: Array<number> = [];
   const rangeOffsets = all.map(({ glyphs }, index) => {
-    if (glyphs === undefined) return 0;
+    if (glyphs === undefined) {
+      return 0;
+    }
     // idRangeOffset counts bytes from its own position to the glyph in glyphIdArray.
     const offset = 2 * (count - index) + 2 * glyphArrays.length;
     glyphArrays.push(...glyphs);
@@ -72,14 +74,14 @@ const format4 = (segments: readonly TestSegment[]): number[] => {
   return [...u16(4, 14 + body.length, 0, 2 * count, 0, 0, 0), ...body];
 };
 
-const format12 = (groups: readonly (readonly [number, number, number])[]): number[] => [
+const format12 = (groups: ReadonlyArray<readonly [number, number, number]>): Array<number> => [
   ...u16(12, 0),
   ...u32(16 + 12 * groups.length, 0, groups.length),
   ...groups.flatMap(([start, end, glyph]) => u32(start, end, glyph)),
 ];
 
 // Format 14 with one selector record: a default UVS range [start, additional count] and non-default mappings [code point, glyph].
-const format14 = (selector: number, ranges: readonly (readonly [number, number])[], mappings: readonly (readonly [number, number])[]): number[] => {
+const format14 = (selector: number, ranges: ReadonlyArray<readonly [number, number]>, mappings: ReadonlyArray<readonly [number, number]>): Array<number> => {
   const defaultTable = [...u32(ranges.length), ...ranges.flatMap(([start, count]) => [...u24(start), count])];
   const mappingTable = [...u32(mappings.length), ...mappings.flatMap(([codePoint, glyph]) => [...u24(codePoint), ...u16(glyph)])];
   const header = 10 + 11;
@@ -94,12 +96,14 @@ const format14 = (selector: number, ranges: readonly (readonly [number, number])
 };
 
 const cmapOf = (reading: CmapReading): TrueTypeCmap => {
-  if (reading.kind !== 'cmap') throw new Error(`expected a cmap, got ${reading.kind}`);
+  if (reading.kind !== 'cmap') {
+    throw new Error(`expected a cmap, got ${reading.kind}`);
+  }
   return reading.cmap;
 };
 
 // A program with one cmap table of the given subtables.
-const programWith = (subtables: readonly (readonly [number, number, readonly number[]])[]): Uint8Array => program([['cmap', cmapTable(subtables)]]);
+const programWith = (subtables: ReadonlyArray<readonly [number, number, ReadonlyArray<number>]>): Uint8Array => program([['cmap', cmapTable(subtables)]]);
 
 // Count byte reads through every subarray of the same font program.
 const countReads = (input: Uint8Array) => {
@@ -107,8 +111,12 @@ const countReads = (input: Uint8Array) => {
   const counted = (data: Uint8Array): Uint8Array =>
     new Proxy(data, {
       get(target, property): number | Uint8Array['subarray'] | undefined {
-        if (property === 'subarray') return (start?: number, end?: number): Uint8Array => counted(target.subarray(start, end));
-        if (property === 'length') return target.length;
+        if (property === 'subarray') {
+          return (start?: number, end?: number): Uint8Array => counted(target.subarray(start, end));
+        }
+        if (property === 'length') {
+          return target.length;
+        }
         if (typeof property === 'string' && /^\d+$/u.test(property)) {
           reads++;
           return target[Number(property)];
@@ -169,11 +177,11 @@ describe('embedded TrueType cmap tables', () => {
   it('maps characters through format 4 deltas and glyph arrays, and nothing outside its segments', () => {
     const subtable = format4([
       { start: 0x41, end: 0x43, delta: -0x3f },
-      { start: 0x3000, end: 0x3002, delta: 0, glyphs: [9, 0, 11] },
+      { start: 0x30_00, end: 0x30_02, delta: 0, glyphs: [9, 0, 11] },
     ]);
     const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 1, subtable]])));
     expect([cmap.platform, cmap.encoding, cmap.format]).toStrictEqual([3, 1, 4]);
-    expect([0x41, 0x43, 0x44, 0x3000, 0x3001, 0x3002, 0x10000].map(codePoint => cmap.glyph(codePoint))).toStrictEqual([
+    expect([0x41, 0x43, 0x44, 0x30_00, 0x30_01, 0x30_02, 0x1_00_00].map(codePoint => cmap.glyph(codePoint))).toStrictEqual([
       2,
       4,
       undefined,
@@ -182,7 +190,7 @@ describe('embedded TrueType cmap tables', () => {
       11,
       undefined,
     ]);
-    expect([cmap.characters(2), cmap.characters(9), cmap.characters(10)]).toStrictEqual([[0x41], [0x3000], []]);
+    expect([cmap.characters(2), cmap.characters(9), cmap.characters(10)]).toStrictEqual([[0x41], [0x30_00], []]);
   });
 
   it.each([
@@ -195,8 +203,8 @@ describe('embedded TrueType cmap tables', () => {
     {
       format: 12,
       encoding: 10,
-      subtable: format12(Array.from({ length: 32 }, (_, index) => [0x10000 + 2 * index, 0x10000 + 2 * index, index + 1] as const)),
-      characters: Array.from({ length: 32 }, (_, index) => 0x10000 + 2 * index),
+      subtable: format12(Array.from({ length: 32 }, (_, index) => [0x1_00_00 + 2 * index, 0x1_00_00 + 2 * index, index + 1] as const)),
+      characters: Array.from({ length: 32 }, (_, index) => 0x1_00_00 + 2 * index),
     },
   ])('builds the format $format reverse index once across distinct glyphs', ({ encoding, subtable, characters }) => {
     const input = programWith([[3, encoding, subtable]]);
@@ -219,22 +227,30 @@ describe('embedded TrueType cmap tables', () => {
   it('reverses format 4 aliases, glyph arrays and wrapped deltas', () => {
     const subtable = format4([
       { start: 0x41, end: 0x43, delta: -0x3f },
-      { start: 0x100, end: 0x102, delta: 2, glyphs: [0xffff, 0, 2] },
-      { start: 0x200, end: 0x200, delta: -0x1fe },
-      { start: 0xfffd, end: 0xfffe, delta: 2 },
+      { start: 0x1_00, end: 0x1_02, delta: 2, glyphs: [0xff_ff, 0, 2] },
+      { start: 0x2_00, end: 0x2_00, delta: -0x1_fe },
+      { start: 0xff_fd, end: 0xff_fe, delta: 2 },
     ]);
     const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 1, subtable]])));
-    expect([0, 1, 2, 3, 4, 5, 0xffff].map(glyph => cmap.characters(glyph))).toStrictEqual([[], [0x100], [0x41, 0x200], [0x42], [0x43, 0x102], [], [0xfffd]]);
+    expect([0, 1, 2, 3, 4, 5, 0xff_ff].map(glyph => cmap.characters(glyph))).toStrictEqual([
+      [],
+      [0x1_00],
+      [0x41, 0x2_00],
+      [0x42],
+      [0x43, 0x1_02],
+      [],
+      [0xff_fd],
+    ]);
   });
 
   it('reverses format 12 aliases across groups and supplementary planes', () => {
     const subtable = format12([
       [0x41, 0x43, 7],
-      [0x10000, 0x10002, 8],
-      [0x10ffff, 0x10ffff, 7],
+      [0x1_00_00, 0x1_00_02, 8],
+      [0x10_ff_ff, 0x10_ff_ff, 7],
     ]);
     const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 10, subtable]])));
-    expect([7, 8, 9, 10, 11].map(glyph => cmap.characters(glyph))).toStrictEqual([[0x41, 0x10ffff], [0x42, 0x10000], [0x43, 0x10001], [0x10002], []]);
+    expect([7, 8, 9, 10, 11].map(glyph => cmap.characters(glyph))).toStrictEqual([[0x41, 0x10_ff_ff], [0x42, 0x1_00_00], [0x43, 0x1_00_01], [0x1_00_02], []]);
   });
 
   it('prefers a (3, 10) format 12 subtable, which reaches beyond the Basic Multilingual Plane', () => {
@@ -245,7 +261,7 @@ describe('embedded TrueType cmap tables', () => {
         10,
         format12([
           [0x41, 0x41, 7],
-          [0x20bb7, 0x20bb8, 100],
+          [0x2_0b_b7, 0x2_0b_b8, 100],
         ]),
       ],
     ]);
@@ -254,13 +270,13 @@ describe('embedded TrueType cmap tables', () => {
       ['cmap', table],
     ]);
     const cmap = cmapOf(readTrueTypeCmap(input));
-    expect([cmap.format, cmap.glyph(0x41), cmap.glyph(0x20bb8), cmap.glyph(0x20bb9)]).toStrictEqual([12, 7, 101, undefined]);
-    expect([cmap.characters(7), cmap.characters(101), cmap.characters(102)]).toStrictEqual([[0x41], [0x20bb8], []]);
+    expect([cmap.format, cmap.glyph(0x41), cmap.glyph(0x2_0b_b8), cmap.glyph(0x2_0b_b9)]).toStrictEqual([12, 7, 101, undefined]);
+    expect([cmap.characters(7), cmap.characters(101), cmap.characters(102)]).toStrictEqual([[0x41], [0x2_0b_b8], []]);
   });
 
   it('reads format 14 variation sequences as default or as a glyph of their own', () => {
-    const base = format4([{ start: 0x845b, end: 0x845b, delta: 0 }]);
-    const variations = format14(0xe0100, [[0x845b, 0]], [[0x845c, 77]]);
+    const base = format4([{ start: 0x84_5b, end: 0x84_5b, delta: 0 }]);
+    const variations = format14(0xe_01_00, [[0x84_5b, 0]], [[0x84_5c, 77]]);
     const cmap = cmapOf(
       readTrueTypeCmap(
         programWith([
@@ -269,18 +285,18 @@ describe('embedded TrueType cmap tables', () => {
         ]),
       ),
     );
-    expect([cmap.variant(0x845b, 0xe0100), cmap.variant(0x845c, 0xe0100), cmap.variant(0x845d, 0xe0100), cmap.variant(0x845b, 0xe0101)]).toStrictEqual([
-      'default',
-      77,
-      undefined,
-      undefined,
-    ]);
+    expect([
+      cmap.variant(0x84_5b, 0xe_01_00),
+      cmap.variant(0x84_5c, 0xe_01_00),
+      cmap.variant(0x84_5d, 0xe_01_00),
+      cmap.variant(0x84_5b, 0xe_01_01),
+    ]).toStrictEqual(['default', 77, undefined, undefined]);
   });
 
   it('limits decoded format 14 mappings before building a large map', () => {
     const base = format4([{ start: 0x41, end: 0x41, delta: 1 }]);
-    const mappings = Array.from({ length: 16_385 }, (_, index) => [0x1000 + index, 1] as const);
-    const variations = format14(0xfe0f, [], mappings);
+    const mappings = Array.from({ length: 16_385 }, (_, index) => [0x10_00 + index, 1] as const);
+    const variations = format14(0xfe_0f, [], mappings);
     expect(() =>
       readTrueTypeCmap(
         programWith([

@@ -89,14 +89,20 @@ const label = (reference: PdfReference): string => `${String(reference.objectNum
 
 const dictionaryOf = (resolver: ObjectResolver, reference: PdfReference): PdfDictionaryEntries => {
   const value = resolver.resolve(reference.objectNumber, reference.generation);
-  if (value.kind !== 'dictionary') throw new ParseError(`page tree object ${label(reference)} is not a dictionary`, 0);
+  if (value.kind !== 'dictionary') {
+    throw new ParseError(`page tree object ${label(reference)} is not a dictionary`, 0);
+  }
   return value.entries;
 };
 
 /** Reads a number, or throws ParseError naming the object and key; a real may hold an exact length set by an edit. */
 export const numberValue = (value: PdfObject | undefined, where: string): number => {
-  if (value?.kind === 'integer') return value.value;
-  if (value?.kind === 'real') return typeof value.value === 'number' ? value.value : Number(formatLength(value.value, DEFAULT_FRACTION_DIGITS));
+  if (value?.kind === 'integer') {
+    return value.value;
+  }
+  if (value?.kind === 'real') {
+    return typeof value.value === 'number' ? value.value : Number(formatLength(value.value, DEFAULT_FRACTION_DIGITS));
+  }
   const found = value?.kind === 'invalid' ? `the token ${new TextDecoder('latin1').decode(value.bytes)}` : (value?.kind ?? 'nothing');
   throw new ParseError(`${where} must be a number but is ${found}`, 0);
 };
@@ -104,7 +110,9 @@ export const numberValue = (value: PdfObject | undefined, where: string): number
 // ISO 32000-1:2008, 7.9.5: "A rectangle shall be written as an array of four numbers giving the coordinates of a pair of diagonally opposite corners." Rectangles are normalised, as its NOTE says readers should be prepared to do.
 export const readPageRectangle = (resolver: ObjectResolver, value: PdfDirectObject, where: string): EffectiveBox['rect'] => {
   const array = resolver.deref(value);
-  if (array?.kind !== 'array' || array.items.length !== 4) throw new ParseError(`${where} is not an array of four numbers`, 0);
+  if (array?.kind !== 'array' || array.items.length !== 4) {
+    throw new ParseError(`${where} is not an array of four numbers`, 0);
+  }
   const [x1, y1, x2, y2] = array.items.map((item, index) => numberValue(resolver.deref(item), `${where}[${String(index)}]`));
   return [Math.min(x1 ?? 0, x2 ?? 0), Math.min(y1 ?? 0, y2 ?? 0), Math.max(x1 ?? 0, x2 ?? 0), Math.max(y1 ?? 0, y2 ?? 0)];
 };
@@ -124,7 +132,9 @@ export const createInheritedCache = (): InheritedCache => ({ pages: new WeakMap(
 
 const keyText = (key: Uint8Array): string => {
   let text = '';
-  for (const byte of key) text += String.fromCodePoint(byte);
+  for (const byte of key) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -140,11 +150,13 @@ export const inherited = (
 ): Found | undefined => {
   const name = cache === undefined ? '' : keyText(key);
   const cached = cache?.pages.get(entry);
-  if (cached?.has(name) === true) return cached.get(name);
+  if (cached?.has(name) === true) {
+    return cached.get(name);
+  }
   const own = dictionaryOf(resolver, entry.reference).get(key);
   let found: Found | undefined = present(resolver, own) ? { value: own } : undefined;
   if (found === undefined) {
-    const visited: TreeNode[] = [];
+    const visited: Array<TreeNode> = [];
     for (let node = entry.parent; node !== undefined; node = node.parent) {
       const inheritedValue = cache?.ancestors.get(node);
       if (inheritedValue?.has(name) === true) {
@@ -186,7 +198,9 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry, cache
   const page = label(entry.reference);
   const media = inherited(resolver, entry, { key: MEDIA_BOX, cache });
   // Table 30, MediaBox: "(Required; inheritable)".
-  if (media === undefined) throw new ParseError(`page ${page} has no MediaBox, on itself or on an ancestor`, 0);
+  if (media === undefined) {
+    throw new ParseError(`page ${page} has no MediaBox, on itself or on an ancestor`, 0);
+  }
   const mediaBox = effectiveBox(resolver, media, `the MediaBox of page ${page}`);
   const crop = inherited(resolver, entry, { key: CROP_BOX, cache });
   // Table 30, CropBox: "Default value: the value of MediaBox"; BleedBox, TrimBox and ArtBox: "Default value: the value of CropBox". Those three are not inheritable.
@@ -213,23 +227,33 @@ export const effectiveBoxes = (resolver: ObjectResolver, entry: PageEntry, cache
 
 export const effectiveResources = (resolver: ObjectResolver, entry: PageEntry, cache?: InheritedCache): PdfDictionaryEntries | undefined => {
   const found = inherited(resolver, entry, { key: RESOURCES, cache });
-  if (found === undefined) return undefined;
+  if (found === undefined) {
+    return undefined;
+  }
   const value = resolver.deref(found.value);
-  if (value?.kind !== 'dictionary') throw new ParseError(`the Resources of page ${label(entry.reference)} is not a dictionary`, 0);
+  if (value?.kind !== 'dictionary') {
+    throw new ParseError(`the Resources of page ${label(entry.reference)} is not a dictionary`, 0);
+  }
   return value.entries;
 };
 
 const pageDictionary = (objects: PageObjects, reference: PdfReference): PdfDictionaryEntries => {
   const value = objects.get(reference);
-  if (value.kind !== 'dictionary') throw new ParseError(`page ${label(reference)} is not a dictionary`, 0);
+  if (value.kind !== 'dictionary') {
+    throw new ParseError(`page ${label(reference)} is not a dictionary`, 0);
+  }
   return value.entries;
 };
 
 // ISO 32000-1:2008, 7.7.3.3, Table 30 defines the page boundaries; writer policy requires non-zero area and containment within MediaBox, as for created pages.
-export const checkPageBox = (name: BoxName, corners: readonly number[], mediaBox: EffectiveBox['rect']): void => {
+export const checkPageBox = (name: BoxName, corners: ReadonlyArray<number>, mediaBox: EffectiveBox['rect']): void => {
   const [left = 0, bottom = 0, right = 0, top = 0] = corners;
-  if (left >= right || bottom >= top) throw new ValidationError(`the ${name} has zero area after rounding; pdfwright requires page boxes with non-zero area`);
-  if (name === 'MediaBox') return;
+  if (left >= right || bottom >= top) {
+    throw new ValidationError(`the ${name} has zero area after rounding; pdfwright requires page boxes with non-zero area`);
+  }
+  if (name === 'MediaBox') {
+    return;
+  }
   const [mediaLeft, mediaBottom, mediaRight, mediaTop] = mediaBox;
   if (left < mediaLeft || bottom < mediaBottom || right > mediaRight || top > mediaTop) {
     throw new ValidationError(`the ${name} extends beyond the MediaBox; pdfwright requires every page box to lie within it`);
@@ -249,7 +273,9 @@ const setBox = (objects: PageObjects, entry: PageEntry, [name, corners]: readonl
           break;
         }
       }
-      if (!supplied) throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
+      if (!supplied) {
+        throw new ValidationError(`page ${label(entry.reference)} inherits no MediaBox, so its own cannot be removed`);
+      }
     }
     dictionary.delete(key);
   } else {
@@ -287,8 +313,11 @@ export const createLoadedPage = (context: ContentContext, entry: PageEntry, inde
       if (date === undefined && dictionary.has(PIECE_INFO)) {
         throw new ValidationError(`page ${label(entry.reference)} has PieceInfo, which requires LastModified`);
       }
-      if (date === undefined) dictionary.delete(LAST_MODIFIED);
-      else dictionary.set(LAST_MODIFIED, pdfDateObject(date));
+      if (date === undefined) {
+        dictionary.delete(LAST_MODIFIED);
+      } else {
+        dictionary.set(LAST_MODIFIED, pdfDateObject(date));
+      }
       resolver.set(entry.reference, { kind: 'dictionary', entries: dictionary });
     },
     pieceInfo: () => copied(resolver.deref(dictionaryOf(resolver, entry.reference).get(PIECE_INFO))),

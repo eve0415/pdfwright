@@ -5,7 +5,9 @@ import { lockedManualCheckModel, manualCheckModel } from './manualCheckModel.ts'
 const raster = (name: string, index: number) => {
   const layer = manualCheckModel().layers.find(value => value.name === name);
   const image = layer?.items.flatMap(item => (item.kind === 'clipGroup' ? item.items.filter(child => child.kind === 'raster') : [])).at(index);
-  if (image === undefined) throw new Error('raster is missing');
+  if (image === undefined) {
+    throw new Error('raster is missing');
+  }
   return image;
 };
 

@@ -6,7 +6,9 @@ import { pdfName } from '../object/pdfObject.ts';
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -18,11 +20,14 @@ const CLASSIC_EXCLUDED = new Set(['Prev', 'XRefStm']);
 const STREAM_EXCLUDED = new Set([...CLASSIC_EXCLUDED, 'Length', 'Filter', 'DecodeParms', 'F', 'FFilter', 'FDecodeParms', 'DL', 'Type', 'Index', 'W']);
 
 /** The entries with the changes applied in order: a set entry keeps its place or is added at the end, a removed one is left out. */
-export const withTrailerChanges = (entries: PdfDictionaryEntries, changes: readonly TrailerChange[]): PdfDictionaryEntries => {
+export const withTrailerChanges = (entries: PdfDictionaryEntries, changes: ReadonlyArray<TrailerChange>): PdfDictionaryEntries => {
   const result = parsedDictionaryEntries([...entries.entries()]);
   for (const change of changes) {
-    if (change.value === undefined) result.delete(change.key);
-    else result.set(change.key, change.value);
+    if (change.value === undefined) {
+      result.delete(change.key);
+    } else {
+      result.set(change.key, change.value);
+    }
   }
   return result;
 };

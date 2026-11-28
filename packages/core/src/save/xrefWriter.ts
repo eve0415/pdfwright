@@ -21,17 +21,23 @@ const tableLine = (entry: Omit<Entry, 'objectNumber'>): string => `${pad(entry.f
 const UNUSED = { type: 0, field: 0, generation: 65_535 } as const;
 const UNUSED_LINE = tableLine(UNUSED);
 
-export const writeTable = (writer: ByteWriter, entries: readonly Entry[]): void => {
+export const writeTable = (writer: ByteWriter, entries: ReadonlyArray<Entry>): void => {
   writer.writeAscii('xref\n');
   // "Following this line shall be one or more cross-reference subsections"; an update that changes no object has one without entries.
-  if (entries.length === 0) writer.writeAscii('0 0\n');
+  if (entries.length === 0) {
+    writer.writeAscii('0 0\n');
+  }
   for (let index = 0; index < entries.length;) {
     let end = index;
-    while (end + 1 < entries.length && entries[end + 1]?.objectNumber === (entries[end]?.objectNumber ?? 0) + 1) end++;
+    while (end + 1 < entries.length && entries[end + 1]?.objectNumber === (entries[end]?.objectNumber ?? 0) + 1) {
+      end++;
+    }
     writer.writeAscii(`${String(entries[index]?.objectNumber ?? 0)} ${String(end - index + 1)}\n`);
     for (let run = index; run <= end; run++) {
       const entry = entries[run];
-      if (entry !== undefined) writer.writeAscii(tableLine(entry));
+      if (entry !== undefined) {
+        writer.writeAscii(tableLine(entry));
+      }
     }
     index = end + 1;
   }
@@ -53,12 +59,14 @@ export const idArray = ([first, second]: readonly [Uint8Array, Uint8Array]): Pdf
 
 export const byteWidth = (value: number): number => {
   let width = 1;
-  while (value >= 256 ** width) width++;
+  while (value >= 256 ** width) {
+    width++;
+  }
   return width;
 };
 
 /** The field widths a cross-reference stream needs for these entries: the second field and the third. */
-export const fieldWidths = (entries: readonly Entry[]): readonly [number, number] => {
+export const fieldWidths = (entries: ReadonlyArray<Entry>): readonly [number, number] => {
   let field = 0;
   let generation = 0;
   for (const entry of entries) {
@@ -82,14 +90,20 @@ class RowWriter {
   put(entry: Omit<Entry, 'objectNumber'>): void {
     const { data, widths } = this;
     data[this.position++] = entry.type;
-    for (let index = widths[0] - 1; index >= 0; index--) data[this.position++] = Math.floor(entry.field / 256 ** index) % 256;
-    for (let index = widths[1] - 1; index >= 0; index--) data[this.position++] = Math.floor(entry.generation / 256 ** index) % 256;
+    for (let index = widths[0] - 1; index >= 0; index--) {
+      data[this.position++] = Math.floor(entry.field / 256 ** index) % 256;
+    }
+    for (let index = widths[1] - 1; index >= 0; index--) {
+      data[this.position++] = Math.floor(entry.generation / 256 ** index) % 256;
+    }
   }
 }
 
-export const streamData = (entries: readonly Entry[], widths: readonly [number, number]): Uint8Array => {
+export const streamData = (entries: ReadonlyArray<Entry>, widths: readonly [number, number]): Uint8Array => {
   const rows = new RowWriter(new Uint8Array(entries.length * (1 + widths[0] + widths[1])), widths);
-  for (const entry of entries) rows.put(entry);
+  for (const entry of entries) {
+    rows.put(entry);
+  }
   return rows.data;
 };
 
@@ -115,12 +129,15 @@ export const coveringStreamData = (entries: ReadonlyMap<number, Entry>, size: nu
   return deflater.finish();
 };
 
-export const indexRuns = (entries: readonly Entry[]): PdfDirectObject => {
-  const pairs: number[] = [];
+export const indexRuns = (entries: ReadonlyArray<Entry>): PdfDirectObject => {
+  const pairs: Array<number> = [];
   for (const entry of entries) {
     const last = pairs.length - 2;
-    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === entry.objectNumber) pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
-    else pairs.push(entry.objectNumber, 1);
+    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === entry.objectNumber) {
+      pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
+    } else {
+      pairs.push(entry.objectNumber, 1);
+    }
   }
   return pdfArray(pairs.map(value => pdfInteger(value)));
 };

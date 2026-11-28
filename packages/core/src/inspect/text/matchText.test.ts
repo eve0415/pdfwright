@@ -14,15 +14,17 @@ import { textPdfBytes } from '../../testing/textPdf.ts';
 import { extractText } from './extractText.ts';
 import { matchText } from './matchText.ts';
 
-const hex = (bytes: readonly number[]): string => bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+const hex = (bytes: ReadonlyArray<number>): string => bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 // UTF-16BE, as ToUnicode destinations are written.
 const utf16 = (text: string): string => {
-  const bytes: number[] = [];
+  const bytes: Array<number> = [];
   for (const character of text) {
     const codePoint = character.codePointAt(0) ?? 0;
-    const units = codePoint < 0x10000 ? [codePoint] : [0xd800 + Math.floor((codePoint - 0x10000) / 0x400), 0xdc00 + ((codePoint - 0x10000) % 0x400)];
-    for (const unit of units) bytes.push(Math.floor(unit / 256), unit % 256);
+    const units = codePoint < 0x1_00_00 ? [codePoint] : [0xd8_00 + Math.floor((codePoint - 0x1_00_00) / 0x4_00), 0xdc_00 + ((codePoint - 0x1_00_00) % 0x4_00)];
+    for (const unit of units) {
+      bytes.push(Math.floor(unit / 256), unit % 256);
+    }
   }
   return hex(bytes);
 };
@@ -33,7 +35,7 @@ const code = (value: number): string => hex([Math.floor(value / 256), value % 25
  * An Identity-H font, T, whose ToUnicode maps code n + 1 to texts[n] (nothing for null), every glyph 1000 thousandths wide with descent −120 and ascent 880.
  * Code 0 selects CID 0, the .notdef glyph.
  */
-const cidFont = (texts: readonly (string | null)[], { program, widths = '' }: { program?: Uint8Array; widths?: string } = {}): readonly TestObject[] => {
+const cidFont = (texts: ReadonlyArray<string | null>, { program, widths = '' }: { program?: Uint8Array; widths?: string } = {}): ReadonlyArray<TestObject> => {
   const entries = texts.flatMap((text, index) => (text === null ? [] : [`<${code(index + 1)}> <${utf16(text)}>`]));
   return [
     { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
@@ -58,19 +60,19 @@ const cidFont = (texts: readonly (string | null)[], { program, widths = '' }: { 
 
 interface Proof {
   /** The text each code stands for: code n + 1 maps to texts[n]. */
-  readonly texts: readonly (string | null)[];
+  readonly texts: ReadonlyArray<string | null>;
   /** A TrueType program embedded as the font's FontFile2, whose glyph n the code n selects. */
   readonly program?: Uint8Array;
   /** The content, where `show(codes)` writes a Tj of the codes. */
   readonly content: string;
   readonly resources?: string;
-  readonly objects?: readonly TestObject[];
+  readonly objects?: ReadonlyArray<TestObject>;
   readonly entries?: string;
   /** A W array for the descendant font, such as `/W[2[500]]`. */
   readonly widths?: string;
 }
 
-const show = (...codes: readonly number[]): string => `<${codes.map(value => code(value)).join('')}> Tj`;
+const show = (...codes: ReadonlyArray<number>): string => `<${codes.map(value => code(value)).join('')}> Tj`;
 
 /** Shows codes 1…n of the font in one line at 10 points from (100, 700). */
 const line = (count: number): string => `BT /T 10 Tf 100 700 Td ${show(...Array.from({ length: count }, (_, index) => index + 1))} ET`;
@@ -88,10 +90,10 @@ const match = (proof: Proof, intended: string, options: MatchTextOptions = {}): 
 /** Wraps content in a Span marked-content sequence whose ActualText is the text, as UTF-16BE. */
 const span = (text: string, content: string): string => `/Span <</ActualText <FEFF${utf16(text)}>>> BDC ${content} EMC`;
 
-const spanOf = ([text, ...codes]: readonly [string, ...number[]]): string => span(text, show(...codes));
+const spanOf = ([text, ...codes]: readonly [string, ...Array<number>]): string => span(text, show(...codes));
 
 /** Shows each code in its own Tj at 10 points from (100, 700), the codes of `spans` inside ActualText spans. */
-const spanned = (...parts: readonly (number | readonly [string, ...number[]])[]): string =>
+const spanned = (...parts: ReadonlyArray<number | readonly [string, ...Array<number>]>): string =>
   `BT /T 10 Tf 100 700 Td ${parts.map(part => (typeof part === 'number' ? show(part) : spanOf(part))).join(' ')} ET`;
 
 /** The program with its cmap table renamed in the table directory, so that it has none. */
@@ -99,7 +101,9 @@ const withoutCmap = (program: Uint8Array): Uint8Array => {
   const copy = Uint8Array.from(program);
   const tables = (copy[4] ?? 0) * 256 + (copy[5] ?? 0);
   for (let record = 12; record < 12 + 16 * tables; record += 16) {
-    if (String.fromCodePoint(...copy.subarray(record, record + 4)) === 'cmap') copy[record + 3] = 0x71;
+    if (String.fromCodePoint(...copy.subarray(record, record + 4)) === 'cmap') {
+      copy[record + 3] = 0x71;
+    }
   }
   return copy;
 };
@@ -109,10 +113,10 @@ const drawnAt = (x: number, y: number, codes: string): string => `BT /T 10 Tf ${
 
 /** A TrueType program whose glyph 1, for U+FF08, has ink from `left` to 900 thousandths across and from −100 to 800 up. */
 const inkedAt = (left: number): Uint8Array =>
-  syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [left, -100, 900, 800] }], characters: [[0xff08, 1]] });
+  syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [left, -100, 900, 800] }], characters: [[0xff_08, 1]] });
 
 /** A Type 3 font, E, whose glyph a is drawn by the procedure. */
-const type3Drawn = (procedure: string): readonly TestObject[] => [
+const type3Drawn = (procedure: string): ReadonlyArray<TestObject> => [
   {
     number: 120,
     body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
@@ -121,12 +125,12 @@ const type3Drawn = (procedure: string): readonly TestObject[] => [
 ];
 
 /** A clip of 10-point columns from x 100, each up to the height given, and the whole page either side of them. */
-const clipAbove = (tops: readonly number[]): string =>
+const clipAbove = (tops: ReadonlyArray<number>): string =>
   `${tops.map((top, index) => `${String(100 + 10 * index)} 0 10 ${String(top)} re`).join(' ')} 0 0 100 800 re ${String(100 + 10 * tops.length)} 0 400 800 re W n`;
 
-const summary = (result: TextMatch): unknown[] => [result.status, result.found, result.differences];
+const summary = (result: TextMatch): Array<unknown> => [result.status, result.found, result.differences];
 
-const summaryOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): unknown[] => summary(match(proof, intended, options));
+const summaryOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): Array<unknown> => summary(match(proof, intended, options));
 
 const statusOf = (proof: Proof, intended: string, options: MatchTextOptions = {}): TextMatch['status'] => match(proof, intended, options).status;
 
@@ -167,8 +171,8 @@ describe('text matching', () => {
 
   it('keeps full-width and half-width forms and compatibility ideographs apart', () => {
     // NFC would rewrite U+FA19, a registered compatibility ideograph, as U+795E; matchText normalises neither side.
-    const compatibility = String.fromCodePoint(0xfa19);
-    const unified = String.fromCodePoint(0x795e);
+    const compatibility = String.fromCodePoint(0xfa_19);
+    const unified = String.fromCodePoint(0x79_5e);
     expect(summaryOf({ texts: ['Ａ', 'ｶ', compatibility], content: line(3) }, `Aカ${unified}`)).toStrictEqual([
       'mismatch',
       `Ａｶ${compatibility}`,
@@ -315,7 +319,7 @@ describe('text matching', () => {
 
     it('leaves out a glyph whose core box is hidden, though the ascent and descent around it show', () => {
       // A d0 glyph gives no ink box, so the cut is measured against the core box; the FontBBox spans −300 to 1100 thousandths: at 10 points from (100, 700) the advance box is 697–711 and the core box 698.8–708.8.
-      const type3: readonly TestObject[] = [
+      const type3: ReadonlyArray<TestObject> = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/Type3/FontBBox[0 -300 1000 1100]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',
@@ -356,7 +360,7 @@ describe('text matching', () => {
 
     it('rejects a Type 3 glyph whose procedure paints nothing, but not an empty space glyph', () => {
       // Chromium's Type 3 space is the empty procedure 224 0 0 0 0 0 d1; an empty procedure for 山 prints nothing.
-      const type3: readonly TestObject[] = [
+      const type3: ReadonlyArray<TestObject> = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</g1 121 0 R/g2 122 0 R/g3 121 0 R>>/Encoding<</Differences[1/g1/g2/g3]>>/FirstChar 1/LastChar 3/Widths[1000 224 1000]/ToUnicode 123 0 R>>',
@@ -374,7 +378,7 @@ describe('text matching', () => {
       const shown = (codes: string): TextMatch =>
         match({ texts: [], content: `BT /E 10 Tf 100 700 Td <${codes}> Tj ET`, resources: '/Font<</E 120 0 R>>', objects: type3 }, '山 田');
       expect(shown('010203').status).toBe('match');
-      const empty: readonly TestObject[] = [
+      const empty: ReadonlyArray<TestObject> = [
         ...type3.filter(object => object.number !== 121),
         { number: 121, body: streamBody('', '1000 0 0 -120 1000 880 d1') },
       ];
@@ -390,7 +394,7 @@ describe('text matching', () => {
     });
 
     it('rejects a Chromium g0 glyph whatever text it claims', () => {
-      const chromium: readonly TestObject[] = [
+      const chromium: ReadonlyArray<TestObject> = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/Type3/FontBBox[100 120 900 -880]/FontMatrix[.001 0 0 -.001 0 0]/CharProcs<</g0 121 0 R/g1A 121 0 R>>/Encoding<</Differences[0/g0/g1A]>>/FirstChar 0/LastChar 1/Widths[1000 1000]/FontDescriptor 111 0 R/ToUnicode 123 0 R>>',
@@ -503,14 +507,14 @@ describe('text matching', () => {
   describe('embedded cmaps', () => {
     // Glyph 1 is Ａ as the cmap maps U+FF21, glyph 2 a half-width alternate the cmap does not list, glyph 3 侭, glyph 4 葛, glyph 5 its variant for U+E0100, glyph 6 a vertical comma.
     const box = { advance: 1000, box: [100, 0, 900, 700] } as const;
-    const program = (variations: readonly SyntheticVariations[] = []): Uint8Array =>
+    const program = (variations: ReadonlyArray<SyntheticVariations> = []): Uint8Array =>
       syntheticTrueType({
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box, box, box, box, box],
         characters: [
-          [0xff21, 1],
-          [0x4fad, 3],
-          [0x845b, 4],
+          [0xff_21, 1],
+          [0x4f_ad, 3],
+          [0x84_5b, 4],
         ],
         variations,
       });
@@ -523,7 +527,7 @@ describe('text matching', () => {
 
     it('rejects a simple TrueType glyph when ToUnicode disagrees with its standard encoding name', () => {
       const simpleProgram = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x41, 1]] });
-      const objects: readonly TestObject[] = [
+      const objects: ReadonlyArray<TestObject> = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 65/LastChar 65/Widths[1000]/Encoding<</Differences[65/A]>>/FontDescriptor 122 0 R/ToUnicode 121 0 R>>',
@@ -576,7 +580,7 @@ describe('text matching', () => {
     it('reports a glyph half an em wide whose text is a full-width or wide character, as hwid draws beside other text', () => {
       // Chromium's hwid alternates keep ToUnicode U+FF21 but are 500 thousandths wide in W; palt and other positioning features leave W at 1000.
       // A subset that keeps only the alternate has no U+FF21 in its cmap; a half-width A is no evidence, and in a font that shows such characters at proportional widths, as Ｂ at 700 here, nor is a half-em Ａ.
-      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c71, 1]] });
+      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c_71, 1]] });
       const texts = ['山', 'Ａ', 'A', 'Ｂ'];
       const proof = { texts, program: unlisted, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 3)} ET`, widths: '/W[2[500]3[500]]' };
       expect(summaryOf(proof, '山ＡA')).toStrictEqual([
@@ -590,7 +594,7 @@ describe('text matching', () => {
 
     it('reports a glyph whose own character the cmap maps to it but whose folded character it does not list', () => {
       // Chromium's subset cmap lists every code point of a retained glyph, so a font that maps U+2F2D but not U+5C71 to the glyph draws the radical, not 山.
-      const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f2d, 1]] });
+      const radical = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box], characters: [[0x2f_2d, 1]] });
       expect(summaryOf({ texts: ['⼭'], program: radical, content: line(1) }, '山')).toStrictEqual([
         'mismatch',
         '山',
@@ -604,9 +608,9 @@ describe('text matching', () => {
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box, box, box],
         characters: [
-          [0x5c71, 1],
-          [0x7530, 2],
-          [0x3001, 3],
+          [0x5c_71, 1],
+          [0x75_30, 2],
+          [0x30_01, 3],
         ],
       });
       const texts = ['山', '田', '、', '、'];
@@ -625,10 +629,10 @@ describe('text matching', () => {
         name: 'Test',
         glyphs: [{ advance: 1000 }, box, box],
         characters: [
-          [0x2f3e, 1],
-          [0x6238, 1],
-          [0x4fad, 2],
-          [0x5118, 1],
+          [0x2f_3e, 1],
+          [0x62_38, 1],
+          [0x4f_ad, 2],
+          [0x51_18, 1],
         ],
       });
       const result = match({ texts: ['⼾'], program: shared, content: line(1) }, '戸');
@@ -645,15 +649,15 @@ describe('text matching', () => {
 
     it('confirms a variation sequence through the format 14 subtable', () => {
       const texts = [null, null, null, '葛', '葛󠄀'];
-      const withVariant = program([{ selector: 0xe0100, defaults: [], glyphs: [[0x845b, 5]] }]);
+      const withVariant = program([{ selector: 0xe_01_00, defaults: [], glyphs: [[0x84_5b, 5]] }]);
       expect(statusOf({ texts, program: withVariant, content: `BT /T 10 Tf 100 700 Td ${show(5)} ET` }, '葛󠄀')).toBe('match');
-      const defaultVariant = program([{ selector: 0xe0100, defaults: [0x845b], glyphs: [] }]);
+      const defaultVariant = program([{ selector: 0xe_01_00, defaults: [0x84_5b], glyphs: [] }]);
       expect(statusOf({ texts, program: defaultVariant, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('match');
       expect(statusOf({ texts, program: plain, content: spanned(['葛󠄀', 4]) }, '葛󠄀')).toBe('unverified');
     });
 
     it('reports Type 3 glyphs as checked by their text only', () => {
-      const type3: readonly TestObject[] = [
+      const type3: ReadonlyArray<TestObject> = [
         {
           number: 120,
           body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]>>',

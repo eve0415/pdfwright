@@ -13,7 +13,7 @@ import { decodeStream } from './decodeStream.ts';
 
 type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
 
-const stream = (data: Uint8Array, entries: [string, PdfDirectObject][]): PdfStream => ({
+const stream = (data: Uint8Array, entries: Array<[string, PdfDirectObject]>): PdfStream => ({
   kind: 'stream',
   dictionary: new PdfDictionaryEntries(entries.map(([key, value]) => [pdfName(key).bytes, value])),
   data,
@@ -28,11 +28,11 @@ const deref = (value: PdfDirectObject | undefined): PdfObject | undefined => (va
 
 interface Decoded {
   data: Uint8Array;
-  warnings: LoadWarning[];
+  warnings: Array<LoadWarning>;
 }
 
 const decode = (input: PdfStream, maxDecodedBytes = 1_048_576): Decoded => {
-  const warnings: LoadWarning[] = [];
+  const warnings: Array<LoadWarning> = [];
   const data = decodeStream(input, {
     maxDecodedBytes,
     warn: warning => {

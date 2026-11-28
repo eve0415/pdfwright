@@ -21,9 +21,13 @@ export const writeClipGroup = (writer: NativeWriter, group: ClipGroup, options: 
   const rule = group.clip.fillRule ?? 'nonzero';
   writer.line('0 Ae');
   writer.line('q');
-  for (const item of group.items) options.writeItem(item);
+  for (const item of group.items) {
+    options.writeItem(item);
+  }
   const writeState = (): void => {
-    if (state.value !== rule) writer.line(fillRuleLine(rule));
+    if (state.value !== rule) {
+      writer.line(fillRuleLine(rule));
+    }
     state.value = rule;
   };
   writeNativeGeometry(writer, group.clip, { yOffset: options.yOffset ?? 0, writeState, ending: ['h', 'W', 'n'] });
@@ -35,7 +39,9 @@ export const writeClipGroup = (writer: NativeWriter, group: ClipGroup, options: 
 export const writeGroup = (writer: NativeWriter, group: Group, options: WriteGroupOptions): void => {
   writer.line('0 Ae');
   writer.line('u');
-  for (const item of group.items) options.writeItem(item);
+  for (const item of group.items) {
+    options.writeItem(item);
+  }
   writer.line('U');
   const opacity = group.opacity ?? 1;
   if (opacity !== 1 || group.isolated === true) {

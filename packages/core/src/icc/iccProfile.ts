@@ -28,7 +28,7 @@ export interface IccProfile {
   readonly pcsToDevice: Readonly<Partial<Record<0 | 1 | 2, LutTag>>>;
   readonly identity: Uint8Array;
   readonly bytes: Uint8Array;
-  readonly warnings: readonly IccWarning[];
+  readonly warnings: ReadonlyArray<IccWarning>;
 }
 
 /** A parsed table or multi-process lookup tag in an ICC conversion pipeline under ICC.1:2022, 10.10–10.13. */
@@ -46,7 +46,9 @@ export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOpti
   if (!Number.isSafeInteger(maxIccProfileBytes) || maxIccProfileBytes < 132) {
     throw new InvalidArgumentError('maxIccProfileBytes must be an integer of at least 132');
   }
-  if (source.length > maxIccProfileBytes) throw new ResourceLimitError('ICC profile exceeds maxIccProfileBytes');
+  if (source.length > maxIccProfileBytes) {
+    throw new ResourceLimitError('ICC profile exceeds maxIccProfileBytes');
+  }
   const structure = parseIccStructure(source);
   if (
     structure.tags.some(tag => (tag.signature.startsWith('D2B') || tag.signature.startsWith('B2D')) && ['0', '1', '2', '3'].includes(tag.signature.charAt(3)))
@@ -80,12 +82,14 @@ export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOpti
     const result: Partial<Record<0 | 1 | 2, LutTag>> = {};
     for (const intent of [0, 1, 2] as const) {
       const tag = tags.get(`${prefix}${String(intent)}`);
-      if (tag === undefined) continue;
+      if (tag === undefined) {
+        continue;
+      }
       const type = new TextDecoder('ascii').decode(structure.bytes.subarray(tag.offset, tag.offset + 4));
       if ((type === 'mAB ' && prefix === 'B2A') || (type === 'mBA ' && prefix === 'A2B')) {
         throw new InvalidProfileError('ICC LUT type disagrees with direction', 'tag-type-mismatch', { offset: tag.offset, tag: tag.signature });
       }
-      const key = `${tag.offset}:${tag.size}`;
+      const key = `${String(tag.offset)}:${String(tag.size)}`;
       let lut = decodedLuts.get(key);
       if (lut === undefined) {
         // ICC.1:2022, 7.3.1 allows tags to share an element when both its offset and size match.
@@ -105,8 +109,12 @@ export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOpti
     return result;
   };
   const trc = (): IccProfile['trc'] => {
-    if (redTrc !== undefined && greenTrc !== undefined && blueTrc !== undefined) return { red: redTrc, green: greenTrc, blue: blueTrc };
-    if (grayTrc !== undefined) return { gray: grayTrc };
+    if (redTrc !== undefined && greenTrc !== undefined && blueTrc !== undefined) {
+      return { red: redTrc, green: greenTrc, blue: blueTrc };
+    }
+    if (grayTrc !== undefined) {
+      return { gray: grayTrc };
+    }
     return undefined;
   };
   return {

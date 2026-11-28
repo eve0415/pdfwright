@@ -44,7 +44,7 @@ const PROGRAM = syntheticTrueType({
 
 const SIMPLE_WIDTHS = [250, ...Array.from({ length: 32 }, () => 0), 1000, 500, 1000].join(' ');
 
-const FONTS: readonly TestObject[] = [
+const FONTS: ReadonlyArray<TestObject> = [
   { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
   { number: 108, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-V/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
   { number: 109, body: '<</Type/Font/Subtype/Type0/BaseFont/AAAAAA+Test/Encoding/Identity-V/DescendantFonts[110 0 R]/ToUnicode 107 0 R>>' },
@@ -121,15 +121,20 @@ const ENTITIES: ReadonlyMap<string, string> = new Map([
 // XML character references and the five predefined entities.
 const unescapeXml = (text: string): string =>
   text.replaceAll(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/giu, (_, reference: string) => {
-    if (reference.startsWith('#x') || reference.startsWith('#X')) return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
-    if (reference.startsWith('#')) return String.fromCodePoint(Number(reference.slice(1)));
+    if (reference.startsWith('#x') || reference.startsWith('#X')) {
+      return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
+    }
+    if (reference.startsWith('#')) {
+      return String.fromCodePoint(Number(reference.slice(1)));
+    }
     return ENTITIES.get(reference) ?? '';
   });
 
 // mutool draw -F stext: one char element per glyph, with its origin as x and y and its quad; chars MuPDF adds between words carry flag 4 and are skipped.
-const mupdfChars = (xml: string, page: number): Char[] => {
+const mupdfChars = (xml: string, page: number): Array<Char> => {
   const pages = xml.split('<page ').slice(1);
-  return [...(pages[page] ?? '').matchAll(/<char [^>]*\/>/gu)]
+  return (pages[page] ?? '')
+    .matchAll(/<char [^>]*\/>/gu)
     .map(([element]) => element)
     .filter(element => Math.floor(Number(attribute(element, 'flags')) / 4) % 2 === 0)
     .map(element => {
@@ -142,7 +147,8 @@ const mupdfChars = (xml: string, page: number): Char[] => {
         right: Math.max(...xs),
         c: unescapeXml(attribute(element, 'c')),
       };
-    });
+    })
+    .toArray();
 };
 
 interface Word {
@@ -154,7 +160,7 @@ interface Word {
 }
 
 // pdftotext -bbox: one word element per word with its box.
-const popplerWords = (html: string, page: number): Word[] => {
+const popplerWords = (html: string, page: number): Array<Word> => {
   const pages = html.split('<page ').slice(1);
   return [...(pages[page] ?? '').matchAll(/<word ([^>]*)>([^<]*)<\/word>/gu)].map(([, attributes = '', text = '']) => ({
     xMin: Number(attribute(` ${attributes}`, 'xMin')),
@@ -165,17 +171,21 @@ const popplerWords = (html: string, page: number): Word[] => {
   }));
 };
 
-const xs = (glyph: PageGlyph): number[] => [glyph.quad[0], glyph.quad[2], glyph.quad[4], glyph.quad[6]];
-const ys = (glyph: PageGlyph): number[] => [glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]].map(y => PAGE_HEIGHT - y);
+const xs = (glyph: PageGlyph): Array<number> => [glyph.quad[0], glyph.quad[2], glyph.quad[4], glyph.quad[6]];
+const ys = (glyph: PageGlyph): Array<number> => [glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]].map(y => PAGE_HEIGHT - y);
 
 const near = (a: number, b: number, tolerance: number): boolean => Math.abs(a - b) <= tolerance;
 
 // Each glyph against the MuPDF char at the same position in content order: its origin, its text, and, for upright text, its box's left and right edges.
-const mupdfDifferences = (glyphs: readonly PageGlyph[], chars: readonly Char[], edges: boolean): string[] => {
-  if (glyphs.length !== chars.length) return [`${String(glyphs.length)} glyphs against ${String(chars.length)} MuPDF chars`];
+const mupdfDifferences = (glyphs: ReadonlyArray<PageGlyph>, chars: ReadonlyArray<Char>, edges: boolean): Array<string> => {
+  if (glyphs.length !== chars.length) {
+    return [`${String(glyphs.length)} glyphs against ${String(chars.length)} MuPDF chars`];
+  }
   return glyphs.flatMap((glyph, index) => {
     const char = chars[index];
-    if (char === undefined) return [];
+    if (char === undefined) {
+      return [];
+    }
     const [x, y] = [glyph.origin[0], PAGE_HEIGHT - glyph.origin[1]];
     const problems = [
       near(x, char.x, ORIGIN_TOLERANCE) && near(y, char.y, ORIGIN_TOLERANCE)
@@ -186,23 +196,31 @@ const mupdfDifferences = (glyphs: readonly PageGlyph[], chars: readonly Char[], 
         ? ''
         : `edges ${String(Math.min(...xs(glyph)))}–${String(Math.max(...xs(glyph)))} against ${String(char.left)}–${String(char.right)}`,
     ];
-    return problems.filter(problem => problem !== '').map(problem => `glyph ${String(index)}: ${problem}`);
+    return problems
+      .values()
+      .filter(problem => problem !== '')
+      .map(problem => `glyph ${String(index)}: ${problem}`)
+      .toArray();
   });
 };
 
 // Each poppler word against the glyphs whose text makes it up, in order: its left and right edges closely, its top and bottom within a quarter of the font size.
-const popplerDifferences = (glyphs: readonly PageGlyph[], words: readonly Word[]): string[] => {
+const popplerDifferences = (glyphs: ReadonlyArray<PageGlyph>, words: ReadonlyArray<Word>): Array<string> => {
   const shown = glyphs.filter(glyph => glyph.text !== null && glyph.text.trim() !== '');
   let next = 0;
   return words.flatMap(word => {
-    const part: PageGlyph[] = [];
+    const part: Array<PageGlyph> = [];
     while (part.map(glyph => glyph.text).join('').length < word.text.length && next < shown.length) {
       const glyph = shown[next++];
-      if (glyph !== undefined) part.push(glyph);
+      if (glyph !== undefined) {
+        part.push(glyph);
+      }
     }
     const [first] = part;
     const last = part.at(-1);
-    if (first === undefined || last === undefined || part.map(glyph => glyph.text).join('') !== word.text) return [`word ${word.text} has no glyphs`];
+    if (first === undefined || last === undefined || part.map(glyph => glyph.text).join('') !== word.text) {
+      return [`word ${word.text} has no glyphs`];
+    }
     const size = first.fontSize * EXTENT_FRACTION;
     const top = Math.min(...part.flatMap(glyph => ys(glyph)));
     const bottom = Math.max(...part.flatMap(glyph => ys(glyph)));
@@ -226,7 +244,7 @@ const withFile = async <T>(bytes: Uint8Array, use: (file: string) => Promise<T>)
 };
 
 // Ghostscript's bbox device: the bounds of the page's ink in default user space.
-const inkBounds = async (file: string): Promise<readonly number[]> => {
+const inkBounds = async (file: string): Promise<ReadonlyArray<number>> => {
   const { output } = await runTool('gs', ['-q', '-dNOPAUSE', '-dBATCH', '-dSAFER', '-sDEVICE=bbox', file]);
   return (/%%HiResBoundingBox: (\S+) (\S+) (\S+) (\S+)/u.exec(output)?.slice(1) ?? []).map(Number);
 };
@@ -234,10 +252,14 @@ const inkBounds = async (file: string): Promise<readonly number[]> => {
 const INK_TOLERANCE = 0.01;
 
 // Whether the ink of a page showing one glyph lies inside that glyph's box, with both for the report.
-const inkInsideBox = async (content: string): Promise<{ readonly inside: boolean; readonly ink: readonly number[]; readonly box: readonly number[] }> => {
+const inkInsideBox = async (
+  content: string,
+): Promise<{ readonly inside: boolean; readonly ink: ReadonlyArray<number>; readonly box: ReadonlyArray<number> }> => {
   const bytes = textPdfBytes({ pages: [{ resources: RESOURCES, content }], objects: FONTS });
   const [glyph] = extractText(loadDocument(bytes), 0).glyphs;
-  if (glyph === undefined) return { inside: false, ink: [], box: [] };
+  if (glyph === undefined) {
+    return { inside: false, ink: [], box: [] };
+  }
   const box = [
     Math.min(...xs(glyph)),
     Math.min(glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]),
@@ -255,10 +277,14 @@ const hexCid = (value: number): string => value.toString(16).padStart(4, '0').to
 
 const realVerticalCids = (program: Uint8Array): readonly [number, number] => {
   const reading = readTrueTypeCmap(program);
-  if (reading.kind !== 'cmap') throw new Error('IPAGothic has no readable Unicode cmap');
-  const first = reading.cmap.glyph(0x4e00);
-  const second = reading.cmap.glyph(0x4e8c);
-  if (first === undefined || second === undefined) throw new Error('IPAGothic lacks the test glyphs');
+  if (reading.kind !== 'cmap') {
+    throw new Error('IPAGothic has no readable Unicode cmap');
+  }
+  const first = reading.cmap.glyph(0x4e_00);
+  const second = reading.cmap.glyph(0x4e_8c);
+  if (first === undefined || second === undefined) {
+    throw new Error('IPAGothic lacks the test glyphs');
+  }
   return [first, second];
 };
 
@@ -297,7 +323,9 @@ const realVerticalInk = async (
 ): Promise<{ readonly text: string | null; readonly inside: boolean }> => {
   const single = realVerticalPdf(program, cids, `BT /V 20 Tf 300 400 Td <${hexCid(cid)}> Tj ET`);
   const [glyph] = extractText(loadDocument(single), 0).glyphs;
-  if (glyph === undefined) throw new Error('vertical glyph was not extracted');
+  if (glyph === undefined) {
+    throw new Error('vertical glyph was not extracted');
+  }
   const ink = await withFile(single, inkBounds);
   const box = [
     Math.min(...xs(glyph)),
@@ -317,9 +345,13 @@ const realVerticalInk = async (
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
   for (const [file, entry] of Object.entries(parsed)) {
-    if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
   }
   return failing;
 };
@@ -329,7 +361,9 @@ const extractionFailure = async (file: string): Promise<string | undefined> => {
   try {
     const bytes = await readFile(file);
     const document = loadDocument(new Uint8Array(bytes));
-    for (let page = 0; page < document.pageCount; page++) extractText(document, page);
+    for (let page = 0; page < document.pageCount; page++) {
+      extractText(document, page);
+    }
     return undefined;
   } catch (error: unknown) {
     return error instanceof Error ? error.message : String(error);
@@ -337,17 +371,23 @@ const extractionFailure = async (file: string): Promise<string | undefined> => {
 };
 
 // Extracts the text of every page of every file of a corpus set that loads, one file after another, and lists the files where extraction throws.
-const extractionFailures = async (set: string, directory: string): Promise<string[]> => {
+const extractionFailures = async (set: string, directory: string): Promise<Array<string>> => {
   const failing = await expectedErrors();
-  const names = await readdir(directory).catch((): string[] => []);
+  const names = await readdir(directory).catch((): Array<string> => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
-  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
-  const thrown: string[] = [];
-  const next = async (index: number): Promise<string[]> => {
+  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
+    throw new Error('govdocs1 corpus is missing');
+  }
+  const thrown: Array<string> = [];
+  const next = async (index: number): Promise<Array<string>> => {
     const name = files[index];
-    if (name === undefined) return thrown;
+    if (name === undefined) {
+      return thrown;
+    }
     const failure = await extractionFailure(path.join(directory, name));
-    if (failure !== undefined) thrown.push(`${set}/${name}: ${failure}`);
+    if (failure !== undefined) {
+      thrown.push(`${set}/${name}: ${failure}`);
+    }
     return next(index + 1);
   };
   return next(0);

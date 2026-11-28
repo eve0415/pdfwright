@@ -18,8 +18,8 @@ export interface SampledCmykFunction {
 
 export interface CmykFunctionConfig {
   readonly dimensions: number;
-  readonly domain: readonly number[];
-  readonly evaluate: (values: readonly number[]) => Float64Array;
+  readonly domain: ReadonlyArray<number>;
+  readonly evaluate: (values: ReadonlyArray<number>) => Float64Array;
   readonly destination: IccProfile;
   readonly grid?: number;
   readonly minimumGrid?: number;
@@ -35,10 +35,12 @@ interface TintSamples {
 const gridValues = (config: CmykFunctionConfig, grid: number): Float64Array => {
   const { dimensions, domain, evaluate } = config;
   const count = grid ** dimensions;
-  if (!Number.isSafeInteger(count) || count > 100_000) throw new ResourceLimitError('colour function table exceeds the sampling limit');
+  if (!Number.isSafeInteger(count) || count > 100_000) {
+    throw new ResourceLimitError('colour function table exceeds the sampling limit');
+  }
   const values = new Float64Array(count * 4);
   for (let index = 0; index < count; index++) {
-    const inputs: number[] = [];
+    const inputs: Array<number> = [];
     for (let axis = 0; axis < dimensions; axis++) {
       const fraction = (Math.floor(index / grid ** axis) % grid) / (grid - 1);
       inputs.push((domain[axis * 2] ?? 0) + fraction * ((domain[axis * 2 + 1] ?? 1) - (domain[axis * 2] ?? 0)));
@@ -51,7 +53,7 @@ const gridValues = (config: CmykFunctionConfig, grid: number): Float64Array => {
 const midpointError = (config: CmykFunctionConfig, values: Float64Array, grid: number): number => {
   const { domain, evaluate, destination } = config;
   const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
-  const lab = (cmyk: Float64Array): readonly number[] => {
+  const lab = (cmyk: Float64Array): ReadonlyArray<number> => {
     const pcs = toPcs(cmyk);
     return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
   };
@@ -73,7 +75,9 @@ const samples = (config: CmykFunctionConfig): TintSamples => {
   for (let grid = config.minimumGrid ?? 256; ; grid *= 2) {
     const values = gridValues(config, grid);
     const maxDeltaE2000 = midpointError(config, values, grid);
-    if (maxDeltaE2000 <= (config.midpointTolerance ?? 0.1) || grid >= 4096) return { grid, values, maxDeltaE2000 };
+    if (maxDeltaE2000 <= (config.midpointTolerance ?? 0.1) || grid >= 4096) {
+      return { grid, values, maxDeltaE2000 };
+    }
   }
 };
 
@@ -82,7 +86,7 @@ export const sampleCmykFunction = (config: CmykFunctionConfig): SampledCmykFunct
   const sampled = samples(config);
   const writer = new ByteWriter();
   for (const value of sampled.values) {
-    const quantized = Math.round(value * 65535);
+    const quantized = Math.round(value * 65_535);
     writer.writeByte(Math.floor(quantized / 256));
     writer.writeByte(quantized % 256);
   }

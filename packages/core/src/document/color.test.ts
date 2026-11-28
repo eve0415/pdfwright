@@ -35,6 +35,8 @@ describe('device colours and graphics state', () => {
     expect(pdf).toContain('/ExtGState<</GS1');
     expect(pdf).toContain('/GS2');
     expect(pdf).not.toContain('/GS3');
-    for (const fragment of ['/CA 0.5', '/ca 0.3', '/OP false', '/op true', '/OPM 1', '/SMask/None']) expect(pdf).toContain(fragment);
+    for (const fragment of ['/CA 0.5', '/ca 0.3', '/OP false', '/op true', '/OPM 1', '/SMask/None']) {
+      expect(pdf).toContain(fragment);
+    }
   });
 });

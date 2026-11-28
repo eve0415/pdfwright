@@ -26,7 +26,9 @@ const LENGTH = pdfName('Length').bytes;
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -50,20 +52,27 @@ class MergeWriter {
   // Copied gaps can be empty where the original value began with a delimiter; a new value that begins with a regular character then needs white space to stay a separate token (ISO 32000-1:2008, 7.2.2).
   private separate(startsRegular: boolean): void {
     const { last } = this.writer;
-    if (startsRegular && last !== undefined && isRegular(last)) this.writer.writeByte(0x20);
+    if (startsRegular && last !== undefined && isRegular(last)) {
+      this.writer.writeByte(0x20);
+    }
   }
 
   value(value: PdfDirectObject, original: SourceNode | undefined): void {
     const same = original !== undefined && deepEqual(value, original.value, 'strict');
     this.separate(same ? isRegular(this.context.bytes[original.start] ?? 0x20) : value.kind !== 'dictionary' && value.kind !== 'array' && needsSpace(value));
-    if (same) this.copy(original.start, original.end);
-    else if (value.kind === 'dictionary' && original?.entries !== undefined) this.dictionary(value.entries, original);
-    else if (value.kind === 'array' && original?.items !== undefined) this.array(value.items, original);
-    else writePdfObject(this.writer, value, this.context);
+    if (same) {
+      this.copy(original.start, original.end);
+    } else if (value.kind === 'dictionary' && original?.entries !== undefined) {
+      this.dictionary(value.entries, original);
+    } else if (value.kind === 'array' && original?.items !== undefined) {
+      this.array(value.items, original);
+    } else {
+      writePdfObject(this.writer, value, this.context);
+    }
   }
 
   dictionary(entries: PdfDictionaryEntries, original: SourceNode | undefined): void {
-    const occurrences = new Map<string, SourceEntry[]>();
+    const occurrences = new Map<string, Array<SourceEntry>>();
     for (const entry of original?.entries ?? []) {
       const key = latin1(entry.key);
       occurrences.set(key, [...(occurrences.get(key) ?? []), entry]);
@@ -80,7 +89,9 @@ class MergeWriter {
       }
       if (last === undefined) {
         writeName(this.writer, key);
-        if (needsSpace(value)) this.writer.writeByte(0x20);
+        if (needsSpace(value)) {
+          this.writer.writeByte(0x20);
+        }
       } else {
         // The key's own spelling and the bytes between it and its value are kept.
         this.copy(last.keyStart, last.node.start);
@@ -90,22 +101,29 @@ class MergeWriter {
     this.writer.writeAscii('>>');
   }
 
-  private array(items: readonly PdfDirectObject[], original: SourceNode): void {
+  private array(items: ReadonlyArray<PdfDirectObject>, original: SourceNode): void {
     const originals = original.items ?? [];
     const [first] = originals;
     const last = originals.at(-1);
     this.writer.writeByte(0x5b);
-    if (first !== undefined && items.length > 0) this.copy(original.start + 1, first.start);
+    if (first !== undefined && items.length > 0) {
+      this.copy(original.start + 1, first.start);
+    }
     for (const [index, item] of items.entries()) {
       const previous = originals[index - 1];
       const current = originals[index];
       if (index > 0) {
-        if (previous !== undefined && current !== undefined) this.copy(previous.end, current.start);
-        else this.writer.writeByte(0x20);
+        if (previous !== undefined && current !== undefined) {
+          this.copy(previous.end, current.start);
+        } else {
+          this.writer.writeByte(0x20);
+        }
       }
       this.value(item, current);
     }
-    if (last !== undefined && items.length === originals.length) this.copy(last.end, original.end - 1);
+    if (last !== undefined && items.length === originals.length) {
+      this.copy(last.end, original.end - 1);
+    }
     this.writer.writeByte(0x5d);
   }
 }
@@ -122,7 +140,9 @@ export const mergeSerialize = (writer: ByteWriter, value: PdfObject, context: Me
   entries.set(LENGTH, pdfInteger(value.data.length));
   if (context.original !== undefined && deepEqual({ kind: 'dictionary', entries }, context.original.value, 'strict')) {
     writer.writeBytes(context.bytes.subarray(context.original.start, context.original.end));
-  } else merger.dictionary(entries, context.original);
+  } else {
+    merger.dictionary(entries, context.original);
+  }
   writer.writeAscii('\nstream\n');
   writer.writeBytes(value.data);
   writer.writeAscii('\nendstream');

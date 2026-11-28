@@ -23,8 +23,8 @@ export interface HandleOptions {
 export interface DocumentHandles {
   readonly records: DocumentRecords;
   /** Images and groups in creation order. */
-  readonly images: readonly ImageRecord[];
-  readonly groups: readonly GroupRecord[];
+  readonly images: ReadonlyArray<ImageRecord>;
+  readonly groups: ReadonlyArray<GroupRecord>;
   separation: (options: SeparationOptions) => Separation;
   image: (options: ImageOptions) => PdfImage;
   group: (options: GroupOptions, render: (content: ContentBuilder) => void) => PdfGroup;
@@ -32,8 +32,8 @@ export interface DocumentHandles {
 
 export const createDocumentHandles = (options: HandleOptions): DocumentHandles => {
   const documentSeparations = new Map<string, Separation>();
-  const images: ImageRecord[] = [];
-  const groups: GroupRecord[] = [];
+  const images: Array<ImageRecord> = [];
+  const groups: Array<GroupRecord> = [];
   const records: DocumentRecords = { separations: new WeakMap(), images: new WeakMap(), groups: new WeakMap() };
   const { fractionDigits } = options;
   return {
@@ -46,7 +46,9 @@ export const createDocumentHandles = (options: HandleOptions): DocumentHandles =
         kind: 'PdfGroup',
         pieceInfo: (input: PieceInfoInput): void => {
           const record = groupRecord(records, handle);
-          if (record.written === true) throw new ValidationError('group PieceInfo must be set before content first draws the group in a loaded document');
+          if (record.written === true) {
+            throw new ValidationError('group PieceInfo must be set before content first draws the group in a loaded document');
+          }
           record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
         },
       });

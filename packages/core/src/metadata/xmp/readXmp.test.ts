@@ -14,12 +14,12 @@ const packet = (body: string, rdfAttributes = ''): string =>
 
 const read = (text: string): ReadXmp => readXmp(new TextEncoder().encode(text));
 
-const properties = (text: string): readonly XmpProperty[] => {
+const properties = (text: string): ReadonlyArray<XmpProperty> => {
   const result = read(text);
   return result.ok ? result.packet.properties : [];
 };
 
-const summary = (text: string): readonly (readonly [string, string, unknown])[] =>
+const summary = (text: string): ReadonlyArray<readonly [string, string, unknown]> =>
   properties(text).map(property => [`${property.namespace}${property.localName}`, property.form, property.value] as const);
 
 const refusal = (text: string): string | undefined => {
@@ -27,19 +27,19 @@ const refusal = (text: string): string | undefined => {
   return result.ok ? undefined : result.reason;
 };
 
-const findings = (text: string): readonly string[] => {
+const findings = (text: string): ReadonlyArray<string> => {
   const result = read(text);
   return result.ok ? result.packet.findings.map(finding => finding.code) : [result.reason];
 };
 
-const descriptions = (...abouts: readonly string[]): string => packet(abouts.map(about => `<rdf:Description ${about}/>`).join(''));
+const descriptions = (...abouts: ReadonlyArray<string>): string => packet(abouts.map(about => `<rdf:Description ${about}/>`).join(''));
 
 const subject = (text: string): string | undefined => {
   const result = read(text);
   return result.ok ? result.packet.subject : undefined;
 };
 
-const wrapperAndCount = (text: string): readonly unknown[] | string => {
+const wrapperAndCount = (text: string): ReadonlyArray<unknown> | string => {
   const result = read(text);
   return result.ok ? [result.packet.wrapper, result.packet.properties.length] : result.reason;
 };
@@ -54,7 +54,7 @@ const utf16Packet = (text: string): Uint8Array => {
   return Uint8Array.from(bytes);
 };
 
-const encodingFindings = (bytes: Uint8Array): readonly string[] => {
+const encodingFindings = (bytes: Uint8Array): ReadonlyArray<string> => {
   const result = readXmp(bytes);
   return result.ok ? [result.packet.encoding, ...result.packet.findings.map(finding => finding.code)] : [result.reason];
 };

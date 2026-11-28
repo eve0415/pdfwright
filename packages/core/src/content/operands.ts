@@ -9,7 +9,7 @@ type OperandKind = 'number' | 'name' | 'string' | 'array' | 'properties';
 const N = 'number';
 
 // ISO 32000-1:2008, Annex A, Table A.1 gives every operator and its operands; the operators with a variable operand count (SC, SCN, sc, scn) are checked where they are executed.
-const SIGNATURES: ReadonlyMap<string, readonly OperandKind[]> = new Map<string, readonly OperandKind[]>([
+const SIGNATURES: ReadonlyMap<string, ReadonlyArray<OperandKind>> = new Map<string, ReadonlyArray<OperandKind>>([
   ['b', []],
   ['B', []],
   ['b*', []],
@@ -81,31 +81,43 @@ const SIGNATURES: ReadonlyMap<string, readonly OperandKind[]> = new Map<string, 
 const VARIABLE = new Set(['SC', 'SCN', 'sc', 'scn', 'BI']);
 
 const matches = (operand: ContentOperand, kind: OperandKind): boolean => {
-  if (operand.kind === 'stray-delimiter') return false;
-  if (kind === 'number') return numberOf(operand) !== undefined;
-  if (kind === 'properties') return operand.kind === 'name' || operand.kind === 'dictionary';
+  if (operand.kind === 'stray-delimiter') {
+    return false;
+  }
+  if (kind === 'number') {
+    return numberOf(operand) !== undefined;
+  }
+  if (kind === 'properties') {
+    return operand.kind === 'name' || operand.kind === 'dictionary';
+  }
   return operand.kind === kind;
 };
 
-export type Operands = { readonly kind: 'known'; readonly values: readonly PdfDirectObject[] } | { readonly kind: 'unknown' } | { readonly kind: 'bad' };
+export type Operands = { readonly kind: 'known'; readonly values: ReadonlyArray<PdfDirectObject> } | { readonly kind: 'unknown' } | { readonly kind: 'bad' };
 
 /**
  * Checks an operation's operands against the operator's signature: the last operands before the operator are the ones it takes, as the Type 3 procedure reader also reads them, and too few or a value of the wrong type is bad.
  * Operators with a variable number of operands come back with all of them.
  */
-export const checkOperands = (operator: string, operands: readonly ContentOperand[]): Operands => {
+export const checkOperands = (operator: string, operands: ReadonlyArray<ContentOperand>): Operands => {
   if (VARIABLE.has(operator)) {
     const values = operands.filter(operand => operand.kind !== 'stray-delimiter');
     return values.length === operands.length ? { kind: 'known', values } : { kind: 'bad' };
   }
   const signature = SIGNATURES.get(operator);
-  if (signature === undefined) return { kind: 'unknown' };
-  if (operands.length < signature.length) return { kind: 'bad' };
+  if (signature === undefined) {
+    return { kind: 'unknown' };
+  }
+  if (operands.length < signature.length) {
+    return { kind: 'bad' };
+  }
   const taken = operands.slice(operands.length - signature.length);
-  const values: PdfDirectObject[] = [];
+  const values: Array<PdfDirectObject> = [];
   for (const [index, operand] of taken.entries()) {
     const kind = signature[index];
-    if (kind === undefined || operand.kind === 'stray-delimiter' || !matches(operand, kind)) return { kind: 'bad' };
+    if (kind === undefined || operand.kind === 'stray-delimiter' || !matches(operand, kind)) {
+      return { kind: 'bad' };
+    }
     values.push(operand);
   }
   return { kind: 'known', values };

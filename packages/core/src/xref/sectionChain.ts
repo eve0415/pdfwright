@@ -18,7 +18,7 @@ export interface ChainedSection {
 
 export interface SectionChain {
   /** Newest first, as reached through the Prev entries. */
-  readonly sections: readonly ChainedSection[];
+  readonly sections: ReadonlyArray<ChainedSection>;
   readonly startxrefCorrected: boolean;
   /** Whether some Prev entry links a classic section to a cross-reference stream or the reverse. */
   readonly mixed: boolean;
@@ -37,9 +37,13 @@ const XREF = [0x78, 0x72, 0x65, 0x66];
 
 const offsetEntry = (section: XrefSection, key: Uint8Array, name: string): number | undefined => {
   const value = section.trailer.get(key);
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   // ISO 32000-1:2008, Table 15 gives Prev as a byte offset; 7.5.8.2 requires the values of cross-reference stream entries to be direct, and an indirect one cannot be resolved before the index exists.
-  if (value.kind !== 'integer' || value.value < 0) throw new ParseError(`the ${name} entry is not a byte offset`, section.trailerStart);
+  if (value.kind !== 'integer' || value.value < 0) {
+    throw new ParseError(`the ${name} entry is not a byte offset`, section.trailerStart);
+  }
   return value.value;
 };
 
@@ -54,7 +58,9 @@ const readSection = (source: ByteSource, offset: number, context: XrefContext): 
  */
 export const readSectionChain = (source: ByteSource, start: ChainStart, context: XrefContext): SectionChain => {
   const first = sectionStartNear(source, start.startxref + start.shift);
-  if (first === undefined) throw new ParseError('startxref does not point at a cross-reference section', start.startxref + start.shift);
+  if (first === undefined) {
+    throw new ParseError('startxref does not point at a cross-reference section', start.startxref + start.shift);
+  }
   if (first.corrected) {
     context.warn({
       code: 'startxref-corrected',
@@ -62,12 +68,14 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
       offset: first.offset,
     });
   }
-  const sections: ChainedSection[] = [];
+  const sections: Array<ChainedSection> = [];
   const visited = new Set<number>();
   let mixed = false;
   for (let offset: number | undefined = first.offset; offset !== undefined;) {
     const located = sectionStartNear(source, offset);
-    if (located?.corrected !== false) throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    if (located?.corrected !== false) {
+      throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    }
     // Sections are recognised by where they start, so offsets that differ only by the white space before a section are the same section.
     if (visited.has(located.offset)) {
       context.warn({ code: 'prev-cycle', detail: 'a Prev entry points back at a section already read', offset });
@@ -90,5 +98,5 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
 };
 
 // ISO 32000-1:2008, 7.5.8.4: "if an entry is not found in any given standard cross-reference section, the search shall proceed to a cross-reference stream specified by the XRefStm entry before looking in the previous cross-reference section (the Prev entry in the trailer)."
-export const searchOrder = (chain: SectionChain): XrefSection[] =>
+export const searchOrder = (chain: SectionChain): Array<XrefSection> =>
   chain.sections.flatMap(({ section, hybrid }) => (hybrid === undefined ? [section] : [section, hybrid]));

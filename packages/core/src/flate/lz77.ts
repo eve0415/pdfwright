@@ -8,7 +8,7 @@ interface LevelLimits {
 const DEFAULT_LIMITS: LevelLimits = { chain: 128, lazy: 2 };
 
 // Chain limits and lazy-match thresholds for levels 1-9; both bounds increase with compression effort.
-const LEVEL_LIMITS: readonly LevelLimits[] = [
+const LEVEL_LIMITS: ReadonlyArray<LevelLimits> = [
   { chain: 0, lazy: 0 },
   { chain: 4, lazy: 0 },
   { chain: 8, lazy: 0 },
@@ -22,7 +22,7 @@ const LEVEL_LIMITS: readonly LevelLimits[] = [
 ];
 
 const hashAt = (data: Uint8Array, position: number): number =>
-  ((data[position] ?? 0) * 251 + (data[position + 1] ?? 0) * 31 + (data[position + 2] ?? 0)) & 65535;
+  ((data[position] ?? 0) * 251 + (data[position + 1] ?? 0) * 31 + (data[position + 2] ?? 0)) & 65_535;
 
 // Indexed loops over words, because iterating a typed array with for...of allocates an iterator result per element in unoptimized code.
 export interface TokenList {
@@ -41,14 +41,16 @@ export const matchToken = (length: number, distance: number): number => {
 export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): number => {
   // RFC 1951, 3.2 limits backward distances to 32 KiB and match lengths to 258 bytes.
   const end = data.length;
-  const heads = new Int32Array(65536).fill(-1);
+  const heads = new Int32Array(65_536).fill(-1);
   const previous = new Int32Array(end).fill(-1);
   const limits = LEVEL_LIMITS[level] ?? DEFAULT_LIMITS;
   let count = 0;
   let foundDistance = 0;
 
   const insert = (position: number): void => {
-    if (position + 2 >= end) return;
+    if (position + 2 >= end) {
+      return;
+    }
     const hash = hashAt(data, position);
     previous[position] = heads[hash] ?? -1;
     heads[hash] = position;
@@ -57,18 +59,24 @@ export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): 
   // Returns the best match length at position and leaves its distance in foundDistance.
   const find = (position: number): number => {
     foundDistance = 0;
-    if (position + 2 >= end) return 0;
+    if (position + 2 >= end) {
+      return 0;
+    }
     let candidate = heads[hashAt(data, position)] ?? -1;
     let bestLength = 2;
     const limit = Math.min(258, end - position);
     let searched = 0;
-    while (candidate >= 0 && position - candidate <= 32768 && searched < limits.chain) {
+    while (candidate >= 0 && position - candidate <= 32_768 && searched < limits.chain) {
       let length = 0;
-      while (length < limit && data[candidate + length] === data[position + length]) length++;
+      while (length < limit && data[candidate + length] === data[position + length]) {
+        length++;
+      }
       if (length > bestLength) {
         bestLength = length;
         foundDistance = position - candidate;
-        if (length === limit) break;
+        if (length === limit) {
+          break;
+        }
       }
       candidate = previous[candidate] ?? -1;
       searched++;
@@ -88,7 +96,9 @@ export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): 
         continue;
       }
       tokens[count++] = matchToken(length, distance);
-      for (let index = 1; index < length; index++) insert(position + index);
+      for (let index = 1; index < length; index++) {
+        insert(position + index);
+      }
       position += length;
     } else {
       tokens[count++] = data[position] ?? 0;

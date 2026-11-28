@@ -9,10 +9,10 @@ const translate = (x: number, y: number): Matrix => [1, 0, 0, 1, x, y];
 const scale = (x: number, y: number): Matrix => [x, 0, 0, y, 0, 0];
 
 // Rounds away the last bits of double arithmetic, and -0 to 0.
-const rounded = (matrix: Matrix): readonly number[] => matrix.map(value => Math.round(value * 1e12) / 1e12 + 0);
+const rounded = (matrix: Matrix): ReadonlyArray<number> => matrix.map(value => Math.round(value * 1e12) / 1e12 + 0);
 
 // The products of a matrix and its inverse on both sides, or undefined when it has none.
-const products = (matrix: Matrix): readonly (readonly number[])[] | undefined => {
+const products = (matrix: Matrix): ReadonlyArray<ReadonlyArray<number>> | undefined => {
   const inverse = invert(matrix);
   return inverse === undefined ? undefined : [rounded(multiply(matrix, inverse)), rounded(multiply(inverse, matrix))];
 };

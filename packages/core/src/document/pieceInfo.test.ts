@@ -1,3 +1,5 @@
+import type { PieceData } from './pieceInfo.ts';
+
 import { describe, expect, it } from 'vitest';
 
 import { compareDocuments } from '../compare/compareDocuments.ts';
@@ -60,6 +62,41 @@ describe('page-piece data and indirect objects', () => {
     expect(pdf).toContain('/#82b<</LastModified(D:20240302010405Z)/Private 7>>');
     expect(pdf).toContain('/ModDate(D:20240302010405Z)');
     expect(pdf).toContain('/PieceInfo<</App<</LastModified(D:20240302010405Z)');
+  });
+
+  it('reads the entries of a Map subclass that overrides its Symbol.toStringTag', () => {
+    class RetaggedMap extends Map<string, PieceData> {}
+    Object.defineProperty(RetaggedMap.prototype, Symbol.toStringTag, { get: () => 'Other' });
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: new RetaggedMap([['App', { private: { kind: 'integer', value: 7 } }]]) });
+    expect(ascii(document.save().toBytes())).toContain('/PieceInfo<</App<</LastModified(D:20240302010405Z)/Private 7>>>>');
+  });
+
+  it('reads the entries of a proxy over a Map', () => {
+    const target = new Map<string, PieceData>([['App', { private: { kind: 'integer', value: 7 } }]]);
+    const proxied = new Proxy(target, {
+      get: (map, key) => (key === 'entries' ? () => map.entries() : undefined),
+    });
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: proxied });
+    expect(ascii(document.save().toBytes())).toContain('/PieceInfo<</App<</LastModified(D:20240302010405Z)/Private 7>>>>');
+  });
+
+  it('reads a record whose application named entries is callable as a record', () => {
+    const callable = Object.assign((): undefined => undefined, { private: { kind: 'integer', value: 7 } as const });
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: { entries: callable } });
+    expect(ascii(document.save().toBytes())).toContain('/PieceInfo<</entries<</LastModified(D:20240302010405Z)/Private 7>>>>');
+  });
+
+  it('reads a record whose application is named entries as a record', () => {
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: { entries: { private: { kind: 'integer', value: 7 } } } });
+    expect(ascii(document.save().toBytes())).toContain('/PieceInfo<</entries<</LastModified(D:20240302010405Z)/Private 7>>>>');
   });
 
   it('requires an explicit Info modification date for document data and rejects direct private streams', () => {

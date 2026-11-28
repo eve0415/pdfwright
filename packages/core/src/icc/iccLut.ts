@@ -7,7 +7,7 @@ import { iccSignature } from './iccSignature.ts';
 
 /** A colour lookup table with grid dimensions, channel counts, and 8-bit or 16-bit samples; parsing caps it at 16,777,216 entries with ResourceLimitError under ICC.1:2022, 10.10–10.11. */
 export interface Clut {
-  readonly gridPoints: readonly number[];
+  readonly gridPoints: ReadonlyArray<number>;
   readonly inputChannels: number;
   readonly outputChannels: number;
   readonly values: Uint8Array | Uint16Array;
@@ -17,17 +17,21 @@ export interface Clut {
 export interface TableLut {
   readonly kind: 'lut8' | 'lut16';
   readonly matrix: Matrix3;
-  readonly input: readonly Curve[];
+  readonly input: ReadonlyArray<Curve>;
   readonly clut: Clut;
-  readonly output: readonly Curve[];
+  readonly output: ReadonlyArray<Curve>;
 }
 
-const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Curve[] => {
-  const result: Curve[] = [];
+const table = (view: DataView, config: { offset: number; count: number; channels: number; width: 1 | 2 }): Array<Curve> => {
+  const result: Array<Curve> = [];
   for (let channel = 0; channel < config.channels; channel++) {
     const start = config.offset + channel * config.count * config.width;
     const values = config.width === 1 ? new Uint8Array(view.buffer, view.byteOffset + start, config.count) : new Uint16Array(config.count);
-    if (config.width === 2) for (let index = 0; index < config.count; index++) values[index] = view.getUint16(start + index * 2);
+    if (config.width === 2) {
+      for (let index = 0; index < config.count; index++) {
+        values[index] = view.getUint16(start + index * 2);
+      }
+    }
     result.push({ kind: 'table', values });
   }
   return result;
@@ -47,7 +51,9 @@ const dimensions = (view: DataView, offset: number, width: 1 | 2) => {
   }
   let clutEntries = outputChannels;
   for (let channel = 0; channel < inputChannels; channel++) {
-    if (clutEntries > Math.floor(16_777_216 / grid)) throw new ResourceLimitError('ICC CLUT exceeds 16777216 entries');
+    if (clutEntries > Math.floor(16_777_216 / grid)) {
+      throw new ResourceLimitError('ICC CLUT exceeds 16777216 entries');
+    }
     clutEntries *= grid;
   }
   return { inputChannels, outputChannels, grid, inputCount, outputCount, clutEntries };
@@ -56,33 +62,43 @@ const dimensions = (view: DataView, offset: number, width: 1 | 2) => {
 export const readLut = (bytes: Uint8Array, offset: number, limit: number): TableLut => {
   // ICC.1:2022, 10.10 Table 40 and 10.11 Table 44 specify the mft2 and mft1 layouts and matrix → input → CLUT → output order.
   const name = iccSignature(bytes, offset);
-  if (name !== 'mft1' && name !== 'mft2') throw new InvalidProfileError('ICC tag must be lut8Type or lut16Type', 'tag-type-mismatch', { offset });
+  if (name !== 'mft1' && name !== 'mft2') {
+    throw new InvalidProfileError('ICC tag must be lut8Type or lut16Type', 'tag-type-mismatch', { offset });
+  }
   const width = name === 'mft1' ? 1 : 2;
   const headerSize = width === 1 ? 48 : 52;
-  if (offset < 0 || limit > bytes.length || limit - offset < headerSize) throw new InvalidProfileError('truncated ICC LUT header', 'bad-tag-data', { offset });
+  if (offset < 0 || limit > bytes.length || limit - offset < headerSize) {
+    throw new InvalidProfileError('truncated ICC LUT header', 'bad-tag-data', { offset });
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const { inputChannels, outputChannels, grid, inputCount, outputCount, clutEntries } = dimensions(view, offset, width);
   const inputBytes = inputChannels * inputCount * width;
   const clutBytes = clutEntries * width;
   const outputBytes = outputChannels * outputCount * width;
   const required = headerSize + inputBytes + clutBytes + outputBytes;
-  if (required > limit - offset) throw new InvalidProfileError('truncated ICC LUT data', 'bad-tag-data', { offset });
+  if (required > limit - offset) {
+    throw new InvalidProfileError('truncated ICC LUT data', 'bad-tag-data', { offset });
+  }
   const matrix: Matrix3 = [
-    view.getInt32(offset + 12) / 65536,
-    view.getInt32(offset + 16) / 65536,
-    view.getInt32(offset + 20) / 65536,
-    view.getInt32(offset + 24) / 65536,
-    view.getInt32(offset + 28) / 65536,
-    view.getInt32(offset + 32) / 65536,
-    view.getInt32(offset + 36) / 65536,
-    view.getInt32(offset + 40) / 65536,
-    view.getInt32(offset + 44) / 65536,
+    view.getInt32(offset + 12) / 65_536,
+    view.getInt32(offset + 16) / 65_536,
+    view.getInt32(offset + 20) / 65_536,
+    view.getInt32(offset + 24) / 65_536,
+    view.getInt32(offset + 28) / 65_536,
+    view.getInt32(offset + 32) / 65_536,
+    view.getInt32(offset + 36) / 65_536,
+    view.getInt32(offset + 40) / 65_536,
+    view.getInt32(offset + 44) / 65_536,
   ];
   const inputStart = offset + headerSize;
   const clutStart = inputStart + inputBytes;
   const outputStart = clutStart + clutBytes;
   const values = width === 1 ? bytes.subarray(clutStart, clutStart + clutEntries) : new Uint16Array(clutEntries);
-  if (width === 2) for (let index = 0; index < clutEntries; index++) values[index] = view.getUint16(clutStart + index * 2);
+  if (width === 2) {
+    for (let index = 0; index < clutEntries; index++) {
+      values[index] = view.getUint16(clutStart + index * 2);
+    }
+  }
   return {
     kind: width === 1 ? 'lut8' : 'lut16',
     matrix,

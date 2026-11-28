@@ -20,7 +20,9 @@ const grayProfile = (): Uint8Array => {
   const bytes = new Uint8Array(160);
   const view = new DataView(bytes.buffer);
   const signature = (offset: number, name: string): void => {
-    for (let index = 0; index < name.length; index++) bytes[offset + index] = name.codePointAt(index) ?? 0;
+    for (let index = 0; index < name.length; index++) {
+      bytes[offset + index] = name.codePointAt(index) ?? 0;
+    }
   };
   view.setUint32(0, bytes.length);
   bytes[8] = 4;
@@ -29,16 +31,16 @@ const grayProfile = (): Uint8Array => {
   signature(20, 'XYZ ');
   signature(36, 'acsp');
   view.setUint32(64, 1);
-  view.setInt32(68, Math.round(0.9642 * 65536));
-  view.setInt32(72, 65536);
-  view.setInt32(76, Math.round(0.8249 * 65536));
+  view.setInt32(68, Math.round(0.9642 * 65_536));
+  view.setInt32(72, 65_536);
+  view.setInt32(76, Math.round(0.8249 * 65_536));
   view.setUint32(128, 1);
   signature(132, 'kTRC');
   view.setUint32(136, 144);
   view.setUint32(140, 16);
   signature(144, 'curv');
   view.setUint32(152, 1);
-  view.setUint16(156, 0x0233);
+  view.setUint16(156, 0x02_33);
   return bytes;
 };
 const gray = parseIccProfile(grayProfile());
@@ -62,12 +64,16 @@ const resolveIn = (test: ReturnType<typeof context>, value: PdfDirectObject, opt
   resolveSourceSpace(test.document, value, { resources: test.resources, sourceRgbProfile: fallback, options });
 
 const rgbSource = (space: SourceSpace): Extract<SourceSpace, { kind: 'rgb' }> => {
-  if (space.kind !== 'rgb') throw new Error('expected RGB');
+  if (space.kind !== 'rgb') {
+    throw new Error('expected RGB');
+  }
   return space;
 };
 
 const specialSpace = (space: SourceSpace): Extract<SourceSpace, { kind: 'separation' | 'deviceN' }> => {
-  if (space.kind !== 'separation' && space.kind !== 'deviceN') throw new Error('expected Separation or DeviceN');
+  if (space.kind !== 'separation' && space.kind !== 'deviceN') {
+    throw new Error('expected Separation or DeviceN');
+  }
   return space;
 };
 

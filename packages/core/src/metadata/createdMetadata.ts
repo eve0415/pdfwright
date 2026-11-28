@@ -64,7 +64,7 @@ export const validateCreatedMetadata = (info: DocumentInfo | undefined, options:
 const ENCODER = new TextEncoder();
 
 // ISO 32000-1:2008, 14.4 NOTE: "The calculation of the file identifier need not be reproducible"; this one hashes every object but the packet and the trailer without ID, so that the packet can carry an identifier derived from it.
-const bodyDigest = (objects: readonly IndirectObject[], trailer: PdfDictionaryEntries, fractionDigits: number): Uint8Array => {
+const bodyDigest = (objects: ReadonlyArray<IndirectObject>, trailer: PdfDictionaryEntries, fractionDigits: number): Uint8Array => {
   const hash = createMd5();
   for (const object of objects.toSorted((left, right) => left.objectNumber - right.objectNumber)) {
     hash.update(ENCODER.encode(`${String(object.objectNumber)} ${String(object.generation)} obj\n`));
@@ -81,7 +81,7 @@ export interface CreatedPacket {
 
 export interface CreatedPacketInput {
   /** Every object of the document but the packet. */
-  readonly objects: readonly IndirectObject[];
+  readonly objects: ReadonlyArray<IndirectObject>;
   /** The trailer without Size and ID. */
   readonly trailer: PdfDictionaryEntries;
   readonly info: DocumentInfo;

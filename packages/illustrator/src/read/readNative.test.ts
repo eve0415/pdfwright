@@ -98,7 +98,9 @@ describe('native model reader', () => {
 
   it('reads groups and clipping groups nested as deep as the writer allows', () => {
     let item: Item = { kind: 'path', geometry, fill: { paint: { kind: 'process', cmyk: [0, 0, 0, 1] } } };
-    for (let level = 0; level < 128; level += 2) item = { kind: 'group', items: [{ kind: 'clipGroup', clip: geometry, items: [item] }] };
+    for (let level = 0; level < 128; level += 2) {
+      item = { kind: 'group', items: [{ kind: 'clipGroup', clip: geometry, items: [item] }] };
+    }
     const nested: IllustratorDocument = { artboard: { width: 100, height: 70 }, layers: [{ name: 'Nested', items: [item] }], lastModified: date };
     const read = readNative(writeNative(nested).bytes, date).document.layers[0]?.items[0];
     expect(read).toHaveProperty(`${'items.0.'.repeat(127)}kind`, 'clipGroup');

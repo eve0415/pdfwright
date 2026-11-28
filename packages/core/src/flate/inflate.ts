@@ -36,14 +36,16 @@ interface DecodedRaw {
 
 interface InflatedZlib {
   data: Uint8Array;
-  warnings: FlateWarning[];
+  warnings: Array<FlateWarning>;
 }
 
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 const maxOutputBytes = (options?: InflateOptions): number => {
   const limit = options?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
-  if (!Number.isSafeInteger(limit) || limit < 0) throw new InvalidArgumentError('maxOutputBytes must be a non-negative integer');
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new InvalidArgumentError('maxOutputBytes must be a non-negative integer');
+  }
   return limit;
 };
 
@@ -56,7 +58,9 @@ class InflateOutput {
   }
 
   private reserve(additional: number): void {
-    if (this.bytes.length + additional > this.limit) throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
+    if (this.bytes.length + additional > this.limit) {
+      throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
+    }
   }
 
   push(byte: number): void {
@@ -65,7 +69,9 @@ class InflateOutput {
   }
 
   copy(distance: number, length: number, offset: number): void {
-    if (distance < 1 || distance > this.bytes.length || distance > 32768) throw new ParseError('invalid backward distance', offset);
+    if (distance < 1 || distance > this.bytes.length || distance > 32_768) {
+      throw new ParseError('invalid backward distance', offset);
+    }
     this.reserve(length);
     this.bytes.copyBack(distance, length);
   }
@@ -78,8 +84,12 @@ class InflateOutput {
 const FIXED: [Huffman, Huffman] = [new Huffman(FIXED_LITERAL_LENGTHS, 0), new Huffman(FIXED_DISTANCE_LENGTHS, 0)];
 
 const repeatCount = (symbol: number, reader: BitReader): number => {
-  if (symbol === 16) return reader.readBits(2) + 3;
-  if (symbol === 17) return reader.readBits(3) + 3;
+  if (symbol === 16) {
+    return reader.readBits(2) + 3;
+  }
+  if (symbol === 17) {
+    return reader.readBits(3) + 3;
+  }
   return reader.readBits(7) + 11;
 };
 
@@ -89,26 +99,41 @@ const dynamicTrees = (reader: BitReader): [Huffman, Huffman] => {
   const distanceCount = reader.readBits(5) + 1;
   // RFC 1951, 3.2.7 gives HLIT the range "(257 - 286)". Its HDIST range is "(1 - 32)", but 3.2.6 says "distance codes 30-31 cannot occur in the compressed data", and zlib's inflate rejects more than 30 distance codes, so this decoder does too.
   const headerOffset = Math.ceil(reader.bitPosition / 8);
-  if (literalCount > 286) throw new ParseError(`dynamic block declares ${String(literalCount)} literal/length codes; at most 286 are allowed`, headerOffset);
-  if (distanceCount > 30) throw new ParseError(`dynamic block declares ${String(distanceCount)} distance codes; at most 30 are allowed`, headerOffset);
+  if (literalCount > 286) {
+    throw new ParseError(`dynamic block declares ${String(literalCount)} literal/length codes; at most 286 are allowed`, headerOffset);
+  }
+  if (distanceCount > 30) {
+    throw new ParseError(`dynamic block declares ${String(distanceCount)} distance codes; at most 30 are allowed`, headerOffset);
+  }
   const codeCount = reader.readBits(4) + 4;
   const codeLengths = Array.from({ length: 19 }, () => 0);
-  for (let index = 0; index < codeCount; index++) codeLengths[CODE_LENGTH_ORDER[index] ?? 0] = reader.readBits(3);
+  for (let index = 0; index < codeCount; index++) {
+    codeLengths[CODE_LENGTH_ORDER[index] ?? 0] = reader.readBits(3);
+  }
   const codeTree = new Huffman(codeLengths, Math.ceil(reader.bitPosition / 8));
-  const lengths: number[] = [];
+  const lengths: Array<number> = [];
   const total = literalCount + distanceCount;
   while (lengths.length < total) {
     const symbol = codeTree.read(reader);
-    if (symbol <= 15) lengths.push(symbol);
-    else {
-      if (symbol === 16 && lengths.length === 0) throw new ParseError('missing previous code length', Math.ceil(reader.bitPosition / 8));
+    if (symbol <= 15) {
+      lengths.push(symbol);
+    } else {
+      if (symbol === 16 && lengths.length === 0) {
+        throw new ParseError('missing previous code length', Math.ceil(reader.bitPosition / 8));
+      }
       const repeated = symbol === 16 ? (lengths.at(-1) ?? 0) : 0;
       const count = repeatCount(symbol, reader);
-      for (let index = 0; index < count; index++) lengths.push(repeated);
+      for (let index = 0; index < count; index++) {
+        lengths.push(repeated);
+      }
     }
-    if (lengths.length > total) throw new ParseError('too many code lengths', Math.ceil(reader.bitPosition / 8));
+    if (lengths.length > total) {
+      throw new ParseError('too many code lengths', Math.ceil(reader.bitPosition / 8));
+    }
   }
-  if (lengths[256] === 0) throw new ParseError('missing end-of-block code', Math.ceil(reader.bitPosition / 8));
+  if (lengths[256] === 0) {
+    throw new ParseError('missing end-of-block code', Math.ceil(reader.bitPosition / 8));
+  }
   return [
     new Huffman(lengths.slice(0, literalCount), Math.ceil(reader.bitPosition / 8)),
     new Huffman(lengths.slice(literalCount), Math.ceil(reader.bitPosition / 8)),
@@ -119,18 +144,26 @@ const decodeCompressed = (reader: BitReader, output: InflateOutput, trees: reado
   // RFC 1951, 3.2.5 maps symbols 257-285 to lengths and distance symbols 0-29 to backward distances.
   for (;;) {
     const symbol = trees[0].read(reader);
-    if (symbol < 256) output.push(symbol);
-    else if (symbol === 256) return;
-    else {
+    if (symbol < 256) {
+      output.push(symbol);
+    } else if (symbol === 256) {
+      return;
+    } else {
       const index = symbol - 257;
       const base = LENGTH_BASE[index];
-      if (base === undefined) throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
+      if (base === undefined) {
+        throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
+      }
       const length = base + reader.readBits(LENGTH_EXTRA[index] ?? 0);
       // RFC 1951, 3.2.7: "One distance code of zero bits means that there are no distance codes used at all (the data is all literals)."
-      if (trees[1].empty) throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
+      if (trees[1].empty) {
+        throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
+      }
       const distanceCode = trees[1].read(reader);
       const distanceBase = DISTANCE_BASE[distanceCode];
-      if (distanceBase === undefined) throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
+      if (distanceBase === undefined) {
+        throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
+      }
       const distance = distanceBase + reader.readBits(DISTANCE_EXTRA[distanceCode] ?? 0);
       output.copy(distance, length, Math.ceil(reader.bitPosition / 8));
     }
@@ -149,12 +182,18 @@ const decodeRaw = (data: Uint8Array, limit: number): DecodedRaw => {
       reader.alignByte();
       const length = reader.readBits(16);
       const complement = reader.readBits(16);
-      if (((length ^ complement) & 0xffff) !== 0xffff) throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
-      for (let index = 0; index < length; index++) output.push(reader.readBits(8));
+      if (((length ^ complement) & 0xff_ff) !== 0xff_ff) {
+        throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
+      }
+      for (let index = 0; index < length; index++) {
+        output.push(reader.readBits(8));
+      }
     } else if (blockType === 1 || blockType === 2) {
       const trees = blockType === 1 ? FIXED : dynamicTrees(reader);
       decodeCompressed(reader, output, trees);
-    } else throw new ParseError('reserved deflate block type', Math.ceil(reader.bitPosition / 8));
+    } else {
+      throw new ParseError('reserved deflate block type', Math.ceil(reader.bitPosition / 8));
+    }
   }
   return { data: output.toUint8Array(), bytesConsumed: Math.ceil(reader.bitPosition / 8) };
 };
@@ -166,26 +205,37 @@ export const inflateRaw = (data: Uint8Array, options?: InflateOptions): Uint8Arr
 export const inflateZlib = (data: Uint8Array, options?: InflateOptions): InflatedZlib => {
   const limit = maxOutputBytes(options);
   // RFC 1950, 2.2 requires CM=8, CINFO≤7, a header divisible by 31, and a preset dictionary marker when FDICT is set.
-  if (data.length < 2) throw new ParseError('truncated zlib header', data.length);
+  if (data.length < 2) {
+    throw new ParseError('truncated zlib header', data.length);
+  }
   const cmf = data[0] ?? 0;
   const flg = data[1] ?? 0;
-  if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) throw new ParseError('invalid zlib header', 0);
-  if ((flg & 0x20) !== 0) throw new UnsupportedFeatureError('preset dictionaries are unsupported');
+  if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) {
+    throw new ParseError('invalid zlib header', 0);
+  }
+  if ((flg & 0x20) !== 0) {
+    throw new UnsupportedFeatureError('preset dictionaries are unsupported');
+  }
   const decoded = decodeRaw(data.subarray(2), limit);
   const trailerOffset = decoded.bytesConsumed + 2;
-  const warnings: FlateWarning[] = [];
+  const warnings: Array<FlateWarning> = [];
   // RFC 1950, 2.2 ends the stream with a four-byte ADLER32 field; without all four bytes there is no checksum to compare.
-  if (data.length - trailerOffset < 4) warnings.push({ code: 'truncated-trailer', offset: trailerOffset });
-  else {
+  if (data.length - trailerOffset < 4) {
+    warnings.push({ code: 'truncated-trailer', offset: trailerOffset });
+  } else {
     // RFC 1950, 2.2 stores the Adler-32 checksum most-significant byte first.
     const expected =
-      ((data[trailerOffset] ?? 0) * 16777216 +
-        (data[trailerOffset + 1] ?? 0) * 65536 +
+      ((data[trailerOffset] ?? 0) * 16_777_216 +
+        (data[trailerOffset + 1] ?? 0) * 65_536 +
         (data[trailerOffset + 2] ?? 0) * 256 +
         (data[trailerOffset + 3] ?? 0)) >>>
       0;
-    if (adler32(decoded.data) !== expected) warnings.push({ code: 'checksum-mismatch', offset: trailerOffset });
-    if (data.length > trailerOffset + 4) warnings.push({ code: 'trailing-data', offset: trailerOffset + 4 });
+    if (adler32(decoded.data) !== expected) {
+      warnings.push({ code: 'checksum-mismatch', offset: trailerOffset });
+    }
+    if (data.length > trailerOffset + 4) {
+      warnings.push({ code: 'trailing-data', offset: trailerOffset + 4 });
+    }
   }
   return { data: decoded.data, warnings };
 };
@@ -194,41 +244,62 @@ const decodeCompressedChunks = function* (reader: BitReader, output: ChunkedInfl
   // RFC 1951, 3.2.5 maps symbols 257-285 to lengths and distance symbols 0-29 to backward distances.
   for (;;) {
     const symbol = trees[0].read(reader);
-    if (symbol < 256) output.push(symbol);
-    else if (symbol === 256) return;
-    else {
+    if (symbol < 256) {
+      output.push(symbol);
+    } else if (symbol === 256) {
+      return;
+    } else {
       const index = symbol - 257;
       const base = LENGTH_BASE[index];
-      if (base === undefined) throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
+      if (base === undefined) {
+        throw new ParseError('invalid length code', Math.ceil(reader.bitPosition / 8));
+      }
       const length = base + reader.readBits(LENGTH_EXTRA[index] ?? 0);
-      if (trees[1].empty) throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
+      if (trees[1].empty) {
+        throw new ParseError('distance code used with an empty distance tree', Math.ceil(reader.bitPosition / 8));
+      }
       const distanceCode = trees[1].read(reader);
       const distanceBase = DISTANCE_BASE[distanceCode];
-      if (distanceBase === undefined) throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
+      if (distanceBase === undefined) {
+        throw new ParseError('invalid distance code', Math.ceil(reader.bitPosition / 8));
+      }
       output.copy(distanceBase + reader.readBits(DISTANCE_EXTRA[distanceCode] ?? 0), length, Math.ceil(reader.bitPosition / 8));
     }
     const chunk = output.take();
-    if (chunk !== undefined) yield chunk;
+    if (chunk !== undefined) {
+      yield chunk;
+    }
   }
 };
 
-const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; checksum: number; warnings: FlateWarning[] | undefined }): void => {
+const checkChunkTrailer = (config: { data: Uint8Array; trailerOffset: number; checksum: number; warnings: Array<FlateWarning> | undefined }): void => {
   // RFC 1950, 2.2: the four-byte Adler-32 trailer follows the deflate blocks.
   const { data, trailerOffset, checksum, warnings } = config;
-  if (data.length - trailerOffset < 4) warnings?.push({ code: 'truncated-trailer', offset: trailerOffset });
-  else {
+  if (data.length - trailerOffset < 4) {
+    warnings?.push({ code: 'truncated-trailer', offset: trailerOffset });
+  } else {
     const expected = new DataView(data.buffer, data.byteOffset + trailerOffset, 4).getUint32(0);
-    if (checksum !== expected) warnings?.push({ code: 'checksum-mismatch', offset: trailerOffset });
-    if (data.length > trailerOffset + 4) warnings?.push({ code: 'trailing-data', offset: trailerOffset + 4 });
+    if (checksum !== expected) {
+      warnings?.push({ code: 'checksum-mismatch', offset: trailerOffset });
+    }
+    if (data.length > trailerOffset + 4) {
+      warnings?.push({ code: 'trailing-data', offset: trailerOffset + 4 });
+    }
   }
 };
 
-const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: FlateWarning[]): Generator<Uint8Array> {
-  if (data.length < 2) throw new ParseError('truncated zlib header', data.length);
+const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Array<FlateWarning>): Generator<Uint8Array> {
+  if (data.length < 2) {
+    throw new ParseError('truncated zlib header', data.length);
+  }
   const cmf = data[0] ?? 0;
   const flg = data[1] ?? 0;
-  if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) throw new ParseError('invalid zlib header', 0);
-  if ((flg & 0x20) !== 0) throw new UnsupportedFeatureError('preset dictionaries are unsupported');
+  if ((cmf & 15) !== 8 || cmf >>> 4 > 7 || (cmf * 256 + flg) % 31 !== 0) {
+    throw new ParseError('invalid zlib header', 0);
+  }
+  if ((flg & 0x20) !== 0) {
+    throw new UnsupportedFeatureError('preset dictionaries are unsupported');
+  }
   const reader = new BitReader(data.subarray(2));
   const output = new ChunkedInflateOutput(limit);
   let checksum = 1;
@@ -240,8 +311,12 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
       reader.alignByte();
       const length = reader.readBits(16);
       const complement = reader.readBits(16);
-      if (((length ^ complement) & 0xffff) !== 0xffff) throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
-      for (let index = 0; index < length; index++) output.push(reader.readBits(8));
+      if (((length ^ complement) & 0xff_ff) !== 0xff_ff) {
+        throw new ParseError('invalid stored block length', Math.ceil(reader.bitPosition / 8));
+      }
+      for (let index = 0; index < length; index++) {
+        output.push(reader.readBits(8));
+      }
       let chunk = output.take();
       while (chunk !== undefined) {
         checksum = updateAdler32(checksum, chunk);
@@ -254,11 +329,15 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
         checksum = updateAdler32(checksum, chunk);
         yield chunk;
       }
-    } else throw new ParseError('reserved deflate block type', Math.ceil(reader.bitPosition / 8));
+    } else {
+      throw new ParseError('reserved deflate block type', Math.ceil(reader.bitPosition / 8));
+    }
   }
   const rest = output.finish();
   checksum = updateAdler32(checksum, rest);
-  if (rest.length > 0) yield rest;
+  if (rest.length > 0) {
+    yield rest;
+  }
   checkChunkTrailer({ data, trailerOffset: Math.ceil(reader.bitPosition / 8) + 2, checksum, warnings });
 };
 
@@ -266,10 +345,14 @@ const decodeChunks = function* (data: Uint8Array, limit: number, warnings?: Flat
 export const inflateChunks = function* (data: Uint8Array, options?: ChunkedInflateOptions): Generator<Uint8Array> {
   const limit = maxOutputBytes(options);
   const copy = options?.copyInput === false ? data : Uint8Array.from(data);
-  const warnings: FlateWarning[] = [];
+  const warnings: Array<FlateWarning> = [];
   const scan = decodeChunks(copy, limit, warnings);
   let complete = false;
-  while (!complete) complete = scan.next().done === true;
-  for (const warning of warnings) options?.onWarning?.(warning);
+  while (!complete) {
+    complete = scan.next().done === true;
+  }
+  for (const warning of warnings) {
+    options?.onWarning?.(warning);
+  }
   yield* decodeChunks(copy, limit);
 };

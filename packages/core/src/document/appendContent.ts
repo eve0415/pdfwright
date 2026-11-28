@@ -53,8 +53,12 @@ const checkRawContent = (data: Uint8Array, isolate: boolean): void => {
       if (checkOperands(operator, operands).kind !== 'known' || operator === 'gs' || operator === 'Do' || operator === 'sh') {
         throw new ValidationError(`raw content operator ${operator} cannot be checked for invisible overprint`, 'raw-content-unchecked');
       }
-      if (operator === 'q') depth++;
-      if (operator === 'Q' && --depth < 0) throw new ValidationError('raw content leaves its graphics state scope', 'raw-content-unchecked');
+      if (operator === 'q') {
+        depth++;
+      }
+      if (operator === 'Q' && --depth < 0) {
+        throw new ValidationError('raw content leaves its graphics state scope', 'raw-content-unchecked');
+      }
       if (!isolate && PAINT.has(operator)) {
         throw new ValidationError(`raw content paint ${operator} can inherit overprint settings`, 'raw-content-unchecked');
       }
@@ -71,13 +75,17 @@ const label = (reference: PdfReference): string => `${String(reference.objectNum
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const pageEntries = (context: ContentContext, page: PageEntry): PdfDictionaryEntries => {
   const value = context.objects.get(page.reference);
-  if (value.kind !== 'dictionary') throw new ParseError(`page ${label(page.reference)} is not a dictionary`, 0);
+  if (value.kind !== 'dictionary') {
+    throw new ParseError(`page ${label(page.reference)} is not a dictionary`, 0);
+  }
   return value.entries;
 };
 
@@ -93,13 +101,17 @@ const blendingSpace = (context: ContentContext, page: PageEntry): BlendingSpace 
 const place = (context: ContentContext, record: ResourceRecord): void => {
   const { objects, placed } = context;
   for (const image of record.images.keys()) {
-    if (placed.imageNumbers.has(image)) continue;
+    if (placed.imageNumbers.has(image)) {
+      continue;
+    }
     const mask = image.softMask === undefined ? undefined : objects.add(softMaskObject(image.softMask)).objectNumber;
     const parent = objects.add(imageObject(image, mask)).objectNumber;
     placed.imageNumbers.set(image, mask === undefined ? { parent } : { parent, mask });
   }
   for (const group of record.groups.keys()) {
-    if (placed.groupNumbers.has(group)) continue;
+    if (placed.groupNumbers.has(group)) {
+      continue;
+    }
     place(context, group);
     const resources = resourceDictionary(group, placed) ?? pdfDictionary();
     placed.groupNumbers.set(group, objects.add(groupObject(group.attributes, group.content, resources, group.pieceInfo)).objectNumber);
@@ -107,14 +119,22 @@ const place = (context: ContentContext, record: ResourceRecord): void => {
   }
 };
 
-const additions = (resources: PdfDirectObject | undefined): ResourceAddition[] => {
-  const list: ResourceAddition[] = [];
-  if (resources?.kind !== 'dictionary') return list;
+const additions = (resources: PdfDirectObject | undefined): Array<ResourceAddition> => {
+  const list: Array<ResourceAddition> = [];
+  if (resources?.kind !== 'dictionary') {
+    return list;
+  }
   for (const [category, entries] of resources.entries.entries()) {
-    if (entries.kind !== 'dictionary') continue;
+    if (entries.kind !== 'dictionary') {
+      continue;
+    }
     const name = latin1(category);
-    if (name !== 'ExtGState' && name !== 'ColorSpace' && name !== 'XObject') throw new ValidationError(`unexpected resource category ${name}`);
-    for (const [key, value] of entries.entries.entries()) list.push({ category: name, name: key, value });
+    if (name !== 'ExtGState' && name !== 'ColorSpace' && name !== 'XObject') {
+      throw new ValidationError(`unexpected resource category ${name}`);
+    }
+    for (const [key, value] of entries.entries.entries()) {
+      list.push({ category: name, name: key, value });
+    }
   }
   return list;
 };
@@ -122,13 +142,24 @@ const additions = (resources: PdfDirectObject | undefined): ResourceAddition[] =
 // A name the page's resources already give the same separation, or the same image or group object written by an earlier append.
 const existingName = (context: ContentContext, page: PageEntry, resource: RegisteredResource): string | undefined => {
   let number: number | undefined;
-  if (resource.kind === 'image') number = context.placed.imageNumbers.get(resource.record)?.parent;
-  else if (resource.kind === 'group') number = context.placed.groupNumbers.get(resource.record);
+  if (resource.kind === 'image') {
+    number = context.placed.imageNumbers.get(resource.record)?.parent;
+  } else if (resource.kind === 'group') {
+    number = context.placed.groupNumbers.get(resource.record);
+  }
   const category: ResourceCategory = resource.kind === 'separation' ? 'ColorSpace' : 'XObject';
   let value: PdfDirectObject | undefined = number === undefined ? undefined : pdfReference(number, 0);
-  if (resource.kind === 'separation') value = separationObject(resource.record);
-  if (value === undefined) return undefined;
-  for (const [key, existing] of takenNames(context, page, category).entries()) if (deepEqual(existing, value, 'strict')) return latin1(key);
+  if (resource.kind === 'separation') {
+    value = separationObject(resource.record);
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  for (const [key, existing] of takenNames(context, page, category).entries()) {
+    if (deepEqual(existing, value, 'strict')) {
+      return latin1(key);
+    }
+  }
   return undefined;
 };
 
@@ -150,7 +181,9 @@ const built = (context: ContentContext, page: PageEntry, render: (content: Conte
     name: (prefix, ordinal) => {
       const names = takenIn(CATEGORY[prefix]);
       let number = ordinal;
-      while (names.has(`${prefix}${String(number)}`)) number++;
+      while (names.has(`${prefix}${String(number)}`)) {
+        number++;
+      }
       const name = `${prefix}${String(number)}`;
       names.add(name);
       return name;
@@ -173,21 +206,27 @@ const built = (context: ContentContext, page: PageEntry, render: (content: Conte
 };
 
 const contentStream = (context: ContentContext, data: Uint8Array, compress: boolean): PdfReference => {
-  if (!compress) return context.objects.add({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data });
+  if (!compress) {
+    return context.objects.add({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data });
+  }
   // ISO 32000-1:2008, 7.4.4 identifies FlateDecode as the filter for zlib-compressed data.
   const dictionary = new PdfDictionaryEntries([[pdfName('Filter').bytes, pdfName('FlateDecode')]]);
   return context.objects.add({ kind: 'stream', dictionary, data: deflateZlib(data) });
 };
 
-const existingContents = (context: ContentContext, page: PageEntry): PdfDirectObject[] => {
+const existingContents = (context: ContentContext, page: PageEntry): Array<PdfDirectObject> => {
   const contents = pageEntries(context, page).get(CONTENTS);
-  if (contents === undefined) return [];
+  if (contents === undefined) {
+    return [];
+  }
   if (contents.kind === 'reference') {
     const target = context.objects.resolve(contents.objectNumber, contents.generation);
     // An indirect array of streams is read through; the page gets a direct array of its own.
     return target.kind === 'array' ? [...target.items] : [contents];
   }
-  if (contents.kind === 'array') return [...contents.items];
+  if (contents.kind === 'array') {
+    return [...contents.items];
+  }
   throw new ParseError(`the Contents of page ${label(page.reference)} is neither a stream nor an array`, 0);
 };
 
@@ -196,8 +235,13 @@ const existingContents = (context: ContentContext, page: PageEntry): PdfDirectOb
  * ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "If the value is an array, the effect shall be as if all of the streams in the array were concatenated, in order, to form a single stream."
  */
 export const appendPageContent = (context: ContentContext, page: PageEntry, request: AppendRequest): void => {
-  if (request.content instanceof Uint8Array) checkRawContent(request.content, request.isolate);
-  const data = typeof request.content === 'function' ? built(context, page, request.content) : request.content;
+  let data: Uint8Array;
+  if (typeof request.content === 'function') {
+    data = built(context, page, request.content);
+  } else {
+    checkRawContent(request.content, request.isolate);
+    data = request.content;
+  }
   const existing = existingContents(context, page);
   const appended = existing.length > 0 && !request.isolate ? new Uint8Array(data.length + 1) : data;
   if (appended !== data) {

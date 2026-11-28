@@ -4,7 +4,7 @@ import { md5 } from '../hash/md5.ts';
 
 import { createCalculatorFunction } from './calculatorFunction.ts';
 
-const calculator = (body: string): ((input: readonly number[]) => number[]) => createCalculatorFunction(new TextEncoder().encode(body), 0, 1);
+const calculator = (body: string): ((input: ReadonlyArray<number>) => Array<number>) => createCalculatorFunction(new TextEncoder().encode(body), 0, 1);
 
 describe('calculator operators', () => {
   it('rounds negative halves toward positive infinity', () => {
@@ -19,7 +19,7 @@ describe('calculator operators', () => {
   });
 
   it('shifts 32-bit integers with zero fill in bitshift', () => {
-    const cases: [string, number][] = [
+    const cases: Array<[string, number]> = [
       ['7 3', 56],
       ['142 -3', 17],
       ['-1 -1', 2_147_483_647],
@@ -41,7 +41,9 @@ describe('calculator operators', () => {
     const view = new DataView(bytes.buffer);
     for (let index = 0; index < 4096; index++) {
       const input = (index + 0.5) / 4096;
-      for (const [channel, evaluate] of functions.entries()) view.setFloat64((index * functions.length + channel) * 8, Number(evaluate([input])[0]), true);
+      for (const [channel, evaluate] of functions.entries()) {
+        view.setFloat64((index * functions.length + channel) * 8, Number(evaluate([input])[0]), true);
+      }
     }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('886dc811f48572f70702244c2ff18ab3');

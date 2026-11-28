@@ -1,3 +1,0 @@
-[submodule "tools/oxlint/anti-slop"]
-	path = tools/oxlint/anti-slop
-	url = https://github.com/dmmulroy/anti-slop.git

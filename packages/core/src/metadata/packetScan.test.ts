@@ -15,11 +15,13 @@ const hex = (text: string): string => [...latin1Bytes(text)].map(byte => byte.to
 
 const internals = (document: LoadedDocument): DocumentInternals => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
-const roles = (document: number, components: readonly number[], orphans: readonly number[]): PacketRoles => ({
+const roles = (document: number, components: ReadonlyArray<number>, orphans: ReadonlyArray<number>): PacketRoles => ({
   document,
   components: new Set(components),
   orphans: new Set(orphans),

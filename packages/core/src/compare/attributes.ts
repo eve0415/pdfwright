@@ -43,12 +43,16 @@ const CATALOG_COMPARED_ELSEWHERE = new Set(['Pages', 'PieceInfo', 'LastModified'
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const dictionaryOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
@@ -71,7 +75,7 @@ interface Summaries {
 }
 
 interface GraphOutput {
-  readonly differences: PdfDifference[];
+  readonly differences: Array<PdfDifference>;
   /** Where the compared values are, which undecodable differences start with. */
   readonly within: ValuePath;
   readonly push: (path: ValuePath, summaries: Summaries) => void;
@@ -94,11 +98,13 @@ const graph = (sides: GraphContext, { differences, within, push }: GraphOutput):
 export const comparePageAttributes = (
   sides: GraphContext,
   pages: { readonly page: number; readonly a: PageEntry; readonly b: PageEntry },
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   const left = pageDictionary(sides.a, pages.a);
   const right = pageDictionary(sides.b, pages.b);
-  if (left === undefined || right === undefined) return;
+  if (left === undefined || right === undefined) {
+    return;
+  }
   const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'page-attribute', page: pages.page, path, a, b });
   };
@@ -106,14 +112,16 @@ export const comparePageAttributes = (
 };
 
 /** Compares the catalog, apart from the page tree and page-piece data, and the document information dictionary (ISO 32000-1:2008, 7.7.2 and 14.3.3). */
-export const compareDocumentAttributes = (sides: GraphContext, differences: PdfDifference[]): void => {
+export const compareDocumentAttributes = (sides: GraphContext, differences: Array<PdfDifference>): void => {
   const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'document-attribute', path, a, b });
   };
   const left = catalogDictionary(sides.a);
   const right = catalogDictionary(sides.b);
   const values = graph(sides, { differences, within: [], push });
-  if (left !== undefined && right !== undefined) values.entries({ left, right, path: ['Root'], skip: CATALOG_COMPARED_ELSEWHERE });
+  if (left !== undefined && right !== undefined) {
+    values.entries({ left, right, path: ['Root'], skip: CATALOG_COMPARED_ELSEWHERE });
+  }
   values.compare(sides.a.structure.trailer.get(INFO), sides.b.structure.trailer.get(INFO), ['Info']);
 };
 
@@ -124,7 +132,7 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
 export const compareDuplicateKeys = (
   sides: Sides,
   objects: { readonly where: ValuePath; readonly a: PdfReference | undefined; readonly b: PdfReference | undefined },
-  differences: PdfDifference[],
+  differences: Array<PdfDifference>,
 ): void => {
   const left = objects.a === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.a, objects.a.objectNumber);
   const right = objects.b === undefined ? new Map<string, DuplicateKey>() : duplicateKeys(sides.b, objects.b.objectNumber);
@@ -141,14 +149,16 @@ export const formOwners = (
   sides: Sides,
   start: { readonly page: number; readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined },
   unreadable: Unreadable,
-): Owner[] => {
-  const owners: Owner[] = [];
+): Array<Owner> => {
+  const owners: Array<Owner> = [];
   const visited = new Set<string>();
   const read = (side: Side, value: PdfDirectObject | undefined, where: ValuePath): PdfObject | undefined => {
     try {
       return sides[side].objects.deref(value);
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
       unreadable(['page', start.page, ...where], side, error.message);
       return undefined;
     }
@@ -162,7 +172,7 @@ export const formOwners = (
     const subtype = resolved?.kind === 'stream' ? resolved.dictionary.get(SUBTYPE) : undefined;
     return resolved?.kind === 'stream' && subtype?.kind === 'name' && latin1(subtype.bytes) === 'Form' ? resolved.dictionary : undefined;
   };
-  const pending: { readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined; readonly path: ValuePath }[] = [
+  const pending: Array<{ readonly a: PdfDirectObject | undefined; readonly b: PdfDirectObject | undefined; readonly path: ValuePath }> = [
     { a: start.a, b: start.b, path: ['Resources'] },
   ];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
@@ -172,11 +182,15 @@ export const formOwners = (
       const valueB = formsB?.get(key);
       const formPath = [...next.path, 'XObject', latin1(key)];
       const pair = `${JSON.stringify(valueA)}|${JSON.stringify(valueB)}`;
-      if (visited.has(pair)) continue;
+      if (visited.has(pair)) {
+        continue;
+      }
       visited.add(pair);
       const formA = isForm('a', valueA, formPath);
       const formB = isForm('b', valueB, formPath);
-      if (formA === undefined || formB === undefined) continue;
+      if (formA === undefined || formB === undefined) {
+        continue;
+      }
       owners.push({
         owner: { kind: 'form', page: start.page, path: formPath },
         a: formA,

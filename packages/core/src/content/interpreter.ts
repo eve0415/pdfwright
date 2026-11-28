@@ -85,7 +85,7 @@ export type ColourUse = 'used' | 'd1-glyph' | 'uncoloured-pattern';
 /** Where a paint or text-show event happened. */
 export interface PaintContext {
   /** The content streams being interpreted, outermost first: the page or an annotation appearance, then any forms, patterns, glyph procedures and soft-mask groups inside it. */
-  readonly sources: readonly ContentSource[];
+  readonly sources: ReadonlyArray<ContentSource>;
   readonly colour: ColourUse;
 }
 
@@ -107,7 +107,7 @@ export interface ColorSpaceUse {
   /** The ColorSpace resource name the operand used; undefined for a family name. */
   readonly resourceName: Uint8Array | undefined;
   /** The colour's components as last set; empty until a colour is set after the space is selected. */
-  readonly components: readonly number[];
+  readonly components: ReadonlyArray<number>;
   /** In a Pattern space, the pattern scn or SCN selected. */
   readonly pattern: PatternUse | undefined;
 }
@@ -181,16 +181,16 @@ export type PaintKind = 'fill' | 'stroke' | 'fill-stroke' | 'clip' | 'text' | 'i
  */
 export interface PaintEvent {
   readonly kind: PaintKind;
-  readonly colorSpaces: readonly ColorSpaceUse[];
+  readonly colorSpaces: ReadonlyArray<ColorSpaceUse>;
   /** Resources active in the content stream, including Default* device-colour replacements. */
   readonly resources: PdfDictionaryEntries | undefined;
   /** For each of `colorSpaces`, the index of the operation's own space it belongs to: its own index for the fill, stroke, image or shading space, the index of the Pattern space for a space a pattern paints in. */
-  readonly spaceOf: readonly number[];
+  readonly spaceOf: ReadonlyArray<number>;
   /** The graphics state the paint happened in. */
   readonly state: GraphicsState;
   readonly context: PaintContext;
   /** The open marked-content sequences, outermost first. */
-  readonly markedContent: readonly MarkedContent[];
+  readonly markedContent: ReadonlyArray<MarkedContent>;
   /** The event's position among every event of the interpretation. */
   readonly sequence: number;
 }
@@ -220,13 +220,13 @@ export interface TextShowEvent {
   /** The text matrix where the string begins, after the TJ numbers before it, and whether that position is known; the first glyph has the same, and a string that could not be split has no glyphs to carry it. */
   readonly textMatrix: Matrix;
   readonly positionKnown: boolean;
-  readonly glyphs: readonly ShownGlyph[];
+  readonly glyphs: ReadonlyArray<ShownGlyph>;
   /** Why the string could not be split into glyphs, when it could not. */
   readonly unsplit: Exclude<FontString, { readonly kind: 'glyphs' }> | undefined;
   readonly state: GraphicsState;
   readonly context: PaintContext;
   /** The open marked-content sequences, outermost first. */
-  readonly markedContent: readonly MarkedContent[];
+  readonly markedContent: ReadonlyArray<MarkedContent>;
   readonly sequence: number;
 }
 
@@ -268,12 +268,12 @@ export interface InterpretOptions extends InterpretHandlers {
   readonly maxGlyphs?: number;
 }
 
-const ANNOTATION_MODES: readonly NonNullable<InterpretOptions['annotations']>[] = ['printable', 'none', 'all'];
+const ANNOTATION_MODES: ReadonlyArray<NonNullable<InterpretOptions['annotations']>> = ['printable', 'none', 'all'];
 
 export interface InterpretResult {
   /** False when some content could not be read or interpreted: undecodable streams, bad operands, missing resources. */
   readonly complete: boolean;
-  readonly warnings: readonly InspectWarning[];
+  readonly warnings: ReadonlyArray<InspectWarning>;
   /** The operations executed. */
   readonly operations: number;
 }
@@ -379,7 +379,7 @@ const referenceKey = (reference: PdfReference): string => `${String(reference.ob
 
 const translation = (x: number, y: number): Matrix => [1, 0, 0, 1, x, y];
 
-const number = (values: readonly PdfDirectObject[], index: number): number => numberOf(values[index]) ?? 0;
+const number = (values: ReadonlyArray<PdfDirectObject>, index: number): number => numberOf(values[index]) ?? 0;
 
 const nameBytes = (value: PdfDirectObject | undefined): Uint8Array => (value?.kind === 'name' ? value.bytes : new Uint8Array());
 
@@ -392,10 +392,14 @@ export const glyphDisplacement = (glyph: FontGlyph, writingMode: 0 | 1, state: G
   // 9.3.3: word spacing applies to "the single-byte character code 32", which the font model flags.
   const wordSpacing = glyph.wordSpace ? state.wordSpacing : 0;
   if (writingMode === 1) {
-    if (glyph.vertical === undefined) return undefined;
+    if (glyph.vertical === undefined) {
+      return undefined;
+    }
     return [0, glyph.vertical.w1 * state.fontSize + state.characterSpacing + wordSpacing];
   }
-  if (glyph.width === undefined) return undefined;
+  if (glyph.width === undefined) {
+    return undefined;
+  }
   return [(glyph.width * state.fontSize + state.characterSpacing + wordSpacing) * state.horizontalScaling, 0];
 };
 
@@ -441,7 +445,7 @@ interface Nested {
 interface FormDrawing {
   readonly source: ContentSource;
   readonly base: GraphicsState;
-  readonly parent: readonly ContentSource[];
+  readonly parent: ReadonlyArray<ContentSource>;
   readonly colour: ColourUse;
   readonly markedContent: 'inherit' | 'fresh';
 }
@@ -456,7 +460,7 @@ class Interpreter {
   private readonly document: DocumentInternals;
   private readonly handlers: InterpretHandlers;
   private readonly fonts: FontCache;
-  private readonly warnings: InspectWarning[] = [];
+  private readonly warnings: Array<InspectWarning> = [];
   private readonly reportedFonts = new Set<string>();
   private readonly maxOperations: number;
   private readonly maxContentBytes: number;
@@ -467,7 +471,7 @@ class Interpreter {
   private readonly active = new Set<string>();
   private depth = 0;
   private page: Pick<Scope, 'resources' | 'owner'> = { resources: undefined, owner: '' };
-  private stack: GraphicsState[] = [];
+  private stack: Array<GraphicsState> = [];
   private state: GraphicsState = INITIAL_STATE;
   private textMatrix: Matrix = IDENTITY;
   private lineMatrix: Matrix = IDENTITY;
@@ -478,7 +482,7 @@ class Interpreter {
   private pendingClip: FillRule | undefined = undefined;
   private compatibility = 0;
   // Kept apart from the graphics state: 14.6 requires marked-content pairs to nest properly with BT and ET, not with q and Q.
-  private markedContent: readonly MarkedContent[] = [];
+  private markedContent: ReadonlyArray<MarkedContent> = [];
   private markedContentIds = 0;
   // The marked-content sequences of the streams drawing the current one, which its EMC cannot close.
   private markedFloor = 0;
@@ -513,14 +517,18 @@ class Interpreter {
 
   warn(code: InspectWarningCode, detail: string, incomplete: boolean): void {
     this.warnings.push({ code, detail });
-    if (incomplete) this.complete = false;
+    if (incomplete) {
+      this.complete = false;
+    }
   }
 
   private deref(value: PdfDirectObject | undefined): PdfObject | undefined {
     try {
       return this.document.objects.deref(value);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn('content-unreadable', `an object cannot be read: ${error.message}`, true);
       return undefined;
     }
@@ -532,7 +540,9 @@ class Interpreter {
     const value = entries?.get(name);
     const resolved = this.deref(value);
     // A value that cannot be parsed has been reported by deref; one that is absent or null is not defined.
-    if (value !== undefined && resolved === undefined) return undefined;
+    if (value !== undefined && resolved === undefined) {
+      return undefined;
+    }
     if (resolved === undefined || resolved.kind === 'null') {
       this.warn('resource-missing', `${where}: the ${latin1(category)} resource ${latin1(name)} is not defined`, true);
       return undefined;
@@ -545,13 +555,15 @@ class Interpreter {
     try {
       return read();
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn('font-unreadable', `font ${font}: ${error.message}`, true);
       return undefined;
     }
   }
 
-  run(streams: readonly Uint8Array[], scope: Scope): void {
+  run(streams: ReadonlyArray<Uint8Array>, scope: Scope): void {
     // Bytes that produce no operations, such as comments, are invisible to maxOperations, so the bytes lexed are bounded apart.
     this.contentBytes += streams.reduce((sum, stream) => sum + stream.length, 0);
     if (this.contentBytes > this.maxContentBytes) {
@@ -566,7 +578,9 @@ class Interpreter {
         this.execute(step.value, scope);
       }
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn('content-unreadable', `the content cannot be read further: ${error.message}`, true);
     }
   }
@@ -577,7 +591,9 @@ class Interpreter {
     const checked = checkOperands(operator, operation.operands);
     // 7.8.2: inside BX and EX "unrecognized operators shall be ignored without error"; elsewhere they are ignored with a warning, as readers do.
     if (checked.kind === 'unknown') {
-      if (this.compatibility === 0) this.warn('unknown-operator', where, false);
+      if (this.compatibility === 0) {
+        this.warn('unknown-operator', where, false);
+      }
       return;
     }
     if (checked.kind === 'bad') {
@@ -586,16 +602,28 @@ class Interpreter {
     }
     const { values } = checked;
     const step: Step = { scope, where };
-    if (this.graphics(operator, values)) return;
-    if (this.textState(operator, values, step)) return;
-    if (this.textShow(operator, values, step)) return;
-    if (this.color(operator, values, step)) return;
-    if (this.marked(operator, values, step)) return;
-    if (this.construction(operator, values)) return;
+    if (this.graphics(operator, values)) {
+      return;
+    }
+    if (this.textState(operator, values, step)) {
+      return;
+    }
+    if (this.textShow(operator, values, step)) {
+      return;
+    }
+    if (this.color(operator, values, step)) {
+      return;
+    }
+    if (this.marked(operator, values, step)) {
+      return;
+    }
+    if (this.construction(operator, values)) {
+      return;
+    }
     this.painting(operation, values, step);
   }
 
-  private emitPaint(kind: PaintKind, colorSpaces: readonly ColorSpaceUse[], scope: Scope): void {
+  private emitPaint(kind: PaintKind, colorSpaces: ReadonlyArray<ColorSpaceUse>, scope: Scope): void {
     this.emitSpaces(kind, { colorSpaces, spaceOf: colorSpaces.map((_, index) => index) }, scope);
   }
 
@@ -613,10 +641,10 @@ class Interpreter {
   }
 
   // A paint in colours that may be patterns: the event lists the spaces patterns paint in, and each tiling pattern's cell is drawn after it.
-  private paintWith(kind: PaintKind, uses: readonly ColorSpaceUse[], step: Step): void {
-    const spaces: ColorSpaceUse[] = [...uses];
+  private paintWith(kind: PaintKind, uses: ReadonlyArray<ColorSpaceUse>, step: Step): void {
+    const spaces: Array<ColorSpaceUse> = [...uses];
     const spaceOf = uses.map((_, index) => index);
-    const cells: (() => void)[] = [];
+    const cells: Array<() => void> = [];
     for (const [index, use] of uses.entries()) {
       const painted = isPatternSpace(use) ? this.pattern(step, { use, cells }) : undefined;
       if (painted !== undefined) {
@@ -625,11 +653,13 @@ class Interpreter {
       }
     }
     this.emitSpaces(kind, { colorSpaces: spaces, spaceOf }, step.scope);
-    for (const cell of cells) cell();
+    for (const cell of cells) {
+      cell();
+    }
   }
 
   // The space a pattern paints in, when it has one of its own; a tiling pattern's cell is queued to be drawn after the paint.
-  private pattern(step: Step, { use, cells }: { use: ColorSpaceUse; cells: (() => void)[] }): ColorSpaceUse | undefined {
+  private pattern(step: Step, { use, cells }: { use: ColorSpaceUse; cells: Array<() => void> }): ColorSpaceUse | undefined {
     const value = use.pattern?.value;
     const dictionary = dictionaryOf(value);
     const type = numberOf(this.deref(dictionary?.get(PATTERN_TYPE)));
@@ -638,7 +668,9 @@ class Interpreter {
       const shading = dictionaryOf(this.deref(dictionary?.get(SHADING)));
       return shading === undefined ? undefined : this.imageUse(shading.get(COLOR_SPACE));
     }
-    if (type !== 1 || value?.kind !== 'stream') return undefined;
+    if (type !== 1 || value?.kind !== 'stream') {
+      return undefined;
+    }
     // 8.7.3.3: an uncoloured pattern (PaintType 2) is painted in the Pattern space's underlying space, with the colour scn gave.
     const uncoloured = numberOf(this.deref(value.dictionary.get(PAINT_TYPE))) === 2;
     const underlying = use.space?.kind === 'array' ? use.space.items[1] : undefined;
@@ -665,14 +697,18 @@ class Interpreter {
     const colour = base === undefined ? parent.parentColour : 'uncoloured-pattern';
     const scope = this.childScope(step.scope, { stream, reference, source, colour, state });
     const data = this.decoded(stream, step.where);
-    if (data !== undefined) this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
+    if (data !== undefined) {
+      this.nested(step.where, { value: reference, data, scope, markedContent: 'inherit' });
+    }
   }
 
-  private numbers(value: PdfDirectObject | undefined): number[] | undefined {
+  private numbers(value: PdfDirectObject | undefined): Array<number> | undefined {
     try {
       return numbersOf(this.document, value);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn('content-unreadable', `an object cannot be read: ${error.message}`, true);
       return undefined;
     }
@@ -688,20 +724,26 @@ class Interpreter {
   private matrixOf(value: PdfDirectObject | undefined): Matrix | undefined {
     const numbers = this.numbers(value);
     const [a, b, c, d, e, f, ...rest] = numbers ?? [];
-    if (a === undefined || b === undefined || c === undefined || d === undefined || e === undefined || f === undefined || rest.length > 0) return undefined;
+    if (a === undefined || b === undefined || c === undefined || d === undefined || e === undefined || f === undefined || rest.length > 0) {
+      return undefined;
+    }
     return [a, b, c, d, e, f];
   }
 
   private rectangleOf(value: PdfDirectObject | undefined): readonly [number, number, number, number] | undefined {
     const [x1, y1, x2, y2, ...rest] = this.numbers(value) ?? [];
-    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined || rest.length > 0) return undefined;
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined || rest.length > 0) {
+      return undefined;
+    }
     // 7.9.5: a rectangle gives "a pair of diagonally opposite corners", which readers normalise.
     return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
   }
 
   private decoded(stream: PdfStream, where: string): Uint8Array | undefined {
     const data = decodedData(this.document, stream);
-    if (typeof data !== 'string') return data;
+    if (typeof data !== 'string') {
+      return data;
+    }
     this.warn('content-unreadable', `${where}: the stream cannot be read: ${data}`, true);
     return undefined;
   }
@@ -732,8 +774,11 @@ class Interpreter {
     const own = resolved === undefined || resolved.kind === 'null' ? undefined : dictionaryOf(resolved);
     const key = reference === undefined ? parent.owner : referenceKey(reference);
     let owner = holder ?? key;
-    if (own === undefined) ({ owner } = this.page);
-    else if (resources?.kind === 'reference') owner = referenceKey(resources);
+    if (own === undefined) {
+      ({ owner } = this.page);
+    } else if (resources?.kind === 'reference') {
+      owner = referenceKey(resources);
+    }
     return {
       resources: own ?? this.page.resources,
       owner,
@@ -775,9 +820,13 @@ class Interpreter {
     this.path = undefined;
     this.pendingClip = undefined;
     this.compatibility = 0;
-    if (markedContent === 'fresh') this.markedContent = [];
+    if (markedContent === 'fresh') {
+      this.markedContent = [];
+    }
     this.markedFloor = this.markedContent.length;
-    if (key !== undefined) this.active.add(key);
+    if (key !== undefined) {
+      this.active.add(key);
+    }
     this.depth++;
     try {
       this.run([data], scope);
@@ -805,7 +854,9 @@ class Interpreter {
         markedFloor: this.markedFloor,
         ignored: this.ignored,
       } = saved);
-      if (key !== undefined) this.active.delete(key);
+      if (key !== undefined) {
+        this.active.delete(key);
+      }
       this.depth--;
     }
   }
@@ -824,57 +875,84 @@ class Interpreter {
     const parent: Scope = { ...parentScope, context: { sources: drawing.parent, colour: drawing.colour } };
     const scope = this.childScope(parent, { stream, reference, source, colour: drawing.colour, state });
     const data = this.decoded(stream, where);
-    if (data !== undefined) this.nested(where, { value, data, scope, markedContent: drawing.markedContent });
+    if (data !== undefined) {
+      this.nested(where, { value, data, scope, markedContent: drawing.markedContent });
+    }
   }
 
-  private graphics(operator: string, values: readonly PdfDirectObject[]): boolean {
+  private graphics(operator: string, values: ReadonlyArray<PdfDirectObject>): boolean {
     if (operator === 'q') {
-      if (this.stack.length >= MAX_STATE_DEPTH) throw new ResourceLimitError(`graphics states nest deeper than ${String(MAX_STATE_DEPTH)}`);
+      if (this.stack.length >= MAX_STATE_DEPTH) {
+        throw new ResourceLimitError(`graphics states nest deeper than ${String(MAX_STATE_DEPTH)}`);
+      }
       this.stack.push(this.state);
     }
     // 8.4.4, Table 57: Q restores "the most recently saved state"; an unbalanced Q has none to restore and is ignored.
-    else if (operator === 'Q') this.state = this.stack.pop() ?? this.state;
-    else if (operator === 'cm') {
+    else if (operator === 'Q') {
+      this.state = this.stack.pop() ?? this.state;
+    } else if (operator === 'cm') {
       // 8.3.4: the operand matrix is premultiplied with the CTM.
       const matrix: Matrix = [number(values, 0), number(values, 1), number(values, 2), number(values, 3), number(values, 4), number(values, 5)];
       this.state = { ...this.state, ctm: multiply(matrix, this.state.ctm) };
-    } else if (operator === 'BX') this.compatibility++;
-    else if (operator === 'EX') this.compatibility = Math.max(0, this.compatibility - 1);
-    else return false;
+    } else if (operator === 'BX') {
+      this.compatibility++;
+    } else if (operator === 'EX') {
+      this.compatibility = Math.max(0, this.compatibility - 1);
+    } else {
+      return false;
+    }
     return true;
   }
 
-  private textState(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private textState(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     const value = number(values, 0);
-    if (operator === 'Tc') this.state = { ...this.state, characterSpacing: value };
-    else if (operator === 'Tw') this.state = { ...this.state, wordSpacing: value };
-    else if (operator === 'Tz') this.state = { ...this.state, horizontalScaling: value / 100 };
-    else if (operator === 'TL') this.state = { ...this.state, leading: value };
-    else if (operator === 'Tr') this.state = { ...this.state, renderMode: value };
-    else if (operator === 'Ts') this.state = { ...this.state, rise: value };
-    else if (operator === 'Tf') this.state = { ...this.state, font: this.namedFont(step, nameBytes(values[0])), fontSize: number(values, 1) };
-    else if (operator === 'gs') this.graphicsStateParameters(step, nameBytes(values[0]));
+    if (operator === 'Tc') {
+      this.state = { ...this.state, characterSpacing: value };
+    } else if (operator === 'Tw') {
+      this.state = { ...this.state, wordSpacing: value };
+    } else if (operator === 'Tz') {
+      this.state = { ...this.state, horizontalScaling: value / 100 };
+    } else if (operator === 'TL') {
+      this.state = { ...this.state, leading: value };
+    } else if (operator === 'Tr') {
+      this.state = { ...this.state, renderMode: value };
+    } else if (operator === 'Ts') {
+      this.state = { ...this.state, rise: value };
+    } else if (operator === 'Tf') {
+      this.state = { ...this.state, font: this.namedFont(step, nameBytes(values[0])), fontSize: number(values, 1) };
+    } else if (operator === 'gs') {
+      this.graphicsStateParameters(step, nameBytes(values[0]));
+    }
     // 9.4.1, Table 107: BT sets the text matrix and the text line matrix to the identity matrix.
     else if (operator === 'BT') {
       this.setLine(IDENTITY);
       this.textClip = false;
-    } else if (operator === 'ET') this.endText();
-    else if (operator === 'Td') this.nextLine(value, number(values, 1));
-    else if (operator === 'TD') {
+    } else if (operator === 'ET') {
+      this.endText();
+    } else if (operator === 'Td') {
+      this.nextLine(value, number(values, 1));
+    } else if (operator === 'TD') {
       // 9.4.2, Table 108: TD has the effect of −ty TL followed by tx ty Td.
       this.state = { ...this.state, leading: -number(values, 1) };
       this.nextLine(value, number(values, 1));
-    } else if (operator === 'Tm') this.setLine([value, number(values, 1), number(values, 2), number(values, 3), number(values, 4), number(values, 5)]);
+    } else if (operator === 'Tm') {
+      this.setLine([value, number(values, 1), number(values, 2), number(values, 3), number(values, 4), number(values, 5)]);
+    }
     // Table 108: T* "has the same effect as the code" 0 -Tl Td.
-    else if (operator === 'T*') this.nextLine(0, -this.state.leading);
-    else return false;
+    else if (operator === 'T*') {
+      this.nextLine(0, -this.state.leading);
+    } else {
+      return false;
+    }
     return true;
   }
 
   // 9.3.6: "At the end of the text object, the accumulated glyph outlines, if any, shall be combined into a single path", and the clip becomes its intersection with the previous one; glyph outlines are not read, so the clip's shape becomes unknown.
   private endText(): void {
     this.positionKnown = true;
-    if (this.textClip) this.state = { ...this.state, clip: this.state.clip.intersectUnknown() };
+    if (this.textClip) {
+      this.state = { ...this.state, clip: this.state.clip.intersectUnknown() };
+    }
     this.textClip = false;
   }
 
@@ -891,7 +969,9 @@ class Interpreter {
 
   private namedFont(step: Step, name: Uint8Array): FontModel | undefined {
     const value = this.resource(step, FONT, name);
-    if (value === undefined) return undefined;
+    if (value === undefined) {
+      return undefined;
+    }
     const { owner, name: resourceName } = fontResourceOwner(step.scope.resources?.get(FONT), step.scope.owner, name);
     const key = fontKey(value, owner, resourceName);
     return this.font(key, () => this.fonts.font(value, key));
@@ -905,13 +985,16 @@ class Interpreter {
     if (value !== undefined && parameters === undefined) {
       this.warn('resource-missing', `${where}: the ExtGState resource ${latin1(name)} is not a dictionary`, true);
     }
-    if (parameters !== undefined) this.transparency(parameters, step);
+    if (parameters !== undefined) {
+      this.transparency(parameters, step);
+    }
     const font = this.deref(parameters?.get(FONT));
     if (font?.kind === 'array') {
       const [fontValue, size] = font.items;
       const fontSize = numberOf(this.deref(size));
-      if (fontValue === undefined || fontSize === undefined) this.warn('bad-operands', `${where}: the Font entry is not [font size]`, true);
-      else {
+      if (fontValue === undefined || fontSize === undefined) {
+        this.warn('bad-operands', `${where}: the Font entry is not [font size]`, true);
+      } else {
         const holder = graphicsStateFontOwner({ category: scope.resources?.get(EXT_G_STATE), state: value }, scope.owner, name);
         const key = fontKey(fontValue, holder.owner, holder.name);
         this.state = { ...this.state, font: this.font(key, () => this.fonts.font(fontValue, key)), fontSize };
@@ -931,8 +1014,9 @@ class Interpreter {
     const maskDictionary = dictionaryOf(mask);
     let { softMask } = this.state;
     // Table 58, SMask: "altering it with the gs operator completely replaces the old value with the new one"; the name None removes it.
-    if (mask?.kind === 'name') softMask = undefined;
-    else if (maskDictionary !== undefined) {
+    if (mask?.kind === 'name') {
+      softMask = undefined;
+    } else if (maskDictionary !== undefined) {
       const subtype = this.deref(maskDictionary.get(MASK_SUBTYPE));
       const group = maskDictionary.get(MASK_GROUP);
       softMask = {
@@ -949,13 +1033,17 @@ class Interpreter {
       blendMode: recognised === 'Compatible' ? 'Normal' : (recognised ?? this.state.blendMode),
       softMask,
     };
-    if (maskDictionary !== undefined && softMask !== undefined) this.softMaskGroup(step, softMask, maskDictionary.get(MASK_GROUP));
+    if (maskDictionary !== undefined && softMask !== undefined) {
+      this.softMaskGroup(step, softMask, maskDictionary.get(MASK_GROUP));
+    }
   }
 
   // 11.6.5.2: the group is drawn with the CTM "at the moment the soft mask is established in the graphics state with the gs operator", as a context of its own.
   private softMaskGroup(step: Step, mask: SoftMask, value: PdfDirectObject | undefined): void {
     const stream = this.deref(value);
-    if (stream?.kind !== 'stream') return;
+    if (stream?.kind !== 'stream') {
+      return;
+    }
     const { sources, colour } = step.scope.context;
     const drawing: FormDrawing = {
       source: { kind: 'soft-mask', group: mask.group },
@@ -967,9 +1055,10 @@ class Interpreter {
     this.drawForm(step.where, { value, stream, parentScope: step.scope, drawing });
   }
 
-  private textShow(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
-    if (operator === 'Tj') this.show(step, values[0]);
-    else if (operator === "'") {
+  private textShow(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
+    if (operator === 'Tj') {
+      this.show(step, values[0]);
+    } else if (operator === "'") {
       this.nextLine(0, -this.state.leading);
       this.show(step, values[0]);
     } else if (operator === '"') {
@@ -977,8 +1066,11 @@ class Interpreter {
       this.state = { ...this.state, wordSpacing: number(values, 0), characterSpacing: number(values, 1) };
       this.nextLine(0, -this.state.leading);
       this.show(step, values[2]);
-    } else if (operator === 'TJ') this.showArray(step, values[0]);
-    else return false;
+    } else if (operator === 'TJ') {
+      this.showArray(step, values[0]);
+    } else {
+      return false;
+    }
     return true;
   }
 
@@ -989,8 +1081,9 @@ class Interpreter {
       if (item.kind === 'string') {
         this.show(step, item, adjustment);
         adjustment = undefined;
-      } else if (value === undefined) this.warn('bad-operands', `${step.where}: a TJ element is neither a string nor a number`, true);
-      else {
+      } else if (value === undefined) {
+        this.warn('bad-operands', `${step.where}: a TJ element is neither a string nor a number`, true);
+      } else {
         adjustment = (adjustment ?? 0) + value;
         const font = this.state.font?.writingMode ?? 0;
         const [x, y] = adjustmentDisplacement(value, font, this.state);
@@ -1000,9 +1093,13 @@ class Interpreter {
   }
 
   private reportFont(font: FontModel): void {
-    if (this.reportedFonts.has(font.key)) return;
+    if (this.reportedFonts.has(font.key)) {
+      return;
+    }
     this.reportedFonts.add(font.key);
-    for (const warning of font.warnings) this.warn(warning.code, `font ${font.key}: ${warning.detail}`, false);
+    for (const warning of font.warnings) {
+      this.warn(warning.code, `font ${font.key}: ${warning.detail}`, false);
+    }
   }
 
   private glyphBudget(pageText: boolean): number {
@@ -1010,7 +1107,9 @@ class Interpreter {
   }
 
   private claimGlyphs(count: number, pageText: boolean): void {
-    if (pageText) this.shownGlyphs += count;
+    if (pageText) {
+      this.shownGlyphs += count;
+    }
   }
 
   private show(step: Step, value: PdfDirectObject | undefined, adjustment?: number): void {
@@ -1026,20 +1125,27 @@ class Interpreter {
     const start = { textMatrix: this.textMatrix, positionKnown: this.positionKnown };
     const remaining = this.glyphBudget(scope.pageText);
     const split: FontString = this.font(font.key, () => font.glyphs(string, remaining)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
-    const glyphs: ShownGlyph[] = [];
+    const glyphs: Array<ShownGlyph> = [];
     if (split.kind === 'glyphs') {
       this.claimGlyphs(split.glyphs.length, scope.pageText);
       for (const glyph of split.glyphs) {
         glyphs.push({ glyph, textMatrix: this.textMatrix, positionKnown: this.positionKnown });
         const displacement = glyphDisplacement(glyph, font.writingMode, this.state);
-        if (displacement === undefined) this.positionKnown = false;
-        else this.textMatrix = multiply(translation(displacement[0], displacement[1]), this.textMatrix);
+        if (displacement === undefined) {
+          this.positionKnown = false;
+        } else {
+          this.textMatrix = multiply(translation(displacement[0], displacement[1]), this.textMatrix);
+        }
       }
-    } else this.positionKnown = false;
+    } else {
+      this.positionKnown = false;
+    }
     const { renderMode } = this.state;
     this.textClip ||= CLIPPING_MODES.has(renderMode) && string.length > 0;
     const spaces = [...(FILLING_MODES.has(renderMode) ? [this.state.fill] : []), ...(STROKING_MODES.has(renderMode) ? [this.state.stroke] : [])];
-    if (string.length > 0 && spaces.length > 0) this.paintWith('text', spaces, step);
+    if (string.length > 0 && spaces.length > 0) {
+      this.paintWith('text', spaces, step);
+    }
     if (scope.pageText) {
       this.handlers.text?.({
         font,
@@ -1055,7 +1161,11 @@ class Interpreter {
       });
     }
     // A glyph of a Type 3 font is drawn by its procedure, when the render mode paints.
-    if (font.type3 !== undefined && spaces.length > 0) for (const shown of glyphs) this.glyphProcedure(step, font, shown);
+    if (font.type3 !== undefined && spaces.length > 0) {
+      for (const shown of glyphs) {
+        this.glyphProcedure(step, font, shown);
+      }
+    }
   }
 
   // 9.6.5: "the current transformation matrix (CTM) shall be the concatenation of the font matrix (FontMatrix in the current font dictionary) and the text space that was in effect at the time the text-showing operator was invoked".
@@ -1063,9 +1173,13 @@ class Interpreter {
     const name = glyph.glyphName;
     const value = name === undefined ? undefined : font.type3?.charProcs?.get(Uint8Array.from(name, character => character.codePointAt(0) ?? 0));
     const stream = this.deref(value);
-    if (name === undefined || stream?.kind !== 'stream') return;
+    if (name === undefined || stream?.kind !== 'stream') {
+      return;
+    }
     const data = this.decoded(stream, step.where);
-    if (data === undefined) return;
+    if (data === undefined) {
+      return;
+    }
     const { fontSize, horizontalScaling, rise, ctm } = this.state;
     const textSpace = multiply([fontSize * horizontalScaling, 0, 0, fontSize, 0, rise], multiply(textMatrix, ctm));
     const described = this.described(data);
@@ -1085,7 +1199,9 @@ class Interpreter {
       const operator = first.done === true ? undefined : first.value.operator;
       return operator === 'd0' || operator === 'd1' ? operator : undefined;
     } catch (error: unknown) {
-      if (unreadable(error)) return undefined;
+      if (unreadable(error)) {
+        return undefined;
+      }
       throw error;
     }
   }
@@ -1093,18 +1209,23 @@ class Interpreter {
   // A colour space operand: a family name, or a ColorSpace resource (8.6.3).
   private colorSpace(step: Step, name: Uint8Array): ColorSpaceUse {
     const family = latin1(name);
-    if (FAMILIES.has(family)) return { space: pdfName(family), resourceName: undefined, components: [], pattern: undefined };
+    if (FAMILIES.has(family)) {
+      return { space: pdfName(family), resourceName: undefined, components: [], pattern: undefined };
+    }
     const value = this.resource(step, COLOR_SPACE, name);
     return { space: value === undefined ? undefined : this.deref(value), resourceName: name, components: [], pattern: undefined };
   }
 
   private select(target: 'fill' | 'stroke', use: ColorSpaceUse, { scope }: Step): void {
-    if (scope.context.colour === 'used') this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
-    else this.ignored = target === 'fill' ? { ...this.ignored, fill: use } : { ...this.ignored, stroke: use };
+    if (scope.context.colour === 'used') {
+      this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    } else {
+      this.ignored = target === 'fill' ? { ...this.ignored, fill: use } : { ...this.ignored, stroke: use };
+    }
     this.handlers.select?.({ target, use, context: scope.context, sequence: this.sequence++ });
   }
 
-  private device(target: 'fill' | 'stroke', family: string, step: Step & { readonly values: readonly PdfDirectObject[] }): void {
+  private device(target: 'fill' | 'stroke', family: string, step: Step & { readonly values: ReadonlyArray<PdfDirectObject> }): void {
     const { values } = step;
     this.select(
       target,
@@ -1114,7 +1235,7 @@ class Interpreter {
   }
 
   // 8.6.8, Table 74: SC and sc take numbers; SCN and scn also take a final pattern name in a Pattern space.
-  private setColor(target: 'fill' | 'stroke', values: readonly PdfDirectObject[], step: Step): void {
+  private setColor(target: 'fill' | 'stroke', values: ReadonlyArray<PdfDirectObject>, step: Step): void {
     const { where } = step;
     const last = values.at(-1);
     const named = last?.kind === 'name';
@@ -1127,7 +1248,9 @@ class Interpreter {
     const used = step.scope.context.colour === 'used';
     // Where colour operators are ignored, a pattern chosen after an ignored selection is still reported, as that selection was.
     const current = used ? this.state[target] : this.ignored[target];
-    if (current === undefined) return;
+    if (current === undefined) {
+      return;
+    }
     let { pattern } = current;
     if (named) {
       const value = this.resource(step, PATTERN, last.bytes);
@@ -1140,59 +1263,88 @@ class Interpreter {
       };
     }
     const use: ColorSpaceUse = { ...current, components, pattern };
-    if (used) this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
-    else if (named) this.select(target, use, step);
+    if (used) {
+      this.state = target === 'fill' ? { ...this.state, fill: use } : { ...this.state, stroke: use };
+    } else if (named) {
+      this.select(target, use, step);
+    }
   }
 
-  private color(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
-    if (operator === 'CS' || operator === 'cs') this.select(operator === 'cs' ? 'fill' : 'stroke', this.colorSpace(step, nameBytes(values[0])), step);
-    else if (operator === 'SC' || operator === 'SCN') this.setColor('stroke', operator === 'SC' ? values.filter(value => value.kind !== 'name') : values, step);
-    else if (operator === 'sc' || operator === 'scn') this.setColor('fill', operator === 'sc' ? values.filter(value => value.kind !== 'name') : values, step);
-    else if (operator === 'G' || operator === 'g') this.device(operator === 'g' ? 'fill' : 'stroke', 'DeviceGray', { ...step, values });
-    else if (operator === 'RG' || operator === 'rg') this.device(operator === 'rg' ? 'fill' : 'stroke', 'DeviceRGB', { ...step, values });
-    else if (operator === 'K' || operator === 'k') this.device(operator === 'k' ? 'fill' : 'stroke', 'DeviceCMYK', { ...step, values });
-    else return false;
+  private color(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
+    if (operator === 'CS' || operator === 'cs') {
+      this.select(operator === 'cs' ? 'fill' : 'stroke', this.colorSpace(step, nameBytes(values[0])), step);
+    } else if (operator === 'SC' || operator === 'SCN') {
+      this.setColor('stroke', operator === 'SC' ? values.filter(value => value.kind !== 'name') : values, step);
+    } else if (operator === 'sc' || operator === 'scn') {
+      this.setColor('fill', operator === 'sc' ? values.filter(value => value.kind !== 'name') : values, step);
+    } else if (operator === 'G' || operator === 'g') {
+      this.device(operator === 'g' ? 'fill' : 'stroke', 'DeviceGray', { ...step, values });
+    } else if (operator === 'RG' || operator === 'rg') {
+      this.device(operator === 'rg' ? 'fill' : 'stroke', 'DeviceRGB', { ...step, values });
+    } else if (operator === 'K' || operator === 'k') {
+      this.device(operator === 'k' ? 'fill' : 'stroke', 'DeviceCMYK', { ...step, values });
+    } else {
+      return false;
+    }
     return true;
   }
 
   // 14.6, Table 320: BMC and BDC begin a sequence "terminated by a balancing EMC operator"; BDC's properties are "either an inline dictionary containing the property list or a name object associated with it in the Properties subdictionary".
-  private marked(operator: string, values: readonly PdfDirectObject[], step: Step): boolean {
+  private marked(operator: string, values: ReadonlyArray<PdfDirectObject>, step: Step): boolean {
     if (operator === 'BMC' || operator === 'BDC') {
-      if (this.markedContent.length >= MAX_STATE_DEPTH) throw new ResourceLimitError(`marked content nests deeper than ${String(MAX_STATE_DEPTH)}`);
+      if (this.markedContent.length >= MAX_STATE_DEPTH) {
+        throw new ResourceLimitError(`marked content nests deeper than ${String(MAX_STATE_DEPTH)}`);
+      }
       const [tag, list] = values;
       const properties = list?.kind === 'name' ? dictionaryOf(this.deref(this.resource(step, PROPERTIES, list.bytes))) : dictionaryOf(list);
       this.markedContent = [...this.markedContent, { id: this.markedContentIds++, tag: nameBytes(tag), properties }];
     } else if (operator === 'EMC') {
       if (this.markedContent.length <= this.markedFloor) {
         this.warn('marked-content-unbalanced', `${step.where}: no marked-content sequence is open in this stream`, false);
-      } else this.markedContent = this.markedContent.slice(0, -1);
-    } else return operator === 'MP' || operator === 'DP';
+      } else {
+        this.markedContent = this.markedContent.slice(0, -1);
+      }
+    } else {
+      return operator === 'MP' || operator === 'DP';
+    }
     return true;
   }
 
   // 8.5.2, Table 59: path construction, with the points in user space transformed by the CTM as they are given.
-  private construction(operator: string, values: readonly PdfDirectObject[]): boolean {
-    if (!CONSTRUCTION.has(operator)) return false;
+  private construction(operator: string, values: ReadonlyArray<PdfDirectObject>): boolean {
+    if (!CONSTRUCTION.has(operator)) {
+      return false;
+    }
     // The path takes the CTM when its first segment is added; cm may not appear inside a path object (8.2; Annex L, Figure 9).
     this.path ??= new PathBuilder(this.state.ctm);
     const { path } = this;
     const at = (index: number): number => number(values, index);
-    if (operator === 'm') path.moveTo(at(0), at(1));
-    else if (operator === 'l') path.lineTo(at(0), at(1));
-    else if (operator === 'c') path.curveTo([at(0), at(1), at(2), at(3), at(4), at(5)]);
-    else if (operator === 'v') {
+    if (operator === 'm') {
+      path.moveTo(at(0), at(1));
+    } else if (operator === 'l') {
+      path.lineTo(at(0), at(1));
+    } else if (operator === 'c') {
+      path.curveTo([at(0), at(1), at(2), at(3), at(4), at(5)]);
+    } else if (operator === 'v') {
       const [x, y] = path.currentPoint() ?? [at(0), at(1)];
       path.curveTo([x, y, at(0), at(1), at(2), at(3)]);
-    } else if (operator === 'y') path.curveTo([at(0), at(1), at(2), at(3), at(2), at(3)]);
-    else if (operator === 'h') path.close();
-    else if (operator === 're') path.rectangle([at(0), at(1), at(2), at(3)]);
-    else return false;
+    } else if (operator === 'y') {
+      path.curveTo([at(0), at(1), at(2), at(3), at(2), at(3)]);
+    } else if (operator === 'h') {
+      path.close();
+    } else if (operator === 're') {
+      path.rectangle([at(0), at(1), at(2), at(3)]);
+    } else {
+      return false;
+    }
     return true;
   }
 
   // 8.5.4: "After the path has been painted, the clipping path in the graphics state shall be set to the intersection of the current clipping path and the newly constructed path."
   private endPath(): void {
-    if (this.pendingClip !== undefined && this.path !== undefined) this.state = { ...this.state, clip: this.state.clip.intersect(this.path, this.pendingClip) };
+    if (this.pendingClip !== undefined && this.path !== undefined) {
+      this.state = { ...this.state, clip: this.state.clip.intersect(this.path, this.pendingClip) };
+    }
     this.pendingClip = undefined;
     this.path = undefined;
   }
@@ -1203,15 +1355,21 @@ class Interpreter {
     for (const [index, item] of annotations?.kind === 'array' ? annotations.items.entries() : []) {
       const annotation = dictionaryOf(this.deref(item));
       const { printable } = annotationFlags(this.deref(annotation?.get(FLAGS)));
-      if (annotation === undefined || (mode === 'printable' && !printable)) continue;
+      if (annotation === undefined || (mode === 'printable' && !printable)) {
+        continue;
+      }
       const normal = dictionaryOf(this.deref(annotation.get(APPEARANCE)))?.get(NORMAL_APPEARANCE);
       const resolved = this.deref(normal);
       const state = this.deref(annotation.get(APPEARANCE_STATE));
       let value = normal;
-      if (resolved?.kind === 'dictionary') value = state?.kind === 'name' ? resolved.entries.get(state.bytes) : undefined;
+      if (resolved?.kind === 'dictionary') {
+        value = state?.kind === 'name' ? resolved.entries.get(state.bytes) : undefined;
+      }
       const stream = this.deref(value);
       const rectangle = this.rectangleOf(annotation.get(RECT));
-      if (stream?.kind !== 'stream' || rectangle === undefined) continue;
+      if (stream?.kind !== 'stream' || rectangle === undefined) {
+        continue;
+      }
       const drawing: FormDrawing = {
         source: { kind: 'annotation', index, printable },
         base: { ...INITIAL_STATE, ctm: this.appearanceMatrix(stream, rectangle) },
@@ -1239,47 +1397,72 @@ class Interpreter {
 
   // A colour that paints over what is below: not a pattern, whose cells may leave gaps, and not only None colorants, since 8.6.6.4 says "The special colorant name None shall not produce any visible output" and 8.6.6.5 that a None component "shall never be painted"; an Indexed space paints in its base (8.6.6.3).
   private opaque(space: PdfObject | undefined, depth = 0): boolean {
-    if (space?.kind === 'name') return latin1(space.bytes) !== 'Pattern';
-    if (space?.kind !== 'array' || depth > 2) return false;
+    if (space?.kind === 'name') {
+      return latin1(space.bytes) !== 'Pattern';
+    }
+    if (space?.kind !== 'array' || depth > 2) {
+      return false;
+    }
     const [family, second] = space.items;
     const familyName = family?.kind === 'name' ? latin1(family.bytes) : undefined;
-    if (familyName === 'Separation') return !isNone(this.deref(second));
+    if (familyName === 'Separation') {
+      return !isNone(this.deref(second));
+    }
     if (familyName === 'DeviceN') {
       const names = this.deref(second);
       return !(names?.kind === 'array' && names.items.every(name => isNone(this.deref(name))));
     }
-    if (familyName === 'Indexed') return this.opaque(this.deref(second), depth + 1);
+    if (familyName === 'Indexed') {
+      return this.opaque(this.deref(second), depth + 1);
+    }
     return familyName !== undefined && familyName !== 'Pattern';
   }
 
   // Only fills that mark the page count: not those in a pattern cell, a glyph procedure or a soft mask's group.
   private cover(scope: Scope): void {
     const { fillAlpha, blendMode, softMask, fill, clip, group } = this.state;
-    if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !this.opaque(fill.space)) return;
-    if (group.alpha !== 1 || group.blendMode !== 'Normal' || group.softMasked) return;
-    if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) return;
+    if (fillAlpha !== 1 || blendMode !== 'Normal' || softMask !== undefined || !this.opaque(fill.space)) {
+      return;
+    }
+    if (group.alpha !== 1 || group.blendMode !== 'Normal' || group.softMasked) {
+      return;
+    }
+    if (scope.context.sources.some(source => source.kind === 'tiling-pattern' || source.kind === 'type3-glyph' || source.kind === 'soft-mask')) {
+      return;
+    }
     for (const rectangle of this.path?.axisAlignedRectangles() ?? []) {
       const [left, bottom, right, top] = rectangle;
       const placed = clip.classifyQuad([left, bottom, right, bottom, right, top, left, top]);
-      if (placed !== 'outside' && placed !== 'unknown') this.handlers.cover?.({ rectangle, clip, context: scope.context, sequence: this.sequence++ });
+      if (placed !== 'outside' && placed !== 'unknown') {
+        this.handlers.cover?.({ rectangle, clip, context: scope.context, sequence: this.sequence++ });
+      }
     }
   }
 
-  private painting(operation: ContentOperation, values: readonly PdfDirectObject[], step: Step): void {
+  private painting(operation: ContentOperation, values: ReadonlyArray<PdfDirectObject>, step: Step): void {
     const { scope } = step;
     const { operator } = operation;
     const paint = PATH_PAINTS.get(operator);
     if (paint !== undefined) {
       this.paintWith(paint, paint === 'fill-stroke' ? [this.state.fill, this.state.stroke] : [paint === 'fill' ? this.state.fill : this.state.stroke], step);
-      if (paint !== 'stroke') this.cover(scope);
+      if (paint !== 'stroke') {
+        this.cover(scope);
+      }
       this.endPath();
-    } else if (operator === 'W' || operator === 'W*') this.pendingClip = operator === 'W' ? 'nonzero' : 'even-odd';
-    else if (operator === 'n') {
-      if (this.pendingClip !== undefined) this.emitPaint('clip', [this.state.fill, this.state.stroke], scope);
+    } else if (operator === 'W' || operator === 'W*') {
+      this.pendingClip = operator === 'W' ? 'nonzero' : 'even-odd';
+    } else if (operator === 'n') {
+      if (this.pendingClip !== undefined) {
+        this.emitPaint('clip', [this.state.fill, this.state.stroke], scope);
+      }
       this.endPath();
-    } else if (operator === 'Do') this.xObject(step, nameBytes(values[0]));
-    else if (operator === 'sh') this.shading(step, nameBytes(values[0]));
-    else if (operator === 'BI' && operation.inlineImage !== undefined) this.inlineImage(step, operation.inlineImage);
+    } else if (operator === 'Do') {
+      this.xObject(step, nameBytes(values[0]));
+    } else if (operator === 'sh') {
+      this.shading(step, nameBytes(values[0]));
+    } else if (operator === 'BI' && operation.inlineImage !== undefined) {
+      this.inlineImage(step, operation.inlineImage);
+    }
   }
 
   private imageUse(value: PdfDirectObject | undefined): ColorSpaceUse {
@@ -1291,7 +1474,9 @@ class Interpreter {
     const value = this.resource(step, XOBJECT, name);
     const object = this.deref(value);
     if (object?.kind !== 'stream') {
-      if (value !== undefined) this.warn('resource-missing', `${where}: the XObject resource ${latin1(name)} is not a stream`, true);
+      if (value !== undefined) {
+        this.warn('resource-missing', `${where}: the XObject resource ${latin1(name)} is not a stream`, true);
+      }
       return;
     }
     const subtype = this.deref(object.dictionary.get(SUBTYPE));
@@ -1303,25 +1488,34 @@ class Interpreter {
       this.drawForm(where, { value, stream: object, parentScope: scope, drawing });
       return;
     }
-    if (kind !== 'Image') return;
+    if (kind !== 'Image') {
+      return;
+    }
     // 8.9.5, Table 89, ImageMask: "unmasked areas shall be painted using the current nonstroking colour".
     const mask = this.deref(object.dictionary.get(IMAGE_MASK));
-    if (mask?.kind === 'boolean' && mask.value) this.paintWith('image-mask', [this.state.fill], step);
-    else this.emitPaint('image', [this.imageUse(object.dictionary.get(COLOR_SPACE))], scope);
+    if (mask?.kind === 'boolean' && mask.value) {
+      this.paintWith('image-mask', [this.state.fill], step);
+    } else {
+      this.emitPaint('image', [this.imageUse(object.dictionary.get(COLOR_SPACE))], scope);
+    }
   }
 
   // 8.7.4.2: sh paints the shading named in the Shading resources, in the shading dictionary's ColorSpace (8.7.4.3, Table 78).
   private shading(step: Step, name: Uint8Array): void {
     const shading = dictionaryOf(this.deref(this.resource(step, SHADING, name)));
-    if (shading !== undefined) this.emitPaint('shading', [this.imageUse(shading.get(COLOR_SPACE))], step.scope);
+    if (shading !== undefined) {
+      this.emitPaint('shading', [this.imageUse(shading.get(COLOR_SPACE))], step.scope);
+    }
   }
 
   private inlineImage(step: Step, image: InlineImage): void {
     const { scope } = step;
-    const parameter = (keys: readonly string[]): ContentOperand | undefined => {
+    const parameter = (keys: ReadonlyArray<string>): ContentOperand | undefined => {
       for (let index = 0; index + 1 < image.parameters.length; index += 2) {
         const key = image.parameters[index];
-        if (key?.kind === 'name' && keys.includes(latin1(key.bytes))) return image.parameters[index + 1];
+        if (key?.kind === 'name' && keys.includes(latin1(key.bytes))) {
+          return image.parameters[index + 1];
+        }
       }
       return undefined;
     };
@@ -1339,7 +1533,9 @@ class Interpreter {
           ? { space: this.deref(this.resource(step, COLOR_SPACE, space.bytes)), resourceName: space.bytes, components: [], pattern: undefined }
           : { space: pdfName(family), resourceName: undefined, components: [], pattern: undefined };
       this.emitPaint('inline-image', [use], scope);
-    } else this.emitPaint('inline-image', space === undefined || space.kind === 'stray-delimiter' ? [] : [this.imageUse(space)], scope);
+    } else {
+      this.emitPaint('inline-image', space === undefined || space.kind === 'stray-delimiter' ? [] : [this.imageUse(space)], scope);
+    }
   }
 }
 
@@ -1358,10 +1554,14 @@ const pageResources = (
     const found = inherited(document.objects, page, { key: RESOURCES, cache });
     const owner = pageResourcesOwner(found, page);
     const resources = found === undefined ? undefined : dictionaryOf(document.objects.deref(found.value));
-    if (found !== undefined && resources === undefined) interpreter.warn('resource-missing', 'the Resources of the page is not a dictionary', true);
+    if (found !== undefined && resources === undefined) {
+      interpreter.warn('resource-missing', 'the Resources of the page is not a dictionary', true);
+    }
     return { resources, owner };
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     interpreter.warn('content-unreadable', `the Resources of the page cannot be read: ${error.message}`, true);
     return { resources: undefined, owner: referenceKey(page.reference) };
   }
@@ -1388,7 +1588,9 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
   const { resources, owner } = pageResources(interpreter, page, { document, cache: options.inheritance ?? createInheritedCache() });
   interpreter.setPage({ resources, owner });
   const content = pageContent(document, page);
-  for (const problem of content.problems) interpreter.warn('content-unreadable', problem, true);
+  for (const problem of content.problems) {
+    interpreter.warn('content-unreadable', problem, true);
+  }
   const scope: Scope = {
     resources,
     owner,
@@ -1399,6 +1601,8 @@ export const interpretPage = (document: DocumentInternals, pageIndex: number, op
   };
   interpreter.run(content.streams, scope);
   interpreter.finish();
-  if (annotations !== 'none') interpreter.drawAnnotations(page, scope, annotations);
+  if (annotations !== 'none') {
+    interpreter.drawAnnotations(page, scope, annotations);
+  }
   return interpreter.result();
 };

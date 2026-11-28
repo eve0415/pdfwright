@@ -21,7 +21,9 @@ const readOrUndefined = (read: () => PdfObject | undefined): PdfObject | undefin
   try {
     return read();
   } catch (error: unknown) {
-    if (error instanceof ParseError) return undefined;
+    if (error instanceof ParseError) {
+      return undefined;
+    }
     throw error;
   }
 };
@@ -32,11 +34,15 @@ const sigFlags = (document: DocumentInternals, catalog: PdfDictionaryEntries): n
   try {
     const form = objects.deref(catalog.get(ACRO_FORM));
     const flags = form?.kind === 'dictionary' ? objects.deref(form.entries.get(SIG_FLAGS)) : undefined;
-    if (flags === undefined || flags.kind === 'null') return undefined;
+    if (flags === undefined || flags.kind === 'null') {
+      return undefined;
+    }
     const value = flags.kind === 'integer' || flags.kind === 'real' ? flags.value : undefined;
     return typeof value === 'number' && Number.isInteger(value) ? value : 'unknown';
   } catch (error: unknown) {
-    if (error instanceof ParseError) return 'unknown';
+    if (error instanceof ParseError) {
+      return 'unknown';
+    }
     throw error;
   }
 };
@@ -47,26 +53,40 @@ const populatedSignatureField = (document: DocumentInternals, catalog: PdfDictio
   try {
     const form = objects.deref(catalog.get(ACRO_FORM));
     const fields = form?.kind === 'dictionary' ? objects.deref(form.entries.get(FIELDS)) : undefined;
-    if (fields?.kind !== 'array') return false;
+    if (fields?.kind !== 'array') {
+      return false;
+    }
     const pending = fields.items.map(value => ({ value, signature: false }));
     const visited = new Set<number>();
     for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
       if (next.value.kind === 'reference') {
-        if (visited.has(next.value.objectNumber)) continue;
+        if (visited.has(next.value.objectNumber)) {
+          continue;
+        }
         visited.add(next.value.objectNumber);
       }
       const field = objects.deref(next.value);
-      if (field?.kind !== 'dictionary') continue;
+      if (field?.kind !== 'dictionary') {
+        continue;
+      }
       const type = objects.deref(field.entries.get(FT));
       const signature = type?.kind === 'name' ? new TextDecoder('latin1').decode(type.bytes) === 'Sig' : next.signature;
       const value = objects.deref(field.entries.get(V));
-      if (signature && value !== undefined && value.kind !== 'null') return true;
+      if (signature && value !== undefined && value.kind !== 'null') {
+        return true;
+      }
       const kids = objects.deref(field.entries.get(KIDS));
-      if (kids?.kind === 'array') for (const child of kids.items) pending.push({ value: child, signature });
+      if (kids?.kind === 'array') {
+        for (const child of kids.items) {
+          pending.push({ value: child, signature });
+        }
+      }
     }
     return false;
   } catch (error: unknown) {
-    if (error instanceof ParseError) return true;
+    if (error instanceof ParseError) {
+      return true;
+    }
     throw error;
   }
 };
@@ -81,12 +101,22 @@ const populatedSignatureField = (document: DocumentInternals, catalog: PdfDictio
 export const signatureProtection = (document: DocumentInternals): SignatureProtection | undefined => {
   const { objects, structure } = document;
   const catalog = readOrUndefined(() => objects.deref(structure.trailer.get(ROOT)));
-  if (catalog?.kind !== 'dictionary') return undefined;
+  if (catalog?.kind !== 'dictionary') {
+    return undefined;
+  }
   const flags = sigFlags(document, catalog.entries);
-  if (flags === 'unknown') return 'unreadable-flags';
+  if (flags === 'unknown') {
+    return 'unreadable-flags';
+  }
   // Table 219 numbers bits from 1 for the low-order bit, so AppendOnly is the value 2 and SignaturesExist the value 1.
-  if (flags !== undefined && Math.floor(flags / 2) % 2 === 1) return 'append-only';
-  if (flags !== undefined && flags % 2 === 1) return 'signatures-exist';
-  if (readOrUndefined(() => objects.deref(catalog.entries.get(PERMS)))?.kind === 'dictionary') return 'permissions';
+  if (flags !== undefined && Math.floor(flags / 2) % 2 === 1) {
+    return 'append-only';
+  }
+  if (flags !== undefined && flags % 2 === 1) {
+    return 'signatures-exist';
+  }
+  if (readOrUndefined(() => objects.deref(catalog.entries.get(PERMS)))?.kind === 'dictionary') {
+    return 'permissions';
+  }
   return populatedSignatureField(document, catalog.entries) ? 'signatures-exist' : undefined;
 };

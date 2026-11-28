@@ -34,8 +34,10 @@ describe('classic PDF writer', () => {
     const saved = writeDocument([{ objectNumber: 1, generation: 0, value: pdfDictionary() }], trailer, { fractionDigits: 5 });
     expect(saved.chunks.length).toBeGreaterThan(1);
     expect(saved.byteLength).toBe(saved.toBytes().length);
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    const chunks: Array<Uint8Array> = [];
+    for await (const chunk of saved.toStream()) {
+      chunks.push(chunk);
+    }
     expect(chunks).toStrictEqual(saved.chunks);
     expect(chunks[0]).toBe(saved.chunks[0]);
   });
@@ -46,11 +48,13 @@ describe('classic PDF writer', () => {
     const xrefOffset = Number(/startxref\n(\d+)/u.exec(text)?.[1]);
     expect(text.slice(xrefOffset, xrefOffset + 9)).toBe('xref\n0 3\n');
     const xref = text.slice(xrefOffset).split('\n');
-    for (let index = 2; index <= 4; index++) expect(xref[index]).toHaveLength(19);
-    expect(`${xref[2]}\n`).toBe('0000000000 65535 f \n');
+    for (let index = 2; index <= 4; index++) {
+      expect(xref[index]).toHaveLength(19);
+    }
+    expect(xref[2]).toBe('0000000000 65535 f ');
     for (let objectNumber = 1; objectNumber <= 2; objectNumber++) {
       const offset = Number(xref[objectNumber + 2]?.slice(0, 10));
-      expect(text.slice(offset)).toMatch(new RegExp(`^${objectNumber} 0 obj`, 'u'));
+      expect(text.slice(offset)).toMatch(new RegExp(`^${String(objectNumber)} 0 obj`, 'u'));
     }
   });
 

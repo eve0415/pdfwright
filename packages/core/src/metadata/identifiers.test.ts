@@ -16,7 +16,7 @@ const hex = (data: Uint8Array): string => [...data].map(byte => byte.toString(16
 
 const serialized = ({ value }: { readonly value: PdfObject }): Uint8Array => serializeObject(value, { fractionDigits: 5 });
 
-const digestOf = (entries: readonly (readonly [number, ObjectChange])[]): string => hex(changesDigest(new Map(entries), new Set([9]), serialized));
+const digestOf = (entries: ReadonlyArray<readonly [number, ObjectChange]>): string => hex(changesDigest(new Map(entries), new Set([9]), serialized));
 
 const set = (value: number): ObjectChange => ({ generation: 0, value: pdfInteger(value) });
 

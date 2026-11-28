@@ -60,7 +60,7 @@ export interface PaintOptions {
 
 // What a finished content stream tells a caller that places it as a form.
 export interface ContentSummary {
-  readonly whiteRequirements: readonly WhiteRequirement[];
+  readonly whiteRequirements: ReadonlyArray<WhiteRequirement>;
   // The deepest q/Q nesting the content reaches, counted from the start of the stream.
   readonly depth: number;
 }
@@ -103,7 +103,7 @@ export interface ContentBuilder {
   lineJoin: (join: 'miter' | 'round' | 'bevel') => void;
   lineCap: (cap: 'butt' | 'round' | 'square') => void;
   miterLimit: (limit: ContentNumber) => void;
-  dash: (array: ContentNumber[], phase: ContentNumber) => void;
+  dash: (array: Array<ContentNumber>, phase: ContentNumber) => void;
   fillColor: (color: DeviceColor | Separation, tint?: number) => void;
   strokeColor: (color: DeviceColor | Separation, tint?: number) => void;
   graphicsState: (options: GraphicsStateOptions) => void;
@@ -148,7 +148,9 @@ const validAlpha = (value: number | undefined): boolean => value === undefined |
 const overprintFlags = (options: GraphicsStateOptions, state: CurrentGraphicsState): Pick<GraphicsStateOptions, 'overprintFill' | 'overprintStroke'> => {
   const { overprintFill, overprintStroke } = options;
   if (overprintFill === undefined) {
-    if (overprintStroke === undefined) return {};
+    if (overprintStroke === undefined) {
+      return {};
+    }
     if (state.overprintFill === 'inherited') {
       throw new ValidationError(
         'inside a group, overprintStroke also needs overprintFill: OP alone sets both flags, and a group cannot know the fill flag it inherits',
@@ -156,31 +158,57 @@ const overprintFlags = (options: GraphicsStateOptions, state: CurrentGraphicsSta
     }
     return { overprintFill: state.overprintFill, overprintStroke };
   }
-  if (overprintStroke !== undefined) return { overprintFill, overprintStroke };
-  if (state.overprintStroke === 'inherited') return { overprintFill };
+  if (overprintStroke !== undefined) {
+    return { overprintFill, overprintStroke };
+  }
+  if (state.overprintStroke === 'inherited') {
+    return { overprintFill };
+  }
   return { overprintFill, overprintStroke: state.overprintStroke };
 };
 
 const normalizeGraphicsState = (options: GraphicsStateOptions, state: CurrentGraphicsState): GraphicsStateOptions => {
-  if (!validAlpha(options.fillAlpha)) throw new ValidationError('fill alpha must be in [0, 1]');
-  if (!validAlpha(options.strokeAlpha)) throw new ValidationError('stroke alpha must be in [0, 1]');
+  if (!validAlpha(options.fillAlpha)) {
+    throw new ValidationError('fill alpha must be in [0, 1]');
+  }
+  if (!validAlpha(options.strokeAlpha)) {
+    throw new ValidationError('stroke alpha must be in [0, 1]');
+  }
   const normalized: GraphicsStateOptions = overprintFlags(options, state);
-  if (options.fillAlpha !== undefined) normalized.fillAlpha = options.fillAlpha;
-  if (options.strokeAlpha !== undefined) normalized.strokeAlpha = options.strokeAlpha;
-  if (options.blendMode !== undefined) normalized.blendMode = options.blendMode;
-  if (options.overprintMode !== undefined) normalized.overprintMode = options.overprintMode;
-  if (options.softMask !== undefined) normalized.softMask = options.softMask;
-  if (normalized.overprintFill !== undefined) state.overprintFill = normalized.overprintFill;
-  if (normalized.overprintStroke !== undefined) state.overprintStroke = normalized.overprintStroke;
-  if (options.overprintMode !== undefined) state.overprintMode = options.overprintMode;
+  if (options.fillAlpha !== undefined) {
+    normalized.fillAlpha = options.fillAlpha;
+  }
+  if (options.strokeAlpha !== undefined) {
+    normalized.strokeAlpha = options.strokeAlpha;
+  }
+  if (options.blendMode !== undefined) {
+    normalized.blendMode = options.blendMode;
+  }
+  if (options.overprintMode !== undefined) {
+    normalized.overprintMode = options.overprintMode;
+  }
+  if (options.softMask !== undefined) {
+    normalized.softMask = options.softMask;
+  }
+  if (normalized.overprintFill !== undefined) {
+    state.overprintFill = normalized.overprintFill;
+  }
+  if (normalized.overprintStroke !== undefined) {
+    state.overprintStroke = normalized.overprintStroke;
+  }
+  if (options.overprintMode !== undefined) {
+    state.overprintMode = options.overprintMode;
+  }
   return normalized;
 };
 
 export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks = {}): ContentSession => {
-  const commands: string[] = [];
+  const commands: Array<string> = [];
   let finished = false;
   const ensureOpen = (): void => {
-    if (finished) throw new ValidationError('content can be drawn only inside its draw callback');
+    if (finished) {
+      throw new ValidationError('content can be drawn only inside its draw callback');
+    }
   };
   const push = (command: string): void => {
     ensureOpen();
@@ -191,40 +219,48 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   // ISO 32000-1:2008, Annex C, Table C.1 limits graphics state nesting to 28 levels.
   const maxDepth = hooks.maxDepth ?? 28;
   const reach = (level: number): void => {
-    if (level > maxDepth) throw new ValidationError('graphics state nesting exceeds 28 levels');
+    if (level > maxDepth) {
+      throw new ValidationError('graphics state nesting exceeds 28 levels');
+    }
     deepest = Math.max(deepest, level);
   };
   let state: CurrentGraphicsState = { ...(hooks.inheritsState === true ? INHERITED_STATE : INITIAL_STATE) };
   const blendingSpace = hooks.blendingSpace ?? 'DeviceCMYK';
   const whiteRequirements = new Map<string, WhiteRequirement>();
-  const stack: CurrentGraphicsState[] = [];
+  const stack: Array<CurrentGraphicsState> = [];
   const localStates = new Map<string, string>();
   const localSeparations = new Map<Separation, string>();
   const localImages = new Map<PdfImage, string>();
   const localGroups = new Map<PdfGroup, string>();
   const number = (value: ContentNumber): string => (typeof value === 'number' ? formatNumber(value, fractionDigits) : formatLength(value, fractionDigits));
-  const emit = (operator: string, operands: ContentNumber[] = []): void => {
+  const emit = (operator: string, operands: Array<ContentNumber> = []): void => {
     push(`${operands.map(value => number(value)).join(' ')}${operands.length === 0 ? '' : ' '}${operator}\n`);
   };
   const nonnegative = (value: ContentNumber, name: string): void => {
-    if (Number(number(value)) < 0) throw new ValidationError(`${name} must be non-negative`);
+    if (Number(number(value)) < 0) {
+      throw new ValidationError(`${name} must be non-negative`);
+    }
   };
   const separationName = (separation: Separation): string => {
     let name = localSeparations.get(separation);
     if (name === undefined) {
-      name = hooks.registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
+      name = hooks.registerSeparation?.(separation) ?? `CS${String(localSeparations.size + 1)}`;
       localSeparations.set(separation, name);
     }
     return name;
   };
   const paintColor = (color: DeviceColor | Separation, tint: number | undefined, stroking: boolean): void => {
     if (color.kind === 'Separation') {
-      if (tint === undefined || !Number.isFinite(tint) || tint < 0 || tint > 1) throw new ValidationError('separation tint must be in [0, 1]');
+      if (tint === undefined || !Number.isFinite(tint) || tint < 0 || tint > 1) {
+        throw new ValidationError('separation tint must be in [0, 1]');
+      }
       push(`/${separationName(color)} ${stroking ? 'CS' : 'cs'}\n`);
       emit(stroking ? 'SCN' : 'scn', [tint]);
       return;
     }
-    if (tint !== undefined) throw new ValidationError('device colour does not accept a tint');
+    if (tint !== undefined) {
+      throw new ValidationError('device colour does not accept a tint');
+    }
     const operator = stroking
       ? { DeviceCMYK: 'K', DeviceRGB: 'RG', DeviceGray: 'G' }[color.kind]
       : { DeviceCMYK: 'k', DeviceRGB: 'rg', DeviceGray: 'g' }[color.kind];
@@ -245,8 +281,12 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   // A condition a form inherits is kept as a requirement and settled where the form is placed.
   const settle = (...[requirement, options, message]: [WhiteRequirement, PaintOptions | undefined, string]): void => {
     const conditions = [requirement.color, requirement.overprint, requirement.mode, requirement.space];
-    if (conditions.includes(false) || options?.acknowledgeInvisibleOverprint === true) return;
-    if (conditions.every(condition => condition === true)) throw new ValidationError(message, 'invisible-overprint');
+    if (conditions.includes(false) || options?.acknowledgeInvisibleOverprint === true) {
+      return;
+    }
+    if (conditions.every(condition => condition === true)) {
+      throw new ValidationError(message, 'invisible-overprint');
+    }
     whiteRequirements.set(JSON.stringify(requirement), requirement);
   };
   const checkWhiteOverprint = (stroking: boolean, options?: PaintOptions): void => {
@@ -311,10 +351,14 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     },
     restore: (): void => {
       ensureOpen();
-      if (depth === 0) throw new ValidationError('graphics state restore has no matching save');
+      if (depth === 0) {
+        throw new ValidationError('graphics state restore has no matching save');
+      }
       depth--;
       const previous = stack.pop();
-      if (previous !== undefined) state = previous;
+      if (previous !== undefined) {
+        state = previous;
+      }
       emit('Q');
     },
     // ISO 32000-1:2008, 8.4.4, Table 57 writes cm with six separate numeric operands.
@@ -367,13 +411,17 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
     miterLimit: (limit): void => {
       ensureOpen();
       // ISO 32000-1:2008, 8.4.3.5: "The miter limit shall impose a maximum on the ratio of the miter length to the line width"; that ratio is 1 / sin(φ / 2), never below 1.
-      if (Number(number(limit)) < 1) throw new ValidationError('miter limit must be at least 1');
+      if (Number(number(limit)) < 1) {
+        throw new ValidationError('miter limit must be at least 1');
+      }
       emit('M', [limit]);
     },
     dash: (array, phase): void => {
       ensureOpen();
       // ISO 32000-1:2008, 8.4.3.6 permits an empty array for a solid line, but a nonempty dash array shall not be all zero.
-      for (const value of array) nonnegative(value, 'dash length');
+      for (const value of array) {
+        nonnegative(value, 'dash length');
+      }
       if (array.length > 0 && !array.some(value => Number(number(value)) > 0)) {
         throw new ValidationError('dash array must contain a positive length after rounding');
       }
@@ -404,18 +452,20 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       ]);
       let name = localStates.get(key);
       if (name === undefined) {
-        name = hooks.registerGraphicsState?.(normalized) ?? `GS${localStates.size + 1}`;
+        name = hooks.registerGraphicsState?.(normalized) ?? `GS${String(localStates.size + 1)}`;
         localStates.set(key, name);
       }
       push(`/${name} gs\n`);
     },
     image: (image, matrix): void => {
       ensureOpen();
-      if (hooks.imageMask?.(image) === true) checkWhiteOverprint(false);
+      if (hooks.imageMask?.(image) === true) {
+        checkWhiteOverprint(false);
+      }
       reach(depth + 1);
       let name = localImages.get(image);
       if (name === undefined) {
-        name = hooks.registerImage?.(image) ?? `Im${localImages.size + 1}`;
+        name = hooks.registerImage?.(image) ?? `Im${String(localImages.size + 1)}`;
         localImages.set(image, name);
       }
       // ISO 32000-1:2008, 8.9.4 paints an image XObject into the unit square under the current transformation matrix.
@@ -432,7 +482,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       checkGroupWhite(summary, options);
       let name = localGroups.get(group);
       if (name === undefined) {
-        name = hooks.registerGroup?.(group) ?? `Fm${localGroups.size + 1}`;
+        name = hooks.registerGroup?.(group) ?? `Fm${String(localGroups.size + 1)}`;
         localGroups.set(group, name);
       }
       emit('q');
@@ -445,7 +495,9 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   return {
     content,
     finish: (): FinishedContent => {
-      if (depth !== 0) throw new ValidationError('graphics state save and restore must be balanced');
+      if (depth !== 0) {
+        throw new ValidationError('graphics state save and restore must be balanced');
+      }
       finished = true;
       return {
         data: new TextEncoder().encode(commands.join('')),

@@ -32,12 +32,12 @@ const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
 
-const lab = (channels: readonly number[] | Float64Array): readonly number[] => {
+const lab = (channels: ReadonlyArray<number> | Float64Array): ReadonlyArray<number> => {
   const pcs = toPcs([...channels]);
   return pcs.space === 'Lab' ? pcs.values : xyzToLab(pcs.values);
 };
 
-const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => {
+const lowDepthMesh = (bits: 1 | 2 | 4, color: ReadonlyArray<number>): Uint8Array => {
   const writer = new MeshBitWriter();
   for (const [x, y] of [
     [0, 0],
@@ -47,7 +47,9 @@ const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => 
     writer.write(2, 0);
     writer.write(8, x ?? 0);
     writer.write(8, y ?? 0);
-    for (const value of color) writer.write(bits, value);
+    for (const value of color) {
+      writer.write(bits, value);
+    }
     writer.alignByte();
   }
   const meshBytes = latin1Text(writer.finish(1024));
@@ -72,7 +74,7 @@ const lowDepthMesh = (bits: 1 | 2 | 4, color: readonly number[]): Uint8Array => 
   ]).bytes;
 };
 
-const transicc = async (rgb: readonly number[]): Promise<number[]> => {
+const transicc = async (rgb: ReadonlyArray<number>): Promise<Array<number>> => {
   const sourcePath = fileURLToPath(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url));
   const destinationPath = fileURLToPath(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url));
   const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
@@ -93,7 +95,9 @@ const triangle = (): Uint8Array => {
     [0, 100, 0, 0, 255],
   ]) {
     writer.write(2, 0);
-    for (const value of [x, y, red, green, blue]) writer.write(8, value ?? 0);
+    for (const value of [x, y, red, green, blue]) {
+      writer.write(8, value ?? 0);
+    }
     writer.alignByte();
   }
   return writer.finish(1024);
@@ -150,7 +154,9 @@ const lattice = (): Uint8Array => {
     [0, 100, 0, 0, 255],
     [100, 100, 255, 255, 255],
   ]) {
-    for (const value of vertex) writer.write(8, value);
+    for (const value of vertex) {
+      writer.write(8, value);
+    }
   }
   return writer.finish(1024);
 };
@@ -158,7 +164,9 @@ const lattice = (): Uint8Array => {
 const writePatch = (writer: MeshBitWriter, type: 6 | 7, flag: 0 | 1): void => {
   writer.write(2, flag);
   let points = type === 6 ? 8 : 12;
-  if (flag === 0) points = type === 6 ? 12 : 16;
+  if (flag === 0) {
+    points = type === 6 ? 12 : 16;
+  }
   for (let point = 0; point < points; point++) {
     writer.write(8, point * 5);
     writer.write(8, point * 3);
@@ -175,14 +183,20 @@ const writePatch = (writer: MeshBitWriter, type: 6 | 7, flag: 0 | 1): void => {
           [0, 0, 255],
           [255, 255, 255],
         ];
-  for (const color of colors) for (const value of color) writer.write(8, value);
+  for (const color of colors) {
+    for (const value of color) {
+      writer.write(8, value);
+    }
+  }
   writer.alignByte();
 };
 
 const patch = (type: 6 | 7, joined = false): Uint8Array => {
   const writer = new MeshBitWriter();
   writePatch(writer, type, 0);
-  if (joined) writePatch(writer, type, 1);
+  if (joined) {
+    writePatch(writer, type, 1);
+  }
   return writer.finish(1024);
 };
 
@@ -230,7 +244,9 @@ const rectangularPatch = (type: 6 | 7, saturated = false): Uint8Array => {
         [230, 51, 26],
       ];
   for (const color of colors) {
-    for (const component of color) writer.write(8, component);
+    for (const component of color) {
+      writer.write(8, component);
+    }
   }
   writer.alignByte();
   return writer.finish(1024);
@@ -267,7 +283,9 @@ const functionTriangle = (): Uint8Array => {
     [0, 100, 255],
   ]) {
     writer.write(2, 0);
-    for (const value of vertex) writer.write(8, value);
+    for (const value of vertex) {
+      writer.write(8, value);
+    }
     writer.alignByte();
   }
   return writer.finish(1024);
@@ -330,7 +348,9 @@ interface MeshInfo {
 const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
   const shading = document.get(pdfReference(5, 0));
   const internals = internalsOf(document);
-  if (shading.kind !== 'stream' || internals === undefined) throw new Error('mesh shading is missing');
+  if (shading.kind !== 'stream' || internals === undefined) {
+    throw new Error('mesh shading is missing');
+  }
   const data = decodedData(internals, shading);
   const color = shading.dictionary.get(pdfName('ColorSpace').bytes);
   const decode = shading.dictionary.get(pdfName('Decode').bytes);
@@ -348,42 +368,49 @@ const mesh = (document: ReturnType<typeof loadDocument>): MeshInfo => {
   };
 };
 
-const triangleVertices = (data: Uint8Array): readonly { readonly x: number; readonly y: number; readonly color: readonly number[] }[] => {
+const triangleVertices = (data: Uint8Array): ReadonlyArray<{ readonly x: number; readonly y: number; readonly color: ReadonlyArray<number> }> => {
   const reader = new MeshBitReader(data);
-  const vertices: { x: number; y: number; color: number[] }[] = [];
+  const vertices: Array<{ x: number; y: number; color: Array<number> }> = [];
   while (reader.remainingBits > 0) {
     const flag = reader.read(8);
     const x = reader.read(16);
     const y = reader.read(16);
     const color = Array.from({ length: 4 }, () => reader.read(8));
-    if (flag !== 0) throw new Error('emitted triangle has an unexpected edge flag');
+    if (flag !== 0) {
+      throw new Error('emitted triangle has an unexpected edge flag');
+    }
     vertices.push({ x, y, color });
   }
   return vertices;
 };
 
-const sourceCorner = (data: Uint8Array): readonly number[] => {
+const sourceCorner = (data: Uint8Array): ReadonlyArray<number> => {
   const corner = triangleVertices(data).find(vertex => vertex.x === 0 && vertex.y === 0);
-  if (corner === undefined) throw new Error('source corner is missing');
+  if (corner === undefined) {
+    throw new Error('source corner is missing');
+  }
   return corner.color;
 };
 
-const cornerCoordinates = (vertices: readonly { readonly x: number; readonly y: number }[]): ReadonlySet<string> =>
+const cornerCoordinates = (vertices: ReadonlyArray<{ readonly x: number; readonly y: number }>): ReadonlySet<string> =>
   new Set(
     vertices
+      .values()
       .filter(vertex => (vertex.x === 0 || vertex.x === 25_700) && (vertex.y === 0 || vertex.y === 25_700))
       .map(vertex => `${String(vertex.x)},${String(vertex.y)}`),
   );
 
-const decodeCoordinate = (raw: number): number => (raw / 65535) * 100;
+const decodeCoordinate = (raw: number): number => (raw / 65_535) * 100;
 
-const interpolatedAt = (data: Uint8Array, x: number, y: number): readonly number[] => {
+const interpolatedAt = (data: Uint8Array, x: number, y: number): ReadonlyArray<number> => {
   const vertices = triangleVertices(data);
   for (let index = 0; index < vertices.length; index += 3) {
     const a = vertices[index];
     const b = vertices[index + 1];
     const c = vertices[index + 2];
-    if (a === undefined || b === undefined || c === undefined) throw new Error('triangle is incomplete');
+    if (a === undefined || b === undefined || c === undefined) {
+      throw new Error('triangle is incomplete');
+    }
     const ax = decodeCoordinate(a.x);
     const ay = decodeCoordinate(a.y);
     const bx = decodeCoordinate(b.x);
@@ -391,43 +418,65 @@ const interpolatedAt = (data: Uint8Array, x: number, y: number): readonly number
     const cx = decodeCoordinate(c.x);
     const cy = decodeCoordinate(c.y);
     const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (Math.abs(denominator) < 1e-9) continue;
+    if (Math.abs(denominator) < 1e-9) {
+      continue;
+    }
     const wa = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
     const wb = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
     const wc = 1 - wa - wb;
-    if (wa < -1e-5 || wb < -1e-5 || wc < -1e-5) continue;
+    if (wa < -1e-5 || wb < -1e-5 || wc < -1e-5) {
+      continue;
+    }
     return Array.from({ length: 4 }, (_, channel) => (wa * (a.color[channel] ?? 0) + wb * (b.color[channel] ?? 0) + wc * (c.color[channel] ?? 0)) / 255);
   }
   throw new Error('sample point is outside the converted patch');
 };
 
-const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
+const meshFunction = (document: ReturnType<typeof loadDocument>): ((input: ReadonlyArray<number>) => Array<number>) => {
   const shading = document.get(pdfReference(5, 0));
   const internals = internalsOf(document);
-  if (shading.kind !== 'stream' || internals === undefined) throw new Error('mesh shading is missing');
+  if (shading.kind !== 'stream' || internals === undefined) {
+    throw new Error('mesh shading is missing');
+  }
   const reference = shading.dictionary.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('mesh function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('mesh function is missing');
+  }
   const functionStream = document.get(reference);
-  if (functionStream.kind !== 'stream') throw new Error('sampled mesh function is missing');
+  if (functionStream.kind !== 'stream') {
+    throw new Error('sampled mesh function is missing');
+  }
   const data = decodedData(internals, functionStream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data });
 };
 
-const closeChannels = (actual: readonly number[], expected: Float64Array): boolean[] =>
+const closeChannels = (actual: ReadonlyArray<number>, expected: Float64Array): Array<boolean> =>
   actual.map((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 0.005);
 
 const meshStop = (document: ReturnType<typeof loadDocument>): number => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'stream') throw new Error('mesh is missing');
+  if (shading.kind !== 'stream') {
+    throw new Error('mesh is missing');
+  }
   const reference = shading.dictionary.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('mesh Function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('mesh Function is missing');
+  }
   const functionObject = document.get(reference);
-  if (functionObject.kind !== 'dictionary') throw new Error('stitching Function is missing');
+  if (functionObject.kind !== 'dictionary') {
+    throw new Error('stitching Function is missing');
+  }
   const bounds = functionObject.entries.get(pdfName('Bounds').bytes);
-  if (bounds?.kind !== 'array') throw new Error('mesh stop is missing');
+  if (bounds?.kind !== 'array') {
+    throw new Error('mesh stop is missing');
+  }
   const [stop] = bounds.items;
-  if (stop?.kind !== 'real' || typeof stop.value !== 'number') throw new Error('mesh stop is invalid');
+  if (stop?.kind !== 'real' || typeof stop.value !== 'number') {
+    throw new Error('mesh stop is invalid');
+  }
   return stop.value;
 };
 
@@ -435,7 +484,9 @@ describe('mesh shading conversion', () => {
   it('rejects an over-budget source before converting every vertex', () => {
     const sourceTriangle = triangle();
     const data = new Uint8Array(sourceTriangle.length * 100);
-    for (let index = 0; index < 100; index++) data.set(sourceTriangle, index * sourceTriangle.length);
+    for (let index = 0; index < 100; index++) {
+      data.set(sourceTriangle, index * sourceTriangle.length);
+    }
     const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
     const convert = vi.spyOn(transform, 'convert');
     expect(() =>
@@ -578,7 +629,7 @@ describe('mesh shading conversion', () => {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, document.save().toBytes());
       const child = spawn('qpdf', ['--check', file]);
-      const events: readonly unknown[] = await once(child, 'close');
+      const events: ReadonlyArray<unknown> = await once(child, 'close');
       expect(events.at(0)).toBe(0);
     } finally {
       await rm(directory, { recursive: true, force: true });

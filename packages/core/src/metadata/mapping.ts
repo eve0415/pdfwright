@@ -37,15 +37,15 @@ export interface MappedProperty {
   /** The value of the first occurrence of the XMP property, or undefined when it is absent or empty. */
   readonly xmp: XmpValue | undefined;
   /** Properties that XMP versions before Part 2 used for the same key, as the packet carries them. */
-  readonly legacy: readonly LegacyValue[];
+  readonly legacy: ReadonlyArray<LegacyValue>;
   readonly agreement: Agreement;
 }
 
 export interface MetadataMapping {
-  readonly properties: readonly MappedProperty[];
+  readonly properties: ReadonlyArray<MappedProperty>;
   /** Which side ISO 32000-1:2008, 14.3.2 makes authoritative where they disagree. */
   readonly authority: 'xmp' | 'info' | 'indeterminate';
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
 }
 
 interface Row {
@@ -55,11 +55,11 @@ interface Row {
   readonly prefix: string;
   readonly kind: 'alternative' | 'creators' | 'text' | 'date' | 'trapped';
   /** Pre-Part-2 names for the same value: pdf:Title, pdf:Author, pdf:Subject, pdf:Creator, pdf:CreationDate and pdf:ModDate, and xap:Title, xap:Author and xap:Description, none of which XMP Part 1 Table 5 or Part 2 3.1 defines. */
-  readonly legacy: readonly (readonly [string, string, string])[];
+  readonly legacy: ReadonlyArray<readonly [string, string, string]>;
 }
 
 // XMP Part 3 2.2, Table 20 "Mapping of PDF keys to XMP properties".
-export const MAPPED_ROWS: readonly Row[] = [
+export const MAPPED_ROWS: ReadonlyArray<Row> = [
   {
     key: 'Title',
     namespace: DC_NAMESPACE,
@@ -106,13 +106,17 @@ const find = (packet: XmpPacket | undefined, namespace: string, name: string): X
 
 /** The text a value maps to one Info string: a simple value's text, the x-default or else the first item of an alternative, the first item of any other array; a URI or an opaque value maps to none. */
 export const comparableText = (value: XmpValue): string | undefined => {
-  if (value.kind === 'text') return value.text;
-  if (value.kind === 'opaque' || value.kind === 'uri') return undefined;
+  if (value.kind === 'text') {
+    return value.text;
+  }
+  if (value.kind === 'opaque' || value.kind === 'uri') {
+    return undefined;
+  }
   return (value.type === 'Alt' ? value.items.find(item => item.language === 'x-default') : undefined)?.text ?? value.items[0]?.text;
 };
 
 class RowMapper {
-  readonly findings: MetadataFinding[] = [];
+  readonly findings: Array<MetadataFinding> = [];
 
   private report(code: MetadataFinding['code'], detail: string): void {
     this.findings.push({ code, detail });
@@ -120,9 +124,13 @@ class RowMapper {
 
   // Table 317: Trapped is "(Optional; PDF 1.3) A name object indicating whether the document has been modified to include trapping information".
   infoText(row: Row, value: InfoValue | undefined): string | undefined {
-    if (value === undefined) return undefined;
+    if (value === undefined) {
+      return undefined;
+    }
     if (row.kind === 'trapped') {
-      if (value.kind === 'name') return value.name;
+      if (value.kind === 'name') {
+        return value.name;
+      }
       this.report('trapped-not-name', `Trapped is ${value.kind === 'text' ? 'a string' : `of type ${value.type}`}, not a name`);
       return undefined;
     }
@@ -130,20 +138,26 @@ class RowMapper {
       this.report('info-not-text-string', `${row.key} is ${value.kind === 'name' ? 'a name' : `of type ${value.type}`}, not a text string`);
       return undefined;
     }
-    if (value.replaced > 0) this.report('info-text-undecodable', `${row.key} holds ${String(value.replaced)} bytes that do not decode as text`);
+    if (value.replaced > 0) {
+      this.report('info-text-undecodable', `${row.key} holds ${String(value.replaced)} bytes that do not decode as text`);
+    }
     // ISO 32000-1:2008, 14.3.3: "Any entry whose value is not known should be omitted from the dictionary rather than included with an empty string as its value."
     if (value.text === '') {
       this.report('info-empty-string', `${row.key} is an empty string`);
       return undefined;
     }
-    if (row.kind === 'date' && parsePdfDate(value.text) === undefined) this.report('date-unparseable', `Info ${row.key} ${value.text} is not a date`);
+    if (row.kind === 'date' && parsePdfDate(value.text) === undefined) {
+      this.report('date-unparseable', `Info ${row.key} ${value.text} is not a date`);
+    }
     return value.text;
   }
 
   // An empty XMP value is unknown, as ISO 32000-1:2008, 14.3.3 has an unknown Info value omitted "rather than included with an empty string as its value".
   xmpValue(row: Row, value: XmpValue | undefined): XmpValue | undefined {
     const empty = value?.kind === 'text' ? value.text === '' : value?.kind === 'array' && value.items.every(item => item.text === '');
-    if (!empty) return value;
+    if (!empty) {
+      return value;
+    }
     this.report('xmp-empty-value', `${row.prefix}:${row.name} is empty`);
     return undefined;
   }
@@ -151,22 +165,38 @@ class RowMapper {
   private dateAgreement(row: Row, info: string, xmp: string): Agreement {
     const pdfDate = parsePdfDate(info);
     const xmpDate = parseXmpDate(xmp);
-    if (xmpDate === undefined) this.report('date-unparseable', `${row.prefix}:${row.name} ${xmp} is not a date`);
-    if (pdfDate === undefined || xmpDate === undefined) return 'indeterminate';
+    if (xmpDate === undefined) {
+      this.report('date-unparseable', `${row.prefix}:${row.name} ${xmp} is not a date`);
+    }
+    if (pdfDate === undefined || xmpDate === undefined) {
+      return 'indeterminate';
+    }
     const result = compareDates(pdfDate, xmpDate);
-    if (result === 'equal') return 'agree';
-    if (result === 'different') return 'differ';
+    if (result === 'equal') {
+      return 'agree';
+    }
+    if (result === 'different') {
+      return 'differ';
+    }
     this.report('date-zone-unknown', `${row.prefix}:${row.name} ${xmp} has no time zone`);
     return 'indeterminate';
   }
 
   private bothAgreement(row: Row, info: string, xmp: XmpValue): Agreement {
     const text = comparableText(xmp);
-    if (text === undefined) return 'indeterminate';
-    if (row.kind === 'date') return this.dateAgreement(row, info, text);
-    if (info === text) return 'agree';
+    if (text === undefined) {
+      return 'indeterminate';
+    }
+    if (row.kind === 'date') {
+      return this.dateAgreement(row, info, text);
+    }
+    if (info === text) {
+      return 'agree';
+    }
     // Table 20: Author maps to "the first of the creators" or to "a concatenated list of the creators … separated by a standard separator character such as semicolon".
-    if (row.kind === 'creators' && xmp.kind === 'array' && info.split(/\s*;\s*/u).join('\n') === xmp.items.map(item => item.text).join('\n')) return 'agree';
+    if (row.kind === 'creators' && xmp.kind === 'array' && info.split(/\s*;\s*/u).join('\n') === xmp.items.map(item => item.text).join('\n')) {
+      return 'agree';
+    }
     return 'differ';
   }
 
@@ -174,18 +204,24 @@ class RowMapper {
     // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
     const infoSide = row.kind === 'trapped' && info === 'Unknown' ? undefined : info;
     if (infoSide === undefined) {
-      if (xmp !== undefined) return 'xmp-only';
+      if (xmp !== undefined) {
+        return 'xmp-only';
+      }
       return info === undefined ? 'absent' : 'agree';
     }
-    if (xmp === undefined) return 'info-only';
+    if (xmp === undefined) {
+      return 'info-only';
+    }
     return this.bothAgreement(row, infoSide, xmp);
   }
 
-  legacyValues(row: Row, packet: XmpPacket | undefined, compared: string | undefined): LegacyValue[] {
-    const values: LegacyValue[] = [];
+  legacyValues(row: Row, packet: XmpPacket | undefined, compared: string | undefined): Array<LegacyValue> {
+    const values: Array<LegacyValue> = [];
     for (const [namespace, prefix, name] of row.legacy) {
       const property = find(packet, namespace, name);
-      if (property === undefined) continue;
+      if (property === undefined) {
+        continue;
+      }
       values.push({ property: `${prefix}:${name}`, value: property.value });
       const text = comparableText(property.value);
       if (compared !== undefined && text !== undefined && text !== compared) {
@@ -207,17 +243,27 @@ const stampOf = (packet: XmpPacket): XmpDate | undefined => {
 const authorityOf = (
   info: ReadonlyMap<string, InfoValue> | undefined,
   packet: XmpPacket | undefined,
-  findings: MetadataFinding[],
+  findings: Array<MetadataFinding>,
 ): MetadataMapping['authority'] => {
-  if (packet === undefined) return 'info';
-  if (info === undefined) return 'xmp';
+  if (packet === undefined) {
+    return 'info';
+  }
+  if (info === undefined) {
+    return 'xmp';
+  }
   const modified = info.get('ModDate');
   const infoDate: ParsedPdfDate | undefined = modified?.kind === 'text' ? parsePdfDate(modified.text) : undefined;
   const stamp = stampOf(packet);
-  if (infoDate === undefined || stamp === undefined) return 'indeterminate';
+  if (infoDate === undefined || stamp === undefined) {
+    return 'indeterminate';
+  }
   const same = compareDates(infoDate, stamp);
-  if (same === 'indeterminate') return 'indeterminate';
-  if (same === 'equal' || instant(stamp.date) > instant(infoDate.date)) return 'xmp';
+  if (same === 'indeterminate') {
+    return 'indeterminate';
+  }
+  if (same === 'equal' || instant(stamp.date) > instant(infoDate.date)) {
+    return 'xmp';
+  }
   findings.push({ code: 'modification-after-metadata', detail: 'Info ModDate is later than the metadata date, so Info overrides the packet' });
   return 'info';
 };
@@ -226,7 +272,7 @@ const authorityOf = (
 export const mapMetadata = (info: ReadonlyMap<string, InfoValue> | undefined, packet: XmpPacket | undefined): MetadataMapping => {
   const mapper = new RowMapper();
   const { findings } = mapper;
-  const rows: { property: MappedProperty; row: Row }[] = [];
+  const rows: Array<{ property: MappedProperty; row: Row }> = [];
   for (const row of MAPPED_ROWS) {
     const infoValue = mapper.infoText(row, info?.get(row.key));
     const xmp = mapper.xmpValue(row, find(packet, row.namespace, row.name)?.value);

@@ -31,7 +31,9 @@ const other = parseIccProfile(await fixture('synthetic-cmyk.icc'));
 const rgb = parseIccProfile(await fixture('sRGB.icm'));
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
-  if (value.kind !== 'dictionary') throw new Error('expected dictionary');
+  if (value.kind !== 'dictionary') {
+    throw new Error('expected dictionary');
+  }
   return value;
 };
 
@@ -39,7 +41,9 @@ const documentWith = (owner: 'catalog' | 'page', key: string): ReturnType<typeof
   const document = loadDocument(base.bytes);
   const reference = pdfReference(owner === 'catalog' ? 1 : 3, 0);
   const value = document.get(reference);
-  if (value.kind !== 'dictionary') throw new Error('expected dictionary');
+  if (value.kind !== 'dictionary') {
+    throw new Error('expected dictionary');
+  }
   value.entries.set(pdfName(key).bytes, pdfDictionary());
   document.set(reference, value);
   return document;
@@ -54,7 +58,9 @@ const withOutputIntent = (profile: Uint8Array): ReturnType<typeof loadDocument> 
   ]);
   const intentReference = document.object(pdfDictionary(intentEntries));
   const catalog = document.get(pdfReference(1, 0));
-  if (catalog.kind !== 'dictionary') throw new Error('expected catalog');
+  if (catalog.kind !== 'dictionary') {
+    throw new Error('expected catalog');
+  }
   catalog.entries.set(pdfName('OutputIntents').bytes, pdfArray([intentReference]));
   document.set(pdfReference(1, 0), catalog);
   return document;
@@ -63,7 +69,9 @@ const withOutputIntent = (profile: Uint8Array): ReturnType<typeof loadDocument> 
 const withDefault = (name: 'DefaultGray' | 'DefaultCMYK', profile?: Uint8Array): ReturnType<typeof loadDocument> => {
   const document = loadDocument(base.bytes);
   const page = document.get(pdfReference(3, 0));
-  if (page.kind !== 'dictionary') throw new Error('expected page');
+  if (page.kind !== 'dictionary') {
+    throw new Error('expected page');
+  }
   const colorSpaces = new PdfDictionaryEntries();
   const profileReference = profile === undefined ? undefined : document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: profile });
   const value = profileReference === undefined ? pdfName('DeviceGray') : pdfArray([pdfName('ICCBased'), profileReference]);

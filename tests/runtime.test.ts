@@ -7,11 +7,19 @@ import { writeIllustratorPdf } from '../packages/illustrator/src/index.ts';
 
 /** The runtime this module is evaluated in, read from globals only that runtime defines. */
 const detectRuntime = (): Runtime => {
-  if ('Bun' in globalThis) return 'bun';
-  if ('Deno' in globalThis) return 'deno';
+  if ('Bun' in globalThis) {
+    return 'bun';
+  }
+  if ('Deno' in globalThis) {
+    return 'deno';
+  }
   // workerd reports this fixed user agent: https://developers.cloudflare.com/workers/runtime-apis/web-standards/#navigatoruseragent
-  if (navigator.userAgent === 'Cloudflare-Workers') return 'workers';
-  if ('document' in globalThis) return 'browser';
+  if (navigator.userAgent === 'Cloudflare-Workers') {
+    return 'workers';
+  }
+  if ('document' in globalThis) {
+    return 'browser';
+  }
   return 'node';
 };
 

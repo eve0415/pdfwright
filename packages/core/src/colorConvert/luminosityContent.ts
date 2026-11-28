@@ -12,21 +12,29 @@ interface ColourState {
 }
 
 const component = (operand: ContentOperand | undefined): number => {
-  if (operand?.kind === 'integer') return operand.value;
-  if (operand?.kind === 'real' && typeof operand.value === 'number') return operand.value;
+  if (operand?.kind === 'integer') {
+    return operand.value;
+  }
+  if (operand?.kind === 'real' && typeof operand.value === 'number') {
+    return operand.value;
+  }
   throw new ValidationError('luminosity colour component is not numeric', 'color-operator');
 };
 
 // ISO 32000-1:2008, 10.3.2: DeviceRGB to gray uses 0.3 R + 0.59 G + 0.11 B.
-export const deviceRgbLuminosity = (values: readonly number[]): number => 0.3 * (values[0] ?? 0) + 0.59 * (values[1] ?? 0) + 0.11 * (values[2] ?? 0);
+export const deviceRgbLuminosity = (values: ReadonlyArray<number>): number => 0.3 * (values[0] ?? 0) + 0.59 * (values[1] ?? 0) + 0.11 * (values[2] ?? 0);
 
-const rgb = (operands: readonly ContentOperand[]): number[] => {
-  if (operands.length !== 3) throw new ValidationError('luminosity RGB paint needs three components', 'color-operator');
+const rgb = (operands: ReadonlyArray<ContentOperand>): Array<number> => {
+  if (operands.length !== 3) {
+    throw new ValidationError('luminosity RGB paint needs three components', 'color-operator');
+  }
   return operands.map(operand => component(operand));
 };
 
 const name = (operand: ContentOperand | undefined): string => {
-  if (operand?.kind !== 'name') throw new ValidationError('luminosity colour space is not a name', 'color-operator');
+  if (operand?.kind !== 'name') {
+    throw new ValidationError('luminosity colour space is not a name', 'color-operator');
+  }
   return new TextDecoder('latin1').decode(operand.bytes);
 };
 
@@ -47,7 +55,7 @@ const rewriteNamedSpace = (operation: SpannedContentOperation, state: ColourStat
   throw new UnsupportedFeatureError('luminosity mask contains another colour space');
 };
 
-const rewriteSample = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: readonly number[]) => number): OperationRewrite => {
+const rewriteSample = (operation: SpannedContentOperation, state: ColourState, rgbToGray: (values: ReadonlyArray<number>) => number): OperationRewrite => {
   const { operator } = operation;
   const selected = operator === operator.toUpperCase() ? state.strokeRgb : state.fillRgb;
   const grayOperator = operator === operator.toUpperCase() ? 'G' : 'g';
@@ -62,7 +70,9 @@ const rewriteInline = (
   state: ColourState,
   convert: ((image: InlineImage) => Uint8Array | null) | undefined,
 ): OperationRewrite => {
-  if (operation.inlineImage === undefined || convert === undefined) throw new UnsupportedFeatureError('luminosity mask contains unsupported inline content');
+  if (operation.inlineImage === undefined || convert === undefined) {
+    throw new UnsupportedFeatureError('luminosity mask contains unsupported inline content');
+  }
   const replacement = convert(operation.inlineImage);
   return { state, replacement: replacement ?? undefined };
 };
@@ -70,7 +80,7 @@ const rewriteInline = (
 const rewriteOperation = (
   operation: SpannedContentOperation,
   state: ColourState,
-  config: { gray: (values: readonly number[]) => number; inline?: ((image: InlineImage) => Uint8Array | null) | undefined },
+  config: { gray: (values: ReadonlyArray<number>) => number; inline?: ((image: InlineImage) => Uint8Array | null) | undefined },
 ): OperationRewrite => {
   const { operator } = operation;
   const rgbToGray = config.gray;
@@ -85,11 +95,15 @@ const rewriteOperation = (
   if (operator === 'g' || operator === 'G') {
     return { state: operator === 'G' ? { ...state, strokeRgb: false } : { ...state, fillRgb: false }, replacement: undefined };
   }
-  if (operator === 'cs' || operator === 'CS') return rewriteNamedSpace(operation, state);
+  if (operator === 'cs' || operator === 'CS') {
+    return rewriteNamedSpace(operation, state);
+  }
   if (operator === 'sc' || operator === 'scn' || operator === 'SC' || operator === 'SCN') {
     return rewriteSample(operation, state, rgbToGray);
   }
-  if (operator === 'BI') return rewriteInline(operation, state, config.inline);
+  if (operator === 'BI') {
+    return rewriteInline(operation, state, config.inline);
+  }
   if (operator === 'k' || operator === 'K') {
     throw new UnsupportedFeatureError('luminosity mask contains unsupported coloured content');
   }
@@ -99,12 +113,12 @@ const rewriteOperation = (
 /** Rewrites a DeviceRGB luminosity group's colour operators to DeviceGray without changing its geometry. */
 export const rewriteDeviceRgbLuminosity = (
   bytes: Uint8Array,
-  rgbToGray: (values: readonly number[]) => number = deviceRgbLuminosity,
+  rgbToGray: (values: ReadonlyArray<number>) => number = deviceRgbLuminosity,
   inline?: (image: InlineImage) => Uint8Array | null,
 ): Uint8Array => {
   let state: ColourState = { fillRgb: false, strokeRgb: false };
-  const stack: ColourState[] = [];
-  const edits: { start: number; end: number; replacement: string | Uint8Array }[] = [];
+  const stack: Array<ColourState> = [];
+  const edits: Array<{ start: number; end: number; replacement: string | Uint8Array }> = [];
   for (const operation of readContentSpans(bytes, 256)) {
     if (operation.operator === 'q') {
       stack.push(state);
@@ -112,21 +126,30 @@ export const rewriteDeviceRgbLuminosity = (
     }
     if (operation.operator === 'Q') {
       const restored = stack.pop();
-      if (restored === undefined) throw new ValidationError('luminosity group has an unbalanced graphics state', 'color-operator');
+      if (restored === undefined) {
+        throw new ValidationError('luminosity group has an unbalanced graphics state', 'color-operator');
+      }
       state = restored;
       continue;
     }
     const rewritten = rewriteOperation(operation, state, { gray: rgbToGray, inline });
     ({ state } = rewritten);
-    if (rewritten.replacement !== undefined) edits.push({ start: operation.start, end: operation.end, replacement: rewritten.replacement });
+    if (rewritten.replacement !== undefined) {
+      edits.push({ start: operation.start, end: operation.end, replacement: rewritten.replacement });
+    }
   }
-  if (edits.length === 0) return bytes;
+  if (edits.length === 0) {
+    return bytes;
+  }
   const writer = new ByteWriter();
   let position = 0;
   for (const edit of edits) {
     writer.writeBytes(bytes.subarray(position, edit.start));
-    if (typeof edit.replacement === 'string') writer.writeAscii(edit.replacement);
-    else writer.writeBytes(edit.replacement);
+    if (typeof edit.replacement === 'string') {
+      writer.writeAscii(edit.replacement);
+    } else {
+      writer.writeBytes(edit.replacement);
+    }
     position = edit.end;
   }
   writer.writeBytes(bytes.subarray(position));

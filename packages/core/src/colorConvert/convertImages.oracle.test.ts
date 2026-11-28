@@ -43,14 +43,16 @@ const jpegFixture = async (): Promise<Uint8Array> => {
     const output = path.join(directory, 'output.jpg');
     await writeFile(input, Uint8Array.of(...new TextEncoder().encode('P6\n2 1\n255\n'), ...pixels));
     const generated = await runTool('magick', [input, '-sampling-factor', '1x1,1x1,1x1', '-quality', '90', output]);
-    if (generated.code !== 0) throw new Error(generated.output);
+    if (generated.code !== 0) {
+      throw new Error(generated.output);
+    }
     return Uint8Array.from(await readFile(output));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 };
 
-const jpegSegment = (marker: number, payload: readonly number[]): number[] => [
+const jpegSegment = (marker: number, payload: ReadonlyArray<number>): Array<number> => [
   255,
   marker,
   Math.floor((payload.length + 2) / 256),
@@ -59,7 +61,7 @@ const jpegSegment = (marker: number, payload: readonly number[]): number[] => [
 ];
 
 const largeZeroJpeg = (): Uint8Array => {
-  const huffman = (selector: number): number[] => jpegSegment(0xc4, [selector, 1, ...Array.from({ length: 15 }, () => 0), 0]);
+  const huffman = (selector: number): Array<number> => jpegSegment(0xc4, [selector, 1, ...Array.from({ length: 15 }, () => 0), 0]);
   const entropy = new Uint8Array(49_152);
   return Uint8Array.from([
     255,
@@ -76,11 +78,13 @@ const largeZeroJpeg = (): Uint8Array => {
 };
 
 const streamed = (saved: SavedPdf): StreamedSavedPdf => {
-  if (saved.kind !== 'streamed') throw new Error('expected a streamed save');
+  if (saved.kind !== 'streamed') {
+    throw new Error('expected a streamed save');
+  }
   return saved;
 };
 
-const qpdfCheck = async (chunks: readonly Uint8Array[]): Promise<void> => {
+const qpdfCheck = async (chunks: ReadonlyArray<Uint8Array>): Promise<void> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-image-'));
   try {
     const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
@@ -189,8 +193,13 @@ const jp2Color = (enumeration: number): Uint8Array =>
     enumeration,
   );
 
-const be32 = (value: number): number[] => [Math.floor(value / 16777216) % 256, Math.floor(value / 65536) % 256, Math.floor(value / 256) % 256, value % 256];
-const joined = (parts: readonly Uint8Array[]): Uint8Array => {
+const be32 = (value: number): Array<number> => [
+  Math.floor(value / 16_777_216) % 256,
+  Math.floor(value / 65_536) % 256,
+  Math.floor(value / 256) % 256,
+  value % 256,
+];
+const joined = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let offset = 0;
   for (const part of parts) {
@@ -211,57 +220,81 @@ const jp2Icc = (profile: Uint8Array): Uint8Array => {
 };
 
 const imageStream = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
-  if (value.kind !== 'stream') throw new Error('image is missing');
+  if (value.kind !== 'stream') {
+    throw new Error('image is missing');
+  }
   return value;
 };
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
-  if (value.kind !== 'dictionary') throw new Error('expected dictionary');
+  if (value.kind !== 'dictionary') {
+    throw new Error('expected dictionary');
+  }
   return value;
 };
 
 const imageColorFamily = (document: ReturnType<typeof loadDocument>, number: number): string => {
   const image = imageStream(document.get(pdfReference(number, 0)));
   const colorSpace = image.dictionary.get(pdfName('ColorSpace').bytes);
-  if (colorSpace?.kind !== 'array' || colorSpace.items[0]?.kind !== 'name') throw new Error('image has no array colour space');
+  if (colorSpace?.kind !== 'array' || colorSpace.items[0]?.kind !== 'name') {
+    throw new Error('image has no array colour space');
+  }
   return new TextDecoder('latin1').decode(colorSpace.items[0].bytes);
 };
 
 const embeddedProfile = (document: ReturnType<typeof loadDocument>, imageNumber: number): Uint8Array => {
   const image = imageStream(document.get(pdfReference(imageNumber, 0)));
   const space = image.dictionary.get(pdfName('ColorSpace').bytes);
-  if (space?.kind !== 'array') throw new Error('image is not ICCBased');
+  if (space?.kind !== 'array') {
+    throw new Error('image is not ICCBased');
+  }
   const [, reference] = space.items;
-  if (reference?.kind !== 'reference') throw new Error('ICC profile is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('ICC profile is missing');
+  }
   return imageStream(document.get(reference)).data;
 };
 
 const imageData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const image = imageStream(document.get(pdfReference(5, 0)));
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('image is missing');
+  if (internals === undefined) {
+    throw new Error('image is missing');
+  }
   const data = decodedData(internals, image);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return data;
 };
 
 const namedImage = (document: ReturnType<typeof loadDocument>, name: string): Extract<PdfObject, { kind: 'stream' }> => {
   const xobjects = document.page(0).resources().get(pdfName('XObject').bytes);
-  if (xobjects?.kind !== 'dictionary') throw new Error('page XObjects are missing');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('page XObjects are missing');
+  }
   const reference = xobjects.entries.get(pdfName(name).bytes);
-  if (reference?.kind !== 'reference') throw new Error('inline image XObject is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('inline image XObject is missing');
+  }
   return imageStream(document.get(reference));
 };
 
 const stencilData = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const image = imageStream(document.get(pdfReference(5, 0)));
   const mask = image.dictionary.get(pdfName('Mask').bytes);
-  if (mask?.kind !== 'reference') throw new Error('missing explicit mask');
+  if (mask?.kind !== 'reference') {
+    throw new Error('missing explicit mask');
+  }
   const stencil = imageStream(document.get(mask));
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('missing document internals');
+  if (internals === undefined) {
+    throw new Error('missing document internals');
+  }
   const data = decodedData(internals, stencil);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return data;
 };
 
@@ -292,8 +325,10 @@ describe('image colour conversion', () => {
     const document = loadDocument(imagePdf('FlateDecode', compressed, { width: 1024, height: 1024 }));
     expect(convertImages(document, { sourceRgbProfile: source, outputProfile: destination }).converted).toBe(1);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    const chunks: Array<Uint8Array> = [];
+    for await (const chunk of saved.toStream()) {
+      chunks.push(chunk);
+    }
     expect(saved.measureByteLength()).toBe(chunks.reduce((total, chunk) => total + chunk.length, 0));
     const reloaded = loadDocument(chunks);
     await qpdfCheck(chunks);
@@ -394,7 +429,7 @@ describe('image colour conversion', () => {
     convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
     const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
     const expected = new Uint16Array(4);
-    transform.convertRow16(Uint16Array.of(0x8000, 0x4000, 0xffff), expected, 1);
+    transform.convertRow16(Uint16Array.of(0x80_00, 0x40_00, 0xff_ff), expected, 1);
     const bytes = Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256]));
     expect(imageData(document)).toStrictEqual(bytes);
   });
@@ -402,7 +437,7 @@ describe('image colour conversion', () => {
   it('replaces an RGB colour-key mask with an explicit stencil', () => {
     const document = loadDocument(imagePdf('FlateDecode', deflateZlib(pixels), { mask: '/Mask[0 0 0 0 0 0]' }));
     convertImages(document, { sourceRgbProfile: source, outputProfile: destination });
-    expect(stencilData(document)).toStrictEqual(Uint8Array.of(0b10000000));
+    expect(stencilData(document)).toStrictEqual(Uint8Array.of(0b1000_0000));
   });
 
   it('uses the parser predictor before converting a Flate image', () => {
@@ -448,8 +483,10 @@ describe('image colour conversion', () => {
     });
     expect([report.images.converted, report.images.keptRgbImages.length]).toStrictEqual([1, 0]);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    const chunks: Array<Uint8Array> = [];
+    for await (const chunk of saved.toStream()) {
+      chunks.push(chunk);
+    }
     await qpdfCheck(chunks);
     const reloaded = loadDocument(chunks);
     const image = imageStream(reloaded.get(pdfReference(5, 0)));
@@ -469,8 +506,10 @@ describe('image colour conversion', () => {
     document.replaceStreamData(pdfReference(4, 0), content, { filter: 'FlateDecode' });
     expect(rewritePageColors(document, { sourceRgbProfile: source, outputProfile: destination, compressedRgbImages: 'transcode' }).inlineImages).toBe(1);
     const saved = streamed(document.save());
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of saved.toStream()) chunks.push(chunk);
+    const chunks: Array<Uint8Array> = [];
+    for await (const chunk of saved.toStream()) {
+      chunks.push(chunk);
+    }
     await qpdfCheck(chunks);
     const image = namedImage(loadDocument(chunks), 'PWIM0');
     expect(image.dictionary.get(pdfName('ColorSpace').bytes)).toStrictEqual(pdfName('DeviceCMYK'));
@@ -566,7 +605,7 @@ interface SoftMaskedImage {
   readonly data: Uint8Array;
 }
 
-const softMaskedPdf = (images: readonly SoftMaskedImage[], mask: SoftMaskedImage): Uint8Array => {
+const softMaskedPdf = (images: ReadonlyArray<SoftMaskedImage>, mask: SoftMaskedImage): Uint8Array => {
   const maskNumber = 5 + images.length;
   const names = images.map((_, index) => `/Im${String(index)} ${String(5 + index)} 0 R`).join('');
   return buildPdf([
@@ -590,7 +629,9 @@ const softMaskedPdf = (images: readonly SoftMaskedImage[], mask: SoftMaskedImage
 
 const softMaskOf = (document: ReturnType<typeof loadDocument>, imageNumber: number): Extract<PdfObject, { kind: 'stream' }> => {
   const reference = imageStream(document.get(pdfReference(imageNumber, 0))).dictionary.get(pdfName('SMask').bytes);
-  if (reference?.kind !== 'reference') throw new Error('image has no soft mask');
+  if (reference?.kind !== 'reference') {
+    throw new Error('image has no soft mask');
+  }
   return imageStream(document.get(reference));
 };
 

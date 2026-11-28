@@ -34,7 +34,7 @@ interface Search {
 const at = (values: Int32Array, index: number): number => values[index] ?? -1;
 
 class Aligner {
-  readonly steps: AlignmentStep[] = [];
+  readonly steps: Array<AlignmentStep> = [];
   private readonly equal: Equal;
   private work = 0;
 
@@ -44,7 +44,9 @@ class Aligner {
 
   private charge(): void {
     this.work++;
-    if (this.work > MAX_ALIGNMENT_WORK) throw new ResourceLimitError(`text alignment exceeds ${String(MAX_ALIGNMENT_WORK)} work steps`);
+    if (this.work > MAX_ALIGNMENT_WORK) {
+      throw new ResourceLimitError(`text alignment exceeds ${String(MAX_ALIGNMENT_WORK)} work steps`);
+    }
   }
 
   private compare(intended: number, found: number): boolean {
@@ -53,8 +55,12 @@ class Aligner {
   }
 
   private unmatched({ aLow, aHigh, bLow, bHigh }: Range): void {
-    for (let index = aLow; index < aHigh; index++) this.steps.push({ kind: 'missing', intended: index });
-    for (let index = bLow; index < bHigh; index++) this.steps.push({ kind: 'extra', found: index });
+    for (let index = aLow; index < aHigh; index++) {
+      this.steps.push({ kind: 'missing', intended: index });
+    }
+    for (let index = bLow; index < bHigh; index++) {
+      this.steps.push({ kind: 'extra', found: index });
+    }
   }
 
   // The middle of a range whose first and last items differ: the searches from both ends step one edit at a time until their paths overlap, and the range is split there.
@@ -98,9 +104,13 @@ class Aligner {
       }
       forward[index] = x;
       const opposite = offset + delta - k;
-      if (x > n) bounds.forwardEnd += 2;
-      else if (y > m) bounds.forwardStart += 2;
-      else if (delta % 2 !== 0 && at(reverse, opposite) !== -1 && x >= n - at(reverse, opposite)) return [x, y];
+      if (x > n) {
+        bounds.forwardEnd += 2;
+      } else if (y > m) {
+        bounds.forwardStart += 2;
+      } else if (delta % 2 !== 0 && at(reverse, opposite) !== -1 && x >= n - at(reverse, opposite)) {
+        return [x, y];
+      }
     }
     return undefined;
   }
@@ -120,9 +130,13 @@ class Aligner {
       reverse[index] = x;
       const opposite = offset + delta - k;
       const forwardX = at(forward, opposite);
-      if (x > n) bounds.reverseEnd += 2;
-      else if (y > m) bounds.reverseStart += 2;
-      else if (delta % 2 === 0 && forwardX !== -1 && forwardX >= n - x) return [forwardX, offset + forwardX - opposite];
+      if (x > n) {
+        bounds.reverseEnd += 2;
+      } else if (y > m) {
+        bounds.reverseStart += 2;
+      } else if (delta % 2 === 0 && forwardX !== -1 && forwardX >= n - x) {
+        return [forwardX, offset + forwardX - opposite];
+      }
     }
     return undefined;
   }
@@ -140,16 +154,21 @@ class Aligner {
       a0++;
       b0++;
     }
-    const suffix: AlignmentStep[] = [];
+    const suffix: Array<AlignmentStep> = [];
     while (a0 < a1 && b0 < b1 && this.compare(a1 - 1, b1 - 1)) {
       a1--;
       b1--;
       suffix.push({ kind: 'equal', intended: a1, found: b1 });
     }
     const middle = { aLow: a0, aHigh: a1, bLow: b0, bHigh: b1 };
-    if (a0 === a1 || b0 === b1) this.unmatched(middle);
-    else this.bisect(middle);
-    for (const step of suffix.toReversed()) steps.push(step);
+    if (a0 === a1 || b0 === b1) {
+      this.unmatched(middle);
+    } else {
+      this.bisect(middle);
+    }
+    for (const step of suffix.toReversed()) {
+      steps.push(step);
+    }
   }
 }
 
@@ -157,7 +176,7 @@ class Aligner {
  * Aligns two sequences by Myers' O(ND) difference algorithm ("An O(ND) Difference Algorithm and Its Variations", Algorithmica 1, 1986), searching from both ends at once so that memory stays linear: common prefixes and suffixes are matched first, and the rest is split where the forward and reverse searches meet.
  * The result lists every item of both sequences once, in order.
  */
-export const align = (intendedLength: number, foundLength: number, equal: Equal): readonly AlignmentStep[] => {
+export const align = (intendedLength: number, foundLength: number, equal: Equal): ReadonlyArray<AlignmentStep> => {
   const aligner = new Aligner(equal);
   aligner.diff({ aLow: 0, aHigh: intendedLength, bLow: 0, bHigh: foundLength });
   return aligner.steps;

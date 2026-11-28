@@ -28,7 +28,9 @@ export const writeNative = (
 ): NativeData => {
   const layerWriter = createNativeWriter();
   const yOffset = options.nativeOrigin === 'artboard-top-left' ? -number(document.artboard.height) : 0;
-  for (const [index, layer] of document.layers.entries()) writeLayer(layerWriter, layer, { index, yOffset });
+  for (const [index, layer] of document.layers.entries()) {
+    writeLayer(layerWriter, layer, { index, yOffset });
+  }
   const layers = layerWriter.finish();
   const artboardUuid = nameBasedUuid('artboard', layers);
   const writer = createNativeWriter();

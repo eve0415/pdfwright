@@ -44,11 +44,11 @@ export interface SetMetadataOptions extends ReadMetadataOptions {
 
 /** Reports reconciled values, removed legacy properties and orphans, identifiers, save mode, and findings after a metadata edit under ISO 32000-1:2008, 14.3.2 and XMP Part 3, Table 20. */
 export interface MetadataChange {
-  readonly reconciled: readonly ReconciledValue[];
+  readonly reconciled: ReadonlyArray<ReconciledValue>;
   /** Legacy properties removed from the packet, as their conventional prefix and name. */
-  readonly removedLegacy: readonly string[];
+  readonly removedLegacy: ReadonlyArray<string>;
   /** Metadata objects nothing reachable from the trailer referenced, which were deleted. */
-  readonly deletedOrphans: readonly PdfReference[];
+  readonly deletedOrphans: ReadonlyArray<PdfReference>;
   readonly documentId: string;
   /** The xmpMM:InstanceID a save of the document as it is now writes; when derived, an edit made before saving or a catalog Version the save raises changes it. */
   readonly instanceId: string;
@@ -56,7 +56,7 @@ export interface MetadataChange {
   /** With revisions 'keep', how many packets an incremental update leaves in earlier revisions or in deleted objects; undefined when a full rewrite removes them. */
   readonly supersededPackets: number | undefined;
   /** What the edit did that a caller may need to know beyond the values: a direct Info dictionary made indirect, a packet re-encoded as UTF-8, values it left as they were stored. */
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
 }
 
 type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
@@ -73,7 +73,9 @@ const latin1 = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(b
 // An identifier may be written as text or, as XMP Part 1 7.5 allows for a URI simple value, as rdf:resource.
 const packetText = (packet: ReadPacket | undefined, name: string): string | undefined => {
   const value = packet?.properties.find(property => property.namespace === XMP_MM_NAMESPACE && property.localName === name)?.value;
-  if (value?.kind === 'uri') return value.uri;
+  if (value?.kind === 'uri') {
+    return value.uri;
+  }
   return value?.kind === 'text' ? value.text : undefined;
 };
 
@@ -89,7 +91,7 @@ const streamDictionary = (existing: PdfStream | undefined): PdfDictionaryEntries
 
 interface WrittenPacket {
   readonly bytes: Uint8Array;
-  readonly removedLegacy: readonly string[];
+  readonly removedLegacy: ReadonlyArray<string>;
   readonly transcoded: boolean;
 }
 
@@ -124,16 +126,20 @@ const packetWriter = (xmp: DocumentPacket | undefined, options: SetMetadataOptio
     splice(sample);
     return splice;
   } catch (error: unknown) {
-    if (!(error instanceof ValidationError) || error.reason !== 'xmp-unreadable' || !replace) throw error;
+    if (!(error instanceof ValidationError) || error.reason !== 'xmp-unreadable' || !replace) {
+      throw error;
+    }
     writeNew(sample);
     return writeNew;
   }
 };
 
 // The packet keeps its object number when the catalog names a stream no component also uses; otherwise it becomes a new object (ISO 32000-1:2008, Table 316 lets any stream or dictionary have metadata, and a component's packet stays its own).
-const packetTarget = (state: MetadataState, components: readonly ComponentPacket[]): PdfReference | undefined => {
+const packetTarget = (state: MetadataState, components: ReadonlyArray<ComponentPacket>): PdfReference | undefined => {
   const { xmp } = state;
-  if (xmp?.stream === undefined) return undefined;
+  if (xmp?.stream === undefined) {
+    return undefined;
+  }
   return components.some(component => component.reference.objectNumber === xmp.reference.objectNumber) ? undefined : xmp.reference;
 };
 
@@ -162,12 +168,16 @@ const placeObjects = (document: DocumentInternals, state: MetadataState, plan: P
   if (infoReference === undefined) {
     infoReference = objects.add({ kind: 'dictionary', entries: info });
     objects.setTrailerEntry(INFO, infoReference);
-  } else objects.set(infoReference, { kind: 'dictionary', entries: info });
+  } else {
+    objects.set(infoReference, { kind: 'dictionary', entries: info });
+  }
   const dictionary = streamDictionary(target === undefined ? undefined : state.xmp?.stream);
   let packet = target;
   if (packet === undefined) {
     const { catalog } = state;
-    if (catalog === undefined) throw new InvalidArgumentError('the document catalog is not a dictionary');
+    if (catalog === undefined) {
+      throw new InvalidArgumentError('the document catalog is not a dictionary');
+    }
     packet = objects.add({ kind: 'stream', dictionary, data: new Uint8Array() });
     const entries = new PdfDictionaryEntries([...catalog.entries.entries()]);
     entries.set(METADATA, packet);
@@ -176,15 +186,17 @@ const placeObjects = (document: DocumentInternals, state: MetadataState, plan: P
   return { packet, info: infoReference, dictionary };
 };
 
-const deleteOrphans = (document: DocumentInternals): PdfReference[] => {
+const deleteOrphans = (document: DocumentInternals): Array<PdfReference> => {
   const orphans = new MetadataReader(document).orphans(reachableObjects(document).objects);
-  for (const orphan of orphans) document.objects.delete(orphan);
+  for (const orphan of orphans) {
+    document.objects.delete(orphan);
+  }
   return orphans;
 };
 
 interface Graph {
   readonly reachable: ReadonlyMap<number, number>;
-  readonly components: readonly ComponentPacket[];
+  readonly components: ReadonlyArray<ComponentPacket>;
   readonly target: PdfReference | undefined;
 }
 
@@ -203,7 +215,9 @@ const supersededCount = (document: DocumentInternals, state: MetadataState, grap
 
 const refuseSigned = (document: DocumentInternals, keep: boolean): void => {
   const protection = signatureProtection(document);
-  if (keep || protection === undefined) return;
+  if (keep || protection === undefined) {
+    return;
+  }
   const what = {
     'signatures-exist': 'signature fields',
     'append-only': 'AppendOnly signatures',
@@ -224,7 +238,9 @@ const fileIdentifierOf = (document: DocumentInternals): Uint8Array | undefined =
     const first = trailerId?.kind === 'array' ? objects.deref(trailerId.items[0]) : undefined;
     return first?.kind === 'string' ? first.bytes : undefined;
   } catch (error: unknown) {
-    if (error instanceof ParseError) return undefined;
+    if (error instanceof ParseError) {
+      return undefined;
+    }
     throw error;
   }
 };
@@ -284,7 +300,9 @@ const prepare = (document: DocumentInternals, input: MetadataInput, options: Set
  */
 export const setMetadata = (document: LoadedDocument, input: MetadataInput, options: SetMetadataOptions = {}): MetadataChange => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new InvalidArgumentError('setMetadata needs a document from loadDocument');
+  if (internals === undefined) {
+    throw new InvalidArgumentError('setMetadata needs a document from loadDocument');
+  }
   const keep = options.revisions === 'keep';
   const { state, resolved, documentId, previous, versionId, renditionClass, write, plan, graph } = prepare(internals, input, options);
   const supersededPackets = keep ? supersededCount(internals, state, graph) : undefined;
@@ -293,8 +311,11 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   const staged: DocumentInternals = { ...internals, objects };
   const placement = placeObjects(staged, state, plan);
   const deletedOrphans = deleteOrphans(staged);
-  if (!keep) objects.requireFullRewrite('metadata-history');
-  else if (signatureProtection(internals) !== undefined) objects.requireIncrementalSave();
+  if (!keep) {
+    objects.requireFullRewrite('metadata-history');
+  } else if (signatureProtection(internals) !== undefined) {
+    objects.requireIncrementalSave();
+  }
   const excluded = new Set([placement.packet.objectNumber]);
   const metadataDate = xmpDateString(input.modificationDate);
   // When the InstanceID is derived, the digest covers every other object the save writes, the Info dictionary included, and the packet with a fixed-width placeholder.
@@ -319,18 +340,23 @@ export const setMetadata = (document: LoadedDocument, input: MetadataInput, opti
   objects.setSaveHook((changes, context) => {
     changes.set(placement.packet.objectNumber, { generation: placement.packet.generation, value: produce(changes, context.fractionDigits).value });
   });
-  const findings: MetadataFinding[] = [...resolved.findings];
+  const findings: Array<MetadataFinding> = [...resolved.findings];
   // ISO 32000-1:2008, Table 15, Info: "(Optional; shall be an indirect reference)".
   if (state.info !== undefined && state.info.reference === undefined) {
     findings.push({ code: 'info-not-indirect', detail: 'the direct document information dictionary was replaced by an indirect one' });
   }
   // XMP Part 3 1.6.1: "The XMP must be encoded as UTF-8".
-  if (current.written.transcoded) findings.push({ code: 'xmp-transcoded', detail: 'the packet was re-encoded as UTF-8' });
+  if (current.written.transcoded) {
+    findings.push({ code: 'xmp-transcoded', detail: 'the packet was re-encoded as UTF-8' });
+  }
   internals.objects.adopt(objects);
   previousInstanceIds.set(internals.objects, previous);
   let saveMode: MetadataChange['saveMode'] = 'any';
-  if (internals.objects.fullRewriteReason !== undefined) saveMode = 'full-required';
-  else if (internals.objects.needsIncrementalSave) saveMode = 'incremental-required';
+  if (internals.objects.fullRewriteReason !== undefined) {
+    saveMode = 'full-required';
+  } else if (internals.objects.needsIncrementalSave) {
+    saveMode = 'incremental-required';
+  }
   return {
     reconciled: resolved.reconciled,
     removedLegacy: current.written.removedLegacy,

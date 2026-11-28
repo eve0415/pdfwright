@@ -6,7 +6,9 @@ export interface Rational {
 }
 
 export const decimalRational = (value: number): Rational => {
-  if (!Number.isFinite(value)) throw new InvalidArgumentError('number must be finite');
+  if (!Number.isFinite(value)) {
+    throw new InvalidArgumentError('number must be finite');
+  }
   const decimal = String(value);
   const negative = decimal.startsWith('-');
   const unsigned = negative ? decimal.slice(1) : decimal;
@@ -30,8 +32,12 @@ export const formatRational = (value: Rational, fractionDigits: number): string 
   const remainder = scaled % value.denominator;
   const rounded = quotient + (2n * remainder > value.denominator || (2n * remainder === value.denominator && quotient % 2n === 1n) ? 1n : 0n);
   // ISO 32000-1:2008, Annex C, Table C.1 recommends a maximum real magnitude of 3.403 × 10^38.
-  if (rounded > 3403n * 10n ** BigInt(35 + fractionDigits)) throw new InvalidArgumentError('real out of range');
-  if (rounded === 0n) return '0';
+  if (rounded > 3403n * 10n ** BigInt(35 + fractionDigits)) {
+    throw new InvalidArgumentError('real out of range');
+  }
+  if (rounded === 0n) {
+    return '0';
+  }
   const digits = rounded.toString().padStart(fractionDigits + 1, '0');
   const whole = digits.slice(0, digits.length - fractionDigits);
   const rest = digits.slice(digits.length - fractionDigits).replace(/0+$/u, '');

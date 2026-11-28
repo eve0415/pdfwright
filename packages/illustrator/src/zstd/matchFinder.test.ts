@@ -6,13 +6,19 @@ import { createMatchFinder } from './matchFinder.ts';
 
 const reconstruct = (parse: MatchParse, history: Uint8Array = new Uint8Array()): Uint8Array => {
   const { literals, sequences, trailingLiterals } = parse;
-  const output: number[] = [...history];
+  const output: Array<number> = [...history];
   let literalPosition = 0;
   for (const sequence of sequences) {
-    for (let index = 0; index < sequence.literalLength; index++) output.push(literals[literalPosition++] ?? 0);
-    for (let index = 0; index < sequence.matchLength; index++) output.push(output[output.length - sequence.offset] ?? 0);
+    for (let index = 0; index < sequence.literalLength; index++) {
+      output.push(literals[literalPosition++] ?? 0);
+    }
+    for (let index = 0; index < sequence.matchLength; index++) {
+      output.push(output[output.length - sequence.offset] ?? 0);
+    }
   }
-  for (let index = 0; index < trailingLiterals; index++) output.push(literals[literalPosition++] ?? 0);
+  for (let index = 0; index < trailingLiterals; index++) {
+    output.push(literals[literalPosition++] ?? 0);
+  }
   return new Uint8Array(output.slice(history.length));
 };
 
@@ -25,17 +31,17 @@ describe('zstandard match finder', () => {
   });
 
   it('uses previous block history without exceeding the two-megabyte window', () => {
-    const input = new Uint8Array(131072 + 128);
-    let state = 123456789;
-    for (let index = 0; index < 131072; index++) {
-      state = (state * 1664525 + 1013904223) % 4294967296;
+    const input = new Uint8Array(131_072 + 128);
+    let state = 123_456_789;
+    for (let index = 0; index < 131_072; index++) {
+      state = (state * 1_664_525 + 1_013_904_223) % 4_294_967_296;
       input[index] = state % 256;
     }
-    input.set(input.subarray(131072 - 128, 131072), 131072);
+    input.set(input.subarray(131_072 - 128, 131_072), 131_072);
     const finder = createMatchFinder(input);
-    finder.parseBlock(0, 131072);
-    const second = finder.parseBlock(131072, input.length);
+    finder.parseBlock(0, 131_072);
+    const second = finder.parseBlock(131_072, input.length);
     expect(second.sequences[0]).toMatchObject({ literalLength: 0, offset: 128, matchLength: 128 });
-    expect(reconstruct(second, input.subarray(0, 131072))).toStrictEqual(input.subarray(131072));
+    expect(reconstruct(second, input.subarray(0, 131_072))).toStrictEqual(input.subarray(131_072));
   });
 });

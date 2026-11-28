@@ -41,7 +41,9 @@ describe('separation plates', () => {
       const whitePixel = await renderRgbPixel(file, image, 21, 5);
       expect(redPixel).toStrictEqual([255, 0, 0]);
       expect(grayPixel).toStrictEqual([64, 64, 64]);
-      for (const channel of strokePixel) expect(Math.abs(channel - 128)).toBeLessThanOrEqual(2);
+      for (const channel of strokePixel) {
+        expect(Math.abs(channel - 128)).toBeLessThanOrEqual(2);
+      }
       expect(whitePixel).toStrictEqual([255, 255, 255]);
     } finally {
       await rm(directory, { recursive: true, force: true });

@@ -17,7 +17,7 @@ import { writeGtsPdfxOutputIntent } from './writeOutputIntent.ts';
 
 const profile = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
-const source = (page = '/Resources<<>>', extra: readonly TestObject[] = []) =>
+const source = (page = '/Resources<<>>', extra: ReadonlyArray<TestObject> = []) =>
   buildPdf([
     {
       xref: 'classic',
@@ -31,7 +31,7 @@ const source = (page = '/Resources<<>>', extra: readonly TestObject[] = []) =>
     },
   ]);
 
-const prepared = (page?: string, extra?: readonly TestObject[]) => {
+const prepared = (page?: string, extra?: ReadonlyArray<TestObject>) => {
   const document = loadDocument(source(page, extra).bytes);
   writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' });
   writePdfX4Metadata(document, { metadataDate: date, trapped: 'False' });
@@ -42,14 +42,18 @@ const prepared = (page?: string, extra?: readonly TestObject[]) => {
 const attach = (document: ReturnType<typeof loadDocument>, name: string, reference: ReturnType<typeof pdfReference>): void => {
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
-  if (catalog.kind !== 'dictionary') throw new Error('catalog is not a dictionary');
+  if (catalog.kind !== 'dictionary') {
+    throw new Error('catalog is not a dictionary');
+  }
   catalog.entries.set(pdfName(name).bytes, reference);
   document.set(catalogReference, catalog);
 };
 
 const attachContent = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): void => {
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is not a dictionary');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is not a dictionary');
+  }
   page.entries.set(pdfName('Contents').bytes, reference);
   document.set(document.page(0).reference, page);
 };

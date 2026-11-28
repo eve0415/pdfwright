@@ -31,7 +31,9 @@ export interface ReadMetadataOptions {
 
 export const xmpTokenLimit = (options: ReadMetadataOptions): number => {
   const limit = options.maxXmpTokens ?? DEFAULT_XML_LIMITS.maxTokens;
-  if (!Number.isSafeInteger(limit) || limit < 1) throw new InvalidArgumentError('maxXmpTokens must be a positive safe integer');
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new InvalidArgumentError('maxXmpTokens must be a positive safe integer');
+  }
   return limit;
 };
 
@@ -52,15 +54,15 @@ export interface DocumentMetadata {
     | { readonly reference: PdfReference; readonly unreadable: string }
     | undefined;
   /** One entry per row of XMP Part 3 Table 20. */
-  readonly properties: readonly MappedProperty[];
+  readonly properties: ReadonlyArray<MappedProperty>;
   readonly authority: 'xmp' | 'info' | 'indeterminate';
   readonly packets: {
-    readonly components: readonly ComponentPacket[];
-    readonly orphans: readonly PdfReference[];
+    readonly components: ReadonlyArray<ComponentPacket>;
+    readonly orphans: ReadonlyArray<PdfReference>;
     /** The packet headers a byte scan of the source finds, by where each lies. */
     readonly scanned: ScannedPackets;
   };
-  readonly findings: readonly MetadataFinding[];
+  readonly findings: ReadonlyArray<MetadataFinding>;
 }
 
 const INFO = pdfName('Info').bytes;
@@ -74,7 +76,9 @@ const nameIs = (value: PdfDirectObject | undefined, expected: string): boolean =
   value?.kind === 'name' && new TextDecoder('latin1').decode(value.bytes) === expected;
 
 const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
@@ -93,7 +97,7 @@ export type DocumentPacket =
 export class MetadataReader {
   private readonly document: DocumentInternals;
   private readonly maxXmpTokens: number;
-  readonly findings: MetadataFinding[] = [];
+  readonly findings: Array<MetadataFinding> = [];
 
   constructor(document: DocumentInternals, maxXmpTokens: number = DEFAULT_XML_LIMITS.maxTokens) {
     this.document = document;
@@ -109,7 +113,9 @@ export class MetadataReader {
     try {
       return this.document.objects.deref(value);
     } catch (error: unknown) {
-      if (error instanceof ParseError) return undefined;
+      if (error instanceof ParseError) {
+        return undefined;
+      }
       throw error;
     }
   }
@@ -123,7 +129,9 @@ export class MetadataReader {
       return undefined;
     }
     const reference = stored?.kind === 'reference' ? stored : undefined;
-    if (reference === undefined) this.report('info-not-indirect', 'the trailer holds the document information dictionary directly, not by reference');
+    if (reference === undefined) {
+      this.report('info-not-indirect', 'the trailer holds the document information dictionary directly, not by reference');
+    }
     return { reference, entries: value.entries, values: readInfoValues(value.entries, item => this.resolve(item)) };
   }
 
@@ -133,7 +141,9 @@ export class MetadataReader {
       this.report('metadata-dictionary', `the metadata stream ${String(reference.objectNumber)} lacks Type Metadata or Subtype XML`);
     }
     // ISO 32000-1:2008, 14.3.2, NOTE 2: the metadata "is visible as plain text to tools that are not PDF-aware only if the metadata stream is both unfiltered and unencrypted".
-    if (value.dictionary.has(FILTER)) this.report('metadata-filtered', `the metadata stream ${String(reference.objectNumber)} is filtered`);
+    if (value.dictionary.has(FILTER)) {
+      this.report('metadata-filtered', `the metadata stream ${String(reference.objectNumber)} is filtered`);
+    }
     try {
       return readXmp(
         decodeStream(value, { maxDecodedBytes: this.document.maxDecodedBytes, warn: ignore, deref: item => this.document.objects.deref(item) }),
@@ -167,27 +177,43 @@ export class MetadataReader {
       this.report(read.reason === 'doctype' ? 'xmp-doctype' : 'xmp-unreadable', `the document packet cannot be read: ${read.reason}`);
       return { reference: stored, unreadable: read.reason, stream: value };
     }
-    for (const finding of read.packet.findings) this.report(finding.code, finding.detail);
+    for (const finding of read.packet.findings) {
+      this.report(finding.code, finding.detail);
+    }
     return { reference: stored, packet: read.packet, stream: value };
   }
 
   // Every Metadata entry of every reachable object, looking into direct dictionaries and arrays, such as marked-content property lists in a page's Resources.
-  components(reachable: ReadonlyMap<number, number>, catalogNumber: number | undefined): ComponentPacket[] {
-    const components: ComponentPacket[] = [];
+  components(reachable: ReadonlyMap<number, number>, catalogNumber: number | undefined): Array<ComponentPacket> {
+    const components: Array<ComponentPacket> = [];
     for (const [objectNumber, generation] of reachable) {
-      const work: PdfObject[] = [];
+      const work: Array<PdfObject> = [];
       const value = this.resolve({ kind: 'reference', objectNumber, generation });
       if (objectNumber === catalogNumber && value?.kind === 'dictionary') {
-        for (const [, entry] of value.entries.entries()) if (entry.kind === 'dictionary' || entry.kind === 'array') work.push(entry);
-      } else if (value !== undefined) work.push(value);
+        for (const [, entry] of value.entries.entries()) {
+          if (entry.kind === 'dictionary' || entry.kind === 'array') {
+            work.push(entry);
+          }
+        }
+      } else if (value !== undefined) {
+        work.push(value);
+      }
       for (let item = work.pop(); item !== undefined; item = work.pop()) {
-        if (item.kind === 'array') for (const element of item.items) work.push(element);
+        if (item.kind === 'array') {
+          for (const element of item.items) {
+            work.push(element);
+          }
+        }
         const entries = entriesOf(item);
-        if (entries === undefined) continue;
+        if (entries === undefined) {
+          continue;
+        }
         for (const [key, entry] of entries.entries()) {
           if (entry.kind === 'reference' && nameIs({ kind: 'name', bytes: key }, 'Metadata')) {
             components.push({ owner: { kind: 'reference', objectNumber, generation }, reference: entry });
-          } else if (entry.kind === 'dictionary' || entry.kind === 'array') work.push(entry);
+          } else if (entry.kind === 'dictionary' || entry.kind === 'array') {
+            work.push(entry);
+          }
         }
       }
     }
@@ -197,17 +223,21 @@ export class MetadataReader {
   }
 
   // An in-use metadata object that nothing reachable from the trailer references, including a malformed XML stream missing the Type required by ISO 32000-1:2008, Table 315.
-  orphans(reachable: ReadonlyMap<number, number>): PdfReference[] {
+  orphans(reachable: ReadonlyMap<number, number>): Array<PdfReference> {
     const { objects } = this.document;
     const numbers = new Set([...objects.store.index.inUse(), ...objects.changes.keys()]);
-    const orphans: PdfReference[] = [];
+    const orphans: Array<PdfReference> = [];
     for (const objectNumber of [...numbers].toSorted((left, right) => left - right)) {
       const generation = objects.generationOf(objectNumber);
-      if (generation === undefined || reachable.has(objectNumber)) continue;
+      if (generation === undefined || reachable.has(objectNumber)) {
+        continue;
+      }
       const reference: PdfReference = { kind: 'reference', objectNumber, generation };
       const value = this.resolve(reference);
       const entries = entriesOf(value);
-      if (!nameIs(entries?.get(TYPE), 'Metadata') && !(value?.kind === 'stream' && nameIs(entries?.get(SUBTYPE), 'XML'))) continue;
+      if (!nameIs(entries?.get(TYPE), 'Metadata') && !(value?.kind === 'stream' && nameIs(entries?.get(SUBTYPE), 'XML'))) {
+        continue;
+      }
       orphans.push(reference);
       this.report('orphan-metadata', `the metadata object ${String(objectNumber)} is in use but nothing reachable from the trailer references it`);
     }
@@ -221,7 +251,9 @@ export class MetadataReader {
  * The reachability walk parses every object reachable from the trailer once, and the orphan check every object in use.
  */
 const publicPacket = (xmp: DocumentPacket | undefined): DocumentMetadata['xmp'] => {
-  if (xmp === undefined) return undefined;
+  if (xmp === undefined) {
+    return undefined;
+  }
   return 'packet' in xmp ? { reference: xmp.reference, packet: xmp.packet } : { reference: xmp.reference, unreadable: xmp.unreadable };
 };
 
@@ -242,7 +274,9 @@ export const readMetadataState = (internals: DocumentInternals, options: ReadMet
   const catalog = root?.kind === 'reference' && catalogValue?.kind === 'dictionary' ? { reference: root, entries: catalogValue.entries } : undefined;
   const xmp = reader.xmp(catalog?.entries);
   const mapping = mapMetadata(info?.values, xmp !== undefined && 'packet' in xmp ? xmp.packet : undefined);
-  for (const finding of mapping.findings) reader.report(finding.code, finding.detail);
+  for (const finding of mapping.findings) {
+    reader.report(finding.code, finding.detail);
+  }
   return { reader, info, catalog, xmp, mapping };
 };
 
@@ -253,7 +287,9 @@ export const readMetadataState = (internals: DocumentInternals, options: ReadMet
  */
 export const readMetadata = (document: LoadedDocument, options: ReadMetadataOptions = {}): DocumentMetadata => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new InvalidArgumentError('readMetadata needs a document from loadDocument');
+  if (internals === undefined) {
+    throw new InvalidArgumentError('readMetadata needs a document from loadDocument');
+  }
   const { reader, info, catalog, xmp, mapping } = readMetadataState(internals, options);
   const { objects: reachable } = reachableObjects(internals);
   const components = reader.components(reachable, catalog?.reference.objectNumber);

@@ -10,11 +10,11 @@ import { readCurve } from './iccTags.ts';
 /** An ICC lutAtoB or lutBtoA pipeline of curves, optional matrix and CLUT stages under ICC.1:2022, 10.12–10.13; malformed offsets raise InvalidProfileError reason `bad-tag-data`. */
 export interface MultiLut {
   readonly kind: 'lutAtoB' | 'lutBtoA';
-  readonly b: readonly Curve[];
+  readonly b: ReadonlyArray<Curve>;
   readonly matrix?: { readonly m: Matrix3; readonly offset: readonly [number, number, number] } | undefined;
-  readonly m?: readonly Curve[] | undefined;
+  readonly m?: ReadonlyArray<Curve> | undefined;
   readonly clut?: Clut | undefined;
-  readonly a?: readonly Curve[] | undefined;
+  readonly a?: ReadonlyArray<Curve> | undefined;
 }
 
 interface Parts {
@@ -37,20 +37,32 @@ const offsets = (view: DataView, start: number, size: number): Parts => {
     clut: view.getUint32(start + 24),
     a: view.getUint32(start + 28),
   };
-  for (const value of Object.values(parts)) if (value !== 0 && (value < 32 || value >= size || value % 4 !== 0)) fail(start);
-  if (parts.b === 0 || (parts.a === 0) !== (parts.clut === 0) || (parts.m === 0) !== (parts.matrix === 0)) fail(start);
+  for (const value of Object.values(parts)) {
+    if (value !== 0 && (value < 32 || value >= size || value % 4 !== 0)) {
+      fail(start);
+    }
+  }
+  if (parts.b === 0 || (parts.a === 0) !== (parts.clut === 0) || (parts.m === 0) !== (parts.matrix === 0)) {
+    fail(start);
+  }
   return parts;
 };
 
 const partLimit = (parts: Parts, current: number, tagEnd: number): number => {
   let end = tagEnd;
-  for (const value of [parts.b, parts.matrix, parts.m, parts.clut, parts.a]) if (value > current && value < end) end = value;
+  for (const value of [parts.b, parts.matrix, parts.m, parts.clut, parts.a]) {
+    if (value > current && value < end) {
+      end = value;
+    }
+  }
   return end;
 };
 
-const curves = (bytes: Uint8Array, config: { start: number; relative: number; count: number; end: number }): Curve[] | undefined => {
-  if (config.relative === 0) return undefined;
-  const result: Curve[] = [];
+const curves = (bytes: Uint8Array, config: { start: number; relative: number; count: number; end: number }): Array<Curve> | undefined => {
+  if (config.relative === 0) {
+    return undefined;
+  }
+  const result: Array<Curve> = [];
   let cursor = config.start + config.relative;
   for (let index = 0; index < config.count; index++) {
     const item = readCurve(bytes, cursor, config.end);
@@ -58,17 +70,23 @@ const curves = (bytes: Uint8Array, config: { start: number; relative: number; co
     // ICC.1:2022, 10.12.2 pads between embedded curves, not after the final curve.
     if (index + 1 < config.count) {
       cursor += Math.ceil(item.consumed / 4) * 4;
-      if (cursor > config.end) fail(cursor);
+      if (cursor > config.end) {
+        fail(cursor);
+      }
     }
   }
   return result;
 };
 
 const matrixPart = (view: DataView, config: { start: number; relative: number; end: number }): MultiLut['matrix'] => {
-  if (config.relative === 0) return undefined;
+  if (config.relative === 0) {
+    return undefined;
+  }
   const at = config.start + config.relative;
-  if (config.end - at < 48) fail(at);
-  const values = Array.from({ length: 12 }, (_, index) => view.getInt32(at + index * 4) / 65536);
+  if (config.end - at < 48) {
+    fail(at);
+  }
+  const values = Array.from({ length: 12 }, (_, index) => view.getInt32(at + index * 4) / 65_536);
   // ICC.1:2022, 10.12.5 and 10.13.3: e1..e9 are the row-major 3 × 3 coefficients and e10..e12 the offsets added to each row.
   return {
     m: [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0, values[3] ?? 0, values[4] ?? 0, values[5] ?? 0, values[6] ?? 0, values[7] ?? 0, values[8] ?? 0],
@@ -80,37 +98,59 @@ const clutPart = (
   view: DataView,
   config: { start: number; relative: number; end: number; inputChannels: number; outputChannels: number },
 ): Clut | undefined => {
-  if (config.relative === 0) return undefined;
+  if (config.relative === 0) {
+    return undefined;
+  }
   // ICC.1:2022, 10.12.3 Table 46: 16 grid bytes, a 1-or-2-byte precision, then interleaved output values.
   const at = config.start + config.relative;
-  if (config.end - at < 20) fail(at);
-  const gridPoints: number[] = [];
+  if (config.end - at < 20) {
+    fail(at);
+  }
+  const gridPoints: Array<number> = [];
   let count = config.outputChannels;
   for (let index = 0; index < config.inputChannels; index++) {
     const grid = view.getUint8(at + index);
-    if (grid < 2) fail(at + index);
-    if (count > Math.floor(16_777_216 / grid)) throw new ResourceLimitError('ICC CLUT exceeds 16777216 entries');
+    if (grid < 2) {
+      fail(at + index);
+    }
+    if (count > Math.floor(16_777_216 / grid)) {
+      throw new ResourceLimitError('ICC CLUT exceeds 16777216 entries');
+    }
     count *= grid;
     gridPoints.push(grid);
   }
   const width = view.getUint8(at + 16);
-  if ((width !== 1 && width !== 2) || 20 + count * width > config.end - at) fail(at + 16);
+  if ((width !== 1 && width !== 2) || 20 + count * width > config.end - at) {
+    fail(at + 16);
+  }
   const values = width === 1 ? new Uint8Array(view.buffer, view.byteOffset + at + 20, count) : new Uint16Array(count);
-  if (width === 2) for (let index = 0; index < count; index++) values[index] = view.getUint16(at + 20 + index * 2);
+  if (width === 2) {
+    for (let index = 0; index < count; index++) {
+      values[index] = view.getUint16(at + 20 + index * 2);
+    }
+  }
   return { gridPoints, inputChannels: config.inputChannels, outputChannels: config.outputChannels, values };
 };
 
 export const readMultiLut = (bytes: Uint8Array, start: number, end: number): MultiLut => {
   // ICC.1:2022, 10.12.1 Table 45 and 10.13.1 Table 47: offsets are relative to the tag and zero omits an element.
-  if (start < 0 || end > bytes.length || end - start < 32) fail(start);
+  if (start < 0 || end > bytes.length || end - start < 32) {
+    fail(start);
+  }
   const name = iccSignature(bytes, start);
-  if (name !== 'mAB ' && name !== 'mBA ') throw new InvalidProfileError('ICC tag must be lutAToBType or lutBToAType', 'tag-type-mismatch', { offset: start });
+  if (name !== 'mAB ' && name !== 'mBA ') {
+    throw new InvalidProfileError('ICC tag must be lutAToBType or lutBToAType', 'tag-type-mismatch', { offset: start });
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const inputChannels = view.getUint8(start + 8);
   const outputChannels = view.getUint8(start + 9);
-  if (inputChannels < 1 || inputChannels > 15 || outputChannels < 1 || outputChannels > 15) fail(start + 8);
+  if (inputChannels < 1 || inputChannels > 15 || outputChannels < 1 || outputChannels > 15) {
+    fail(start + 8);
+  }
   const parts = offsets(view, start, end - start);
-  if (inputChannels !== outputChannels && parts.clut === 0) fail(start + 24);
+  if (inputChannels !== outputChannels && parts.clut === 0) {
+    fail(start + 24);
+  }
   const aCount = name === 'mAB ' ? inputChannels : outputChannels;
   const bCount = name === 'mAB ' ? outputChannels : inputChannels;
   const mCount = name === 'mAB ' ? outputChannels : inputChannels;

@@ -22,8 +22,12 @@ export interface PdfDate extends PdfDateComponents {
 const inRange = (value: number, minimum: number, maximum: number): boolean => Number.isInteger(value) && value >= minimum && value <= maximum;
 
 const daysInMonth = (year: number, month: number): number => {
-  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
-  if ([4, 6, 9, 11].includes(month)) return 30;
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  if ([4, 6, 9, 11].includes(month)) {
+    return 30;
+  }
   return 31;
 };
 
@@ -41,7 +45,9 @@ export const pdfDate = (components: PdfDateComponents): PdfDate => {
   ) {
     throw new ValidationError('PDF date has an out-of-range field');
   }
-  if (day > daysInMonth(year, month)) throw new ValidationError('Writer policy: PDF date must name an actual calendar day');
+  if (day > daysInMonth(year, month)) {
+    throw new ValidationError('Writer policy: PDF date must name an actual calendar day');
+  }
   if (offset !== 'Z' && (!['+', '-'].includes(offset.sign) || !inRange(offset.hours, 0, 23) || !inRange(offset.minutes, 0, 59))) {
     throw new ValidationError('PDF date has an out-of-range UTC offset');
   }
@@ -62,7 +68,9 @@ export const pdfDateObject = (date: PdfDate): PdfDirectObject => pdfString(new T
 
 /** Creates a PDF date from a JavaScript Date and a UTC offset in minutes. */
 export const pdfDateFromDate = (date: Date, offsetMinutes: number): PdfDate => {
-  if (!Number.isFinite(date.getTime()) || !inRange(offsetMinutes, -1439, 1439)) throw new ValidationError('invalid date or UTC offset');
+  if (!Number.isFinite(date.getTime()) || !inRange(offsetMinutes, -1439, 1439)) {
+    throw new ValidationError('invalid date or UTC offset');
+  }
   const local = new Date(date.getTime() + offsetMinutes * 60_000);
   const absolute = Math.abs(offsetMinutes);
   const offset: PdfDateComponents['offset'] =
@@ -91,7 +99,7 @@ export interface ParsedPdfDate {
   readonly zone: 'explicit' | 'absent';
 }
 
-const PRECISIONS: readonly PdfDatePrecision[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+const PRECISIONS: ReadonlyArray<PdfDatePrecision> = ['year', 'month', 'day', 'hour', 'minute', 'second'];
 
 // ISO 32000-1:2008, 7.9.4: "The prefix D: shall be present, the year field (YYYY) shall be present and all other fields may be present but only if all of their preceding fields are also present."
 // The offset is O, then HH, then an apostrophe and mm; an apostrophe after mm, which many writers add, is tolerated.
@@ -116,16 +124,22 @@ const clockInRange = (components: PdfDateComponents): boolean => {
  */
 export const parsePdfDate = (text: string): ParsedPdfDate | undefined => {
   const match = DATE_PATTERN.exec(text);
-  if (match === null) return undefined;
+  if (match === null) {
+    return undefined;
+  }
   const [, year = '', clock = '', sign, offsetHours = '00', offsetMinutes = '00'] = match;
   const numbers = [year, ...(clock.match(/\d{2}/gu) ?? [])].map(Number);
   const [, month = 1, day = 1, hour = 0, minute = 0, second = 0] = numbers;
   const hours = Number(offsetHours);
   const minutes = Number(offsetMinutes);
   // 7.9.4: "LATIN CAPITAL LETTER Z signifies that local time is equal to UT", so any offset after Z is zero.
-  if (sign === 'Z' && hours + minutes > 0) return undefined;
+  if (sign === 'Z' && hours + minutes > 0) {
+    return undefined;
+  }
   const offset: PdfDateComponents['offset'] = sign === '+' || sign === '-' ? { sign, hours, minutes } : 'Z';
   const components = { year: Number(year), month, day, hour, minute, second, offset };
-  if (!clockInRange(components)) return undefined;
+  if (!clockInRange(components)) {
+    return undefined;
+  }
   return { date: pdfDate(components), precision: PRECISIONS[numbers.length - 1] ?? 'year', zone: sign === undefined ? 'absent' : 'explicit' };
 };

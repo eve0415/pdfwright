@@ -23,17 +23,25 @@ const rgbSource = async (name: string): Promise<IccColorSource> =>
   name === 'sRGB2014.icc' ? srgbColorSource() : { kind: 'icc', profile: parseIccProfile(await readFile(fixturePath(name))) };
 
 const intentName = (value: number): 'perceptual' | 'relativeColorimetric' | 'saturation' | 'absoluteColorimetric' => {
-  if (value === 0) return 'perceptual';
-  if (value === 1) return 'relativeColorimetric';
-  if (value === 2) return 'saturation';
+  if (value === 0) {
+    return 'perceptual';
+  }
+  if (value === 1) {
+    return 'relativeColorimetric';
+  }
+  if (value === 2) {
+    return 'saturation';
+  }
   return 'absoluteColorimetric';
 };
 
-const execute = async (file: string, args: readonly string[], input = ''): Promise<string> => {
+const execute = async (file: string, args: ReadonlyArray<string>, input = ''): Promise<string> => {
   const child = spawn(file, [...args]);
   child.stdin.end(input);
   const [stdout, stderr, close] = await Promise.all([streamText(child.stdout), streamText(child.stderr), once(child, 'close')]);
-  if (close[0] !== 0) throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  if (close[0] !== 0) {
+    throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  }
   return stdout;
 };
 
@@ -42,9 +50,9 @@ const runOracle = async (config: {
   destination: string;
   intent: number;
   bpc: number;
-  rows: readonly string[];
+  rows: ReadonlyArray<string>;
   reference?: 'input';
-}): Promise<number[]> => {
+}): Promise<Array<number>> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-lcms-'));
   try {
     const executable = path.join(directory, 'lcmsOracle');
@@ -52,7 +60,9 @@ const runOracle = async (config: {
     await writeFile(input, `${config.rows.join('\n')}\n`);
     await execute('cc', ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', fixturePath('lcmsOracle.c'), '-llcms2', '-lm', '-o', executable]);
     const args = [fixturePath(config.source), fixturePath(config.destination), String(config.intent), String(config.bpc), input];
-    if (config.reference === 'input') args.push('input');
+    if (config.reference === 'input') {
+      args.push('input');
+    }
     const stdout = await execute(executable, args);
     return stdout.trim().split(/\s+/u).map(Number);
   } finally {
@@ -60,19 +70,23 @@ const runOracle = async (config: {
   }
 };
 
-const argyllRows = (output: string): number[][] =>
+const argyllRows = (output: string): Array<Array<number>> =>
   output
     .trim()
     .split(/\r?\n/u)
     .map(line => {
       const values = line.trim().split(/\s+/u).map(Number);
-      if (values.length !== 4 || values.some(value => !Number.isFinite(value))) throw new Error('ArgyllCMS returned invalid CMYK values');
+      if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
+        throw new Error('ArgyllCMS returned invalid CMYK values');
+      }
       return values;
     });
 
-const referenceAt = (rows: readonly number[][], index: number): readonly number[] => {
+const referenceAt = (rows: ReadonlyArray<Array<number>>, index: number): ReadonlyArray<number> => {
   const row = rows[index];
-  if (row === undefined) throw new Error('ArgyllCMS returned fewer colours than requested');
+  if (row === undefined) {
+    throw new Error('ArgyllCMS returned fewer colours than requested');
+  }
   return row;
 };
 

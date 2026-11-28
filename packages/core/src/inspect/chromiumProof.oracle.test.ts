@@ -68,13 +68,15 @@ const proofBytes = async (proof: Proof): Promise<Uint8Array> => {
   printing ??= printProofs();
   const printed = await printing;
   const bytes = printed.get(proof);
-  if (bytes === undefined) throw new Error(`${proof} was not printed`);
+  if (bytes === undefined) {
+    throw new Error(`${proof} was not printed`);
+  }
   return bytes;
 };
 
 const proofText = async (proof: Proof): Promise<PageText> => extractText(loadDocument(await proofBytes(proof)), 0);
 
-const proofFonts = async (proof: Proof): Promise<readonly FontEntry[]> => listFonts(loadDocument(await proofBytes(proof))).fonts;
+const proofFonts = async (proof: Proof): Promise<ReadonlyArray<FontEntry>> => listFonts(loadDocument(await proofBytes(proof))).fonts;
 
 const ascii = (bytes: Uint8Array | undefined): string | undefined => (bytes === undefined ? undefined : new TextDecoder().decode(bytes));
 
@@ -138,30 +140,38 @@ const ENTITIES: ReadonlyMap<string, string> = new Map([
 // Character references and the predefined entities MuPDF writes in the c attribute.
 const unescapeXml = (text: string): string =>
   text.replaceAll(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/giu, (_, reference: string) => {
-    if (reference.startsWith('#x') || reference.startsWith('#X')) return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
-    if (reference.startsWith('#')) return String.fromCodePoint(Number(reference.slice(1)));
+    if (reference.startsWith('#x') || reference.startsWith('#X')) {
+      return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
+    }
+    if (reference.startsWith('#')) {
+      return String.fromCodePoint(Number(reference.slice(1)));
+    }
     return ENTITIES.get(reference) ?? '';
   });
 
 // mutool draw -F stext: one char element per character, with the glyph origin as x and y from the page's top-left corner; chars MuPDF adds between words carry flag 4 and are skipped.
-const mupdfChars = (xml: string): Char[] =>
-  [...xml.matchAll(/<char [^>]*\/>/gu)]
+const mupdfChars = (xml: string): Array<Char> =>
+  xml
+    .matchAll(/<char [^>]*\/>/gu)
     .map(([element]) => element)
     .filter(element => Math.floor(Number(attribute(element, 'flags')) / 4) % 2 === 0)
-    .map(element => ({ x: Number(attribute(element, 'x')), y: Number(attribute(element, 'y')), c: unescapeXml(attribute(element, 'c')) }));
+    .map(element => ({ x: Number(attribute(element, 'x')), y: Number(attribute(element, 'y')), c: unescapeXml(attribute(element, 'c')) }))
+    .toArray();
 
 const ORIGIN_TOLERANCE = 0.01;
 
 // Each glyph against the MuPDF chars it produced, in content order.
 // MuPDF writes one char per code point of a glyph's text, or of the ActualText span the glyph opens, the first at the glyph's origin, and nothing for a span's later glyphs; so the records are joined by glyph rather than by index.
-const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
+const mupdfDifferences = (page: PageText, chars: ReadonlyArray<Char>): Array<string> => {
   // MuPDF measures y down from the top of the MediaBox.
   const top = page.mediaBox?.[3] ?? 0;
   const opened = new Set<number>();
   const joined = page.glyphs.map(glyph => {
     const span = glyph.actualText === undefined ? undefined : page.actualText[glyph.actualText];
     if (glyph.actualText !== undefined) {
-      if (opened.has(glyph.actualText)) return { glyph, count: 0, text: '' };
+      if (opened.has(glyph.actualText)) {
+        return { glyph, count: 0, text: '' };
+      }
       opened.add(glyph.actualText);
     }
     const text = span === undefined ? (glyph.text ?? '') : span.text;
@@ -176,7 +186,9 @@ const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
     const own = chars.slice(next, next + count);
     next += count;
     const [first] = own;
-    if (first === undefined) return [];
+    if (first === undefined) {
+      return [];
+    }
     const [x, y] = [glyph.origin[0], top - glyph.origin[1]];
     const found = own.map(char => char.c).join('');
     return [
@@ -185,12 +197,14 @@ const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
         : `origin (${String(x)}, ${String(y)}) against (${String(first.x)}, ${String(first.y)})`,
       text === found ? '' : `text ${text} against ${found}`,
     ]
+      .values()
       .filter(problem => problem !== '')
-      .map(problem => `glyph ${String(glyph.index)}: ${problem}`);
+      .map(problem => `glyph ${String(glyph.index)}: ${problem}`)
+      .toArray();
   });
 };
 
-const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; readonly chars: Char[] }> => {
+const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; readonly chars: Array<Char> }> => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-proof-'));
   try {
     const file = path.join(directory, `${proof}.pdf`);
@@ -203,11 +217,13 @@ const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; read
 };
 
 const qpdfRank = (code: number): number => {
-  if (code === 0) return 0;
+  if (code === 0) {
+    return 0;
+  }
   return code === 3 ? 1 : 2;
 };
 
-const qpdfWarnings = (output: string, file: string): string[] =>
+const qpdfWarnings = (output: string, file: string): Array<string> =>
   output
     .replaceAll(file, 'FILE')
     .split('\n')

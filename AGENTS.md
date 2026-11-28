@@ -8,20 +8,17 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 - `packages/illustrator` is `@pdfwright/illustrator`, which writes Illustrator-layered PDFs from a print-production artwork model.
 - `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names and that every package entry loads there.
 - `scripts/` holds repository scripts, which run on Node.
-- `tools/oxlint/anti-slop` is a git submodule, the [anti-slop](https://github.com/dmmulroy/anti-slop) oxlint plugin (MIT), loaded as a JS plugin.
 
 ## Setup
 
 ```sh
-git clone --recurse-submodules https://github.com/eve0415/pdfwright.git
+git clone https://github.com/eve0415/pdfwright.git
 cd pdfwright
 pnpm install
 pnpm exec playwright install --with-deps --only-shell chromium
 ```
 
 Install pnpm 11 or newer from <https://pnpm.io/installation>. pnpm downloads and runs the version the `packageManager` field pins (its `pmOnFail` setting defaults to `download`), and it installs the Node version `devEngines.runtime` pins into `node_modules/.bin`, where package scripts find it. Bun and Deno are npm devDependencies, so `pnpm install` provides them too.
-
-oxlint fails to start without the anti-slop submodule. In a clone made without `--recurse-submodules`, run `git submodule update --init --recursive`.
 
 ## The gate
 
@@ -41,6 +38,7 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 
 `pnpm lint` is the fix mode: it applies every oxlint fix, including the ones oxlint marks dangerous, formats with oxfmt, and then runs the coverage check. Review its diff before committing it.
 
+- **The lint rules are `@cloudflare/oxlint-config` plus typescript-eslint's `strict-type-checked` and oxlint's `correctness` category.** `oxlint.config.ts` extends the preset and turns on every strict-type-checked rule, in test files too, where the preset would turn some off. The preset turns every category off, and the config turns `correctness` back on.
 - **oxlint is the type checker.** It runs type-aware with `typeCheck` on, so it reports TypeScript's own diagnostics, and there is no separate `tsc` step.
 - **A file no tsconfig covers is checked with TypeScript's default options, not this repository's** (<https://github.com/oxc-project/oxc/issues/26822>). `check:type-aware-coverage` plants a type error that only the repository's options report in every `packages/*/src`, in `scripts/`, in `tests/`, and in a `*.config.ts` file at the root and in each package, and fails unless oxlint reports each one. A new TypeScript directory needs a tsconfig whose `include` covers it; config files are covered by `tsconfig.config.json`.
 - **oxlint reports `isolatedDeclarations` errors (TS9xxx) in every package source file.** The tsdown build does not report all of them, so `pnpm exec oxlint` is the check for an exported signature.

@@ -7,7 +7,7 @@ import { largeFile } from '../testing/largePdf.ts';
 import { loadDocument } from './loadDocument.ts';
 import { rect } from './rect.ts';
 
-const copiedBytes = (chunks: readonly Uint8Array[], source: Uint8Array): number =>
+const copiedBytes = (chunks: ReadonlyArray<Uint8Array>, source: Uint8Array): number =>
   chunks.filter(chunk => chunk.buffer !== source.buffer).reduce((sum, chunk) => sum + chunk.length, 0);
 
 describe('large files', () => {

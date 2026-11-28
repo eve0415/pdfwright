@@ -19,19 +19,23 @@ import { normalizeModel } from './normalizeModel.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
-if (exportsDirectory === undefined) stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+if (exportsDirectory === undefined) {
+  stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+}
 
 const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
 const samples = manifest?.samples ?? [];
 const lockSample = manifest?.lockSample ?? '';
 
 const localSource = async (file: string): Promise<Uint8Array> => {
-  if (exportsDirectory === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  if (exportsDirectory === undefined) {
+    throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  }
   return readFile(path.join(exportsDirectory, file));
 };
-const textLines = (records: readonly NativeRecord[]): string[] => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
-const stableKeys = (facts: ContainerFacts): string[] => facts.privateKeys.filter(name => !/^AIPDFPrivateData\d+$/u.test(name));
-const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: number): number => {
+const textLines = (records: ReadonlyArray<NativeRecord>): Array<string> => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
+const stableKeys = (facts: ContainerFacts): Array<string> => facts.privateKeys.filter(name => !/^AIPDFPrivateData\d+$/u.test(name));
+const cropDeviation = (lines: ReadonlyArray<string>, widthMm: number, heightMm: number): number => {
   const crop = lines
     .find(line => line.startsWith('%AI3_Cropmarks: '))
     ?.slice('%AI3_Cropmarks: '.length)
@@ -43,14 +47,16 @@ const cropDeviation = (lines: readonly string[], widthMm: number, heightMm: numb
   return Math.max(...expected.map((value, index) => Math.abs(value - (crop?.[index] ?? Number.POSITIVE_INFINITY))));
 };
 
-const lockFields = (lines: readonly string[]): Map<string, { readonly layer: string; readonly state: readonly string[] }> => {
-  const fields = new Map<string, { readonly layer: string; readonly state: readonly string[] }>();
+const lockFields = (lines: ReadonlyArray<string>): Map<string, { readonly layer: string; readonly state: ReadonlyArray<string> }> => {
+  const fields = new Map<string, { readonly layer: string; readonly state: ReadonlyArray<string> }>();
   const starts = lines.flatMap((line, index) => (line === '%AI5_BeginLayer' ? [index] : []));
   for (const start of starts) {
     const end = lines.findIndex((line, index) => index > start && (line === '%AI5_BeginLayer' || line === '%AI5_EndLayer--'));
     const lb = lines[start + 1]?.split(' ');
     const name = lines[start + 2];
-    if (end === -1 || lb?.[14] !== 'Lb' || name === undefined || !name.endsWith(') Ln')) throw new Error('invalid native layer lock structure');
+    if (end === -1 || lb?.[14] !== 'Lb' || name === undefined || !name.endsWith(') Ln')) {
+      throw new Error('invalid native layer lock structure');
+    }
     const beforeItem = lines.slice(start + 3, end);
     const itemIndex = beforeItem.findIndex(line => /^\d+ As$/u.test(line));
     const state = (itemIndex === -1 ? beforeItem : beforeItem.slice(0, itemIndex)).filter(line => /^[01] (?:A|Xw)$/u.test(line));
@@ -95,7 +101,9 @@ describe('local Illustrator structure comparison', () => {
     const written = textLines(tokenizeNative(writtenContainer.native));
     const sourceFields = lockFields(observed);
     const writtenFields = lockFields(written);
-    for (const [name, fields] of writtenFields) expect(fields).toStrictEqual(sourceFields.get(name));
+    for (const [name, fields] of writtenFields) {
+      expect(fields).toStrictEqual(sourceFields.get(name));
+    }
     expect(sourceFields.get('Locked sublayer')).toMatchObject({ layer: '1 0 1', state: ['1 A', '0 Xw', '0 A'] });
     expect(observed.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');
     expect(written.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');
@@ -117,7 +125,7 @@ describe('local Illustrator structure comparison', () => {
       facts.frameHeaderDescriptor,
       facts.windowDescriptor,
     ]).toStrictEqual([9, 30, 2, 30, 0, 0x58]);
-    expect(facts.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(facts.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65_536), sample.lastLength]);
     expect(facts.pageDate).toStrictEqual(facts.applicationDate);
     expect([lines.filter(line => line === '%AI5_BeginLayer').length, records.filter(record => record.kind === 'rasterData').length]).toStrictEqual([
       sample.layers,
@@ -153,7 +161,7 @@ describe('local Illustrator structure comparison', () => {
     expect(read.document).toStrictEqual(readIllustratorPdf(bytes).document);
     expect(read.nativeOrigin).toBe('artboard-bottom-left');
     expect(read.compression).toStrictEqual({ kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: 0x58 });
-    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65536), sample.lastLength]);
+    expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65_536), sample.lastLength]);
     expect(read.lastModified.page).toStrictEqual(read.lastModified.application);
   });
 

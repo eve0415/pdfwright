@@ -214,7 +214,10 @@ export const manualCheckModel = (): IllustratorDocument => {
 };
 
 // A 10 mm square around a 4 mm square, both drawn counterclockwise, so the inner one is filled by the nonzero rule and empty by the even-odd rule.
-const nested = (left: number): readonly Subpath[] => [...rectangle([left, 10, left + 10, 20]).subpaths, ...rectangle([left + 3, 13, left + 7, 17]).subpaths];
+const nested = (left: number): ReadonlyArray<Subpath> => [
+  ...rectangle([left, 10, left + 10, 20]).subpaths,
+  ...rectangle([left + 3, 13, left + 7, 17]).subpaths,
+];
 
 /** Builds compound paths and clips under both fill rules for the Illustrator compound-path check. */
 export const compoundManualCheckModel = (): IllustratorDocument => {

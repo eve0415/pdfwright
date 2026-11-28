@@ -37,24 +37,28 @@ const CID_DESCRIPTOR: TestObject = {
 const FONTS = [SIMPLE_FONT, SIMPLE_DESCRIPTOR, HORIZONTAL_FONT, CID_FONT, CID_DESCRIPTOR];
 const FONT_RESOURCES = '/Font<</F1 101 0 R/H 102 0 R>>';
 
-const extract = (page: TestPage, objects: readonly TestObject[] = [], options: ExtractTextOptions = {}): PageText =>
+const extract = (page: TestPage, objects: ReadonlyArray<TestObject> = [], options: ExtractTextOptions = {}): PageText =>
   extractText(loadDocument(textPdfBytes({ pages: [page], objects: [...FONTS, ...objects] })), 0, options);
 
-const glyphs = (content: string, objects: readonly TestObject[] = [], resources = FONT_RESOURCES): readonly PageGlyph[] =>
+const glyphs = (content: string, objects: ReadonlyArray<TestObject> = [], resources = FONT_RESOURCES): ReadonlyArray<PageGlyph> =>
   extract({ content, resources }, objects).glyphs;
 
-const round = (values: readonly number[]): number[] => values.map(value => Math.round(value * 1e6) / 1e6 + 0);
+const round = (values: ReadonlyArray<number>): Array<number> => values.map(value => Math.round(value * 1e6) / 1e6 + 0);
 
-const origins = (shown: readonly PageGlyph[]): number[][] => shown.map(glyph => round(glyph.origin));
+const origins = (shown: ReadonlyArray<PageGlyph>): Array<Array<number>> => shown.map(glyph => round(glyph.origin));
 
-const at = (shown: readonly PageGlyph[], index: number): PageGlyph => {
+const at = (shown: ReadonlyArray<PageGlyph>, index: number): PageGlyph => {
   const glyph = shown[index];
-  if (glyph === undefined) throw new Error(`no glyph ${String(index)} among ${String(shown.length)}`);
+  if (glyph === undefined) {
+    throw new Error(`no glyph ${String(index)} among ${String(shown.length)}`);
+  }
   return glyph;
 };
 
-const one = (shown: readonly PageGlyph[]): PageGlyph => {
-  if (shown.length !== 1) throw new Error(`expected one glyph, found ${String(shown.length)}`);
+const one = (shown: ReadonlyArray<PageGlyph>): PageGlyph => {
+  if (shown.length !== 1) {
+    throw new Error(`expected one glyph, found ${String(shown.length)}`);
+  }
   return at(shown, 0);
 };
 
@@ -69,10 +73,10 @@ const simple = (encoding: string, extra = ''): TestObject => ({
   number: 105,
   body: `<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 65/LastChar 66/Widths[600 500]/Encoding ${encoding}${extra}/FontDescriptor 110 0 R>>`,
 });
-const textOf = (content: string, objects: readonly TestObject[], options: ExtractTextOptions = {}): unknown[][] =>
+const textOf = (content: string, objects: ReadonlyArray<TestObject>, options: ExtractTextOptions = {}): Array<Array<unknown>> =>
   extract({ content, resources: '/Font<</T 105 0 R>>' }, objects, options).glyphs.map(glyph => [glyph.text, glyph.toUnicode, glyph.encodingText, glyph.reason]);
 
-const type0 = (encoding: string, ordering: string, extra = ''): readonly TestObject[] => [
+const type0 = (encoding: string, ordering: string, extra = ''): ReadonlyArray<TestObject> => [
   { number: 105, body: `<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding ${encoding}/DescendantFonts[106 0 R]${extra}>>` },
   {
     number: 106,
@@ -96,19 +100,23 @@ const PROVIDED = new Map([
 ]);
 const provider: CMapProvider = { cmap: name => PROVIDED.get(name) };
 
-const spans = (content: string, resources = FONT_RESOURCES, objects: readonly TestObject[] = []): PageText => extract({ content, resources }, objects);
+const spans = (content: string, resources = FONT_RESOURCES, objects: ReadonlyArray<TestObject> = []): PageText => extract({ content, resources }, objects);
 
-const vertical = (cidFont: string): readonly TestObject[] => [
+const vertical = (cidFont: string): ReadonlyArray<TestObject> => [
   { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-V/DescendantFonts[106 0 R]>>' },
   {
     number: 106,
     body: `<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000${cidFont}/FontDescriptor 111 0 R>>`,
   },
 ];
-const boxes = (shown: readonly PageGlyph[]): unknown[] => shown.map(glyph => [glyph.writingMode, round(glyph.origin), round(glyph.advance), round(glyph.quad)]);
+const boxes = (shown: ReadonlyArray<PageGlyph>): Array<unknown> =>
+  shown.map(glyph => [glyph.writingMode, round(glyph.origin), round(glyph.advance), round(glyph.quad)]);
 
 // A Type 3 font whose code 97 (a) is 1000 glyph units wide and drawn by one procedure.
-const type3Glyphs = (content: string, { matrix, bbox = '0 0 0 0', procedure }: { matrix: string; bbox?: string; procedure: string }): readonly PageGlyph[] =>
+const type3Glyphs = (
+  content: string,
+  { matrix, bbox = '0 0 0 0', procedure }: { matrix: string; bbox?: string; procedure: string },
+): ReadonlyArray<PageGlyph> =>
   glyphs(
     content,
     [
@@ -121,12 +129,12 @@ const type3Glyphs = (content: string, { matrix, bbox = '0 0 0 0', procedure }: {
     '/Font<</T 105 0 R>>',
   );
 
-const shownIn = (content: string, cidFont = ''): readonly PageGlyph[] => glyphs(content, vertical(cidFont), '/Font<</V 105 0 R>>');
+const shownIn = (content: string, cidFont = ''): ReadonlyArray<PageGlyph> => glyphs(content, vertical(cidFont), '/Font<</V 105 0 R>>');
 
-const notdef = (content: string, objects: readonly TestObject[]): unknown[][] =>
+const notdef = (content: string, objects: ReadonlyArray<TestObject>): Array<Array<unknown>> =>
   glyphs(content, objects, '/Font<</T 105 0 R>>').map(glyph => [glyph.notdef, glyph.reason, glyph.actualText]);
 
-const cidNotdefFont = (map: string): readonly TestObject[] => [
+const cidNotdefFont = (map: string): ReadonlyArray<TestObject> => [
   { number: 105, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[106 0 R]/ToUnicode 107 0 R>>' },
   {
     number: 106,
@@ -136,16 +144,18 @@ const cidNotdefFont = (map: string): readonly TestObject[] => [
   { number: 108, body: streamBody('', '\u0000\u0000\u0000\u0000') },
 ];
 
-const clipped = (clip: string): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET`).map(glyph => glyph.clip);
+const clipped = (clip: string): Array<string> => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET`).map(glyph => glyph.clip);
 
 // How much of the core box of an A at (100, 200), 100–106 by 198.8–208, a clip and white fills painted after it hide.
-const coreHiddenUnder = (clip: string, fills = ''): string[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.coreHidden);
+const coreHiddenUnder = (clip: string, fills = ''): Array<string> =>
+  glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.coreHidden);
 
 // Whether a glyph at (100, 200) drawn under a clip is covered by white fills painted after it.
-const coveredUnder = (clip: string, fills: string): boolean[] => glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.covered);
+const coveredUnder = (clip: string, fills: string): Array<boolean> =>
+  glyphs(`${clip} BT /F1 10 Tf 100 200 Td (A) Tj ET 1 g ${fills}`).map(glyph => glyph.covered);
 
 // A Type 0 font whose embedded Encoding CMap maps codes 0–255 to CIDs 0–255 and uses 90ms-RKSJ-H for the rest, and whose ToUnicode maps <0001> to 山 and <8E52> to X.
-const usingUnavailable = (codespace: string): readonly TestObject[] => [
+const usingUnavailable = (codespace: string): ReadonlyArray<TestObject> => [
   ...type0('131 0 R', 'Japan1', '/ToUnicode 132 0 R'),
   {
     number: 131,
@@ -161,7 +171,7 @@ const usingUnavailable = (codespace: string): readonly TestObject[] => [
 ];
 
 // Each glyph's CID, text, reason and position, and whether the cmap-unavailable warnings name 90ms-RKSJ-H, for <0001> <8E52> <0001> shown in that font.
-const readUsingUnavailable = (codespace: string): unknown[] => {
+const readUsingUnavailable = (codespace: string): Array<unknown> => {
   const text = extract({ content: 'BT /T 10 Tf <0001> Tj <8E52> Tj <0001> Tj ET', resources: '/Font<</T 105 0 R>>' }, usingUnavailable(codespace));
   return [
     text.glyphs.map(glyph => [glyph.cid, glyph.text, glyph.reason, glyph.positionKnown]),
@@ -535,7 +545,7 @@ describe('text extraction', () => {
         'BT /F1 10 Tf (B) Tj ET',
       ),
     };
-    const flags = (content: string, objects: readonly TestObject[] = [], resources = ''): unknown[][] =>
+    const flags = (content: string, objects: ReadonlyArray<TestObject> = [], resources = ''): Array<Array<unknown>> =>
       glyphs(content, [maskGroup, ...objects], `${FONT_RESOURCES}${states}${resources}`).map(glyph => [glyph.visible, glyph.invisibleBecause]);
 
     it('makes render modes 3 and 7 invisible', () => {
@@ -644,14 +654,14 @@ describe('text extraction', () => {
 
     it('marks glyphs whose core box a clip or a later rectangle hides in part or entirely, measured in ems', () => {
       // T's descriptor gives descent −300 and ascent 1100: at 10 points from (100, 200) the advance box spans 197–211 and the core box 198.8–208.8.
-      const tall: readonly TestObject[] = [
+      const tall: ReadonlyArray<TestObject> = [
         { number: 105, body: '<</Type/Font/Subtype/Type1/BaseFont/Tall/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 112 0 R>>' },
         {
           number: 112,
           body: '<</Type/FontDescriptor/FontName/Tall/Flags 32/FontBBox[0 -300 1000 1100]/ItalicAngle 0/Ascent 1100/Descent -300/CapHeight 700/StemV 80>>',
         },
       ];
-      const hidden = (clip: string, after = ''): unknown[] =>
+      const hidden = (clip: string, after = ''): Array<unknown> =>
         glyphs(`${clip} BT /T 10 Tf 100 200 Td (A) Tj ET 1 g ${after}`, tall, '/Font<</T 105 0 R>>').map(glyph => [glyph.clip, glyph.coreHidden]);
       expect([
         hidden(''),
@@ -730,7 +740,7 @@ describe('text extraction', () => {
 
     it('marks a Type 3 name without a procedure, and g0 of a Chromium-shaped font inside and outside ActualText', () => {
       // 9.6.5: "If the name is not present as a key in CharProcs, no glyph shall be painted"; Chromium draws the source font's .notdef, glyph 0, as g0.
-      const chromium: readonly TestObject[] = [
+      const chromium: ReadonlyArray<TestObject> = [
         {
           number: 105,
           body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</g0 106 0 R/g1A 106 0 R>>/Encoding<</Differences[0/g0/g1A/g2B]>>/FirstChar 0/LastChar 2/Widths[1000 1000 1000]/FontDescriptor 111 0 R/ToUnicode 107 0 R>>',

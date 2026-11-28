@@ -3,7 +3,9 @@ const TABLE = ((): Uint32Array => {
   const table = new Uint32Array(256);
   for (let index = 0; index < 256; index++) {
     let value = index;
-    for (let bit = 0; bit < 8; bit++) value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    for (let bit = 0; bit < 8; bit++) {
+      value = (value & 1) === 1 ? 0xed_b8_83_20 ^ (value >>> 1) : value >>> 1;
+    }
     table[index] = value;
   }
   return table;
@@ -12,6 +14,8 @@ const TABLE = ((): Uint32Array => {
 /** Computes the CRC-32 of `bytes` as PNG chunks use it, continuing from `crc` when given. */
 export const crc32 = (bytes: Uint8Array, crc = 0): number => {
   let value = ~crc >>> 0;
-  for (const byte of bytes) value = (TABLE[(value ^ byte) & 0xff] ?? 0) ^ (value >>> 8);
+  for (const byte of bytes) {
+    value = (TABLE[(value ^ byte) & 0xff] ?? 0) ^ (value >>> 8);
+  }
   return ~value >>> 0;
 };

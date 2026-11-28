@@ -56,15 +56,25 @@ const ESCAPES: ReadonlyMap<number, number> = new Map([
 
 const latin1 = (bytes: Uint8Array, start: number, end: number): string => {
   let text = '';
-  for (let index = start; index < end; index++) text += String.fromCodePoint(bytes[index] ?? 0);
+  for (let index = start; index < end; index++) {
+    text += String.fromCodePoint(bytes[index] ?? 0);
+  }
   return text;
 };
 
 const hexValue = (byte: number | undefined): number => {
-  if (byte === undefined) return -1;
-  if (byte >= 0x30 && byte <= 0x39) return byte - 0x30;
-  if (byte >= 0x41 && byte <= 0x46) return byte - 0x37;
-  if (byte >= 0x61 && byte <= 0x66) return byte - 0x57;
+  if (byte === undefined) {
+    return -1;
+  }
+  if (byte >= 0x30 && byte <= 0x39) {
+    return byte - 0x30;
+  }
+  if (byte >= 0x41 && byte <= 0x46) {
+    return byte - 0x37;
+  }
+  if (byte >= 0x61 && byte <= 0x66) {
+    return byte - 0x57;
+  }
   return -1;
 };
 
@@ -77,7 +87,9 @@ type NumberToken = Extract<Token, { kind: 'integer' | 'real' | 'invalid' }>;
 // ISO 32000-1:2008, 7.3.3: "An integer shall be written as one or more decimal digits optionally preceded by a sign." and "A real value shall be written as one or more decimal digits with an optional sign and a leading, trailing, or embedded PERIOD (2Eh) (decimal point)."
 const numberToken = (bytes: Uint8Array, start: number, end: number): NumberToken => {
   let index = start;
-  if (bytes[index] === 0x2b || bytes[index] === 0x2d) index++;
+  if (bytes[index] === 0x2b || bytes[index] === 0x2d) {
+    index++;
+  }
   let digits = 0;
   let integer = 0;
   while (index < end && isDigit(bytes[index])) {
@@ -94,13 +106,19 @@ const numberToken = (bytes: Uint8Array, start: number, end: number): NumberToken
       index++;
     }
   }
-  if (index !== end || digits === 0) return { kind: 'invalid', reason: 'malformed-number', start, end };
+  if (index !== end || digits === 0) {
+    return { kind: 'invalid', reason: 'malformed-number', start, end };
+  }
   if (period) {
     const value = Number(latin1(bytes, start, end));
-    if (!Number.isFinite(value)) return { kind: 'invalid', reason: 'real-out-of-range', start, end };
+    if (!Number.isFinite(value)) {
+      return { kind: 'invalid', reason: 'real-out-of-range', start, end };
+    }
     return { kind: 'real', value: value === 0 ? 0 : value, start, end };
   }
-  if (integer > Number.MAX_SAFE_INTEGER) return { kind: 'invalid', reason: 'integer-out-of-range', start, end };
+  if (integer > Number.MAX_SAFE_INTEGER) {
+    return { kind: 'invalid', reason: 'integer-out-of-range', start, end };
+  }
   const value = bytes[start] === 0x2d ? -integer : integer;
   return { kind: 'integer', value: value === 0 ? 0 : value, start, end };
 };
@@ -128,8 +146,12 @@ export class Lexer {
 
   /** Returns true at the end of the source and throws WindowEndError at the end of a window that is not. */
   atEnd(position: number): boolean {
-    if (position < this.bytes.length) return false;
-    if (!this.final && this.base + position < this.sourceLength) throw new WindowEndError();
+    if (position < this.bytes.length) {
+      return false;
+    }
+    if (!this.final && this.base + position < this.sourceLength) {
+      throw new WindowEndError();
+    }
     return true;
   }
 
@@ -182,19 +204,26 @@ export class Lexer {
         this.atEnd(this.position);
         return;
       }
-      if (isWhitespace(byte)) this.position++;
-      else if (byte === 0x25) {
+      if (isWhitespace(byte)) {
+        this.position++;
+      } else if (byte === 0x25) {
         let index = this.position + 1;
-        while (index < bytes.length && bytes[index] !== 0x0a && bytes[index] !== 0x0d) index++;
+        while (index < bytes.length && bytes[index] !== 0x0a && bytes[index] !== 0x0d) {
+          index++;
+        }
         this.atEnd(index);
         this.position = index;
-      } else return;
+      } else {
+        return;
+      }
     }
   }
 
   private regularEnd(start: number): number {
     let index = start;
-    while (index < this.bytes.length && isRegular(this.bytes[index] ?? 0)) index++;
+    while (index < this.bytes.length && isRegular(this.bytes[index] ?? 0)) {
+      index++;
+    }
     this.atEnd(index);
     return index;
   }
@@ -203,10 +232,14 @@ export class Lexer {
     this.skipWhitespace();
     const start = this.position;
     const byte = this.bytes[start];
-    if (byte === undefined) return { kind: 'eof', start, end: start };
+    if (byte === undefined) {
+      return { kind: 'eof', start, end: start };
+    }
     if (isRegular(byte)) {
       const end = this.regularEnd(start);
-      if (startsNumber(byte)) return numberToken(this.bytes, start, end);
+      if (startsNumber(byte)) {
+        return numberToken(this.bytes, start, end);
+      }
       return { kind: 'keyword', keyword: KEYWORDS.get(latin1(this.bytes, start, end)) ?? 'other', start, end };
     }
     switch (byte) {
@@ -223,11 +256,15 @@ export class Lexer {
         return this.readLiteralString(start);
       }
       case 0x3c: {
-        if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3c) return { kind: 'dictionaryOpen', start, end: start + 2 };
+        if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3c) {
+          return { kind: 'dictionaryOpen', start, end: start + 2 };
+        }
         return this.readHexString(start);
       }
       case 0x3e: {
-        if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3e) return { kind: 'dictionaryClose', start, end: start + 2 };
+        if (!this.atEnd(start + 1) && this.bytes[start + 1] === 0x3e) {
+          return { kind: 'dictionaryClose', start, end: start + 2 };
+        }
         break;
       }
       default: {
@@ -241,13 +278,14 @@ export class Lexer {
   private readName(start: number): Token {
     const end = this.regularEnd(start + 1);
     const { bytes } = this;
-    const decoded: number[] = [];
+    const decoded: Array<number> = [];
     for (let index = start + 1; index < end; index++) {
       const byte = bytes[index] ?? 0;
       const high = byte === 0x23 && index + 1 < end ? hexValue(bytes[index + 1]) : -1;
       const low = high >= 0 && index + 2 < end ? hexValue(bytes[index + 2]) : -1;
-      if (byte !== 0x23) decoded.push(byte);
-      else if (low >= 0) {
+      if (byte !== 0x23) {
+        decoded.push(byte);
+      } else if (low >= 0) {
         decoded.push(high * 16 + low);
         index += 2;
       } else {
@@ -256,8 +294,12 @@ export class Lexer {
       }
     }
     // ISO 32000-1:2008, 7.3.5 excludes the null character from names, and Annex C, Table C.1 limits a name to 127 bytes; both are kept as read.
-    if (decoded.includes(0)) this.warn({ code: 'name-contains-null', detail: 'a name contains a null byte' }, start);
-    if (decoded.length > 127) this.warn({ code: 'name-too-long', detail: `a name has ${String(decoded.length)} bytes` }, start);
+    if (decoded.includes(0)) {
+      this.warn({ code: 'name-contains-null', detail: 'a name contains a null byte' }, start);
+    }
+    if (decoded.length > 127) {
+      this.warn({ code: 'name-too-long', detail: `a name has ${String(decoded.length)} bytes` }, start);
+    }
     const candidate = Uint8Array.from(decoded);
     const key = latin1(candidate, 0, candidate.length);
     let interned = this.context.names.get(key);
@@ -269,7 +311,9 @@ export class Lexer {
   }
 
   private unterminated(position: number, start: number, what: string): void {
-    if (this.atEnd(position)) throw new ParseError(`unterminated ${what}`, this.base + start);
+    if (this.atEnd(position)) {
+      throw new ParseError(`unterminated ${what}`, this.base + start);
+    }
   }
 
   // ISO 32000-1:2008, 7.3.4.2 defines literal strings: balanced parentheses, the escapes of Table 3, line continuation and end-of-line normalisation.
@@ -288,13 +332,20 @@ export class Lexer {
       } else if (byte === 0x0d) {
         // "An end-of-line marker appearing within a literal string without a preceding REVERSE SOLIDUS shall be treated as a byte value of (0Ah), irrespective of whether the end-of-line marker was a CARRIAGE RETURN (0Dh), a LINE FEED (0Ah), or both."
         this.unterminated(index, start, 'literal string');
-        if (bytes[index] === 0x0a) index++;
+        if (bytes[index] === 0x0a) {
+          index++;
+        }
         output.writeByte(0x0a);
       } else {
         // "Balanced pairs of parentheses within a string require no special treatment."
-        if (byte === 0x28) depth++;
-        else if (byte === 0x29) depth--;
-        if (depth === 0) break;
+        if (byte === 0x28) {
+          depth++;
+        } else if (byte === 0x29) {
+          depth--;
+        }
+        if (depth === 0) {
+          break;
+        }
         output.writeByte(byte);
       }
     }
@@ -316,7 +367,9 @@ export class Lexer {
       while (index < position + 3) {
         this.unterminated(index, start, 'literal string');
         const digit = bytes[index] ?? 0;
-        if (digit < 0x30 || digit > 0x37) break;
+        if (digit < 0x30 || digit > 0x37) {
+          break;
+        }
         value = value * 8 + (digit - 0x30);
         index++;
       }
@@ -328,7 +381,9 @@ export class Lexer {
       this.unterminated(position + 1, start, 'literal string');
       return bytes[position + 1] === 0x0a ? position + 2 : position + 1;
     }
-    if (letter === 0x0a) return position + 1;
+    if (letter === 0x0a) {
+      return position + 1;
+    }
     // "If the character following the REVERSE SOLIDUS is not one of those shown in Table 3, the REVERSE SOLIDUS shall be ignored."
     return position;
   }
@@ -343,17 +398,26 @@ export class Lexer {
       this.unterminated(index, start, 'hexadecimal string');
       const byte = bytes[index] ?? 0;
       index++;
-      if (byte === 0x3e) break;
-      if (isWhitespace(byte)) continue;
+      if (byte === 0x3e) {
+        break;
+      }
+      if (isWhitespace(byte)) {
+        continue;
+      }
       const value = hexValue(byte);
-      if (value < 0) throw new ParseError('invalid digit in a hexadecimal string', this.base + index - 1);
-      if (high < 0) high = value;
-      else {
+      if (value < 0) {
+        throw new ParseError('invalid digit in a hexadecimal string', this.base + index - 1);
+      }
+      if (high < 0) {
+        high = value;
+      } else {
         output.writeByte(high * 16 + value);
         high = -1;
       }
     }
-    if (high >= 0) output.writeByte(high * 16);
+    if (high >= 0) {
+      output.writeByte(high * 16);
+    }
     return { kind: 'string', bytes: output.toUint8Array(), encoding: 'hex', start, end: index };
   }
 }

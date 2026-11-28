@@ -42,9 +42,13 @@ export const readDescriptor = (source: FontSource, font: PdfDictionaryEntries): 
 // Table 112, FontBBox: "If all four elements of the rectangle are zero, a conforming reader shall make no assumptions about glyph sizes based on the font bounding box."
 const boxExtent = (source: FontSource, value: PdfDirectObject | undefined): VerticalExtent | undefined => {
   const box = numbersOf(source, value);
-  if (box?.length !== 4) return undefined;
+  if (box?.length !== 4) {
+    return undefined;
+  }
   const [, y1 = 0, , y2 = 0] = box;
-  if (box.every(number => number === 0) || y1 === y2) return undefined;
+  if (box.every(number => number === 0) || y1 === y2) {
+    return undefined;
+  }
   return { descent: Math.min(y1, y2), ascent: Math.max(y1, y2), estimated: false };
 };
 
@@ -54,6 +58,8 @@ const boxExtent = (source: FontSource, value: PdfDirectObject | undefined): Vert
 export const verticalExtent = (source: FontSource, descriptor: PdfDictionaryEntries | undefined, fontBBox?: PdfDirectObject): VerticalExtent => {
   const ascent = numberOf(source.objects.deref(descriptor?.get(ASCENT)));
   const descent = numberOf(source.objects.deref(descriptor?.get(DESCENT)));
-  if (ascent !== undefined && descent !== undefined && ascent > descent) return { descent, ascent, estimated: false };
+  if (ascent !== undefined && descent !== undefined && ascent > descent) {
+    return { descent, ascent, estimated: false };
+  }
   return boxExtent(source, descriptor?.get(FONT_BBOX)) ?? boxExtent(source, fontBBox) ?? { descent: -200, ascent: 800, estimated: true };
 };

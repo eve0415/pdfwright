@@ -100,7 +100,7 @@ describe('illustrator PDF writer', () => {
   });
 });
 
-const declarations = (options: WriteIllustratorPdfOptions = {}): readonly string[] => {
+const declarations = (options: WriteIllustratorPdfOptions = {}): ReadonlyArray<string> => {
   const read = readIllustratorPdf(writeIllustratorPdf(model, options));
   const native = new TextDecoder().decode(read.native);
   const artboard = /%_(\S+ \S+) \/RealPointRelToROrigin\r%_ \(PositionPoint1\) ,\r%_(\S+ \S+) \/RealPointRelToROrigin\r%_ \(PositionPoint2\) ,\r/u.exec(native);

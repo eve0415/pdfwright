@@ -24,7 +24,7 @@ const measure = (): Growth => {
   const before = memoryUsage();
   const document = loadDocument(source);
   document.page(40).setBox('TrimBox', rect(pt(10), pt(10), pt(600), pt(780)));
-  const kept: unknown[] = [];
+  const kept: Array<unknown> = [];
   for (const mode of ['incremental', 'full'] as const) {
     const saved = document.save({ mode });
     const reloaded = loadDocument(saved.chunks);

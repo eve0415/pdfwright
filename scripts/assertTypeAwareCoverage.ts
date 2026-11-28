@@ -25,8 +25,8 @@ const isDirectory = async (relative: string): Promise<boolean> => {
   }
 };
 
-const targetFiles = async (): Promise<string[]> => {
-  const entries = await readdir(path.join(REPO, 'packages'), { withFileTypes: true }).catch((): Dirent[] => []);
+const targetFiles = async (): Promise<Array<string>> => {
+  const entries = await readdir(path.join(REPO, 'packages'), { withFileTypes: true }).catch((): Array<Dirent> => []);
   const packages = entries.filter(entry => entry.isDirectory()).map(entry => path.join('packages', entry.name));
   const candidates = [...packages.map(dir => path.join(dir, 'src')), ...FLAT_DIRS];
   const checked = await Promise.all(candidates.map(async dir => ((await isDirectory(dir)) ? path.join(dir, 'coverageCanary.ts') : null)));
@@ -47,13 +47,15 @@ const targetFiles = async (): Promise<string[]> => {
   ];
 };
 
-const lintReport = async (files: readonly string[]): Promise<string> => {
+const lintReport = async (files: ReadonlyArray<string>): Promise<string> => {
   const child = spawn(OXLINT, [...files, '--format', 'unix'], { cwd: REPO });
   try {
     const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
     const report = stdout + stderr;
     // Exit 0 means oxlint ran and reported nothing, so every canary was missed; exit 1 with diagnostics is the expected run.
-    if (closed[0] === 0 || (closed[0] === 1 && report.includes('[Error/'))) return report;
+    if (closed[0] === 0 || (closed[0] === 1 && report.includes('[Error/'))) {
+      return report;
+    }
     throw new Error(`exit ${String(closed[0])}; output contained no expected diagnostics:\n${report}`);
   } catch (error: unknown) {
     child.kill();
@@ -65,7 +67,9 @@ const main = async (): Promise<void> => {
   const planted = await targetFiles();
 
   const cleanup = (): void => {
-    for (const file of planted) rmSync(path.join(REPO, file), { force: true });
+    for (const file of planted) {
+      rmSync(path.join(REPO, file), { force: true });
+    }
   };
   const onSignal = (signal: NodeJS.Signals): void => {
     cleanup();
@@ -73,16 +77,22 @@ const main = async (): Promise<void> => {
   };
 
   const signals = ['SIGINT', 'SIGTERM'] as const;
-  for (const signal of signals) process.once(signal, onSignal);
+  for (const signal of signals) {
+    process.once(signal, onSignal);
+  }
   try {
-    for (const file of planted) writeFileSync(path.join(REPO, file), CANARY);
+    for (const file of planted) {
+      writeFileSync(path.join(REPO, file), CANARY);
+    }
 
     const report = await lintReport(planted);
     const lines = report.split('\n');
     const missed = planted.filter(file => !lines.some(line => line.startsWith(`${file}:`) && line.endsWith(CANARY_CODE)));
     if (missed.length > 0) {
       console.error('Type-aware linting did not reach these files:');
-      for (const file of missed) console.error(`  ${file}`);
+      for (const file of missed) {
+        console.error(`  ${file}`);
+      }
       console.error('\nEach directory needs a tsconfig whose include covers its TypeScript files.');
       process.exitCode = 1;
       return;
@@ -91,7 +101,9 @@ const main = async (): Promise<void> => {
     console.log(`Type-aware linting reached all ${String(planted.length)} TypeScript files.`);
   } finally {
     cleanup();
-    for (const signal of signals) process.removeListener(signal, onSignal);
+    for (const signal of signals) {
+      process.removeListener(signal, onSignal);
+    }
   }
 };
 

@@ -12,10 +12,10 @@ import { listFonts } from './listFonts.ts';
 const IMAGE = streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceRGB/BitsPerComponent 8', 'abc');
 
 // A Type 3 font (object 110) whose glyphs a, b and c are the procedures given, with the font's own Resources entry when one is given.
-const type3 = (procedures: readonly string[], resources = '', pageResources = ''): FontEntry => {
+const type3 = (procedures: ReadonlyArray<string>, resources = '', pageResources = ''): FontEntry => {
   const names = ['a', 'b', 'c'].slice(0, procedures.length);
   const charProcs = names.map((name, index) => `/${name} ${String(111 + index)} 0 R`).join('');
-  const objects: TestObject[] = [
+  const objects: Array<TestObject> = [
     {
       number: 110,
       body: `<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<<${charProcs}>>/Encoding<</Differences[97/${names.join('/')}]>>/FirstChar 97/LastChar ${String(96 + names.length)}/Widths[${names.map(() => '1000').join(' ')}]${resources}>>`,
@@ -24,7 +24,9 @@ const type3 = (procedures: readonly string[], resources = '', pageResources = ''
     { number: 120, body: IMAGE },
   ];
   const [font] = listFonts(loadDocument(textPdfBytes({ pages: [{ resources: `/Font<</T3 110 0 R>>${pageResources}` }], objects }))).fonts;
-  if (font === undefined) throw new Error('the page has no font');
+  if (font === undefined) {
+    throw new Error('the page has no font');
+  }
   return font;
 };
 

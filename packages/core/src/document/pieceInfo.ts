@@ -29,9 +29,10 @@ export interface PieceInfoRecord {
   value: PdfDirectObject;
 }
 
-const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => data instanceof Map;
+// A record is a plain object, which never has a Symbol.iterator, while a map, its subclass, one from another realm and a proxy over one all do.
+const isDataMap = (data: PieceDataEntries): data is ReadonlyMap<string | Uint8Array, PieceData> => Symbol.iterator in data;
 
-const dataEntries = (data: PieceDataEntries): [string | Uint8Array, PieceData][] => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
+const dataEntries = (data: PieceDataEntries): Array<[string | Uint8Array, PieceData]> => (isDataMap(data) ? [...data.entries()] : Object.entries(data));
 
 // ISO 32000-1:2008, 14.5, Tables 318 and 319 require a LastModified date in each application data dictionary.
 export const pieceInfoRecord = (lastModified: PdfDate, data: PieceDataEntries): PieceInfoRecord => {
@@ -39,7 +40,9 @@ export const pieceInfoRecord = (lastModified: PdfDate, data: PieceDataEntries): 
   for (const [app, appData] of dataEntries(data)) {
     const name = pdfNameFromBytes(typeof app === 'string' ? new TextEncoder().encode(app) : app);
     const dictionary = new PdfDictionaryEntries([[pdfName('LastModified').bytes, pdfDateObject(lastModified)]]);
-    if (appData.private !== undefined) dictionary.set(pdfName('Private').bytes, appData.private);
+    if (appData.private !== undefined) {
+      dictionary.set(pdfName('Private').bytes, appData.private);
+    }
     entries.set(name.bytes, pdfDictionary(dictionary));
   }
   return { lastModified, value: pdfDictionary(entries) };

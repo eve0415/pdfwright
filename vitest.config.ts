@@ -14,9 +14,13 @@ const project = (runtime: Runtime) => ({ name: runtime, include, exclude: oracle
 
 // Bun and Deno each run this config in their own process, and there the suite runs once, in that runtime.
 // Everywhere else the config runs in Node, which hosts the Node, browser, workerd and oracle projects.
-const projects = (): TestProjectInlineConfiguration[] => {
-  if ('Bun' in globalThis) return [{ test: project('bun') }];
-  if ('Deno' in globalThis) return [{ test: project('deno') }];
+const projects = (): Array<TestProjectInlineConfiguration> => {
+  if ('Bun' in globalThis) {
+    return [{ test: project('bun') }];
+  }
+  if ('Deno' in globalThis) {
+    return [{ test: project('deno') }];
+  }
   return [
     { test: { ...project('node'), include: [...include, 'scripts/**/*.node.test.ts'] } },
     { test: { name: 'oracle', include: oracleInclude, provide: { runtime: 'node' } } },
@@ -40,7 +44,9 @@ export default defineConfig({
       name: 'icc-fixture-bytes',
       async load(id: string): Promise<string | undefined> {
         const suffix = '?icc-bytes';
-        if (!id.endsWith(suffix)) return undefined;
+        if (!id.endsWith(suffix)) {
+          return undefined;
+        }
         const bytes = await readFile(id.slice(0, -suffix.length));
         return `export default Uint8Array.from(atob('${bytes.toString('base64')}'), character => character.charCodeAt(0));`;
       },

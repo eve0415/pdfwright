@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { buildCodeLengths } from './huffmanEncoder.ts';
 
-const fibonacci = (count: number): number[] => {
+const fibonacci = (count: number): Array<number> => {
   const values = [1, 1];
-  while (values.length < count) values.push((values.at(-1) ?? 0) + (values.at(-2) ?? 0));
+  while (values.length < count) {
+    values.push((values.at(-1) ?? 0) + (values.at(-2) ?? 0));
+  }
   return values;
 };
 

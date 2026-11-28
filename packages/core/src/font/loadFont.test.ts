@@ -13,7 +13,7 @@ import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
 
 import { FontCache, fontKey } from './loadFont.ts';
 
-const documentWith = (objects: readonly TestObject[]): DocumentInternals => {
+const documentWith = (objects: ReadonlyArray<TestObject>): DocumentInternals => {
   const loaded = loadDocument(
     buildPdf([
       {
@@ -24,21 +24,25 @@ const documentWith = (objects: readonly TestObject[]): DocumentInternals => {
     ]).bytes,
   );
   const parts = internalsOf(loaded);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
 // Object 10 is the font; the other objects are what it refers to.
-const fontOf = (font: string, objects: readonly TestObject[] = [], provider?: CMapProvider): FontModel =>
+const fontOf = (font: string, objects: ReadonlyArray<TestObject> = [], provider?: CMapProvider): FontModel =>
   new FontCache(documentWith([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
 
-const glyphsOf = (font: FontModel, string: Uint8Array | string): readonly FontGlyph[] => {
+const glyphsOf = (font: FontModel, string: Uint8Array | string): ReadonlyArray<FontGlyph> => {
   const result = font.glyphs(typeof string === 'string' ? latin1Bytes(string) : string);
-  if (result.kind !== 'glyphs') throw new Error(`the string does not split: ${result.kind}`);
+  if (result.kind !== 'glyphs') {
+    throw new Error(`the string does not split: ${result.kind}`);
+  }
   return result.glyphs;
 };
 
-const pick = <K extends keyof FontGlyph>(glyphs: readonly FontGlyph[], field: K): FontGlyph[K][] => glyphs.map(glyph => glyph[field]);
+const pick = <K extends keyof FontGlyph>(glyphs: ReadonlyArray<FontGlyph>, field: K): Array<FontGlyph[K]> => glyphs.map(glyph => glyph[field]);
 
 const providerOf = (files: Readonly<Record<string, string>>): CMapProvider => ({
   cmap: name => (name in files ? latin1Bytes(files[name] ?? '') : undefined),
@@ -272,7 +276,7 @@ describe('composite fonts', () => {
 
 const type3Font = (extra: string): string =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.002 0 0 -0.002 0 0]/CharProcs<</a 12 0 R/g0 12 0 R/blank 13 0 R>>/Encoding<</Differences[97/a/b/blank]>>/FirstChar 97/LastChar 99/Widths[500 250 100]${extra}>>`;
-const PROCEDURES: readonly TestObject[] = [
+const PROCEDURES: ReadonlyArray<TestObject> = [
   { number: 12, body: streamBody('', '500 0 0 750 750 0 d1 0 0 750 750 re f') },
   { number: 13, body: streamBody('', '100 0 d0 0 0 m') },
 ];
@@ -309,15 +313,17 @@ describe('fonts of subtype Type3', () => {
 const PROGRAM =
   '000100000001000000000000636d6170000000000000001c0000003400000001000300010000000c000400280000000600000000000000413042ffff000000413042ffffffc4cfc40001000000000000';
 
-const embeddedGlyphs = (font: FontModel): readonly (number | undefined)[] | string => {
+const embeddedGlyphs = (font: FontModel): ReadonlyArray<number | undefined> | string => {
   const reading = font.embeddedCmap();
-  if (reading?.kind !== 'cmap') return reading?.kind ?? 'none';
-  return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x3042), reading.cmap.glyph(0x42)];
+  if (reading?.kind !== 'cmap') {
+    return reading?.kind ?? 'none';
+  }
+  return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x30_42), reading.cmap.glyph(0x42)];
 };
 
 describe('embedded TrueType programs', () => {
   it('reads the cmap table of a CIDFontType2 font program through its descendant descriptor', () => {
-    const objects: readonly TestObject[] = [
+    const objects: ReadonlyArray<TestObject> = [
       { number: 12, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontFile2 13 0 R>>' },
       { number: 13, body: streamBody('/Filter/ASCIIHexDecode', `${PROGRAM}>`) },
     ];
@@ -330,7 +336,7 @@ describe('embedded TrueType programs', () => {
   });
 
   it('has no embedded cmap without a FontFile2 program and reports one that cannot be read', () => {
-    const broken: readonly TestObject[] = [
+    const broken: ReadonlyArray<TestObject> = [
       { number: 12, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontFile2 13 0 R>>' },
       { number: 13, body: streamBody('', 'not a font') },
     ];

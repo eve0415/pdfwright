@@ -11,7 +11,7 @@ import { D50, decodePcs, encodePcs, labToXyz, xyzToLab } from './pcs.ts';
 
 export interface PcsValue {
   readonly space: 'XYZ' | 'Lab';
-  readonly values: readonly number[];
+  readonly values: ReadonlyArray<number>;
 }
 
 const missing = (message: string): never => {
@@ -19,13 +19,19 @@ const missing = (message: string): never => {
 };
 
 const pcs = (profile: IccProfile): 'XYZ' | 'Lab' => {
-  if (profile.header.pcs === 'XYZ' || profile.header.pcs === 'Lab') return profile.header.pcs;
+  if (profile.header.pcs === 'XYZ' || profile.header.pcs === 'Lab') {
+    return profile.header.pcs;
+  }
   return missing('ICC profile PCS must be XYZ or Lab for this transform');
 };
 
 export const intentIndex = (intent: RenderingIntent): 0 | 1 | 2 => {
-  if (intent === 'perceptual') return 0;
-  if (intent === 'saturation') return 2;
+  if (intent === 'perceptual') {
+    return 0;
+  }
+  if (intent === 'saturation') {
+    return 2;
+  }
   return 1;
 };
 
@@ -36,7 +42,9 @@ const selected = (profile: IccProfile, direction: 'deviceToPcs' | 'pcsToDevice',
 
 const colorantsMatrix = (profile: IccProfile): Matrix3 => {
   const colors = profile.colorants;
-  if (colors === undefined) return missing('ICC RGB colorants are missing');
+  if (colors === undefined) {
+    return missing('ICC RGB colorants are missing');
+  }
   return [colors.red.x, colors.green.x, colors.blue.x, colors.red.y, colors.green.y, colors.blue.y, colors.red.z, colors.green.z, colors.blue.z];
 };
 
@@ -52,7 +60,9 @@ export const invertMatrix3 = (matrix: Matrix3): Matrix3 => {
   const H = b * g - a * h;
   const I = a * e - b * d;
   const determinant = a * A + b * D + c * G;
-  if (Math.abs(determinant) < 1e-4) throw new InvalidProfileError('ICC RGB colorant matrix is singular', 'singular-matrix', { offset: 0 });
+  if (Math.abs(determinant) < 1e-4) {
+    throw new InvalidProfileError('ICC RGB colorant matrix is singular', 'singular-matrix', { offset: 0 });
+  }
   return [
     A / determinant,
     B / determinant,
@@ -70,7 +80,7 @@ export const sourceEvaluator = (
   profile: IccProfile,
   intent: RenderingIntent,
   option: 'icc' | 'adobe',
-): ((input: readonly number[] | Float64Array) => PcsValue) => {
+): ((input: ReadonlyArray<number> | Float64Array) => PcsValue) => {
   const tag = selected(profile, 'deviceToPcs', intent);
   if (tag !== undefined) {
     const space = pcs(profile);
@@ -78,7 +88,9 @@ export const sourceEvaluator = (
   }
   if (profile.header.colorSpace === 'RGB') {
     const { trc } = profile;
-    if (trc === undefined || !('red' in trc)) return missing('ICC RGB TRCs are missing');
+    if (trc === undefined || !('red' in trc)) {
+      return missing('ICC RGB TRCs are missing');
+    }
     const matrix = colorantsMatrix(profile);
     return input => ({
       space: 'XYZ',
@@ -87,20 +99,26 @@ export const sourceEvaluator = (
   }
   if (profile.header.colorSpace === 'Gray') {
     const { trc } = profile;
-    if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
-    if (pcs(profile) === 'Lab') return input => ({ space: 'Lab', values: [evaluateCurve(trc.gray, input[0] ?? 0) * 100, 0, 0] });
+    if (trc === undefined || !('gray' in trc)) {
+      return missing('ICC gray TRC is missing');
+    }
+    if (pcs(profile) === 'Lab') {
+      return input => ({ space: 'Lab', values: [evaluateCurve(trc.gray, input[0] ?? 0) * 100, 0, 0] });
+    }
     // ICC.1:2022, 6.3.1: the media-relative PCS uses D50, independently of the media white point.
     return input => ({ space: 'XYZ', values: [D50.x, D50.y, D50.z].map(value => value * evaluateCurve(trc.gray, input[0] ?? 0)) });
   }
   return missing('ICC device-to-PCS direction is missing');
 };
 
-const inPcs = (input: PcsValue, space: 'XYZ' | 'Lab'): readonly number[] => {
-  if (input.space === space) return input.values;
+const inPcs = (input: PcsValue, space: 'XYZ' | 'Lab'): ReadonlyArray<number> => {
+  if (input.space === space) {
+    return input.values;
+  }
   return space === 'Lab' ? xyzToLab(input.values) : labToXyz(input.values);
 };
 
-export const destinationEvaluator = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): ((pcsValue: PcsValue) => number[]) => {
+export const destinationEvaluator = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): ((pcsValue: PcsValue) => Array<number>) => {
   const tag = selected(profile, 'pcsToDevice', intent);
   if (tag !== undefined) {
     const space = pcs(profile);
@@ -108,7 +126,9 @@ export const destinationEvaluator = (profile: IccProfile, intent: RenderingInten
   }
   if (profile.header.colorSpace === 'RGB') {
     const { trc } = profile;
-    if (trc === undefined || !('red' in trc)) return missing('ICC RGB TRCs are missing');
+    if (trc === undefined || !('red' in trc)) {
+      return missing('ICC RGB TRCs are missing');
+    }
     const matrix = invertMatrix3(colorantsMatrix(profile));
     return input => {
       const channels = applyMatrix(inPcs(input, 'XYZ'), matrix);
@@ -117,10 +137,14 @@ export const destinationEvaluator = (profile: IccProfile, intent: RenderingInten
   }
   if (profile.header.colorSpace === 'Gray') {
     const { trc } = profile;
-    if (trc === undefined || !('gray' in trc)) return missing('ICC gray TRC is missing');
+    if (trc === undefined || !('gray' in trc)) {
+      return missing('ICC gray TRC is missing');
+    }
     const space = pcs(profile);
     // ICC.1:2022, F.2: the inverse gray TRC reads the achromatic channel of the profile's own PCS, L* for PCSLAB and Y for PCSXYZ, normalized to its white.
-    if (space === 'Lab') return input => [invertCurve(trc.gray, (inPcs(input, space)[0] ?? 0) / 100)];
+    if (space === 'Lab') {
+      return input => [invertCurve(trc.gray, (inPcs(input, space)[0] ?? 0) / 100)];
+    }
     return input => [invertCurve(trc.gray, (inPcs(input, space)[1] ?? 0) / D50.y)];
   }
   return missing(`ICC ${String(colorSpaceChannels(profile.header.colorSpace))}-channel PCS-to-device direction is missing`);

@@ -25,7 +25,7 @@ interface PreparedPage {
   readonly resources: PdfDictionaryEntries;
   readonly overprintNames: OverprintNames;
   readonly overprintAdjustments: number;
-  readonly newInlineImages: readonly NamedInlineImage[];
+  readonly newInlineImages: ReadonlyArray<NamedInlineImage>;
 }
 
 export interface PageRewriteReport {
@@ -41,25 +41,39 @@ const LENGTH = pdfName('Length').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
 const RESOURCES = pdfName('Resources').bytes;
 
-const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | undefined): PdfReference[] => {
-  const result: PdfReference[] = [];
+const oldReferences = (document: LoadedDocument, contents: PdfDirectObject | undefined): Array<PdfReference> => {
+  const result: Array<PdfReference> = [];
   if (contents?.kind === 'reference') {
     result.push(contents);
     const value = document.get(contents);
-    if (value.kind === 'array') for (const item of value.items) if (item.kind === 'reference') result.push(item);
+    if (value.kind === 'array') {
+      for (const item of value.items) {
+        if (item.kind === 'reference') {
+          result.push(item);
+        }
+      }
+    }
   } else if (contents?.kind === 'array') {
-    for (const item of contents.items) if (item.kind === 'reference') result.push(item);
+    for (const item of contents.items) {
+      if (item.kind === 'reference') {
+        result.push(item);
+      }
+    }
   }
   return result;
 };
 
-const applyPreparedPages = (document: LoadedDocument, prepared: readonly PreparedPage[]): void => {
+const applyPreparedPages = (document: LoadedDocument, prepared: ReadonlyArray<PreparedPage>): void => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const discarded: PdfReference[] = [];
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
+  const discarded: Array<PdfReference> = [];
   for (const item of prepared) {
     const page = document.get(item.reference);
-    if (page.kind !== 'dictionary') throw new ValidationError('page is not a dictionary');
+    if (page.kind !== 'dictionary') {
+      throw new ValidationError('page is not a dictionary');
+    }
     const old = item.oldContent;
     discarded.push(...oldReferences(document, old));
     const first = old?.kind === 'reference' ? document.get(old) : undefined;
@@ -71,8 +85,12 @@ const applyPreparedPages = (document: LoadedDocument, prepared: readonly Prepare
     page.entries.set(CONTENTS, reference);
     if (item.overprintAdjustments > 0 || item.newInlineImages.length > 0) {
       const oldResources = page.entries.get(RESOURCES);
-      if (oldResources?.kind === 'reference') discarded.push(oldResources);
-      if (item.overprintAdjustments > 0) addOverprintStates(document, item.resources, item.overprintNames);
+      if (oldResources?.kind === 'reference') {
+        discarded.push(oldResources);
+      }
+      if (item.overprintAdjustments > 0) {
+        addOverprintStates(document, item.resources, item.overprintNames);
+      }
       addInlineXObjects(document, item.resources, item.newInlineImages);
       page.entries.set(RESOURCES, pdfDictionary(item.resources));
     }
@@ -89,27 +107,37 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
   }
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
-  const prepared: PreparedPage[] = [];
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
+  const prepared: Array<PreparedPage> = [];
   let operators = 0;
   let kOnly = 0;
   let overprintAdjustments = 0;
   let inlineImages = 0;
   for (let index = 0; index < document.pageCount; index++) {
     const entry = internals.pages[index];
-    if (entry === undefined) throw new ValidationError('page entry is missing');
+    if (entry === undefined) {
+      throw new ValidationError('page entry is missing');
+    }
     const content = pageContent(internals, entry);
-    if (content.problems.length > 0) throw new ValidationError(`page content cannot be converted: ${content.problems.join('; ')}`, 'color-operator');
+    if (content.problems.length > 0) {
+      throw new ValidationError(`page content cannot be converted: ${content.problems.join('; ')}`, 'color-operator');
+    }
     const decoded = combineContentStreams(content.streams);
     const resources = document.page(index).resources();
     const names = chooseOverprintNames(document, resources);
     const rewritten = rewriteContentColors(document, decoded, { resources, options, overprintNames: names });
-    if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) continue;
+    if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) {
+      continue;
+    }
     if (rewritten.bytes.length > internals.maxDecodedBytes) {
       throw new ResourceLimitError(`converted page content exceeds maxDecodedBytes (${String(internals.maxDecodedBytes)} bytes)`);
     }
     const page = document.get(entry.reference);
-    if (page.kind !== 'dictionary') throw new ValidationError('page is not a dictionary');
+    if (page.kind !== 'dictionary') {
+      throw new ValidationError('page is not a dictionary');
+    }
     prepared.push({
       reference: entry.reference,
       encoded: deflateZlib(rewritten.bytes),
@@ -124,7 +152,9 @@ export const rewritePageColors = (document: LoadedDocument, options: RewriteColo
     overprintAdjustments += rewritten.overprintAdjustments;
     inlineImages += rewritten.inlineImages;
   }
-  if (prepared.length === 0) return { operators, kOnly, overprintAdjustments, inlineImages };
+  if (prepared.length === 0) {
+    return { operators, kOnly, overprintAdjustments, inlineImages };
+  }
   applyPreparedPages(document, prepared);
   return { operators, kOnly, overprintAdjustments, inlineImages };
 };

@@ -59,7 +59,9 @@ const makePdf = (model: IllustratorDocument, native: NativeData, options: Privat
 const marker = (text: string): Buffer => Buffer.from(text);
 const requireIndex = (bytes: Buffer, text: string, start = 0): number => {
   const index = bytes.indexOf(text, start);
-  if (index === -1) throw new Error(`diagnostic marker is absent: ${text}`);
+  if (index === -1) {
+    throw new Error(`diagnostic marker is absent: ${text}`);
+  }
   return index;
 };
 const blockThrough = (bytes: Buffer, [startText, endText]: readonly [string, string], after = 0): Buffer => {
@@ -69,7 +71,9 @@ const blockThrough = (bytes: Buffer, [startText, endText]: readonly [string, str
 };
 const replaceOnce = (bytes: Buffer, oldBytes: Uint8Array, newBytes: Uint8Array): Buffer => {
   const start = bytes.indexOf(oldBytes);
-  if (start === -1) throw new Error('diagnostic replacement target is absent');
+  if (start === -1) {
+    throw new Error('diagnostic replacement target is absent');
+  }
   return Buffer.concat([bytes.subarray(0, start), newBytes, bytes.subarray(start + oldBytes.length)]);
 };
 const insertBefore = (bytes: Buffer, target: string, addition: Uint8Array): Buffer =>
@@ -80,16 +84,20 @@ const artboardSpan = (bytes: Buffer): Buffer => {
   const endMarker = '%_; (ArtboardArray) ,\r';
   const end = requireIndex(bytes, endMarker) + Buffer.byteLength(endMarker);
   const start = bytes.lastIndexOf('%_/Array :\r', end);
-  if (start === -1) throw new Error('artboard array is absent');
+  if (start === -1) {
+    throw new Error('artboard array is absent');
+  }
   return bytes.subarray(start, end);
 };
 const nativeData = (bytes: Buffer): NativeData => ({ bytes, metaDataLength: requireIndex(bytes, '%%EndComments\r') + Buffer.byteLength('%%EndComments\r') });
 
 /** Writes the Illustrator open-test candidates and their checklist to an external directory. */
-export const writeManualCheckSet = async (directory: string): Promise<readonly string[]> => {
+export const writeManualCheckSet = async (directory: string): Promise<ReadonlyArray<string>> => {
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
-  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) throw new Error('manual-check output must be outside the repository');
+  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) {
+    throw new Error('manual-check output must be outside the repository');
+  }
   await mkdir(destination, { recursive: true });
   const model = manualCheckModel();
   const native = writeNative(model);
@@ -112,7 +120,9 @@ export const writeManualCheckSet = async (directory: string): Promise<readonly s
   await Promise.all(
     FILENAMES.map(async (filename, index) => {
       const bytes = outputs[index];
-      if (bytes === undefined) throw new Error('manual-check output is missing');
+      if (bytes === undefined) {
+        throw new Error('manual-check output is missing');
+      }
       await writeFile(path.join(destination, filename), bytes);
     }),
   );
@@ -124,11 +134,17 @@ const indirectIllustrator = (bytes: Uint8Array): Uint8Array => {
   const loaded = loadDocument(bytes);
   const page = loaded.page(0);
   const pageObject = loaded.get(page.reference);
-  if (pageObject.kind !== 'dictionary') throw new Error('diagnostic page dictionary is missing');
+  if (pageObject.kind !== 'dictionary') {
+    throw new Error('diagnostic page dictionary is missing');
+  }
   const pieceInfo = pageObject.entries.get(pdfName('PieceInfo').bytes);
-  if (pieceInfo?.kind !== 'dictionary') throw new Error('diagnostic PieceInfo is missing');
+  if (pieceInfo?.kind !== 'dictionary') {
+    throw new Error('diagnostic PieceInfo is missing');
+  }
   const illustrator = pieceInfo.entries.get(pdfName('Illustrator').bytes);
-  if (illustrator?.kind !== 'dictionary') throw new Error('diagnostic Illustrator data is missing');
+  if (illustrator?.kind !== 'dictionary') {
+    throw new Error('diagnostic Illustrator data is missing');
+  }
   pieceInfo.entries.set(pdfName('Illustrator').bytes, loaded.object(illustrator));
   pageObject.entries.set(pdfName('PieceInfo').bytes, pieceInfo);
   loaded.set(page.reference, pageObject);
@@ -148,27 +164,33 @@ const diagnosticNames = [
 ] as const;
 
 /** Writes cumulative local-only transplants from a supplied Illustrator export. */
-export const writeDiagnosticLadder = async (directory: string, relativeExport: string): Promise<readonly string[]> => {
+export const writeDiagnosticLadder = async (directory: string, relativeExport: string): Promise<ReadonlyArray<string>> => {
   const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
-  if (exportsDirectory === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is required for diagnostic transplants');
+  if (exportsDirectory === undefined) {
+    throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is required for diagnostic transplants');
+  }
   const root = path.resolve(exportsDirectory);
   const sourcePath = path.resolve(root, relativeExport);
-  if (!sourcePath.startsWith(`${root}${path.sep}`)) throw new Error('diagnostic export must be inside PDFWRIGHT_ADOBE_EXPORTS_DIR');
+  if (!sourcePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error('diagnostic export must be inside PDFWRIGHT_ADOBE_EXPORTS_DIR');
+  }
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
-  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) throw new Error('diagnostic output must be outside the repository');
+  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) {
+    throw new Error('diagnostic output must be outside the repository');
+  }
   await mkdir(destination, { recursive: true });
   const model = manualCheckModel();
   const base = Buffer.from(writeNative(model).bytes);
   const source = Buffer.from(readIllustratorContainer(await readFile(sourcePath)).native);
-  const nonPrinting: Buffer[] = [];
+  const nonPrinting: Array<Buffer> = [];
   let search = requireIndex(source, '%%BeginSetup\r');
   for (let index = 0; index < 4; index++) {
     const block = blockThrough(source, ['%AI5_Begin_NonPrinting\r', '%AI5_End_NonPrinting--\r'], search);
     nonPrinting.push(block);
     search = source.indexOf(block, search) + block.length;
   }
-  const outputs: Uint8Array[] = [];
+  const outputs: Array<Uint8Array> = [];
   let current: Buffer = base;
   const add = (next: Buffer): void => {
     current = next;
@@ -190,7 +212,9 @@ export const writeDiagnosticLadder = async (directory: string, relativeExport: s
   const height = coordinate(model.artboard.height);
   const rulerY = Math.floor(8191.5 - height / 2) + height;
   const textDocumentString = textDocument.toString('utf8');
-  if (!Buffer.from(textDocumentString).equals(textDocument)) throw new Error('diagnostic text document is not UTF-8 safe to splice');
+  if (!Buffer.from(textDocumentString).equals(textDocument)) {
+    throw new Error('diagnostic text document is not UTF-8 safe to splice');
+  }
   const revisedText = Buffer.from(
     textDocumentString.replace(/\d+(?:\.\d+)? \d+(?:\.\d+)? \/RulerOrigin ,/u, `${formatNativeNumber(rulerX)} ${formatNativeNumber(rulerY)} /RulerOrigin ,`),
   );
@@ -209,7 +233,9 @@ export const writeDiagnosticLadder = async (directory: string, relativeExport: s
   await Promise.all(
     diagnosticNames.map(async (filename, index) => {
       const bytes = outputs[index];
-      if (bytes === undefined) throw new Error('diagnostic output is missing');
+      if (bytes === undefined) {
+        throw new Error('diagnostic output is missing');
+      }
       await writeFile(path.join(destination, filename), bytes);
     }),
   );
@@ -222,10 +248,14 @@ export const writeDiagnosticLadder = async (directory: string, relativeExport: s
 
 const [, invokedFile, destination, flag, exportFile] = process.argv;
 if (invokedFile !== undefined && import.meta.url === pathToFileURL(invokedFile).href) {
-  if (destination === undefined) throw new Error('provide an output directory outside the repository');
+  if (destination === undefined) {
+    throw new Error('provide an output directory outside the repository');
+  }
   await writeManualCheckSet(destination);
   if (flag !== undefined) {
-    if (flag !== '--transplant-from' || exportFile === undefined) throw new Error('use --transplant-from with a relative export path');
+    if (flag !== '--transplant-from' || exportFile === undefined) {
+      throw new Error('use --transplant-from with a relative export path');
+    }
     await writeDiagnosticLadder(destination, exportFile);
   }
   process.stdout.write(`${path.resolve(destination)}\n`);
