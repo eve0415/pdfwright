@@ -341,8 +341,8 @@ describe('embedded TrueType cmap tables, damaged or at their limits', () => {
       label: 'an odd segCountX2',
       subtable: (): Array<number> => {
         const subtable = format4([{ start: 0x41, end: 0x43, delta: 1 }]);
-        // segCountX2 is the fourth 16-bit field of the format 4 header.
-        subtable.splice(6, 2, ...u16(7));
+        // segCountX2 is the fourth 16-bit field of the format 4 header; 5 is odd, and its half rounded down is the true segment count, so only its oddness is wrong.
+        subtable.splice(6, 2, ...u16(5));
         return subtable;
       },
       encoding: 1,
