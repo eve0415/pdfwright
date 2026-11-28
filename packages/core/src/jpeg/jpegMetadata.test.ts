@@ -196,7 +196,8 @@ describe('decodeJpeg public surface', () => {
     ['no sequence number or count', []],
     ['a sequence number and no count', [1]],
   ])('refuses an ICC chunk header with %s at the header', (_, header) => {
-    const jpeg = grayJpeg(segment(0xe2, [...ascii('ICC_PROFILE'), 0, ...header]));
+    // A fill byte follows the segment (ITU-T T.81 (1992), B.1.1.2), so a reader that took the chunk header from past the segment's end would read chunk 255 of 255 there and fail later, at the scan.
+    const jpeg = grayJpeg([...segment(0xe2, [...ascii('ICC_PROFILE'), 0, ...header]), 0xff]);
     expect(decodeReason(jpeg)).toBe('image-invalid');
     // The APP2 payload starts at byte 6, after SOI and the segment's marker and length, and its chunk header follows the 12-byte identifier.
     expect(parseOffset(jpeg)).toBe(18);
