@@ -23,4 +23,14 @@ describe('annotation flags', () => {
       { hidden: false, print: true, printable: true },
     ]);
   });
+  // ISO 32000-1:2008, 12.5.3: the flag word is a 32-bit integer, so an integer beyond 32 bits is read by its low 32 bits.
+  it.each([
+    { value: 2 ** 31, hidden: false, print: false },
+    { value: 2 ** 32 - 1, hidden: true, print: true },
+    { value: 2 ** 32 + 4, hidden: false, print: true },
+    { value: -(2 ** 32) + 2, hidden: true, print: false },
+    { value: -(2 ** 32) - 4, hidden: false, print: true },
+  ])('reads $value by its low 32 bits', ({ value, hidden, print }) => {
+    expect(annotationFlags({ kind: 'integer', value })).toStrictEqual({ hidden, print, printable: print && !hidden });
+  });
 });
