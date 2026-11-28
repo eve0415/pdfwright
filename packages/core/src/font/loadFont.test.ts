@@ -1,38 +1,20 @@
-import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { FontGlyph, FontModel } from './fontModel.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { internalsOf } from '../document/documentInternals.ts';
-import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { pdfDictionary, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
+import { latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
+import { syntheticTrueType } from '../testing/syntheticTrueType.ts';
 
-import { FontCache, fontKey } from './loadFont.ts';
-
-const documentWith = (objects: ReadonlyArray<TestObject>): DocumentInternals => {
-  const loaded = loadDocument(
-    buildPdf([
-      {
-        xref: 'classic',
-        objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }, ...objects],
-        trailer: '/Root 1 0 R',
-      },
-    ]).bytes,
-  );
-  const parts = internalsOf(loaded);
-  if (parts === undefined) {
-    throw new Error('the document has no internals');
-  }
-  return parts;
-};
+import { FontCache, fontKey, fontResourceOwner } from './loadFont.ts';
+import { fontDocument } from './testing/fontDocument.ts';
 
 // Object 10 is the font; the other objects are what it refers to.
 const fontOf = (font: string, objects: ReadonlyArray<TestObject> = [], provider?: CMapProvider): FontModel =>
-  new FontCache(documentWith([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
+  new FontCache(fontDocument([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
 
 const glyphsOf = (font: FontModel, string: Uint8Array | string): ReadonlyArray<FontGlyph> => {
   const result = font.glyphs(typeof string === 'string' ? latin1Bytes(string) : string);
@@ -56,9 +38,11 @@ const descriptorObject = (flags: number, extra = ''): TestObject => ({
 });
 
 describe('simple fonts', () => {
-  it('checks a glyph budget before expanding a shown string', () => {
+  it('refuses a string longer than its glyph budget and accepts one exactly at it', () => {
     const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>');
-    expect(() => font.glyphs(latin1Bytes('A'.repeat(100_000)), 0)).toThrow(ResourceLimitError);
+    const atBudget = font.glyphs(latin1Bytes('AAA'), 3);
+    expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'glyphName') : atBudget.kind).toStrictEqual(['A', 'A', 'A']);
+    expect(() => font.glyphs(latin1Bytes('AAA'), 2)).toThrow(ResourceLimitError);
   });
 
   it('names codes by a predefined encoding and takes widths from Widths', () => {
@@ -95,9 +79,15 @@ describe('simple fonts', () => {
     expect(pick(glyphsOf(dingbats, '!'), 'encodingText')).toStrictEqual(['✁']);
   });
 
-  it('fills the undefined entries of a nonsymbolic TrueType font from StandardEncoding', () => {
-    const font = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/Encoding<</Differences[65/Euro]>>/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
-    expect(pick(glyphsOf(font, 'AB'), 'glyphName')).toStrictEqual(['Euro', 'B']);
+  it('fills the undefined entries of a nonsymbolic TrueType font from StandardEncoding, and only those of a TrueType font', () => {
+    // 9.6.6.4: "Finally, any undefined entries in the table shall be filled using StandardEncoding." MacRomanEncoding leaves code 255 (octal) undefined, and StandardEncoding names it guilsinglright.
+    const trueType = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/Encoding/MacRomanEncoding/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    const type1 = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding/MacRomanEncoding/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    const shown = Uint8Array.of(0o255, 0x41);
+    expect([pick(glyphsOf(trueType, shown), 'glyphName'), pick(glyphsOf(type1, shown), 'glyphName')]).toStrictEqual([
+      ['guilsinglright', 'A'],
+      [undefined, 'A'],
+    ]);
   });
 
   it('reports unknown widths for a font without Widths that is not a standard 14 font', () => {
@@ -146,7 +136,7 @@ describe('simple fonts', () => {
   });
 
   it('reads a font value that is not a dictionary as an unreadable font', () => {
-    const font = new FontCache(documentWith([]), undefined).font({ kind: 'integer', value: 3 }, 'direct:1.0:4631');
+    const font = new FontCache(fontDocument([]), undefined).font({ kind: 'integer', value: 3 }, 'direct:1.0:4631');
     expect([font.subtype, font.glyphs(latin1Bytes('A')).kind, ...font.warnings.map(warning => warning.code)]).toStrictEqual([
       'other',
       'undecodable',
@@ -161,11 +151,14 @@ const CID_FONT_TYPE2 =
   '/Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 900/W[65[500 600]100 200 700]';
 
 describe('composite fonts', () => {
-  it('checks the glyph budget before decoding a composite shown string', () => {
+  it('refuses a composite string longer than its glyph budget and accepts one exactly at it', () => {
     const font = fontOf('<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[12 0 R]>>', [
       { number: 12, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/DW 1000>>' },
     ]);
-    expect(() => font.glyphs(Uint8Array.of(0, 65), 0)).toThrow(ResourceLimitError);
+    const shown = Uint8Array.of(0, 65, 0, 66);
+    const atBudget = font.glyphs(shown, 2);
+    expect(atBudget.kind === 'glyphs' ? pick(atBudget.glyphs, 'cid') : atBudget.kind).toStrictEqual([65, 66]);
+    expect(() => font.glyphs(shown, 1)).toThrow(ResourceLimitError);
   });
 
   it('splits Identity-H strings into 2-byte CIDs and reads widths from W in both forms and DW', () => {
@@ -269,8 +262,20 @@ describe('composite fonts', () => {
     expect(pick(glyphsOf(font, 'A'), 'vertical')).toStrictEqual([undefined]);
   });
 
-  it('takes the writing mode from the CMap', () => {
-    expect([fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)).writingMode, fontOf(type0Font('/Identity-H', CID_FONT_TYPE2)).writingMode]).toStrictEqual([1, 0]);
+  it('takes the writing mode from the CMap, whatever its name says', () => {
+    const cmap = streamBody('/Type/CMap/CMapName/Custom-H', '/CMapName /Custom-H def /WMode 1 def 1 begincodespacerange <0000> <FFFF> endcodespacerange');
+    const writingModes = [
+      fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]),
+      fontOf(type0Font('/Identity-V', CID_FONT_TYPE2)),
+      fontOf(type0Font('/Identity-H', CID_FONT_TYPE2)),
+    ].map(font => font.writingMode);
+    expect(writingModes).toStrictEqual([1, 1, 0]);
+  });
+
+  it('takes the writing mode of a predefined CMap no provider supplies from the end of its name', () => {
+    // 9.7.5.2, NOTE 1: "CMaps whose names end in H specify horizontal writing mode; those ending in V specify vertical writing mode."
+    const cidFont = '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>';
+    expect([fontOf(type0Font('/UniJIS-UTF16-V', cidFont)).writingMode, fontOf(type0Font('/UniJIS-UTF16-H', cidFont)).writingMode]).toStrictEqual([1, 0]);
   });
 });
 
@@ -280,6 +285,10 @@ const PROCEDURES: ReadonlyArray<TestObject> = [
   { number: 12, body: streamBody('', '500 0 0 750 750 0 d1 0 0 750 750 re f') },
   { number: 13, body: streamBody('', '100 0 d0 0 0 m') },
 ];
+
+// Chromium's Type 3 shape with the given Differences names after code 0 and the given extra entries.
+const chromiumShape = (names: string, extra: string): string =>
+  `<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.001 0 0 -0.001 0 0]/CharProcs<</g0 12 0 R/g1A 12 0 R/g1a 12 0 R>>/Encoding<</Differences[0${names}]>>/FirstChar 0/LastChar 1/Widths[1000 500]${extra}>>`;
 
 describe('fonts of subtype Type3', () => {
   it('scales Widths by FontMatrix and uses the font matrix as glyph space', () => {
@@ -306,6 +315,16 @@ describe('fonts of subtype Type3', () => {
     const font = fontOf(chromium, [...PROCEDURES, { number: 14, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 4>>' }]);
     const other = fontOf(type3Font(''), PROCEDURES);
     expect([font.type3?.chromium, other.type3?.chromium, ...pick(glyphsOf(font, '\u0000\u0001'), 'notdef')]).toStrictEqual([true, false, true, false]);
+  });
+
+  it("needs both a FontDescriptor and uppercase hexadecimal names to take a font for Chromium's", () => {
+    const procedures: ReadonlyArray<TestObject> = [...PROCEDURES, { number: 14, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 4>>' }];
+    const withoutDescriptor = fontOf(chromiumShape('/g0/g1A', ''), procedures);
+    const lowercase = fontOf(chromiumShape('/g0/g1a', '/FontDescriptor 14 0 R'), procedures);
+    expect([withoutDescriptor, lowercase].map(font => [font.type3?.chromium, ...pick(glyphsOf(font, '\u0000\u0001'), 'notdef')])).toStrictEqual([
+      [false, false, false],
+      [false, false, false],
+    ]);
   });
 });
 
@@ -348,7 +367,7 @@ describe('embedded TrueType programs', () => {
 
 describe('the font cache', () => {
   it('loads each font once per key', () => {
-    const cache = new FontCache(documentWith([{ number: 10, body: type0Font('/Identity-H', CID_FONT_TYPE2) }]), undefined);
+    const cache = new FontCache(fontDocument([{ number: 10, body: type0Font('/Identity-H', CID_FONT_TYPE2) }]), undefined);
     expect(cache.font(pdfReference(10, 0), '10.0')).toBe(cache.font(pdfReference(10, 0), '10.0'));
   });
 
@@ -356,6 +375,428 @@ describe('the font cache', () => {
     expect([fontKey(pdfReference(10, 0), '3.0', latin1Bytes('F1')), fontKey(pdfDictionary(), '3.0', latin1Bytes('F1'))]).toStrictEqual([
       '10.0',
       'direct:3.0:4631',
+    ]);
+  });
+});
+
+const warningCodes = (font: FontModel): Array<string> => font.warnings.map(warning => warning.code);
+
+const SIMPLE_WIDTHS = `${HELVETICA_WIDTHS}/FontDescriptor 11 0 R`;
+const JAPAN1 = '/Type/Font/Subtype/CIDFontType0/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 6>>';
+const CODESPACE_2 = '1 begincodespacerange <0000> <FFFF> endcodespacerange';
+
+describe('simple font encodings and widths', () => {
+  it.each([
+    { label: 'FirstChar 65, LastChar 65 and two widths', entries: '/FirstChar 65/LastChar 65/Widths[500 600]', widths: [0.25, 0.5, 0.25, 0.25] },
+    { label: 'FirstChar 65, LastChar 70 and one width', entries: '/FirstChar 65/LastChar 70/Widths[500]', widths: [0.25, 0.5, 0.25, 0.25] },
+    { label: 'FirstChar 65 and two widths without LastChar', entries: '/FirstChar 65/Widths[500 600]', widths: [0.25, 0.5, 0.6, 0.25] },
+  ])('takes MissingWidth for codes outside $label', ({ entries, widths }) => {
+    // Table 111, Widths: "For character codes outside the range FirstChar to LastChar, the value of MissingWidth from the FontDescriptor entry for this font shall be used."
+    const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test${entries}/FontDescriptor 11 0 R>>`, [descriptorObject(32)]);
+    expect(pick(glyphsOf(font, '@ABC'), 'width')).toStrictEqual(widths);
+  });
+
+  it('reports unknown widths for a Widths array without FirstChar', () => {
+    const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Test/LastChar 65/Widths[500]/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    expect([pick(glyphsOf(font, 'A'), 'width'), warningCodes(font)]).toStrictEqual([[undefined], ['widths-unknown']]);
+  });
+
+  it('gives a font without a descriptor a MissingWidth of 0', () => {
+    const font = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 65/LastChar 65/Widths[500]>>');
+    expect(pick(glyphsOf(font, 'AB'), 'width')).toStrictEqual([0.5, 0]);
+  });
+
+  it('gives a Type 3 font width 0 outside FirstChar to LastChar whatever its MissingWidth', () => {
+    // Table 112, Widths: "For character codes outside the range FirstChar to LastChar, the width shall be 0."
+    const font = fontOf(type3Font('/FontDescriptor 14 0 R'), [
+      ...PROCEDURES,
+      { number: 14, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/MissingWidth 250>>' },
+    ]);
+    expect(pick(glyphsOf(font, 'ad'), 'width')).toStrictEqual([1, 0]);
+  });
+
+  it.each([
+    { label: 'a Differences entry that is not an array', differences: '5', names: ['A', 'B'], listed: 0, problems: 1 },
+    { label: 'a name before any code', differences: '[/A 65/B]', names: ['B', 'B'], listed: 1, problems: 1 },
+    { label: 'a code that is not an integer', differences: '[65.5/C]', names: ['A', 'B'], listed: 0, problems: 2 },
+  ])('reports $label in Differences and keeps the base encoding elsewhere', ({ differences, names, listed, problems }) => {
+    const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding<</Differences ${differences}>>${SIMPLE_WIDTHS}>>`, [descriptorObject(32)]);
+    expect([pick(glyphsOf(font, 'AB'), 'glyphName'), font.encoding, warningCodes(font)]).toStrictEqual([
+      names,
+      { kind: 'differences', base: undefined, differences: listed },
+      Array.from({ length: problems }, () => 'font-unreadable'),
+    ]);
+  });
+
+  it('names code 255 by Differences and drops the names that run past it, counting them still', () => {
+    // 9.6.6.1: "Subsequent names replace consecutive code indices"; no code follows 255 in a simple font.
+    const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding<</Differences[254/b/a/c]>>${SIMPLE_WIDTHS}>>`, [descriptorObject(32)]);
+    expect([pick(glyphsOf(font, Uint8Array.of(254, 255, 0)), 'glyphName'), font.encoding, warningCodes(font)]).toStrictEqual([
+      ['b', 'a', undefined],
+      { kind: 'differences', base: undefined, differences: 3 },
+      [],
+    ]);
+  });
+
+  it.each([
+    { label: 'an Encoding name that is not predefined', encoding: '/Foo' },
+    { label: 'a BaseEncoding name that is not predefined', encoding: '<</BaseEncoding/Foo>>' },
+    { label: 'an Encoding that is neither a name nor a dictionary', encoding: '3' },
+  ])('reports $label and falls back to the built-in encoding', ({ encoding }) => {
+    const font = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/Encoding ${encoding}${SIMPLE_WIDTHS}>>`, [descriptorObject(32)]);
+    expect([pick(glyphsOf(font, "'A"), 'glyphName'), warningCodes(font)]).toStrictEqual([['quoteright', 'A'], ['font-unreadable']]);
+  });
+
+  it('applies Differences without a BaseEncoding to StandardEncoding in a nonsymbolic font and to nothing in a symbolic one', () => {
+    // Table 114, BaseEncoding: "If this entry is absent, the Differences entry shall describe differences from an implicit base encoding."
+    const encoding = `/Encoding<</Differences[65/B]>>${SIMPLE_WIDTHS}`;
+    const nonsymbolic = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test${encoding}>>`, [descriptorObject(32)]);
+    const symbolic = fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test${encoding}>>`, [descriptorObject(4)]);
+    expect([pick(glyphsOf(nonsymbolic, "'A"), 'glyphName'), pick(glyphsOf(symbolic, "'A"), 'glyphName')]).toStrictEqual([
+      ['quoteright', 'B'],
+      [undefined, 'B'],
+    ]);
+  });
+
+  it('gives a Type 3 font without an Encoding no glyph names, so every glyph is notdef', () => {
+    const font = fontOf(type3Font('').replace('/Encoding<</Differences[97/a/b/blank]>>', ''), PROCEDURES);
+    const glyphs = glyphsOf(font, 'ac');
+    expect([pick(glyphs, 'glyphName'), pick(glyphs, 'notdef')]).toStrictEqual([
+      [undefined, undefined],
+      [true, true],
+    ]);
+  });
+
+  it('uses the Symbol encoding for a subset of the Type 1 Symbol font, but not for a TrueType font named Symbol', () => {
+    const subset = fontOf('<</Type/Font/Subtype/Type1/BaseFont/ABCDEF+Symbol>>');
+    const trueType = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Symbol>>');
+    expect([pick(glyphsOf(subset, 'a'), 'glyphName'), pick(glyphsOf(trueType, 'a'), 'glyphName')]).toStrictEqual([['alpha'], ['a']]);
+  });
+
+  it.each([
+    { label: 'a TrueType font named Helvetica', font: '<</Type/Font/Subtype/TrueType/BaseFont/Helvetica>>' },
+    { label: 'a subset of Helvetica', font: '<</Type/Font/Subtype/Type1/BaseFont/ABCDEF+Helvetica>>' },
+  ])('takes no bundled widths for $label', ({ font }) => {
+    // Table 111 exempts only the standard 14 fonts, which are Type 1 fonts named exactly, from Widths.
+    const model = fontOf(font);
+    expect([pick(glyphsOf(model, 'A'), 'width'), warningCodes(model)]).toStrictEqual([[undefined], ['widths-unknown']]);
+  });
+
+  it('takes the vertical extent of a standard 14 font from its descriptor, else from its bundled FontBBox', () => {
+    const empty = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica/FontDescriptor 11 0 R>>', [descriptorObject(32)]);
+    const described = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Helvetica/FontDescriptor 11 0 R>>', [descriptorObject(32, '/Ascent 700/Descent -200')]);
+    expect([empty.verticalExtent, described.verticalExtent]).toStrictEqual([
+      { descent: -225, ascent: 931, estimated: false },
+      { descent: -200, ascent: 700, estimated: false },
+    ]);
+  });
+
+  it('reports the damage a ToUnicode stream holds and keeps the stream', () => {
+    const overflow = streamBody('', '1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <01> <04> <00FD> endbfrange');
+    const damaged = streamBody('', '1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> 5 endbfchar');
+    const fonts = [overflow, damaged].map(stream =>
+      fontOf(`<</Type/Font/Subtype/Type1/BaseFont/Test/ToUnicode 12 0 R${SIMPLE_WIDTHS}>>`, [descriptorObject(32), { number: 12, body: stream }]),
+    );
+    expect(fonts.map(font => [font.toUnicode, warningCodes(font)])).toStrictEqual([
+      ['present', ['to-unicode-range-overflow']],
+      ['present', ['to-unicode-unreadable']],
+    ]);
+  });
+});
+
+describe('fonts of subtype Type3, damaged', () => {
+  it.each([
+    { label: 'three numbers', matrix: '/FontMatrix[1 0 0]' },
+    { label: 'seven numbers', matrix: '/FontMatrix[0.002 0 0 0.002 0 0 0]' },
+    { label: 'absent', matrix: '' },
+  ])('uses a thousandth as glyph space and warns once when the FontMatrix is $label', ({ matrix }) => {
+    const font = fontOf(type3Font('').replace('/FontMatrix[0.002 0 0 -0.002 0 0]', matrix), PROCEDURES);
+    expect([font.glyphMatrix, warningCodes(font)]).toStrictEqual([[0.001, 0, 0, 0.001, 0, 0], ['font-unreadable']]);
+  });
+
+  it.each([
+    { box: '[0 0 0 0]', expected: undefined },
+    { box: '[0 0 750 750 1]', expected: undefined },
+    { box: '[0 0 750]', expected: undefined },
+    { box: '[0 0 0 750]', expected: [0, 0, 0, 750] },
+  ])('reads the FontBBox $box as $expected', ({ box, expected }) => {
+    // Table 112, FontBBox: "If all four elements of the rectangle are zero, a conforming reader shall make no assumptions about glyph sizes based on the font bounding box."
+    const font = fontOf(type3Font('').replace('/FontBBox[0 0 750 750]', `/FontBBox${box}`), PROCEDURES);
+    expect(font.type3?.fontBBox).toStrictEqual(expected);
+  });
+
+  it('keeps a glyph whose procedure cannot be decoded, with no box and not as empty', () => {
+    const font = fontOf(type3Font('').replace('/blank 13 0 R', '/blank 13 0 R/b 15 0 R'), [
+      ...PROCEDURES,
+      { number: 15, body: streamBody('/Filter/Foo', '0 0 m') },
+    ]);
+    const glyphs = glyphsOf(font, 'b');
+    expect([pick(glyphs, 'notdef'), pick(glyphs, 'empty'), pick(glyphs, 'type3Box')]).toStrictEqual([[false], [false], [undefined]]);
+  });
+});
+
+describe('composite fonts, damaged', () => {
+  it('reports a Type 0 font without an Encoding and decodes none of its strings', () => {
+    const font = fontOf(`<</Type/Font/Subtype/Type0/BaseFont/Test/DescendantFonts[<<${CID_FONT_TYPE2}>>]>>`);
+    expect([font.glyphs(Uint8Array.of(0, 0x41)).kind, font.encoding.kind, warningCodes(font)]).toStrictEqual([
+      'undecodable',
+      'unreadable',
+      ['font-unreadable'],
+    ]);
+  });
+
+  it.each([
+    { label: 'no DescendantFonts', entry: '' },
+    { label: 'an empty DescendantFonts', entry: '/DescendantFonts[]' },
+    { label: 'a DescendantFonts item that is not a dictionary', entry: '/DescendantFonts[5]' },
+  ])('reads the CIDs of a Type 0 font with $label and leaves its metrics unknown', ({ entry }) => {
+    const font = fontOf(`<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-V${entry}>>`);
+    const glyphs = glyphsOf(font, Uint8Array.of(0, 0x41));
+    expect([
+      font.descendant,
+      font.warnings.map(warning => [warning.code, /descendant/u.test(warning.detail)]),
+      pick(glyphs, 'cid'),
+      pick(glyphs, 'width'),
+      pick(glyphs, 'vertical'),
+    ]).toStrictEqual([undefined, [['font-unreadable', true]], [0x41], [undefined], [undefined]]);
+  });
+
+  it('records the subtype and reference of a descendant CIDFont', () => {
+    const referenced = fontOf('<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[12 0 R]>>', [
+      { number: 12, body: `<<${CID_FONT_TYPE2}>>` },
+    ]);
+    const other = fontOf(type0Font('/Identity-H', CID_FONT_TYPE2.replace('CIDFontType2', 'CIDFontType9')));
+    expect([referenced.descendant?.subtype, referenced.descendant?.reference, other.descendant?.subtype, other.descendant?.reference]).toStrictEqual([
+      'CIDFontType2',
+      pdfReference(12, 0),
+      'other',
+      undefined,
+    ]);
+  });
+
+  it.each([
+    { label: 'no CIDToGIDMap', entry: '', objects: [], gids: [1, 2], warnings: [] },
+    { label: 'the CIDToGIDMap name Identity', entry: '/CIDToGIDMap/Identity', objects: [], gids: [1, 2], warnings: [] },
+    // Table 117, CIDToGIDMap: "the glyph index for a particular CID value c shall be a 2-byte value stored in bytes 2 × c and 2 × c + 1"; the odd last byte is the high byte of CID 1.
+    {
+      label: 'a CIDToGIDMap stream of odd length',
+      entry: '/CIDToGIDMap 12 0 R',
+      objects: [{ number: 12, body: streamBody('', '\u0000\u0000\u0003') }],
+      gids: [768, 0],
+      warnings: [],
+    },
+    { label: 'a CIDToGIDMap integer', entry: '/CIDToGIDMap 5', objects: [], gids: [undefined, undefined], warnings: ['font-unreadable'] },
+    {
+      label: 'a CIDToGIDMap stream that cannot be decoded',
+      entry: '/CIDToGIDMap 12 0 R',
+      objects: [{ number: 12, body: streamBody('/Filter/Foo', '\u0000\u0001') }],
+      gids: [undefined, undefined],
+      warnings: ['font-unreadable'],
+    },
+  ])('maps CIDs to glyph indices with $label', ({ entry, objects, gids, warnings }) => {
+    const font = fontOf(type0Font('/Identity-H', `${CID_FONT_TYPE2}${entry}`), objects);
+    expect([pick(glyphsOf(font, Uint8Array.of(0, 1, 0, 2)), 'gid'), warningCodes(font)]).toStrictEqual([gids, warnings]);
+  });
+
+  it('gives the glyphs of a CIDFontType0 font no glyph index, whatever its CIDToGIDMap', () => {
+    const font = fontOf(type0Font('/Identity-H', `${JAPAN1}/CIDToGIDMap 12 0 R`), [{ number: 12, body: streamBody('', '\u0000\u0007\u0000\u0007') }]);
+    expect(pick(glyphsOf(font, Uint8Array.of(0, 1)), 'gid')).toStrictEqual([undefined]);
+  });
+
+  it.each([
+    { label: 'W', entry: '/W[65[500]]', widths: [0.5, 1] },
+    { label: 'W and DW', entry: '/W[65[500]]/DW 700', widths: [0.5, 0.7] },
+  ])('takes the width of an unlisted CID from DW, else 1000, from $label', ({ entry, widths }) => {
+    // Table 117, DW: "Default value: 1000".
+    const font = fontOf(type0Font('/Identity-H', `/Type/Font/Subtype/CIDFontType2/BaseFont/Test${entry}`));
+    expect(pick(glyphsOf(font, Uint8Array.of(0, 65, 0, 66)), 'width')).toStrictEqual(widths);
+  });
+
+  it.each([
+    { label: 'a negative first CID', array: '[65[500] -1[600] 70[700]]' },
+    { label: 'a first CID that is not an integer', array: '[65[500] 1.5[600] 70[700]]' },
+    { label: 'a range whose last CID is below its first', array: '[65[500] 80 79 600 70[700]]' },
+    { label: 'a range without its width', array: '[65[500] 70 72]' },
+  ])('keeps the W groups before $label and reads none after it', ({ array }) => {
+    const font = fontOf(type0Font('/Identity-H', `/Type/Font/Subtype/CIDFontType2/BaseFont/Test/DW 900/W${array}`));
+    expect(pick(glyphsOf(font, Uint8Array.of(0, 65, 0, 70)), 'width')).toStrictEqual([0.5, 0.9]);
+  });
+
+  it.each([{ dw2: '[900]' }, { dw2: '[1 2 3]' }, { dw2: '5' }])('uses the default [880 -1000] for the malformed DW2 $dw2', ({ dw2 }) => {
+    const font = fontOf(type0Font('/Identity-V', `${CID_FONT_TYPE2}/DW2 ${dw2}`));
+    expect(pick(glyphsOf(font, Uint8Array.of(0, 0x41)), 'vertical')).toStrictEqual([{ w1: -1, vx: 0.25, vy: 0.88 }]);
+  });
+
+  it.each([
+    {
+      label: 'Identity-H over an Adobe-Japan1 descendant',
+      encoding: '/Identity-H',
+      cidFont: JAPAN1,
+      objects: [],
+      map: { name: 'Adobe-Japan1-UCS2', available: false },
+      warnings: ['cmap-unavailable'],
+    },
+    { label: 'Identity-H over an Adobe-Identity descendant', encoding: '/Identity-H', cidFont: CID_FONT_TYPE2, objects: [], map: undefined, warnings: [] },
+    {
+      label: 'Identity-H over a Japan1 descendant of another registry',
+      encoding: '/Identity-H',
+      cidFont: JAPAN1.replace('(Adobe)', '(Other)'),
+      objects: [],
+      map: undefined,
+      warnings: [],
+    },
+    {
+      label: 'Identity-H over a descendant whose Registry is a name',
+      encoding: '/Identity-H',
+      cidFont: JAPAN1.replace('(Adobe)', '/Adobe'),
+      objects: [],
+      map: undefined,
+      warnings: [],
+    },
+    {
+      label: 'an embedded CMap over an Adobe-Korea1 descendant',
+      encoding: '12 0 R',
+      cidFont: JAPAN1.replace('Japan1', 'Korea1'),
+      objects: [{ number: 12, body: streamBody('/Type/CMap', CODESPACE_2) }],
+      map: { name: 'Adobe-Korea1-UCS2', available: false },
+      warnings: ['cmap-unavailable'],
+    },
+    {
+      label: 'a predefined CMap over an Adobe-Identity descendant',
+      encoding: '/UniJIS-UTF16-H',
+      cidFont: CID_FONT_TYPE2,
+      objects: [],
+      map: { name: 'Adobe-Identity-UCS2', available: false },
+      warnings: ['cmap-unavailable', 'cmap-unavailable'],
+    },
+  ])('chooses the CID-to-Unicode map of $label', ({ encoding, cidFont, objects, map, warnings }) => {
+    // 9.10.2: the registry–ordering–UCS2 map serves "a predefined CMap" other than Identity-H and Identity-V, or "Adobe-GB1, Adobe-CNS1, Adobe-Japan1, or Adobe-Korea1".
+    const font = fontOf(type0Font(encoding, cidFont), objects);
+    expect([font.collectionMap, warningCodes(font)]).toStrictEqual([map, warnings]);
+  });
+
+  it('does not warn about a missing CID-to-Unicode map when a ToUnicode stream gives the text', () => {
+    const toUnicode = streamBody('', `${CODESPACE_2} 1 beginbfchar <0041> <0042> endbfchar`);
+    const font = fontOf(`<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/ToUnicode 12 0 R/DescendantFonts[<<${JAPAN1}>>]>>`, [
+      { number: 12, body: toUnicode },
+    ]);
+    expect([font.collectionMap, warningCodes(font)]).toStrictEqual([{ name: 'Adobe-Japan1-UCS2', available: false }, []]);
+  });
+
+  it('summarises a predefined CMap by whether a provider supplied it', () => {
+    const without = fontOf(type0Font('/UniJIS-UTF16-H', JAPAN1));
+    const supplied = fontOf(type0Font('/UniJIS-UTF16-H', JAPAN1), [], providerOf({ 'UniJIS-UTF16-H': CODESPACE_2 }));
+    const summary = { kind: 'cmap', name: latin1Bytes('UniJIS-UTF16-H'), predefined: true, embedded: false, writingMode: 0 };
+    expect([without.encoding, supplied.encoding]).toStrictEqual([
+      { ...summary, available: false },
+      { ...summary, available: true },
+    ]);
+  });
+
+  it('summarises an embedded CMap stream that cannot be decoded as unreadable', () => {
+    const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: streamBody('/Type/CMap/Filter/Foo', CODESPACE_2) }]);
+    expect([font.encoding.kind, font.glyphs(Uint8Array.of(0, 0x41)).kind, warningCodes(font)]).toStrictEqual([
+      'unreadable',
+      'undecodable',
+      ['font-unreadable'],
+    ]);
+  });
+
+  it('reports the damage an embedded Encoding CMap holds and decodes with what it reads', () => {
+    const cmap = streamBody('/Type/CMap', `${CODESPACE_2} 2 begincidrange <0010> <0001> 5 <0000> <00FF> 1 endcidrange`);
+    const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]);
+    expect([
+      pick(glyphsOf(font, Uint8Array.of(0, 0x41)), 'cid'),
+      font.warnings.map(warning => [warning.code, warning.detail.startsWith('the Encoding CMap')]),
+    ]).toStrictEqual([[0x42], [['font-unreadable', true]]]);
+  });
+
+  it('gives no CID for a code that only the unavailable CMap its usecmap names could map', () => {
+    const cmap = streamBody('/Type/CMap', `/UniJIS-UTF16-H usecmap ${CODESPACE_2} 1 begincidchar <0041> 7 endcidchar 1 beginnotdefchar <0043> 9 endnotdefchar`);
+    const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]);
+    // A trailing single byte is an invalid code, which may lie in the other CMap's codespace.
+    const glyphs = glyphsOf(font, Uint8Array.of(0, 0x41, 0, 0x42, 0, 0x43, 0x44));
+    expect([
+      pick(glyphs, 'cid'),
+      pick(glyphs, 'cmapUnavailable'),
+      pick(glyphs, 'width'),
+      font.encoding,
+      font.warnings.map(warning => [warning.code, warning.detail.includes('UniJIS-UTF16-H')]),
+    ]).toStrictEqual([
+      [7, undefined, 9, undefined],
+      [undefined, 'UniJIS-UTF16-H', undefined, 'UniJIS-UTF16-H'],
+      [0.9, undefined, 0.9, undefined],
+      { kind: 'cmap', name: new Uint8Array(), predefined: false, embedded: true, writingMode: 0, available: false },
+      [['cmap-unavailable', true]],
+    ]);
+  });
+});
+
+// A FontFile2 stream holding `program`, written as ASCIIHexDecode data.
+const fontFile2 = (program: Uint8Array): TestObject => ({
+  number: 13,
+  body: streamBody('/Filter/ASCIIHexDecode', `${[...program].map(byte => byte.toString(16).padStart(2, '0')).join('')}>`),
+});
+
+describe('embedded TrueType programs, by font type', () => {
+  const descriptor: TestObject = { number: 12, body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontFile2 13 0 R>>' };
+
+  it('reads the glyph boxes of a simple TrueType font program once, on the first call', () => {
+    const program = syntheticTrueType({
+      name: 'Test',
+      glyphs: [{ advance: 1000 }, { advance: 1000, box: [500, -120, 900, 700] }],
+      characters: [[0x41, 1]],
+      unitsPerEm: 2000,
+    });
+    const font = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/FontDescriptor 12 0 R>>', [descriptor, fontFile2(program)]);
+    const bounds = font.embeddedGlyphBounds();
+    const cmap = font.embeddedCmap();
+    expect([bounds?.kind === 'bounds' ? bounds.bounds.bounds(1) : bounds?.kind, cmap?.kind === 'cmap' ? cmap.cmap.glyph(0x41) : cmap?.kind]).toStrictEqual([
+      [0.25, -0.06, 0.45, 0.35],
+      1,
+    ]);
+    expect(font.embeddedGlyphBounds()).toBe(bounds);
+    expect(font.embeddedCmap()).toBe(cmap);
+  });
+
+  it('reads no FontFile2 program of a Type 1 font or of a CIDFontType0 descendant', () => {
+    const program = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, { advance: 1000, box: [0, 0, 500, 500] }], characters: [[0x41, 1]] });
+    const objects = [descriptor, fontFile2(program)];
+    const type1 = fontOf('<</Type/Font/Subtype/Type1/BaseFont/Test/FontDescriptor 12 0 R>>', objects);
+    const cidFontType0 = fontOf(type0Font('/Identity-H', `${JAPAN1}/FontDescriptor 12 0 R`), objects);
+    const trueType = fontOf('<</Type/Font/Subtype/TrueType/BaseFont/Test/FontDescriptor 12 0 R>>', objects);
+    expect([type1, cidFontType0, trueType].map(font => [font.embeddedCmap()?.kind, font.embeddedGlyphBounds()?.kind])).toStrictEqual([
+      [undefined, undefined],
+      [undefined, undefined],
+      ['cmap', 'bounds'],
+    ]);
+  });
+
+  it('throws ResourceLimitError for a program that decodes past maxDecodedBytes', () => {
+    const program = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }], characters: [] });
+    const load = (maxDecodedBytes: number): FontModel =>
+      new FontCache(
+        fontDocument([{ number: 10, body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FontDescriptor 12 0 R>>' }, descriptor, fontFile2(program)], {
+          maxDecodedBytes,
+        }),
+        undefined,
+      ).font(pdfReference(10, 0), '10.0');
+    expect(load(program.length).embeddedCmap()?.kind).toBe('cmap');
+    expect(() => load(program.length - 1).embeddedCmap()).toThrow(ResourceLimitError);
+  });
+});
+
+describe('font resource owners', () => {
+  it('keys a direct font by its Font subdictionary when that is indirect, else by the resource dictionary owner', () => {
+    const name = latin1Bytes('F1');
+    expect([
+      fontResourceOwner(pdfReference(7, 0), '3.0', name),
+      fontResourceOwner(pdfDictionary(), '3.0', name),
+      fontResourceOwner(undefined, '3.0', name),
+    ]).toStrictEqual([
+      { owner: '7.0', name },
+      { owner: '3.0', name },
+      { owner: '3.0', name },
     ]);
   });
 });

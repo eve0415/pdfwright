@@ -1,6 +1,9 @@
+import type { Core14Font } from './core14Metrics.ts';
+
 import { describe, expect, it } from 'vitest';
 
-import { standard14Metrics } from './standard14.ts';
+import { CORE14_FONTS, CORE14_LATIN_NAMES } from './core14Metrics.ts';
+import { STANDARD_14, standard14Metrics } from './standard14.ts';
 
 describe('standard 14 font metrics', () => {
   it('gives the AFM width of each glyph name and nothing for names the font lacks', () => {
@@ -21,5 +24,19 @@ describe('standard 14 font metrics', () => {
       [-180, -293, 1090, 1010],
       undefined,
     ]);
+  });
+
+  it('has metrics for each of the standard 14 fonts, each with the width of its space', () => {
+    // Every AFM file of the standard 14 fonts, Symbol and ZapfDingbats included, lists space first.
+    const spaces = [...STANDARD_14].map(name => [name, standard14Metrics(name)?.width('space')]);
+    expect(spaces.filter(([, width]) => width === undefined)).toStrictEqual([]);
+    expect(spaces).toHaveLength(14);
+  });
+
+  it('gives each bundled font as many widths as glyph names', () => {
+    const fonts = new Map<string, Core14Font>(Object.entries(CORE14_FONTS));
+    const counts = [...fonts].map(([name, font]) => [name, (font.names ?? CORE14_LATIN_NAMES).split(' ').length - font.widths.split(' ').length]);
+    expect(counts.filter(([, difference]) => difference !== 0)).toStrictEqual([]);
+    expect(counts).toHaveLength(14);
   });
 });

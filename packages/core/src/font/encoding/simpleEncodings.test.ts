@@ -72,20 +72,28 @@ describe('the encodings of Annex D', () => {
     expect([ZAPF_DINGBATS_ENCODING[0o41], ZAPF_DINGBATS_ENCODING[0o254], ZAPF_DINGBATS_ENCODING[0o200]]).toStrictEqual(['a1', 'a120', undefined]);
   });
 
-  it('maps PDFDocEncoding codes to Unicode by D.3', () => {
-    const codes = [0x00, 0x09, 0x18, 0x41, 0x7f, 0x80, 0x9f, 0xa0, 0xad, 0xe9];
-    expect(codes.map(code => pdfDocEncodingUnicode(code))).toStrictEqual([
-      undefined,
-      0x09,
-      0x2_d8,
-      0x41,
-      undefined,
-      0x20_22,
-      undefined,
-      0x20_ac,
-      undefined,
-      0xe9,
-    ]);
+  it.each([
+    [0x00, undefined],
+    [0x08, undefined],
+    [0x09, 0x09],
+    [0x0a, 0x0a],
+    [0x0b, undefined],
+    [0x0d, 0x0d],
+    [0x17, undefined],
+    [0x18, 0x2_d8],
+    [0x41, 0x41],
+    [0x7f, undefined],
+    [0x80, 0x20_22],
+    [0x9f, undefined],
+    [0xa0, 0x20_ac],
+    [0xad, undefined],
+    [0xe9, 0xe9],
+    [0xff, 0xff],
+    [256, undefined],
+    [-1, undefined],
+  ])('maps PDFDocEncoding code %i to Unicode %s by D.3', (code, unicode) => {
+    // D.3, Table D.2 marks 0–8, 11, 12, 14–23, 127, 159 and 173 "Undefined code point in PDFDocEncoding".
+    expect(pdfDocEncodingUnicode(code)).toBe(unicode);
   });
 
   it('selects the encodings Table 114 names', () => {
