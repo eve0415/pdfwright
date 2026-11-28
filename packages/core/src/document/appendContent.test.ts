@@ -412,6 +412,24 @@ describe('appending built content', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 7.3.5: a name byte that is not a regular character, or is NUMBER SIGN, is written as a # escape, which content names the builder writes never carry.
+  it.each([
+    ['an escaped solidus', 'CS#2FSpot', 'CS1', ['CS/Spot', 'CS1']],
+    ['an escaped space', 'CS#207', 'CS1', ['CS 7', 'CS1']],
+    ['an escaped number sign', 'CS#237', 'CS1', ['CS#7', 'CS1']],
+    ['an escaped regular character', 'C#537', 'CS7', ['CS7']],
+  ])('reuses the name of the same separation only when its key needs no escape, given %s', (_, key, name, names) => {
+    const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 0.5 0 0]/N 1>>]';
+    const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</${key} ${spot}>>>>`));
+    document.page(0).appendContent(builder => {
+      builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+    });
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
+    ]);
+  });
+
   it.each([0.5, 0.12345, 0.123456, 1 / 3, 0.000004])(
     'reuses the name of a separation of tint %d an earlier save wrote, after the file is loaded again',
     tint => {
