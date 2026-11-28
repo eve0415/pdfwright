@@ -81,7 +81,7 @@ export const writeColorants = (): ColorantExample => {
   });
   const probe = createDocument();
   const probePage = probe.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
-  let whiteOverprintReason: string | undefined = undefined;
+  let whiteOverprintReason: string | undefined;
   try {
     probePage.draw(content => {
       content.fillColor(cmyk(0, 0, 0, 0));
