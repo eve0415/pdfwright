@@ -318,8 +318,12 @@ export class ResolvedTexts {
         );
       }
     }
+    // Only the value asked for is described, since a value that leads into a cycle is described from its own shape and not from the texts of the objects it leads to.
     const text = results.pop() ?? 'null';
-    return text === INTO_CYCLE ? this.described({ shape: this.shape(value, undefined) }) : text;
+    if (!leadsIntoCycle(text)) {
+      return text;
+    }
+    return value?.kind === 'reference' ? this.objectText(referenceKey(value)) : this.described({ shape: this.shape(value, undefined) });
   }
 
   // The innermost referenced object is done: an object whose cycle is still open leads into a cycle, and the object that closes its cycle marks every object of it as leading into one.
@@ -357,7 +361,7 @@ export class ResolvedTexts {
     for (const member of cycle) {
       this.endless.set(referenceKey(member), member);
     }
-    walk.results.push(this.objectText(frame.key));
+    walk.results.push(INTO_CYCLE);
   }
 
   // The text of an object that leads into a reference cycle, worked out when it is first asked for.
@@ -593,7 +597,7 @@ export class ResolvedTexts {
     }
     if (value.kind === 'reference') {
       const key = referenceKey(value);
-      const known = this.known.get(key) ?? (this.endless.has(key) ? this.objectText(key) : undefined);
+      const known = this.known.get(key) ?? (this.endless.has(key) ? INTO_CYCLE : undefined);
       if (known !== undefined) {
         results.push(known);
         return;
