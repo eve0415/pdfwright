@@ -22,7 +22,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { carrierContent, referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -191,6 +191,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
+  const seenCarriers = new Set<number>();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) {
@@ -206,6 +207,16 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
       bytes: combineContentStreams(content.streams),
       usage,
     });
+    const carriers = resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers);
+    // Carrier content is scanned only when some carrier names a shading, so pages without one do not pay for parsing every glyph.
+    if (!carriers.some(carrier => carrier.resources.has(SHADING))) {
+      continue;
+    }
+    for (const carrier of carriers) {
+      for (const bytes of carrierContent(internals, carrier)) {
+        scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage });
+      }
+    }
   }
   return usage;
 };

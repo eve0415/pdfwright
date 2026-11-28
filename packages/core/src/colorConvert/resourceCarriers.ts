@@ -2,8 +2,10 @@ import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
+import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodedData } from '../font/fontValues.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfDictionary, pdfName } from '../object/pdfObject.ts';
 
@@ -21,6 +23,10 @@ export type CarrierOwner =
 /** An object reached from a page that names colour spaces and shadings in a resource dictionary of its own. */
 export interface ResourceCarrier {
   readonly kind: 'carrier';
+  /** How the carrier was reached; an object reached both as a form and as an appearance has the role it was first reached by. */
+  readonly role: 'form' | 'tiling-pattern' | 'type3' | 'appearance';
+  /** The carrier's stream or font dictionary as it was listed. */
+  readonly object: PdfObject;
   /** Distinct for every carrier; for an indirect owner it is `referenceKey` of its reference. */
   readonly key: string;
   readonly owner: CarrierOwner;
@@ -55,16 +61,16 @@ const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(
 const holderKey = (holder: CarrierHolder): string => (holder.kind === 'page' ? `page ${String(holder.index)}` : holder.key);
 
 // ISO 32000-1:2008, Tables 95, 75, 112 and 168: a form XObject, a tiling pattern, a Type 3 font and an appearance stream may each hold a Resources dictionary.
-const holdsResources = (internals: DocumentInternals, object: PdfObject): boolean => {
+const carrierRole = (internals: DocumentInternals, object: PdfObject): 'form' | 'tiling-pattern' | 'type3' | undefined => {
   if (object.kind === 'stream') {
     const { dictionary } = object;
     if (nameIs(internals.objects.deref(dictionary.get(SUBTYPE)), 'Form')) {
-      return true;
+      return 'form';
     }
     const patternType = internals.objects.deref(dictionary.get(PATTERN_TYPE));
-    return patternType?.kind === 'integer' && patternType.value === 1;
+    return patternType?.kind === 'integer' && patternType.value === 1 ? 'tiling-pattern' : undefined;
   }
-  return object.kind === 'dictionary' && nameIs(internals.objects.deref(object.entries.get(SUBTYPE)), 'Type3');
+  return object.kind === 'dictionary' && nameIs(internals.objects.deref(object.entries.get(SUBTYPE)), 'Type3') ? 'type3' : undefined;
 };
 
 type PendingCarrier =
@@ -88,23 +94,27 @@ class CarrierWalk {
       return;
     }
     const object = this.internals.objects.deref(value);
-    if (object === undefined || (appearance ? object.kind !== 'stream' : !holdsResources(this.internals, object))) {
+    if (object === undefined) {
+      return;
+    }
+    const role = appearance ? (object.kind === 'stream' ? 'appearance' : undefined) : carrierRole(this.internals, object);
+    if (role === undefined) {
       return;
     }
     this.seen.add(value.objectNumber);
-    this.list({ kind: 'carrier', key: referenceKey(value), owner: { kind: 'object', reference: value } }, object);
+    this.list({ kind: 'carrier', role, object, key: referenceKey(value), owner: { kind: 'object', reference: value } });
   }
 
   // A direct font has no object number to mark as seen; its holder is walked once, so it is listed once per holder.
   private directFont(holder: CarrierHolder, name: Uint8Array, font: PdfObject): void {
-    if (holdsResources(this.internals, font)) {
-      this.list({ kind: 'carrier', key: `${holderKey(holder)} Font ${hex(name)}`, owner: { kind: 'font', holder, name } }, font);
+    if (carrierRole(this.internals, font) === 'type3') {
+      this.list({ kind: 'carrier', role: 'type3', object: font, key: `${holderKey(holder)} Font ${hex(name)}`, owner: { kind: 'font', holder, name } });
     }
   }
 
-  private list(carrier: Omit<ResourceCarrier, 'resources'>, object: PdfObject): void {
+  private list(carrier: Omit<ResourceCarrier, 'resources'>): void {
     // A carrier without its own Resources uses its parent's, which the parent's walk already covers.
-    const own = this.internals.objects.deref(entriesOf(object)?.get(RESOURCES));
+    const own = this.internals.objects.deref(entriesOf(carrier.object)?.get(RESOURCES));
     if (own?.kind !== 'dictionary') {
       return;
     }
@@ -189,6 +199,45 @@ export const resourceCarriers = (
   walk.resources(page.resources, { kind: 'page', index: page.index, reference: page.reference });
   walk.appearances(page.reference);
   return walk.carriers;
+};
+
+const PAINT_TYPE = pdfName('PaintType').bytes;
+const CHAR_PROCS = pdfName('CharProcs').bytes;
+
+/**
+ * The decoded content streams of a carrier that set colours of their own and are scanned from their own start: an appearance stream, a coloured tiling pattern and the d0 glyphs of a Type 3 font.
+ * A form is not listed, because it starts in the graphics state at the place that paints it.
+ */
+export const carrierContent = (internals: DocumentInternals, carrier: ResourceCarrier): ReadonlyArray<Uint8Array> => {
+  const { role, object } = carrier;
+  const decoded = (stream: Extract<PdfObject, { kind: 'stream' }>, what: string): Uint8Array => {
+    const bytes = decodedData(internals, stream);
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`${what} cannot be read: ${bytes}`, 'color-operator');
+    }
+    return bytes;
+  };
+  if (object.kind === 'stream') {
+    // ISO 32000-1:2008, Table 75: a coloured tiling pattern (PaintType 1) specifies its colours in its content stream.
+    const paintType = internals.objects.deref(object.dictionary.get(PAINT_TYPE));
+    const coloured = role === 'tiling-pattern' && paintType?.kind === 'integer' && paintType.value === 1;
+    return role === 'appearance' || coloured ? [decoded(object, `${role} content`)] : [];
+  }
+  const glyphs = role === 'type3' ? internals.objects.deref(entriesOf(object)?.get(CHAR_PROCS)) : undefined;
+  const streams: Array<Uint8Array> = [];
+  for (const [, glyph] of glyphs?.kind === 'dictionary' ? glyphs.entries.entries() : []) {
+    const stream = internals.objects.deref(glyph);
+    if (stream?.kind !== 'stream') {
+      continue;
+    }
+    const bytes = decoded(stream, 'Type 3 glyph');
+    // A glyph that starts with d1 describes only a shape and takes its colour from the text that shows it.
+    const [first] = readContent(bytes, internals.maxNesting);
+    if (first?.operator === 'd0') {
+      streams.push(bytes);
+    }
+  }
+  return streams;
 };
 
 const dictionaryEntries = (document: LoadedDocument, value: PdfDirectObject | undefined, what: string): PdfDictionaryEntries => {
