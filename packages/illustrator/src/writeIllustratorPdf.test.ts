@@ -1,9 +1,11 @@
 import type { WriteIllustratorPdfOptions } from './index.ts';
-import type { IllustratorDocument } from './model/illustratorDocument.ts';
+import type { IllustratorDocument, Layer } from './model/illustratorDocument.ts';
 
 import { InvalidArgumentError, ValidationError, compareDocuments, loadDocument, pdfDate, pdfDateString } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { normalizeModel } from './testing/normalizeModel.ts';
+import { rawZstandardFrame } from './testing/rawZstandardFrame.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './testing/readIllustratorPdf.ts';
 import { writeIllustratorPdfExample } from './writeIllustratorPdfExample.ts';
 
@@ -39,7 +41,7 @@ const model: IllustratorDocument = {
 };
 
 describe('illustrator PDF writer', () => {
-  it('writes a deterministic PDF with equal page and Illustrator dates', () => {
+  it('writes a deterministic one-page PDF with page-piece data', () => {
     const bytes = writeIllustratorPdf(model);
     const loaded = loadDocument(bytes);
     expect(new TextDecoder().decode(bytes.slice(0, 8))).toBe('%PDF-1.7');
@@ -62,9 +64,35 @@ describe('illustrator PDF writer', () => {
     }
   });
 
-  it('writes locked layers', () => {
-    const locked: IllustratorDocument = { ...model, layers: [{ name: 'Die', locked: true, items: [] }] };
-    expect(() => writeIllustratorPdf(locked)).not.toThrow();
+  it.each([
+    { name: 'a locked empty layer', layer: { name: 'Die', locked: true, items: [] } },
+    { name: 'a locked hidden empty layer', layer: { name: 'Die', locked: true, visible: false, items: [] } },
+  ] as const satisfies Array<{ name: string; layer: Layer }>)('writes $name that reads back locked', ({ layer }) => {
+    const locked: IllustratorDocument = { ...model, layers: [layer] };
+    expect(readIllustratorPdf(writeIllustratorPdf(locked)).document).toStrictEqual(normalizeModel(locked));
+  });
+
+  it('normalizes the header of a frame from a caller encoder', () => {
+    // A single-segment frame with a four-byte content size, which the writer must rewrite to the no-size, explicit-window header.
+    const received: Array<Uint8Array> = [];
+    const zstandard = (data: Uint8Array): Uint8Array => {
+      received.push(data);
+      return rawZstandardFrame(data, 0xa0);
+    };
+    const read = readIllustratorPdf(writeIllustratorPdf(model, { compression: { zstandard } }));
+    expect(received).toStrictEqual([read.native]);
+    expect([read.frameHeaderDescriptor, read.windowDescriptor]).toStrictEqual([0, 0x58]);
+    expect(read.document).toStrictEqual(normalizeModel(model));
+  });
+
+  it('refuses a compression object whose zstandard entry is not a function', () => {
+    const options: WriteIllustratorPdfOptions = {};
+    Object.defineProperty(options, 'compression', { value: { zstandard: 'x' } });
+    expect(() => writeIllustratorPdf(model, options)).toThrow(ValidationError);
+  });
+
+  it('writes the creator option as the native Creator comment', () => {
+    expect(readIllustratorPdf(writeIllustratorPdf(model, { creator: 'Die tool 1.0' })).header.get('%%Creator')).toBe('Die tool 1.0');
   });
 
   it('runs the production-style page example', () => {
@@ -158,8 +186,10 @@ const spotModel: IllustratorDocument = {
 const latin1 = (bytes: Uint8Array): string => new TextDecoder('latin1').decode(bytes);
 
 describe('document information and page precision', () => {
-  it('writes no Info dictionary unless asked', () => {
-    expect(latin1(writeIllustratorPdf(model))).not.toContain('/Info');
+  it('writes no Info dictionary and no XMP packet unless asked', () => {
+    const pdf = latin1(writeIllustratorPdf(model));
+    expect(pdf).not.toContain('/Info');
+    expect(pdf).not.toContain('/Metadata');
   });
 
   it('writes Info with the model date as ModDate by default, and an agreeing XMP packet', () => {
@@ -181,6 +211,13 @@ describe('document information and page precision', () => {
     expect(latin1(writeIllustratorPdf(spotModel))).toMatch(/\[0\.96057 0 0 0\]/u);
     expect(latin1(writeIllustratorPdf(spotModel, { fractionDigits: 6 }))).toMatch(/\[0\.960571 0 0 0\]/u);
     expect(writeIllustratorPdf(spotModel, { fractionDigits: 6 })).toStrictEqual(writeIllustratorPdf(spotModel, { fractionDigits: 6 }));
+  });
+
+  it.each([
+    { fractionDigits: 0, alternate: '[1 0 0 0]' },
+    { fractionDigits: 10, alternate: '[0.960571 0 0 0]' },
+  ])('accepts fractionDigits $fractionDigits at either end of its range', ({ fractionDigits, alternate }) => {
+    expect(latin1(writeIllustratorPdf(spotModel, { fractionDigits }))).toContain(alternate);
   });
 
   it.each([-1, 11, 2.5, Number.NaN])('refuses fractionDigits %s', fractionDigits => {

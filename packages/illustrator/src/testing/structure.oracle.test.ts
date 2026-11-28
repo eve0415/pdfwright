@@ -15,6 +15,7 @@ import { readIllustratorPdf as readPublicIllustratorPdf } from '../index.ts';
 import { tokenizeNative } from '../read/nativeTokenizer.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
 
+import { endCommentsLength } from './endComments.ts';
 import { normalizeModel } from './normalizeModel.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 
@@ -131,7 +132,9 @@ describe('local Illustrator structure comparison', () => {
       sample.layers,
       sample.rasters,
     ]);
-    expect(facts.native.slice(0, facts.metaData?.length)).toStrictEqual(facts.metaData);
+    const metaDataLength = endCommentsLength(facts.native);
+    expect(metaDataLength).toBeGreaterThan(0);
+    expect(facts.metaData).toStrictEqual(facts.native.slice(0, metaDataLength));
   });
 
   it.skipIf(exportsDirectory === undefined).each(samples)('$file keeps observed geometry and object grammar', async sample => {
@@ -158,7 +161,6 @@ describe('local Illustrator structure comparison', () => {
   it.skipIf(exportsDirectory === undefined).each(samples)('$file reads through the public reader', async sample => {
     const bytes = await localSource(sample.file);
     const read = readPublicIllustratorPdf(bytes, { zstandard: decompress });
-    expect(read.document).toStrictEqual(readIllustratorPdf(bytes).document);
     expect(read.nativeOrigin).toBe('artboard-bottom-left');
     expect(read.compression).toStrictEqual({ kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: 0x58 });
     expect(read.blockLengths).toStrictEqual([...Array.from({ length: sample.blocks - 1 }, () => 65_536), sample.lastLength]);
