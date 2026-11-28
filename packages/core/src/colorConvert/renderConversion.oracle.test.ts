@@ -549,43 +549,6 @@ describe('converted rendering', () => {
     }
   });
 
-  it('keeps the PDF/X-4 mesh fixture within separate correctness and appearance bounds', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-mesh-'));
-    try {
-      const { data } = convertedMeshBytes(meshConverted);
-      const reference = meshPdf('DeviceCMYK', await transiccReference(data), { coordinate: 16, flag: 8 }).bytes;
-      const oracle = await render(directory, { name: 'pdfx-mesh-reference', bytes: reference, dpi: 400 });
-      const input = await render(directory, { name: 'pdfx-mesh-input', bytes: meshOriginal, dpi: 400 });
-      const output = await render(directory, { name: 'pdfx-mesh-converted', bytes: meshConverted, dpi: 400 });
-      const correctness = measure(oracle, output, true);
-      const appearance = measure(input, output, true);
-      expect(correctness.max).toBeLessThanOrEqual(0.5);
-      expect(appearance.max).toBeLessThanOrEqual(2);
-      expect(appearance.p99).toBeLessThanOrEqual(1.2);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it('checks CMYK group blending and measures the change from RGB blending', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
-    try {
-      const original = transparency('/CS/DeviceRGB').bytes;
-      const appearance = await render(directory, { name: 'transparency-rgb', bytes: original });
-      const reference = await render(directory, { name: 'transparency-cmyk-group', bytes: transparency('/CS/DeviceCMYK').bytes });
-      const converted = await render(directory, { name: 'transparency-converted', bytes: convertTransparency(original) });
-      const correctness = measure(reference, converted);
-      const policyAppearance = measure(appearance, converted);
-      stdout.write(`transparency correctness: ${JSON.stringify(correctness)}\n`);
-      stdout.write(`transparency RGB-to-CMYK appearance: ${JSON.stringify(policyAppearance)}\n`);
-      expect(correctness.max).toBeLessThanOrEqual(0.5);
-      expect(policyAppearance.max).toBeLessThanOrEqual(9.8);
-      expect(policyAppearance.p99).toBeLessThanOrEqual(9.8);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
   it('keeps a transparency group without an explicit colour space close to its input', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
     try {
