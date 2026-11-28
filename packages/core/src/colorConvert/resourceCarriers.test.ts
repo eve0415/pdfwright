@@ -911,3 +911,36 @@ describe('the nesting limit of the carrier walk', () => {
     expect(walkPage(document, 0, carrierSeen())).toHaveLength(count);
   });
 });
+
+/** One indirect dictionary 200 that a holder reads in two ways, where only the second way reaches a carrier with an Indexed space. */
+const doublyRead = [
+  {
+    reading: 'as an XObject category and as an ExtGState category',
+    page: '/Resources<</XObject 200 0 R/ExtGState 200 0 R>>',
+    objects: [
+      { number: 200, body: '<</GS1 7 0 R>>' },
+      { number: 7, body: '<</Type/ExtGState/Font[5 0 R 12]>>' },
+      GLYPH,
+      { number: 5, body: directFont('ColorSpace', INDEXED) },
+    ],
+    owner: 5,
+  },
+  {
+    reading: 'as an XObject category and as the Resources of a form in it',
+    page: '/Resources<</XObject 200 0 R>>',
+    objects: [
+      { number: 200, body: '<</Fm 8 0 R/Pattern<</P 9 0 R>>>>' },
+      { number: 8, body: streamBody(`${FORM}/Resources 200 0 R`, '') },
+      { number: 9, body: streamBody(`${PATTERN}/Resources<</ColorSpace<</X1 ${INDEXED}>>>>`, '') },
+    ],
+    owner: 9,
+  },
+];
+
+describe('an indirect dictionary read in two ways', () => {
+  it.each(doublyRead)('converts the carrier reached when the dictionary is read $reading', ({ page, objects, owner }) => {
+    const document = carrierPdf(page, objects);
+    expect(convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed).toBe(1);
+    expectIndexed(ownResource(document, owner, 'ColorSpace', 'X1'));
+  });
+});
