@@ -138,6 +138,7 @@ describe('icc lut8 and lut16 tags', () => {
   it('rejects a tag of another type', () => {
     const bytes = header('lut8', [1, 1, 2]);
     bytes.set(new TextEncoder().encode('mft3'));
+    expect(() => readLut(bytes, 0, bytes.length)).toThrow(InvalidProfileError);
     expect(() => readLut(bytes, 0, bytes.length)).toThrow(expect.objectContaining({ reason: 'tag-type-mismatch', offset: 0 }));
   });
 
