@@ -55,9 +55,12 @@ describe('properties', () => {
     .chain(([singles, ranges]) => fc.shuffledSubarray([...singles, ...ranges], { minLength: singles.length + ranges.length }))
     .map(items => items.map((item, index): Tagged => ({ ...item, id: String(index) })));
 
+  // Every code of every length from 0 to 84, past the highest range end of 80, so each set of mappings is checked at every code that could tell two lookups apart.
+  const everyCode = fc.constant([1, 2, 3, 4].flatMap(size => Array.from({ length: 85 }, (_, value): CMapCode => ({ length: size, value }))));
+
   it('finds what a linear scan finds', () => {
     fc.assert(
-      fc.property(mappings, fc.array(fc.record({ length, value: fc.integer({ min: 0, max: 84 }) }), { minLength: 1, maxLength: 20 }), (items, codes) => {
+      fc.property(mappings, everyCode, (items, codes) => {
         const table = new MappingTable(items);
         expect(codes.map(code => table.find(code)?.id)).toStrictEqual(codes.map(code => reference(items, code)));
       }),
