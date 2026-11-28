@@ -205,6 +205,8 @@ describe('pdf lexer', () => {
     ['an unterminated literal string', ' (abc', 1, [/unterminated/, /literal/]],
     ['a literal string ending in a backslash', '(a\\', 0, [/unterminated/, /literal/]],
     ['an unterminated hexadecimal string', '<12', 0, [/unterminated/, /hexadecimal/]],
+    // ISO 32000-1:2008, 7.3.4.3: a single less-than sign opens a hexadecimal string, and only a doubled one opens a dictionary (7.3.7).
+    ['a lone less-than sign at the end of the source', ' <', 1, [/unterminated/, /hexadecimal/]],
     ['an invalid hexadecimal digit', '<12G4>', 3, [/digit/]],
   ] as const)('rejects %s at its offset', (_, source, offset, words) => {
     // ParseError carries no reason for PDF syntax, so the words that name the kind of failure and the failing construct stand in for one.
@@ -273,7 +275,6 @@ describe('pdf lexer', () => {
     ['a literal string', '(abc'],
     ['a hexadecimal string', '<12'],
     ['a name', '/Name'],
-    ['a lone less-than sign', '<'],
     ['an octal escape after one digit', String.raw`(\1`],
   ])('asks for more bytes when %s reaches the end of a window', (_, source) => {
     expect(() => lexer(source, false).next()).toThrow(WindowEndError);
