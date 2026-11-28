@@ -63,6 +63,7 @@ describe('native strings', () => {
     ['a leading full stop', '.a', '_x2e_a'],
     ['a leading hyphen', '-a', '_x2d_a'],
     ['a leading combining mark', '́a', '_x301_a'],
+    ['a combining mark after a letter', 'é', 'é'],
     ['an astral character as one code point', '😀', '_x1f600_'],
     ['a digit after a leading space', ' 3', '_3'],
     ['an empty name', '', ''],
