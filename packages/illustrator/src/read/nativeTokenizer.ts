@@ -1,6 +1,6 @@
 import { ParseError } from '@pdfwright/core';
 
-/** One CR-terminated text line, or the binary colour and alpha planes of a raster, with the byte offset where it starts in the native data. */
+/** One CR-terminated text line, which runs on past a CR that continues a literal string and drops that continuation from its text, or the binary colour and alpha planes of a raster, with the byte offset where it starts in the native data. */
 export type NativeRecord =
   | { readonly kind: 'line'; readonly text: string; readonly offset: number }
   | { readonly kind: 'rasterData'; readonly color: Uint8Array; readonly alpha: Uint8Array; readonly offset: number };
@@ -99,7 +99,7 @@ const continuedLine = (bytes: Uint8Array, start: number): Line => {
   return { text: decoder.decode(Uint8Array.from(kept)), end: position };
 };
 
-/** Reads CR records while treating the colour and alpha planes following `XI\n` as binary. */
+/** Reads CR records, joining a record whose literal string a backslash continues past its CR, while treating the colour and alpha planes following `XI\n` as binary. */
 export const tokenizeNative = (bytes: Uint8Array): Array<NativeRecord> => {
   const records: Array<NativeRecord> = [];
   let position = 0;
