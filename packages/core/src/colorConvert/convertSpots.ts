@@ -21,7 +21,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { carrierSeen, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { CarrierReplacement, carrierSeen, resourceCarriers } from './resourceCarriers.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
@@ -444,10 +444,10 @@ const applyPage = (document: LoadedDocument, plan: PagePlan): Array<PdfReference
   return discarded;
 };
 
-const applyCarrier = (document: LoadedDocument, plan: CarrierPlan): Array<PdfReference> => [
-  ...plan.discarded,
-  ...replaceCarrierResources(document, plan.carrier, convertedResources(document, plan)),
-];
+const applyCarrier = (document: LoadedDocument, replacement: CarrierReplacement, plan: CarrierPlan): ReadonlyArray<PdfReference> => {
+  replacement.replace(plan.carrier, convertedResources(document, plan));
+  return plan.discarded;
+};
 
 const applyImage = (document: LoadedDocument, plan: ImagePlan): Array<PdfReference> => {
   const dictionary = new PdfDictionaryEntries(plan.image.dictionary.entries());
@@ -500,9 +500,11 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
   for (const plan of pages) {
     discarded.push(...applyPage(document, plan));
   }
+  const replacement = new CarrierReplacement(document, seenCarriers);
   for (const plan of carriers) {
-    discarded.push(...applyCarrier(document, plan));
+    discarded.push(...applyCarrier(document, replacement, plan));
   }
+  discarded.push(...replacement.finish());
   for (const plan of images.values()) {
     discarded.push(...applyImage(document, plan));
   }

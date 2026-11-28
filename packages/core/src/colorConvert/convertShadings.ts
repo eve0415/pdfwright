@@ -22,7 +22,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { carrierSeen, carrierContent, referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { CarrierReplacement, carrierSeen, carrierContent, referenceKey, resourceCarriers } from './resourceCarriers.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -587,7 +587,7 @@ const applyDirectPages = (document: LoadedDocument, plans: ReadonlyArray<DirectS
   return discarded;
 };
 
-const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<CarrierShadingPlan>): Array<PdfReference> => {
+const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<CarrierShadingPlan>, seen: CarrierSeen): Array<PdfReference> => {
   const internals = internalsOf(document);
   if (internals === undefined) {
     return invalid('document internals are unavailable');
@@ -599,6 +599,7 @@ const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<Carr
     grouped.set(plan.carrier.key, list);
   }
   const discarded: Array<PdfReference> = [];
+  const replacement = new CarrierReplacement(document, seen);
   for (const group of grouped.values()) {
     const [first] = group;
     if (first === undefined) {
@@ -619,8 +620,9 @@ const applyDirectCarriers = (document: LoadedDocument, plans: ReadonlyArray<Carr
       discarded.push(oldShadings);
     }
     resources.set(SHADING, pdfDictionary(mapped));
-    discarded.push(...replaceCarrierResources(document, first.carrier, resources));
+    replacement.replace(first.carrier, resources);
   }
+  discarded.push(...replacement.finish());
   return discarded;
 };
 
@@ -677,7 +679,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
     document.set(plan.pattern, pdfDictionary(dictionary));
     discarded.push(...plan.shading.discarded);
   }
-  discarded.push(...applyDirectPages(document, direct), ...applyDirectCarriers(document, carrierDirect));
+  discarded.push(...applyDirectPages(document, direct), ...applyDirectCarriers(document, carrierDirect, seenCarriers));
   if (plans.size > 0 || patternPlans.size > 0 || direct.length > 0 || carrierDirect.length > 0) {
     deleteDiscarded(document, internals, discarded);
     internals.objects.requireFullRewrite('color-conversion');

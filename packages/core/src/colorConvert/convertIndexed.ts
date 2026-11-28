@@ -14,7 +14,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { carrierSeen, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { CarrierReplacement, carrierSeen, resourceCarriers } from './resourceCarriers.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface IndexedConversionReport {
@@ -273,9 +273,12 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
       discarded.push(update.discarded);
     }
   }
+  const replacement = new CarrierReplacement(document, seenCarriers);
   for (const update of carrierUpdates) {
-    discarded.push(...replaceCarrierResources(document, update.carrier, update.resources), ...update.discarded);
+    replacement.replace(update.carrier, update.resources);
+    discarded.push(...update.discarded);
   }
+  discarded.push(...replacement.finish());
   deleteDiscarded(document, internals, discarded);
   internals.objects.requireFullRewrite('color-conversion');
   return { indexed };

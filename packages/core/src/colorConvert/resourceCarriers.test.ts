@@ -509,7 +509,7 @@ const sharedFonts = (category: string, value: string) => {
       count: 2,
       paths: [
         [3, ['Resources', category, 'X1']],
-        [7, [category, 'X1']],
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
         [3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'F', 'Resources', category, 'X1']],
       ],
     },
@@ -518,7 +518,20 @@ const sharedFonts = (category: string, value: string) => {
       page: '/Resources 7 0 R',
       objects: [GLYPH, ...fanOut],
       count: depth,
-      paths: [[3, ['Resources', category, 'X1']] as const, ...fanOut.slice(1).map(({ number }) => [number, [category, 'X1']] as const)],
+      // Each level is reached from the page through F at every level above it and through G at its own.
+      paths: fanOut.map(
+        (_, level) =>
+          [
+            3,
+            [
+              'Resources',
+              ...Array.from({ length: Math.max(0, level - 1) }, () => ['Font', 'F', 'Resources']).flat(),
+              ...(level === 0 ? [] : ['Font', 'G', 'Resources']),
+              category,
+              'X1',
+            ],
+          ] as const,
+      ),
     },
   ] as const;
 };
