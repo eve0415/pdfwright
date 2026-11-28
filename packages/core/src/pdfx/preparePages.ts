@@ -67,6 +67,8 @@ class TransparencyScan {
   private readonly page: PdfDictionaryEntries;
   private readonly seen = new Set<number>();
   private readonly procedures = new Set<string>();
+  // Fonts are remembered apart from forms, patterns and appearances, so that an object a font selection names is still read when Do, scn or an annotation draws it.
+  private readonly fontObjects = new Set<number>();
   private readonly fonts = new Set<PdfDictionaryEntries>();
   private depth = 0;
 
@@ -149,10 +151,10 @@ class TransparencyScan {
 
   private font(value: PdfDirectObject | undefined): boolean {
     if (value?.kind === 'reference') {
-      if (this.seen.has(value.objectNumber)) {
+      if (this.fontObjects.has(value.objectNumber)) {
         return false;
       }
-      this.seen.add(value.objectNumber);
+      this.fontObjects.add(value.objectNumber);
     }
     const font = entriesOf(this.internals, value);
     // A direct font has no object number, so each font read is remembered by its dictionary and a later selection of it returns at once. A dictionary parsed again after the object cache drops it is a new one, so the procedure keys below, not this set, are what end a glyph that selects its own font.
