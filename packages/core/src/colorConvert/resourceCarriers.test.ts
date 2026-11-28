@@ -850,3 +850,32 @@ describe('carriers that share an indirect resource dictionary', () => {
     expect(listed.map(carrier => carrier.key)).toStrictEqual(Array.from({ length: SHARERS }, (_, index) => `${String(5 + index)} 0 R`));
   });
 });
+
+/** Direct Type 3 fonts on a cycle back to a dictionary the walk has already reached, with the steps the walk takes and the carriers it lists. */
+const fontCycles = [
+  {
+    shape: 'names the indirect Resources that holds it',
+    page: '/Resources 7 0 R',
+    dictionary: `<</ColorSpace<</X1 ${INDEXED}>>/Font<</F <<${TYPE3}/Resources 7 0 R>>>>>>`,
+    // The font from the page, then the same font from its own Resources, which only records a second place.
+    steps: 2,
+    owners: [{ kind: 'resources', reference: pdfReference(7, 0) }],
+  },
+  {
+    shape: 'sits in the indirect Font category its own Resources names',
+    page: '/Resources<</Font 7 0 R>>',
+    dictionary: `<</F <<${TYPE3}/Resources<</ColorSpace<</X1 ${INDEXED}>>/Font 7 0 R>>>>>>`,
+    // The font from the page; its own Resources only records a second holder of the category.
+    steps: 1,
+    owners: [{ kind: 'category', reference: pdfReference(7, 0), name: pdfName('F').bytes }],
+  },
+];
+
+describe('cycles through direct Type 3 fonts', () => {
+  it.each(fontCycles)('lists a direct Type 3 font that $shape once, in a counted number of steps', ({ page, dictionary, steps, owners }) => {
+    const seen = carrierSeen(steps);
+    const listed = walkPage(carrierPdf(page, [GLYPH, { number: 7, body: dictionary }]), 0, seen);
+    expect(listed.map(carrier => carrier.owner)).toStrictEqual(owners);
+    expect(seen.steps).toBe(steps);
+  });
+});
