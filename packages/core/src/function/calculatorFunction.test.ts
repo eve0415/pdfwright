@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
@@ -213,5 +214,37 @@ describe('calculator programs', () => {
     const evaluate = calculator('{ }', 1);
     expect(() => evaluate([])).toThrow(ParseError);
     expect(() => evaluate([1, 2])).toThrow(/input dimension mismatch/);
+  });
+});
+
+describe('properties', () => {
+  const int32 = fc.integer({ min: -(2 ** 31), max: 2 ** 31 - 1 });
+
+  it('agrees with 32-bit and, or and xor', () => {
+    fc.assert(
+      fc.property(int32, int32, (a, b) => {
+        const operands = `${String(a)} ${String(b)}`;
+        expect(['and', 'or', 'xor'].map(operator => calculator(`{ ${operands} ${operator} }`)([])[0])).toStrictEqual([a & b, a | b, a ^ b]);
+      }),
+    );
+  });
+
+  it('agrees with a zero-filling 32-bit shift in bitshift', () => {
+    fc.assert(
+      fc.property(int32, fc.integer({ min: -40, max: 40 }), (a, shift) => {
+        const expected = shift >= 32 || shift <= -32 ? 0 : shift >= 0 ? (a << shift) | 0 : (a >>> -shift) | 0;
+        expect(calculator(`{ ${String(a)} ${String(shift)} bitshift }`)([])).toStrictEqual([expected]);
+      }),
+    );
+  });
+
+  it('rolls the top n values cyclically by j positions toward the top', () => {
+    fc.assert(
+      fc.property(fc.array(fc.integer({ min: -1000, max: 1000 }), { minLength: 1, maxLength: 10 }), fc.integer({ min: -25, max: 25 }), (values, shift) => {
+        const count = values.length;
+        const expected = values.map((_, index) => values[(((index - shift) % count) + count) % count]);
+        expect(calculator(`{ ${values.map(String).join(' ')} ${String(count)} ${String(shift)} roll }`, 0, count)([])).toStrictEqual(expected);
+      }),
+    );
   });
 });
