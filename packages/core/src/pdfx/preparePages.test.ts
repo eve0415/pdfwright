@@ -771,6 +771,25 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 9)).toHaveLength(1);
   });
 
+  it('reads the names of a glyph procedure again through fonts that select one another as deep as maxNesting and refuses one more', () => {
+    // Font 10 reads CharProcs object 5 first and finds nothing; each later font reads it with its own Resources, whose N selects the next font, and the last names GS for a transparent state.
+    const chain = (fonts: number) =>
+      single('<</Font<</F0 10 0 R/F1 11 0 R>>>>', streamBody('', 'BT /F0 1 Tf /F1 1 Tf ET'), [
+        { number: 5, body: '<</a 6 0 R>>' },
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs BT /N 1 Tf ET') },
+        { number: 7, body: '<</ca 0.5>>' },
+        { number: 10, body: type3Font('5 0 R', '<<>>') },
+        ...Array.from({ length: fonts }, (_, index) => ({
+          number: 11 + index,
+          body: type3Font('5 0 R', index === fonts - 1 ? '<</ExtGState<</GS 7 0 R>>>>' : `<</Font<</N ${String(12 + index)} 0 R>>>>`),
+        })),
+      ]);
+    expect(addedGroups(chain(256))).toStrictEqual([0]);
+    const prepare = () => preparePdfX4Pages(chain(257));
+    expect(prepare).toThrow(ResourceLimitError);
+    expect(prepare).toThrow(/maxNesting \(256\)/u);
+  });
+
   it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
     ['a form that Do draws after Tf names it', '<</Font<</F 5 0 R>>/XObject<</X 5 0 R>>>>', 'BT /F 12 Tf ET /X Do', [], ''],
     [
