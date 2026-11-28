@@ -158,6 +158,15 @@ describe('icc text tags', () => {
     { name: 'a record size of 13', tag: mlucTag([{ locale: 'enUS', units: units('Hi') }], { recordSize: 13 }), offset: START + 8 },
     { name: 'a count past the tag', tag: mlucTag([{ locale: 'enUS', units: units('Hi') }], { count: 2 }), offset: START + 8 },
     { name: 'an odd string length', tag: mlucTag([{ locale: 'enUS', units: units('Hi'), length: 3 }]), offset: START + 16 },
+    // The odd length belongs to a record the reader does not choose, so decoding the chosen string cannot reject it.
+    {
+      name: 'an odd string length in a record it does not choose',
+      tag: mlucTag([
+        { locale: 'enUS', units: units('Hi') },
+        { locale: 'frFR', units: units('Fr'), length: 3 },
+      ]),
+      offset: START + 28,
+    },
     { name: 'a string inside the record table', tag: mlucTag([{ locale: 'enUS', units: units('Hi'), offset: 24 }]), offset: START + 16 },
     { name: 'a lone surrogate', tag: mlucTag([{ locale: 'enUS', units: [0xd8_00] }]), offset: START + 16 },
     { name: 'a length of 27 bytes', tag: mlucTag([{ locale: 'enUS', units: [] }]).subarray(0, 27), offset: START },
