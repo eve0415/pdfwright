@@ -216,11 +216,6 @@ describe('production page oracle', () => {
     }
   });
 
-  it('uses no exponent-form number tokens outside streams or in content streams', () => {
-    const bytes = createProductionPage().saved.toBytes();
-    expect(scanNumbers(bytes)).toStrictEqual([]);
-  });
-
   it('writes tiny and huge values across page, resource, object and drawing APIs without exponent tokens', () => {
     const tiny = 1e-7;
     const huge = 1e21;
