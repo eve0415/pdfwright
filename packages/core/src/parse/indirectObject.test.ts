@@ -1,7 +1,8 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
-import type { ParsedIndirectObject } from './indirectObject.ts';
+import type { IndirectObjectContext, ParsedIndirectObject } from './indirectObject.ts';
 import type { LoadWarning } from './loadWarning.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
@@ -21,12 +22,13 @@ interface Result {
   warnings: Array<LoadWarning>;
 }
 
-const parse = (text: string, offset = 0, base = 0): Result => {
-  const warnings: Array<LoadWarning> = [];
+type Hooks = Pick<IndirectObjectContext, 'findEndstream' | 'lastEndstream'>;
+
+const parse = (text: string, offset = 0, base = 0, hooks: Hooks = {}, warnings: Array<LoadWarning> = []): Result => {
   const warn = (warning: LoadWarning): void => {
     warnings.push(warning);
   };
-  const object = parseIndirectObject({ bytes: encode(text), base, final: true }, offset, { warn, names: new Map(), maxNesting: 256 });
+  const object = parseIndirectObject({ bytes: encode(text), base, final: true }, offset, { ...hooks, warn, names: new Map(), maxNesting: 256 });
   return { object, warnings };
 };
 
@@ -34,6 +36,18 @@ const data = (result: Result): string => (result.object.value.kind === 'stream' 
 
 const parseInSource = (source: ByteSource, offset: number): ParsedIndirectObject =>
   source.parseAt(offset, { warn: ignore, names: new Map() }, (window, local, context) => parseIndirectObject(window, local, { ...context, maxNesting: 256 }));
+
+// Parses the object after the comment that starts the file, collecting its warnings.
+const parseCollecting = (source: ByteSource): Result => {
+  const warnings: Array<LoadWarning> = [];
+  const warn = (warning: LoadWarning): void => {
+    warnings.push(warning);
+  };
+  const parsedObject = source.parseAt(7, { warn, names: new Map() }, (window, local, context) =>
+    parseIndirectObject(window, local, { ...context, maxNesting: 256 }),
+  );
+  return { object: parsedObject, warnings };
+};
 
 const dataOf = (object: ParsedIndirectObject): Uint8Array => (object.value.kind === 'stream' ? object.value.data : new Uint8Array());
 
@@ -83,15 +97,69 @@ describe('indirect object parser', () => {
       9,
       ['missing-endobj'],
     ]);
+    expect(next.warnings.map(warning => warning.offset)).toStrictEqual([10]);
     const texts = ['1 0 obj 5 xref', '1 0 obj 5 trailer', '1 0 obj 5 startxref', '1 0 obj 5 '];
     expect(texts.map(text => parse(text).object.source.clean)).toStrictEqual([false, false, false, false]);
   });
 
-  it('rejects a missing header, a stream without a dictionary and stray content before endobj', () => {
-    expect(() => parse('1 0 5')).toThrow(new ParseError('expected an object header', 0));
-    expect(() => parse(' 1 obj')).toThrow(ParseError);
-    expect(() => parse('1 0 obj [1] stream\nx endstream endobj')).toThrow(new ParseError('a stream must follow a dictionary', 12));
-    expect(() => parse('1 0 obj 5 6 endobj')).toThrow(new ParseError('expected endobj', 10));
+  // ParseError carries no reason for PDF syntax, so the words that name the failing construct stand in for one.
+  it.each([
+    ['a header without the keyword obj', '1 0 5', 0, /header/],
+    ['a header with one number', ' 1 obj', 1, /header/],
+    ['a negative object number', '-1 0 obj 5 endobj', 0, /header/],
+    ['a negative generation', '1 -1 obj 5 endobj', 0, /header/],
+    ['a stream after something other than a dictionary', '1 0 obj [1] stream\nx endstream endobj', 12, /dictionary/],
+    ['stray content before endobj', '1 0 obj 5 6 endobj', 10, /endobj/],
+    ['stream data with no endstream', '1 0 obj <<>> stream\nabc', 20, /endstream/],
+  ] as const)('rejects %s at its offset', (_, text, offset, words) => {
+    expect(() => parse(text)).toThrow(ParseError);
+    expect(() => parse(text)).toThrow(expect.objectContaining({ offset }));
+    expect(() => parse(text)).toThrow(words);
+  });
+
+  it('reads an empty stream with Length 0 cleanly', () => {
+    const result = parse('1 0 obj <</Length 0>> stream\nendstream endobj');
+    expect([data(result), result.object.source.clean, result.warnings]).toStrictEqual(['', true, []]);
+  });
+
+  it('warns about a stream keyword at the end of the file before rejecting it', () => {
+    const warnings: Array<LoadWarning> = [];
+    const run = (): void => {
+      warnings.length = 0;
+      parse('1 0 obj <<>> stream', 0, 0, {}, warnings);
+    };
+    expect(run).toThrow(ParseError);
+    expect(run).toThrow(expect.objectContaining({ offset: 19 }));
+    expect(warnings.map(warning => warning.code)).toStrictEqual(['stream-keyword-eol']);
+  });
+
+  it('numbers warnings only once the header has been read', () => {
+    const before: Array<LoadWarning> = [];
+    expect(() => parse('/A#zz 0 obj 5 endobj', 0, 0, {}, before)).toThrow(ParseError);
+    const after = parse('1 0 obj /A#zz endobj').warnings;
+    expect([before.map(warning => [warning.code, 'objectNumber' in warning]), after.map(warning => [warning.code, warning.objectNumber])]).toStrictEqual([
+      [['malformed-name-escape', false]],
+      [['malformed-name-escape', 1]],
+    ]);
+  });
+
+  // The data holds an endstream that a scan would find, so each failure shows that the hook decided it.
+  it.each([
+    ['the index finds no endstream', { findEndstream: () => undefined }],
+    ['the last endstream lies before the data', { lastEndstream: 5 }],
+    ['a function places the last endstream before the data', { lastEndstream: () => 5 }],
+  ] as const satisfies Array<[string, Hooks]>)('rejects recovery when %s', (_, hooks) => {
+    const text = '1 0 obj <<>> stream\nabc\nendstream endobj';
+    expect(() => parse(text, 0, 0, hooks)).toThrow(ParseError);
+    expect(() => parse(text, 0, 0, hooks)).toThrow(expect.objectContaining({ offset: 20 }));
+  });
+
+  // Only a stream starting after the last endstream fails at once, so data starting at that endstream is still searched.
+  it('rejects recovery one byte past the last endstream and recovers data that starts at it', () => {
+    const text = '1 0 obj <<>> stream\nendstream endobj';
+    expect(() => parse(text, 0, 0, { lastEndstream: 19 })).toThrow(ParseError);
+    expect(() => parse(text, 0, 0, { lastEndstream: 19 })).toThrow(expect.objectContaining({ offset: 20 }));
+    expect(data(parse(text, 0, 0, { lastEndstream: 20 }))).toBe('');
   });
 
   it('parses an object whose stream crosses segment boundaries', () => {
@@ -114,7 +182,13 @@ describe('indirect object parser', () => {
     ] as const satisfies Array<[string, string]>) {
       const result = parse(`1 0 obj ${dictionary} stream\r\nabc\ndef\r\nendstream\nendobj`);
       expect([data(result), result.object.source.clean]).toStrictEqual(['abc\ndef', false]);
-      expect(result.warnings.at(-1)).toMatchObject({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found 7 bytes before endstream` });
+      // The warning names the declared Length and the byte count found; the rest of its wording is not part of the contract.
+      const warning = result.warnings.at(-1);
+      expect([warning?.code, warning?.detail.includes(`Length ${declared},`), warning?.detail.includes(' 7 bytes')]).toStrictEqual([
+        'stream-length-recovered',
+        true,
+        true,
+      ]);
     }
   });
 
@@ -126,10 +200,6 @@ describe('indirect object parser', () => {
     expect(data(parse(missingEndobj))).toBe('x');
   });
 
-  it('rejects stream data with no endstream', () => {
-    expect(() => parse('1 0 obj <<>> stream\nabc')).toThrow(new ParseError('stream data has no endstream keyword', 20));
-  });
-
   it('reads a Length past the end of the source in the segment itself and copies data out of copied windows', () => {
     const first = encode('1 0 obj <</Length 999999>> stream\nabc\nendstream endobj\n');
     const second = encode('2 0 obj <</Length 10>> stream\n0123');
@@ -138,5 +208,32 @@ describe('indirect object parser', () => {
     const inSegment = dataOf(parseInSource(source, 0));
     const across = dataOf(parseInSource(source, first.length));
     expect([inSegment.buffer === first.buffer, across.buffer.byteLength]).toStrictEqual([true, 10]);
+  });
+});
+
+describe('properties', () => {
+  // The data repeats a short pattern to a drawn length, so that objects both smaller and larger than the first copied window (4,096 bytes) occur.
+  const object = fc
+    .tuple(fc.integer({ min: 0, max: 10_000 }), fc.uint8Array({ minLength: 1, maxLength: 16 }), fc.constantFrom('exact', 'missing', 'wrong'))
+    .map(([length, pattern, declared]) => {
+      const bytes = Uint8Array.from({ length }, (_, index) => pattern[index % pattern.length] ?? 0);
+      const entry = declared === 'exact' ? `/Length ${String(length)}` : declared === 'wrong' ? `/Length ${String(length + 3)}` : '';
+      const head = encode(`% junk\n1 0 obj <</A#zz 1 /A#zz 2 ${entry}>> stream\n`);
+      const tail = encode('\nendstream\nendobj\n');
+      const whole = new Uint8Array(head.length + bytes.length + tail.length);
+      whole.set(head);
+      whole.set(bytes, head.length);
+      whole.set(tail, head.length + bytes.length);
+      return whole;
+    });
+
+  it('parses an object the same way however the file is split, warning once', () => {
+    fc.assert(
+      fc.property(object, fc.array(fc.nat(), { maxLength: 6 }), (whole, cuts) => {
+        const points = [...new Set(cuts.map(cut => cut % (whole.length + 1)))].toSorted((left, right) => left - right);
+        const segments = [0, ...points].map((start, index) => whole.subarray(start, points[index] ?? whole.length));
+        expect(parseCollecting(new ByteSource(segments))).toStrictEqual(parseCollecting(new ByteSource(whole)));
+      }),
+    );
   });
 });

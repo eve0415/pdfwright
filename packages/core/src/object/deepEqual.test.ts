@@ -1,9 +1,11 @@
-import type { PdfObject } from './pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from './pdfObject.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { mm } from '../length/length.ts';
 
+import { cloneObject } from './cloneObject.ts';
 import { deepEqual } from './deepEqual.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference, pdfString } from './pdfObject.ts';
 
@@ -23,6 +25,7 @@ const stream = (data: string, length: number): PdfObject => ({
 describe('structural equality', () => {
   it('compares integers and reals by kind in strict mode and by value in lenient mode', () => {
     expect(both(pdfInteger(1), pdfReal(1))).toStrictEqual([false, true]);
+    expect(both(pdfReal(1), pdfInteger(1))).toStrictEqual([false, true]);
     expect(both(pdfReal(0.5), pdfReal(0.5))).toStrictEqual([true, true]);
     const inch = pdfReal(mm(25.4));
     const millimetre = pdfReal(mm(1));
@@ -37,20 +40,26 @@ describe('structural equality', () => {
     expect(both(pdfString(bytes), other)).toStrictEqual([false, false]);
   });
 
-  it('compares names, invalid tokens and references by their bytes and numbers', () => {
-    expect([both(pdfName('A'), pdfName('A')), both(pdfName('A'), pdfName('B'))]).toStrictEqual([
-      [true, true],
-      [false, false],
-    ]);
-    expect([both(invalid('--3'), invalid('--3')), both(invalid('--3'), invalid('-3'))]).toStrictEqual([
-      [true, true],
-      [false, false],
-    ]);
-    expect([both(pdfReference(1, 0), pdfReference(1, 0)), both(pdfReference(1, 0), pdfReference(1, 1))]).toStrictEqual([
-      [true, true],
-      [false, false],
-    ]);
-  });
+  it.each([
+    ['equal names', pdfName('A'), pdfName('A'), [true, true]],
+    ['different names', pdfName('A'), pdfName('B'), [false, false]],
+    ['a name and a longer name it prefixes', pdfName('A'), pdfName('AB'), [false, false]],
+    ['a name and a shorter name that prefixes it', pdfName('AB'), pdfName('A'), [false, false]],
+    ['a name and an invalid token of the same bytes', pdfName('A'), invalid('A'), [false, false]],
+    ['equal invalid tokens', invalid('--3'), invalid('--3'), [true, true]],
+    ['different invalid tokens', invalid('--3'), invalid('-3'), [false, false]],
+    ['equal references', pdfReference(1, 0), pdfReference(1, 0), [true, true]],
+    ['references with different generations', pdfReference(1, 0), pdfReference(1, 1), [false, false]],
+    ['references with different object numbers', pdfReference(1, 0), pdfReference(2, 0), [false, false]],
+    ['booleans of different values', { kind: 'boolean', value: true }, { kind: 'boolean', value: false }, [false, false]],
+    ['two nulls', { kind: 'null' }, { kind: 'null' }, [true, true]],
+    ['null and false', { kind: 'null' }, { kind: 'boolean', value: false }, [false, false]],
+  ] as const satisfies Array<[string, PdfObject, PdfObject, [boolean, boolean]]>)(
+    'compares %s by their kind, bytes and numbers',
+    (_, left, right, expected) => {
+      expect(both(left, right)).toStrictEqual(expected);
+    },
+  );
 
   it('compares dictionaries as key sets with null values absent, and arrays element by element', () => {
     const left = dictionary([
@@ -67,7 +76,14 @@ describe('structural equality', () => {
     const one = pdfArray([pdfInteger(1)]);
     const two = pdfArray([pdfInteger(1), pdfInteger(2)]);
     expect(both(left, smaller)).toStrictEqual([false, false]);
+    expect(both(smaller, left)).toStrictEqual([false, false]);
     expect(both(one, two)).toStrictEqual([false, false]);
+    expect(both(two, pdfArray([pdfInteger(1), pdfInteger(3)]))).toStrictEqual([false, false]);
+  });
+
+  it('compares numbers by value inside containers in lenient mode', () => {
+    expect(both(pdfArray([pdfInteger(1)]), pdfArray([pdfReal(1)]))).toStrictEqual([false, true]);
+    expect(both(dictionary([['A', pdfInteger(1)]]), dictionary([['A', pdfReal(1)]]))).toStrictEqual([false, true]);
   });
 
   it('compares streams by dictionary and data', () => {
@@ -75,5 +91,132 @@ describe('structural equality', () => {
     expect(both(stream('ab', 2), stream('ac', 2))).toStrictEqual([false, false]);
     expect(both(stream('ab', 2), stream('ab', 3))).toStrictEqual([false, false]);
     expect(both(stream('ab', 2), pdfInteger(2))).toStrictEqual([false, false]);
+    expect(both(stream('ab', 2), dictionary([['Length', pdfInteger(2)]]))).toStrictEqual([false, false]);
+  });
+});
+
+// Removes the non-null entry at a drawn position, or adds one when the position is one past the last, so that the entries and the result differ in exactly one entry.
+const oneEntryOff = (entries: PdfDictionaryEntries, at: number): PdfDictionaryEntries => {
+  const kept = [...entries.entries()];
+  const index = at % (kept.length + 1);
+  return new PdfDictionaryEntries(index === kept.length ? [...kept, [pdfName('C').bytes, pdfInteger(1)]] : kept.toSpliced(index, 1));
+};
+
+// Applies oneEntryOff to a dictionary or a stream dictionary, and removes or appends an array element the same way.
+const oneOff = (item: PdfObject, at: number): PdfObject => {
+  if (item.kind === 'array') {
+    const index = at % (item.items.length + 1);
+    return pdfArray(index === item.items.length ? [...item.items, pdfInteger(1)] : item.items.toSpliced(index, 1));
+  }
+  if (item.kind === 'dictionary') {
+    return pdfDictionary(oneEntryOff(item.entries, at));
+  }
+  return item.kind === 'stream' ? { ...item, dictionary: oneEntryOff(item.dictionary, at) } : item;
+};
+
+describe('properties', () => {
+  // Values drawn from two choices per kind, so that two independent draws are often equal or differ in one place.
+  const { value, array, dictionaryValue } = fc.letrec<{ value: PdfDirectObject; array: PdfDirectObject; dictionaryValue: PdfDirectObject }>(tie => ({
+    value: fc.oneof(
+      { depthSize: 'small' },
+      fc.constantFrom<PdfDirectObject>(
+        { kind: 'null' },
+        { kind: 'boolean', value: false },
+        pdfInteger(1),
+        pdfInteger(2),
+        pdfReal(1),
+        pdfReal(0.5),
+        pdfName('A'),
+        pdfName('B'),
+        pdfString(Uint8Array.of(1)),
+        pdfString(Uint8Array.of(1), 'hex'),
+        pdfReference(1, 0),
+        pdfReference(2, 0),
+        { kind: 'invalid', bytes: Uint8Array.of(0x2d), reason: 'malformed-number' },
+      ),
+      tie('array'),
+      tie('dictionaryValue'),
+    ),
+    array: fc.array(tie('value'), { maxLength: 2 }).map(items => pdfArray(items)),
+    dictionaryValue: fc
+      .array(fc.tuple(fc.constantFrom('A', 'B'), tie('value')), { maxLength: 2 })
+      .map(entries => pdfDictionary(new PdfDictionaryEntries(entries.map(([key, item]) => [pdfName(key).bytes, item])))),
+  }));
+  const streamObject = fc
+    .tuple(value, fc.constantFrom(Uint8Array.of(), Uint8Array.of(1)))
+    .map(([item, data]): PdfObject => ({ kind: 'stream', dictionary: new PdfDictionaryEntries([[pdfName('K').bytes, item]]), data }));
+  const object = fc.oneof(value, streamObject);
+  const container = fc.oneof(array, dictionaryValue, streamObject);
+  const mode = fc.constantFrom('strict' as const, 'lenient' as const);
+
+  // Writes every whole number in the other numeric kind, so that a pair differs in strict mode and agrees in lenient mode.
+  const swapNumbers = (item: PdfDirectObject): PdfDirectObject => {
+    if (item.kind === 'integer') {
+      return pdfReal(item.value);
+    }
+    if (item.kind === 'real' && typeof item.value === 'number' && Number.isInteger(item.value)) {
+      return pdfInteger(item.value);
+    }
+    if (item.kind === 'array') {
+      return pdfArray(item.items.map(child => swapNumbers(child)));
+    }
+    if (item.kind === 'dictionary') {
+      return pdfDictionary(new PdfDictionaryEntries([...item.entries.entries()].map(([key, child]) => [key, swapNumbers(child)])));
+    }
+    return item;
+  };
+
+  // Writes every string in the other encoding, so that a pair holding a string differs in strict mode and agrees in lenient mode.
+  const reencodeDirect = (item: PdfDirectObject): PdfDirectObject => {
+    if (item.kind === 'string') {
+      return pdfString(item.bytes, item.encoding === 'literal' ? 'hex' : 'literal');
+    }
+    if (item.kind === 'array') {
+      return pdfArray(item.items.map(child => reencodeDirect(child)));
+    }
+    if (item.kind === 'dictionary') {
+      return pdfDictionary(reencodeEntries(item.entries));
+    }
+    return item;
+  };
+  const reencodeEntries = (entries: PdfDictionaryEntries): PdfDictionaryEntries =>
+    new PdfDictionaryEntries([...entries.entries()].map(([key, child]) => [key, reencodeDirect(child)]));
+  const reencode = (item: PdfObject): PdfObject => (item.kind === 'stream' ? { ...item, dictionary: reencodeEntries(item.dictionary) } : reencodeDirect(item));
+  const holdsString = (item: PdfObject): boolean => {
+    if (item.kind === 'string') {
+      return true;
+    }
+    if (item.kind === 'array') {
+      return item.items.some(child => holdsString(child));
+    }
+    const entries = item.kind === 'dictionary' ? item.entries : item.kind === 'stream' ? item.dictionary : undefined;
+    return entries !== undefined && [...entries.entries()].some(([, child]) => holdsString(child));
+  };
+
+  // Independent draws are rarely equal or near misses, so a pair is also drawn as a value against its clone, its numbers swapped, its strings re-encoded, or one entry or element removed or added.
+  const pair = fc.oneof(
+    fc.tuple(object, object),
+    object.map(left => [left, cloneObject(left)] as const),
+    value.map(left => [left, swapNumbers(left)] as const),
+    object.filter(holdsString).map(left => [left, reencode(left)] as const),
+    fc.tuple(container, fc.nat()).map(([left, at]) => [left, oneOff(left, at)] as const),
+  );
+
+  it('is reflexive, also against a clone', () => {
+    fc.assert(
+      fc.property(object, mode, (left, chosen) => {
+        expect([deepEqual(left, left, chosen), deepEqual(left, cloneObject(left), chosen)]).toStrictEqual([true, true]);
+      }),
+    );
+  });
+
+  it('is symmetric, and strict equality implies lenient equality', () => {
+    fc.assert(
+      fc.property(pair, ([left, right]) => {
+        const strict = deepEqual(left, right, 'strict');
+        const lenient = deepEqual(left, right, 'lenient');
+        expect([deepEqual(right, left, 'strict'), deepEqual(right, left, 'lenient'), strict && !lenient]).toStrictEqual([strict, lenient, false]);
+      }),
+    );
   });
 });
