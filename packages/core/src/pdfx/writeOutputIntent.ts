@@ -209,15 +209,21 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
     catalog.set(key('Version'), pdfName('1.6'));
   }
   document.set(root, pdfDictionary(catalog));
+  // Intents may list one intent twice or share a profile, and a reference to a free object or another generation names no object (ISO 32000-1:2008, 7.3.10), so only an object still in use at the referenced generation is deleted.
+  const remove = (reference: PdfReference): void => {
+    if (internals.objects.generationOf(reference.objectNumber) === reference.generation) {
+      document.delete(reference);
+    }
+  };
   for (const intent of existing) {
     if (!intent.matches && intent.reference !== undefined) {
-      document.delete(intent.reference);
+      remove(intent.reference);
     }
   }
   const reachable = reachableObjects(internals).objects;
   for (const intent of existing) {
     if (!intent.matches && intent.profile !== undefined && !reachable.has(intent.profile.objectNumber)) {
-      document.delete(intent.profile);
+      remove(intent.profile);
     }
   }
   return catalogLowered;
