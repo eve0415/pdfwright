@@ -200,6 +200,28 @@ describe('embedded and ToUnicode CMaps', () => {
     }).toThrow(ResourceLimitError);
   });
 
+  describe('the codespace check budget of 1,000,000', () => {
+    // 2000 one-code ranges <0000> to <07CF>: the miss FFFF costs 4000 checks (2000 to read, 2000 to consume it as invalid), 07CF costs 2000 and 0000 costs 1.
+    const WIDE_RANGES = `2000 begincodespacerange ${Array.from({ length: 2000 }, (_, index) => {
+      const hex = index.toString(16).padStart(4, '0');
+      return `<${hex}> <${hex}>`;
+    }).join(' ')} endcodespacerange`;
+    const AT_LIMIT = `${'ffff'.repeat(249)}07cf07cf`;
+    const PAST_LIMIT = `${AT_LIMIT}0000`;
+
+    it('splits a string that takes exactly the budget and refuses one that takes one check more', () => {
+      expect(split(cmapOf(WIDE_RANGES), AT_LIMIT)).toHaveLength(251);
+      expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(ResourceLimitError);
+      expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(/codespace checks/u);
+    });
+
+    it('checks a codespace range a usecmap child repeats from its parent once', () => {
+      const child = cmapOf(`/Parent usecmap ${WIDE_RANGES}`, cmapOf(WIDE_RANGES));
+      expect(split(child, AT_LIMIT)).toHaveLength(251);
+      expect(() => split(child, PAST_LIMIT)).toThrow(ResourceLimitError);
+    });
+  });
+
   it('counts bfrange destinations across arrays', () => {
     const cmap = `5 beginbfrange ${Array.from({ length: 5 }, (_, index) => `<${index.toString(16).padStart(4, '0')}> <${(index + 15_999).toString(16).padStart(4, '0')}> [${'<0041> '.repeat(16_000)}]`).join(' ')} endbfrange`;
     expect(() => parse(cmap)).toThrow(ResourceLimitError);
