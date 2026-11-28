@@ -115,6 +115,22 @@ describe('page content comparison', () => {
     expect([content(compareDocuments(dictionary, same)), content(compareDocuments(dictionary, other)).length]).toStrictEqual([[], 2]);
   });
 
+  // ISO 32000-1:2008, 7.3.8.2, Table 5: each entry of a DecodeParms array belongs to the filter at the same position.
+  it('decodes content whose filter parameters refer back to their array rather than passing it when the parameters swap places', () => {
+    const hexDeflated = `${[...deflateZlib(latin1Bytes('0 0 m 1 1 l S'))].map(byte => byte.toString(16).padStart(2, '0')).join('')}>`;
+    const parameters = (order: string): LoadedDocument =>
+      document('4 0 R', [
+        { number: 4, body: streamBody('/Filter[/ASCIIHexDecode/FlateDecode]/DecodeParms 10 0 R', hexDeflated) },
+        { number: 10, body: `[${order}]` },
+        { number: 11, body: '<</X 10 0 R>>' },
+        { number: 12, body: '<</Predictor 2/Columns 3/X 10 0 R>>' },
+      ]);
+    expect([
+      content(compareDocuments(parameters('11 0 R 12 0 R'), parameters('11 0 R 12 0 R'))),
+      content(compareDocuments(parameters('11 0 R 12 0 R'), parameters('12 0 R 11 0 R'))),
+    ]).toMatchObject([[], [{ kind: 'page-content', page: 0 }]]);
+  });
+
   it('resolves filter parameters that share objects or nest deeply without repeated work or call stack', () => {
     const shared = Array.from({ length: 40 }, (_, index): TestObject => ({
       number: 10 + index,

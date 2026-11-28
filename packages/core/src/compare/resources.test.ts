@@ -78,6 +78,15 @@ const composite = (data: string, cmap = streamBody('/Type/CMap', 'cmapdata')): L
     { number: 12, body: cmap },
   ]);
 
+// Two fonts whose encoding dictionaries refer to each other, listed on the page in the given order, the second encoding naming the given glyph.
+const cyclicEncodings = (order: string, second = 'b'): LoadedDocument =>
+  load(`<</Font<<${order}>>>>`, [
+    { number: 6, body: '<</Type/Font/Subtype/Type1/BaseFont/A/Encoding 20 0 R>>' },
+    { number: 7, body: '<</Type/Font/Subtype/Type1/BaseFont/B/Encoding 21 0 R>>' },
+    { number: 20, body: '<</Type/Encoding/Differences[32/a]/X 21 0 R>>' },
+    { number: 21, body: `<</Type/Encoding/Differences[32/${second}]/X 20 0 R>>` },
+  ]);
+
 describe('resource and font comparison', () => {
   it('compares resources as values, whether direct or indirect and however numbered', () => {
     const direct = load('<</Font<</F1 8 0 R>>/ExtGState<</GS1<</CA 1>>>>>>', [helvetica]);
@@ -147,6 +156,19 @@ describe('resource and font comparison', () => {
     const other = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/b]>>');
     expect(compareDocuments(one, two, { include: ['fonts'] }).differences).toStrictEqual([]);
     expectReplacedFont(compareDocuments(one, other, { include: ['fonts'] }).differences, 'encoding');
+  });
+
+  // ISO 32000-1:2008, 7.3.7: the order of dictionary entries carries no meaning.
+  it('identifies fonts whose encodings refer to each other the same, whichever font the page lists first', () => {
+    const [forward, backward] = ['/F1 6 0 R/F2 7 0 R', '/F2 7 0 R/F1 6 0 R'];
+    expect([
+      compareDocuments(cyclicEncodings(forward), cyclicEncodings(backward), { include: ['fonts'] }).differences,
+      compareDocuments(cyclicEncodings(backward), cyclicEncodings(forward), { include: ['fonts'] }).differences,
+    ]).toStrictEqual([[], []]);
+    expect(kinds(compareDocuments(cyclicEncodings(forward), cyclicEncodings(backward, 'c'), { include: ['fonts'] }).differences)).toStrictEqual([
+      'font-set',
+      'font-set',
+    ]);
   });
 
   it('finds fonts through graphics states, soft masks and annotation appearances', () => {

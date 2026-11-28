@@ -123,7 +123,9 @@ const numberOf = (value: Value): number | undefined => {
   return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
 };
 
-// Scalars compare by value: numbers whether integer or real (ISO 32000-1:2008, 7.3.3, NOTE 2), names, strings and invalid tokens by bytes, strings in either form.
+const isNull = (value: Value): value is Extract<Value, { kind: 'null' }> | undefined => value === undefined || value.kind === 'null';
+
+// Scalars compare by value: numbers whether integer or real (ISO 32000-1:2008, 7.3.3, NOTE 2), names, strings and invalid tokens by bytes, strings in either form, and a null the same as an absent value.
 const scalarEqual = (left: Value, right: Value): boolean => {
   const leftNumber = numberOf(left);
   if (leftNumber !== undefined) {
@@ -132,8 +134,8 @@ const scalarEqual = (left: Value, right: Value): boolean => {
   if (left?.kind === 'string' && right?.kind === 'string') {
     return sameBytes(left.bytes, right.bytes);
   }
-  if (left === undefined || right === undefined) {
-    return left === right;
+  if (isNull(left) || isNull(right)) {
+    return isNull(left) && isNull(right);
   }
   return deepEqual(left, right, 'strict');
 };
@@ -354,7 +356,7 @@ export class ValueGraph {
     }
   }
 
-  // A reference to a missing object reads as null, which is the same as absent (ISO 32000-1:2008, 7.3.10); an object that cannot be parsed is reported.
+  // A reference to a missing object reads as null (ISO 32000-1:2008, 7.3.10), which compares the same as a direct null or an absent value; an object that cannot be parsed is reported.
   private resolve(side: 'a' | 'b', value: Value, path: Where): Value | typeof UNREADABLE {
     if (value?.kind !== 'reference') {
       return value;

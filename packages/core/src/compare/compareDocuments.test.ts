@@ -221,6 +221,17 @@ const font = (body: string): Uint8Array =>
     { number: 8, body },
   ]);
 
+// A document whose one font has an encoding dictionary that leads to the objects numbered from 20.
+const withEncoding = (objects: ReadonlyArray<string>): ReturnType<typeof loadDocument> =>
+  loadDocument(
+    pdf([
+      { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]>>' },
+      { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<</Font<</F1 8 0 R>>>>>>' },
+      { number: 8, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding<</Type/Encoding/X 20 0 R>>>>' },
+      ...objects.map((body, index): TestObject => ({ number: 20 + index, body })),
+    ]),
+  );
+
 describe('document comparison: results and areas', () => {
   it('is unequal when it reports a difference', () => {
     expect(compareDocuments(loadDocument(twoPages), loadDocument(onePage('')))).toStrictEqual({
@@ -283,6 +294,15 @@ describe('document comparison: results and areas', () => {
       { kind: 'font-set', page: 'document', added: [helvetica], removed: [] },
     ]);
   });
+
+  it('identifies a font by what its encoding unfolds to, however the objects of a cycle in it are shared', () => {
+    const shared = withEncoding(['[21 0 R 21 0 R]', '<</Y 20 0 R>>']);
+    expect([
+      compareDocuments(shared, withEncoding(['[<</Y 20 0 R>> <</Y 20 0 R>>]'])).differences,
+      compareDocuments(shared, withEncoding(['[21 0 R 22 0 R]', '<</Y 20 0 R>>', '<</Y 20 0 R>>'])).differences,
+      compareDocuments(shared, withEncoding(['[21 0 R 21 0 R]', '<</Y 21 0 R>>'])).differences.map(difference => difference.kind),
+    ]).toStrictEqual([[], [], ['page-resources', 'font-set', 'font-set']]);
+  });
 });
 
 interface PageSpec {
@@ -319,26 +339,49 @@ const documentSpec: fc.Arbitrary<DocumentSpec> = fc.array(pageSpec, { minLength:
   }),
 );
 
-// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, and a page and its content for each page.
-const objectNumbers = (spec: DocumentSpec): Array<number> => [1, 2, 3, 4, 5, 6, 7, 8, ...spec.pages.flatMap((_, index) => [10 + 2 * index, 11 + 2 * index])];
+// The object numbers a document of this shape uses: catalog, page tree, fonts, Info, outline, a page and its content for each page, and the fonts' encodings.
+const objectNumbers = (spec: DocumentSpec): Array<number> => [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  ...spec.pages.flatMap((_, index) => [10 + 2 * index, 11 + 2 * index]),
+  30,
+  31,
+  32,
+];
 
-// Writes the document with each object number n written as number(n), so that one shape can be numbered in different ways.
-const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = logical => logical): Uint8Array => {
+// Writes the document with each object number n written as number(n), so that one shape can be numbered in different ways, and with each page's fonts listed in reverse when `reversed` is set.
+// The fonts' encodings form one reference cycle, which each font enters at a different object.
+const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = logical => logical, reversed = false): Uint8Array => {
   const ref = (logical: number): string => `${String(number(logical))} 0 R`;
+  const fontEntries = (fonts: ReadonlyArray<number>): string =>
+    (reversed ? fonts.toReversed() : fonts).map(font => `/F${String(font)} ${ref(3 + font)}`).join('');
   const objects: Array<TestObject> = [
     { number: number(1), body: `<</Type/Catalog/Pages ${ref(2)}${spec.outline === null ? '' : `/Outlines ${ref(7)}`}>>` },
     {
       number: number(2),
       body: `<</Type/Pages/Kids[${spec.pages.map((_, index) => ref(10 + 2 * index)).join(' ')}]/Count ${String(spec.pages.length)}/MediaBox[0 0 200 300]>>`,
     },
-    ...FONTS.map((font, index): TestObject => ({ number: number(3 + index), body: `<</Type/Font/Subtype/Type1/BaseFont/${font}>>` })),
+    ...FONTS.map((font, index): TestObject => ({
+      number: number(3 + index),
+      body: `<</Type/Font/Subtype/Type1/BaseFont/${font}/Encoding ${ref(30 + index)}>>`,
+    })),
+    ...FONTS.map((_, index): TestObject => ({
+      number: number(30 + index),
+      body: `<</Type/Encoding/Differences[32/g${String(index)}]/Next ${ref(30 + ((index + 1) % FONTS.length))}>>`,
+    })),
     { number: number(6), body: `<</Title(${spec.title ?? ''})>>` },
     { number: number(7), body: `<</Count 1/First ${ref(8)}/Last ${ref(8)}>>` },
     { number: number(8), body: `<</Title(Item)/Parent ${ref(7)}/Dest[${ref(10 + 2 * (spec.outline ?? 0))}/Fit]>>` },
     ...spec.pages.flatMap((page, index): Array<TestObject> => [
       {
         number: number(10 + 2 * index),
-        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${page.fonts.map(font => `/F${String(font)} ${ref(3 + font)}`).join('')}>>>>>>`,
+        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${fontEntries(page.fonts)}>>>>>>`,
       },
       { number: number(11 + 2 * index), body: streamBody('', page.operations.join(' ')) },
     ]),
@@ -399,7 +442,7 @@ describe('properties', () => {
     );
   });
 
-  it('finds no difference between documents that number the same objects differently', () => {
+  it('finds no difference between documents that number the same objects differently and list fonts in another order', () => {
     const renumbered = documentSpec.chain(spec => {
       const numbers = objectNumbers(spec);
       return fc.record({ spec: fc.constant(spec), order: fc.shuffledSubarray(numbers, { minLength: numbers.length, maxLength: numbers.length }) });
@@ -408,7 +451,7 @@ describe('properties', () => {
       fc.property(renumbered, ({ spec, order }) => {
         const numbers = objectNumbers(spec);
         const mapping = new Map(numbers.map((logical, index) => [logical, order[index] ?? logical]));
-        const comparison = compareDocuments(loadDocument(writeSpec(spec)), loadDocument(writeSpec(spec, logical => mapping.get(logical) ?? logical)));
+        const comparison = compareDocuments(loadDocument(writeSpec(spec)), loadDocument(writeSpec(spec, logical => mapping.get(logical) ?? logical, true)));
         expect(comparison).toStrictEqual({ equal: true, differences: [] });
       }),
     );
