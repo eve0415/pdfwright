@@ -461,11 +461,12 @@ describe('deeply nested carriers', () => {
   });
 });
 
+const sampled = (document: LoadedDocument, owner: number, keys: ReadonlyArray<string>): ReadonlyArray<number> => {
+  const shading = at(document, owner, keys);
+  return functionOf(document, shading?.kind === 'dictionary' ? shading.entries.get(pdfName('Function').bytes) : undefined)([0.5]);
+};
+
 describe('rendering intents of direct shadings in resource carriers', () => {
-  const sampled = (document: LoadedDocument, owner: number, keys: ReadonlyArray<string>): ReadonlyArray<number> => {
-    const shading = at(document, owner, keys);
-    return functionOf(document, shading?.kind === 'dictionary' ? shading.entries.get(pdfName('Function').bytes) : undefined)([0.5]);
-  };
   const directCarrier = {
     carrier: 'a direct Type 3 font',
     page: `/Resources<</Font<</F <<${TYPE3}${OWN_SHADING}>>>>>>`,
