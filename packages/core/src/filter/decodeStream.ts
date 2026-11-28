@@ -27,6 +27,7 @@ type PdfStream = Extract<PdfObject, { kind: 'stream' }>;
 
 const FILTER = pdfName('Filter').bytes;
 const DECODE_PARMS = pdfName('DecodeParms').bytes;
+const CRYPT_FILTER_NAME = pdfName('Name').bytes;
 // ISO 32000-1:2008, Table 94 gives the abbreviations for inline images; readers accept them in stream dictionaries too.
 const NAMES: ReadonlyMap<string, string> = new Map([
   ['AHx', 'ASCIIHexDecode'],
@@ -113,7 +114,15 @@ const applyFilter = ({ name, parameters }: FilterStep, data: Uint8Array, context
       return decodeRunLength(data, limit);
     }
     case 'Crypt': {
-      // ISO 32000-1:2008, 7.4.10: Crypt filters need the document's security handler; pdfwright does not decrypt.
+      // ISO 32000-1:2008, 7.4.10, Table 14: Name defaults to Identity, and 7.6.5, Table 26: Identity passes the data through unchanged.
+      const cryptFilter = parameters?.get(CRYPT_FILTER_NAME);
+      if (cryptFilter !== undefined && cryptFilter.kind !== 'name') {
+        throw new ParseError('the Crypt filter Name is not a name', 0);
+      }
+      if (cryptFilter === undefined || latin1(cryptFilter.bytes) === 'Identity') {
+        return data;
+      }
+      // Every other crypt filter needs the document's security handler; pdfwright does not decrypt.
       throw new UnsupportedFeatureError('the Crypt filter needs decryption, which pdfwright does not perform');
     }
     default: {
