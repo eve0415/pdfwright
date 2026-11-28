@@ -364,6 +364,35 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(document)).toStrictEqual(groups);
   });
 
+  it.each<[string, string, Array<number>]>([
+    ['the second names a transparent state', '7 0 R', [0]],
+    ['both name an opaque state', '9 0 R', []],
+  ])('reads a glyph procedure that two Type 3 fonts share with the Resources of each, where %s', (_, second, groups) => {
+    // ISO 32000-1:2008, 9.6.5 and Table 112: a glyph procedure runs with the Resources of the font that shows it.
+    const type3 = (state: string) =>
+      `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS ${state}>>>>>>`;
+    const document = single('<</Font<</T1 5 0 R/T2 8 0 R>>>>', streamBody('', 'BT /T1 12 Tf (a) Tj /T2 12 Tf (a) Tj ET'), [
+      { number: 5, body: type3('9 0 R') },
+      { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+      { number: 7, body: '<</ca 0.5>>' },
+      { number: 8, body: type3(second) },
+      { number: 9, body: '<</ca 1>>' },
+    ]);
+    expect(addedGroups(document)).toStrictEqual(groups);
+  });
+
+  it.each<[string, string, ReadonlyArray<TestObject>]>([
+    ['an indirect font', '<</Font<</T3 5 0 R>>>>', [{ number: 5, body: '<<FONT>>' }]],
+    ['a direct font', '<</Font<</T3 <<FONT>>>>>>', []],
+  ])('ends the scan of a glyph that selects its own font, %s', (_, resources, extra) => {
+    const font = '/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]';
+    const document = single(resources.replace('FONT', font), streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
+      ...extra.map(object => ({ ...object, body: object.body.replace('FONT', font) })),
+      { number: 6, body: streamBody('', '0 0 d0 BT /T3 12 Tf (a) Tj ET 0 0 1 1 re f') },
+    ]);
+    expect(addedGroups(document)).toStrictEqual([]);
+  });
+
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
     const document = single('<</Font<</T3 5 0 R>>>>', streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
       {
