@@ -476,8 +476,8 @@ describe('embedded TrueType cmap tables, damaged or at their limits', () => {
 
   it('reports a default UVS table that runs past the subtable as unreadable', () => {
     const variations = format14(0xfe_0f, [[0x41, 0]], []);
-    // The default UVS table follows the 21-byte header and record; its numUnicodeValueRanges claims five ranges where one is present.
-    variations.splice(21, 4, ...u32(5));
+    // The default UVS table follows the 21-byte header and record; its numUnicodeValueRanges claims 16,384 ranges where one is present, which with the record would also pass the 16,384 entry limit, so only the fit check can report it as unreadable.
+    variations.splice(21, 4, ...u32(16_384));
     expect(readTrueTypeCmap(withVariations(variations)).kind).toBe('unreadable');
   });
 });
