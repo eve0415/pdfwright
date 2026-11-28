@@ -65,6 +65,8 @@ describe('signature protection', () => {
   it.each([
     ['an unsigned signature field', [{ number: 3, body: '<</FT/Sig>>' }], undefined],
     ['a signature field whose value is null', [{ number: 3, body: '<</FT/Sig/V null>>' }], undefined],
+    // ISO 32000-1:2008, 7.3.10: a reference to an object that does not exist is the null object.
+    ['a signature field whose value refers to a missing object', [{ number: 3, body: '<</FT/Sig/V 5 0 R>>' }], undefined],
     ['a text field with a value', [{ number: 3, body: '<</FT/Tx/V(signed)>>' }], undefined],
     [
       'a kid that inherits FT Sig from its parent',
