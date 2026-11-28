@@ -8,19 +8,18 @@ import { describe, expect, it } from 'vitest';
 import { calibratedProfile } from '../color/calibratedSource.ts';
 import { labToXyz } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
-import { readContent } from '../content/contentOperations.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
-import { decodeStream } from '../filter/decodeStream.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { PdfDictionaryEntries, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
+import { readInlineImage } from '../testing/readInlineImage.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
 import { deviceRgbLuminosity } from './luminosityContent.ts';
@@ -409,25 +408,7 @@ const maskInline = (document: ReturnType<typeof loadDocument>) => {
   if (typeof data === 'string') {
     throw new TypeError(data);
   }
-  const operations = [...readContent(data, internals.maxNesting)];
-  const image = operations[0]?.inlineImage;
-  if (image === undefined) {
-    throw new Error('inline image is missing');
-  }
-  const dictionary = new PdfDictionaryEntries();
-  for (let index = 0; index + 1 < image.parameters.length; index += 2) {
-    const key = image.parameters[index];
-    const value = image.parameters[index + 1];
-    if (key?.kind === 'name' && value !== undefined && value.kind !== 'stray-delimiter') {
-      const name = latin1Text(key.bytes);
-      if (name === 'F' || name === 'DP') {
-        dictionary.set(pdfName(name === 'F' ? 'Filter' : 'DecodeParms').bytes, value);
-      }
-    }
-  }
-  const warnings: Array<string> = [];
-  const samples = decodeStream({ kind: 'stream', dictionary, data: image.data }, { maxDecodedBytes: 1_048_576, warn: warning => warnings.push(warning.code) });
-  return { operators: operations.map(operation => operation.operator), warnings, samples };
+  return readInlineImage(data);
 };
 
 const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
