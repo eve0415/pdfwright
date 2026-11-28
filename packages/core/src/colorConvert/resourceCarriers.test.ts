@@ -987,7 +987,10 @@ const fontNames = (count: number): ReadonlyArray<string> => Array.from({ length:
 const manyFonts = [
   {
     holder: 'a page',
-    page: (count: number) => `/Resources<</Font<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>>>`,
+    page: (count: number) =>
+      `/Resources<</Font<<${fontNames(count)
+        .map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`)
+        .join('')}>>>>`,
     objects: () => [],
     path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
     indexed: (count: number) => count,
@@ -995,20 +998,33 @@ const manyFonts = [
   {
     holder: 'an indirect Font category',
     page: () => '/Resources<</Font 200 0 R>>',
-    objects: (count: number) => [{ number: 200, body: `<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>` }],
+    objects: (count: number) => [
+      {
+        number: 200,
+        body: `<<${fontNames(count)
+          .map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`)
+          .join('')}>>`,
+      },
+    ],
     path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
     indexed: (count: number) => count,
   },
   {
     holder: 'a page, where every font names one indirect Resources',
-    page: (count: number) => `/Resources<</Font<<${fontNames(count).map(name => `/${name} <<${TYPE3}/Resources 200 0 R>>`).join('')}>>>>`,
+    page: (count: number) =>
+      `/Resources<</Font<<${fontNames(count)
+        .map(name => `/${name} <<${TYPE3}/Resources 200 0 R>>`)
+        .join('')}>>>>`,
     objects: () => [{ number: 200, body: `<</ColorSpace<</X1 ${INDEXED}>>>>` }],
     path: (name: string) => ['Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
     indexed: () => 1,
   },
   {
     holder: 'another direct Type 3 font',
-    page: (count: number) => `/Resources<</Font<</F <<${TYPE3}/Resources<</Font<<${fontNames(count).map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`).join('')}>>>>>>>>>>`,
+    page: (count: number) =>
+      `/Resources<</Font<</F <<${TYPE3}/Resources<</Font<<${fontNames(count)
+        .map(name => `/${name} ${directFont('ColorSpace', INDEXED)}`)
+        .join('')}>>>>>>>>>>`,
     objects: () => [],
     path: (name: string) => ['Resources', 'Font', 'F', 'Resources', 'Font', name, 'Resources', 'ColorSpace', 'X1'],
     indexed: (count: number) => count,
@@ -1017,7 +1033,7 @@ const manyFonts = [
 
 describe('many direct Type 3 fonts in one Font category', () => {
   it.each(manyFonts)('writes each object once and copies entries linearly in the fonts when they sit in $holder', ({ page, objects, path, indexed }) => {
-    const convert = (count: number): { writes: number; copies: number } => {
+    const convert = (count: number) => {
       const document = carrierPdf(page(count), [GLYPH, ...objects(count)]);
       const set = vi.spyOn(document, 'set');
       const object = vi.spyOn(document, 'object');
@@ -1041,7 +1057,12 @@ const FONT_SHARERS = 50;
 /** Forms that all name one indirect Resources 200, which names every form and holds a direct Font category of one indirect font under many names, with or without one direct Type 3 font beside them, and the steps the walk takes. */
 const sharedFontCategories = [
   { fonts: 'only indirect fonts', direct: '', steps: 2 * FONT_SHARERS + 1, carriers: FONT_SHARERS },
-  { fonts: 'indirect fonts and one direct Type 3 font', direct: `/D ${directFont('ColorSpace', INDEXED)}`, steps: 3 * FONT_SHARERS + 1, carriers: 2 * FONT_SHARERS },
+  {
+    fonts: 'indirect fonts and one direct Type 3 font',
+    direct: `/D ${directFont('ColorSpace', INDEXED)}`,
+    steps: 3 * FONT_SHARERS + 1,
+    carriers: 2 * FONT_SHARERS,
+  },
 ];
 
 describe('a direct Font category in an indirect Resources that many carriers share', () => {
