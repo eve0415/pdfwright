@@ -1,38 +1,19 @@
-import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { CMapProvider } from './cmap/cmapProvider.ts';
 import type { FontGlyph, FontModel } from './fontModel.ts';
 
 import { describe, expect, it } from 'vitest';
 
-import { internalsOf } from '../document/documentInternals.ts';
-import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { pdfDictionary, pdfReference } from '../object/pdfObject.ts';
-import { buildPdf, latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
+import { latin1Bytes, streamBody } from '../testing/pdfBuilder.ts';
 
 import { FontCache, fontKey } from './loadFont.ts';
-
-const documentWith = (objects: ReadonlyArray<TestObject>): DocumentInternals => {
-  const loaded = loadDocument(
-    buildPdf([
-      {
-        xref: 'classic',
-        objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }, ...objects],
-        trailer: '/Root 1 0 R',
-      },
-    ]).bytes,
-  );
-  const parts = internalsOf(loaded);
-  if (parts === undefined) {
-    throw new Error('the document has no internals');
-  }
-  return parts;
-};
+import { fontDocument } from './testing/fontDocument.ts';
 
 // Object 10 is the font; the other objects are what it refers to.
 const fontOf = (font: string, objects: ReadonlyArray<TestObject> = [], provider?: CMapProvider): FontModel =>
-  new FontCache(documentWith([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
+  new FontCache(fontDocument([{ number: 10, body: font }, ...objects]), provider).font(pdfReference(10, 0), '10.0');
 
 const glyphsOf = (font: FontModel, string: Uint8Array | string): ReadonlyArray<FontGlyph> => {
   const result = font.glyphs(typeof string === 'string' ? latin1Bytes(string) : string);
@@ -154,7 +135,7 @@ describe('simple fonts', () => {
   });
 
   it('reads a font value that is not a dictionary as an unreadable font', () => {
-    const font = new FontCache(documentWith([]), undefined).font({ kind: 'integer', value: 3 }, 'direct:1.0:4631');
+    const font = new FontCache(fontDocument([]), undefined).font({ kind: 'integer', value: 3 }, 'direct:1.0:4631');
     expect([font.subtype, font.glyphs(latin1Bytes('A')).kind, ...font.warnings.map(warning => warning.code)]).toStrictEqual([
       'other',
       'undecodable',
@@ -383,7 +364,7 @@ describe('embedded TrueType programs', () => {
 
 describe('the font cache', () => {
   it('loads each font once per key', () => {
-    const cache = new FontCache(documentWith([{ number: 10, body: type0Font('/Identity-H', CID_FONT_TYPE2) }]), undefined);
+    const cache = new FontCache(fontDocument([{ number: 10, body: type0Font('/Identity-H', CID_FONT_TYPE2) }]), undefined);
     expect(cache.font(pdfReference(10, 0), '10.0')).toBe(cache.font(pdfReference(10, 0), '10.0'));
   });
 

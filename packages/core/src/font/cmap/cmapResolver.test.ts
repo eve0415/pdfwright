@@ -1,34 +1,14 @@
-import type { DocumentInternals } from '../../document/documentInternals.ts';
-import type { TestObject } from '../../testing/pdfBuilder.ts';
 import type { CMap } from './cmap.ts';
 import type { CMapProvider } from './cmapProvider.ts';
 import type { CMapResult } from './cmapResolver.ts';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { internalsOf } from '../../document/documentInternals.ts';
-import { loadDocument } from '../../document/loadDocument.ts';
 import { pdfName, pdfReference } from '../../object/pdfObject.ts';
-import { buildPdf, latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
+import { latin1Bytes, streamBody } from '../../testing/pdfBuilder.ts';
+import { fontDocument } from '../testing/fontDocument.ts';
 
 import { CMapResolver } from './cmapResolver.ts';
-
-const document = (objects: ReadonlyArray<TestObject> = []): DocumentInternals => {
-  const loaded = loadDocument(
-    buildPdf([
-      {
-        xref: 'classic',
-        objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' }, { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' }, ...objects],
-        trailer: '/Root 1 0 R',
-      },
-    ]).bytes,
-  );
-  const parts = internalsOf(loaded);
-  if (parts === undefined) {
-    throw new Error('the document has no internals');
-  }
-  return parts;
-};
 
 const provider = (files: Readonly<Record<string, string>>): CMapProvider => ({
   cmap: vi.fn<(name: string) => Uint8Array | undefined>((name: string) => (name in files ? latin1Bytes(files[name] ?? '') : undefined)),
@@ -45,7 +25,7 @@ const PARENT = '/CMapName /Parent def 1 begincodespacerange <0000> <FFFF> endcod
 
 describe('resolved CMaps', () => {
   it('builds in Identity-H and Identity-V without a provider', () => {
-    const resolver = new CMapResolver(document(), undefined);
+    const resolver = new CMapResolver(fontDocument(), undefined);
     const horizontal = cmapOf(resolver.named('Identity-H'));
     expect(horizontal.read(Uint8Array.of(0x4e, 0x00, 0x41), 0)).toStrictEqual({ code: { value: 0x4e_00, length: 2 }, valid: true });
     expect(horizontal.cid({ value: 0x4e_00, length: 2 })).toBe(0x4e_00);
@@ -53,11 +33,11 @@ describe('resolved CMaps', () => {
   });
 
   it('reports another predefined CMap as unavailable without a provider', () => {
-    expect(new CMapResolver(document(), undefined).named('UniJIS-UTF16-H')).toStrictEqual({ kind: 'unavailable', name: 'UniJIS-UTF16-H' });
+    expect(new CMapResolver(fontDocument(), undefined).named('UniJIS-UTF16-H')).toStrictEqual({ kind: 'unavailable', name: 'UniJIS-UTF16-H' });
   });
 
   it('reports a CMap the provider supplies as empty or unparsable bytes as unavailable', () => {
-    const resolver = new CMapResolver(document(), provider({ Empty: '', Garbage: 'not a CMap )]>> at all' }));
+    const resolver = new CMapResolver(fontDocument(), provider({ Empty: '', Garbage: 'not a CMap )]>> at all' }));
     expect([resolver.named('Empty'), resolver.named('Garbage')]).toStrictEqual([
       { kind: 'unavailable', name: 'Empty' },
       { kind: 'unavailable', name: 'Garbage' },
@@ -66,7 +46,7 @@ describe('resolved CMaps', () => {
 
   it('parses a CMap the provider supplies once, and follows its usecmap through the provider', () => {
     const files = provider({ Parent: PARENT, Child: '/Parent usecmap /WMode 1 def 1 begincidchar <0041> 7 endcidchar' });
-    const resolver = new CMapResolver(document(), files);
+    const resolver = new CMapResolver(fontDocument(), files);
     const child = cmapOf(resolver.named('Child'));
     expect([child.cid({ value: 0x41, length: 2 }), child.cid({ value: 0x42, length: 2 }), child.writingMode]).toStrictEqual([7, 166, 1]);
     resolver.named('Child');
@@ -75,19 +55,19 @@ describe('resolved CMaps', () => {
   });
 
   it('reports a usecmap cycle as unreadable', () => {
-    const resolver = new CMapResolver(document(), provider({ A: '/B usecmap', B: '/A usecmap' }));
+    const resolver = new CMapResolver(fontDocument(), provider({ A: '/B usecmap', B: '/A usecmap' }));
     expect(resolver.named('A').kind).toBe('unreadable');
   });
 
   it('keeps a CMap whose usecmap names a CMap that is not available, and records the name', () => {
     const files = provider({ Child: '/UniJIS-UTF16-H usecmap 1 begincodespacerange <0000> <FFFF> endcodespacerange' });
-    const child = cmapOf(new CMapResolver(document(), files).named('Child'));
+    const child = cmapOf(new CMapResolver(fontDocument(), files).named('Child'));
     expect(child.unavailableParent).toBe('UniJIS-UTF16-H');
     expect(child.mapped({ value: 0x41, length: 2 })).toBeUndefined();
   });
 
   it('reads an embedded CMap stream whose UseCMap entry is another stream', () => {
-    const internals = document([
+    const internals = fontDocument([
       { number: 4, body: streamBody('/Type/CMap/CMapName/Child/UseCMap 5 0 R', '/Parent usecmap 1 begincidchar <0041> 7 endcidchar') },
       { number: 5, body: streamBody('/Type/CMap/CMapName/Parent', PARENT) },
     ]);
@@ -96,7 +76,7 @@ describe('resolved CMaps', () => {
   });
 
   it('resolves an Encoding name through the provider and reports a stream that does not decode as unreadable', () => {
-    const internals = document([{ number: 4, body: streamBody('/Filter/FlateDecode', 'not deflate data') }]);
+    const internals = fontDocument([{ number: 4, body: streamBody('/Filter/FlateDecode', 'not deflate data') }]);
     const resolver = new CMapResolver(internals, provider({ Custom: PARENT }));
     expect(cmapOf(resolver.encoding(pdfName('Custom'))).cid({ value: 0x41, length: 2 })).toBe(165);
     expect(resolver.encoding(pdfReference(4, 0)).kind).toBe('unreadable');
@@ -104,7 +84,9 @@ describe('resolved CMaps', () => {
   });
 
   it('reads a ToUnicode CMap only from a stream', () => {
-    const internals = document([{ number: 4, body: streamBody('', '1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <0042> endbfchar') }]);
+    const internals = fontDocument([
+      { number: 4, body: streamBody('', '1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <0042> endbfchar') },
+    ]);
     const resolver = new CMapResolver(internals, undefined);
     const toUnicode = cmapOf(resolver.stream(pdfReference(4, 0)));
     expect(toUnicode.unicode({ value: 0x41, length: 1 })).toBe('B');
