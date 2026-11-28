@@ -48,8 +48,6 @@ describe('header and startxref location', () => {
     const text = '%PDF-1.4\nstartxref\n0\n%%EOF\nxref\nstartxref\n  1234\r\n%%EOF\r\n\u0000\u0000garbage';
     expect(locateStartxref(source(text))).toStrictEqual({ keyword: 32, offset: 1234 });
     expect(locateStartxref(source(text, 5))).toStrictEqual({ keyword: 32, offset: 1234 });
-    const padded = `startxref\n99\n%%EOF${' '.repeat(10_000)}`;
-    expect(locateStartxref(source(padded))).toStrictEqual({ keyword: 0, offset: 99 });
     expect(locateStartxref(source('startxref\n%%EOF'))).toBeUndefined();
     expect(locateStartxref(source('%PDF-1.4 no trailer'))).toBeUndefined();
   });
@@ -58,12 +56,21 @@ describe('header and startxref location', () => {
     expect(locateStartxref(source('startxref\n-5\n%%EOF'))).toBeUndefined();
   });
 
-  it('searches the last 4,096 bytes first and the rest of a single buffer after them', () => {
-    // The keyword exactly 4,096 bytes from the end lies in the tail copy, even when the segment holding it is not the last one.
+  // The keyword exactly 4,096 bytes from the end lies in the tail copy, even when the segment holding it is not the last one; one byte further out, the rest of the source is searched, whichever segments hold it.
+  it.each([0, 5, 1024])('searches the last 4,096 bytes first and the rest of the source after them, with %i-byte segments', chunk => {
     const atLimit = `${'x'.repeat(100)}\nstartxref\n77\n%%EOF${' '.repeat(4096 - 'startxref\n77\n%%EOF'.length)}`;
-    expect(locateStartxref(source(atLimit, 1024))).toStrictEqual({ keyword: 101, offset: 77 });
     const beyond = `${'x'.repeat(100)}\nstartxref\n77\n%%EOF${' '.repeat(4097 - 'startxref\n77\n%%EOF'.length)}`;
-    expect(locateStartxref(source(beyond))).toStrictEqual({ keyword: 101, offset: 77 });
+    const padded = `startxref\n99\n%%EOF${' '.repeat(10_000)}`;
+    expect([locateStartxref(source(atLimit, chunk)), locateStartxref(source(beyond, chunk)), locateStartxref(source(padded, chunk))]).toStrictEqual([
+      { keyword: 101, offset: 77 },
+      { keyword: 101, offset: 77 },
+      { keyword: 0, offset: 99 },
+    ]);
+  });
+
+  it('reads the last of two startxref keywords that lie more than 4,096 bytes from the end in different segments', () => {
+    const text = `startxref\n11\n%%EOF\n${'x'.repeat(2000)}\nstartxref\n22\n%%EOF${' '.repeat(5000)}`;
+    expect(locateStartxref(source(text, 1024))).toStrictEqual({ keyword: 2020, offset: 22 });
   });
 
   it('finds the %%EOF that follows the located startxref', () => {
@@ -155,6 +162,16 @@ describe('properties', () => {
         const blank = offset <= start && /^[ \n\r]*$/u.test(text.slice(offset, start));
         const near = Math.abs(offset - start) <= 64;
         expect(sectionStartNear(source(text, size), offset)).toStrictEqual(blank || near ? { offset: start, corrected: !blank } : undefined);
+      }),
+    );
+  });
+
+  it('locates the same startxref whatever the segment sizes', () => {
+    // Up to 6,000 bytes after %%EOF puts the keyword on either side of the 4,096-byte tail.
+    fc.assert(
+      fc.property(fc.nat(6000), fc.nat(6000), fc.constantFrom(5, 1024), (before, after, size) => {
+        const text = `${'x'.repeat(before)}\nstartxref\n99\n%%EOF${' '.repeat(after)}`;
+        expect(locateStartxref(source(text, size))).toStrictEqual({ keyword: before + 1, offset: 99 });
       }),
     );
   });
