@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { Clip } from './clip.ts';
@@ -60,5 +61,134 @@ describe('path flattening', () => {
         [10, 10],
       ],
     ]);
+  });
+
+  it('replaces one curve by at most 4,096 chords however far its control points lie', () => {
+    const path = new PathBuilder(IDENTITY);
+    path.moveTo(0, 0);
+    path.curveTo([1e9, 0, -1e9, 0, 0, 0]);
+    expect(path.vertices).toBe(4097);
+  });
+
+  it('starts the subpath after h at the start of the closed subpath', () => {
+    // ISO 32000-1:2008, 8.5.2.1, Table 59, h: "Appending another segment to the current path shall begin a new subpath", from the point h returned to.
+    const path = new PathBuilder(IDENTITY);
+    path.moveTo(0, 0);
+    path.lineTo(10, 0);
+    path.lineTo(10, 10);
+    path.close();
+    const afterClose = path.currentPoint();
+    path.lineTo(20, 20);
+    expect([afterClose, path.polygons()]).toStrictEqual([
+      [0, 0],
+      [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+        ],
+        [
+          [0, 0],
+          [20, 20],
+        ],
+      ],
+    ]);
+  });
+
+  it('adds no subpath for a moveTo past the vertex limit but counts its vertices', () => {
+    const path = new PathBuilder(IDENTITY);
+    path.moveTo(0, 0);
+    for (let index = 1; index <= MAX_CLIP_VERTICES; index++) {
+      path.lineTo(index, 0);
+    }
+    const [subpaths, vertices] = [path.polygons().length, path.vertices];
+    for (let index = 0; index < 100; index++) {
+      path.rectangle([0, 0, 1, 1]);
+    }
+    expect([subpaths, vertices, path.polygons().length, path.vertices]).toStrictEqual([1, 10_001, 1, 10_401]);
+  });
+});
+
+const rectanglesOf = (draw: (path: PathBuilder) => void): ReturnType<PathBuilder['axisAlignedRectangles']> => {
+  const path = new PathBuilder(IDENTITY);
+  draw(path);
+  return path.axisAlignedRectangles();
+};
+
+// Rectangles 5 wide, 10 apart, so that none touches another.
+const disjoint = (count: number): ReturnType<PathBuilder['axisAlignedRectangles']> =>
+  rectanglesOf(path => {
+    for (let index = 0; index < count; index++) {
+      path.rectangle([index * 10, 0, 5, 5]);
+    }
+  });
+
+describe('axis-aligned rectangles', () => {
+  it('normalises a rectangle drawn with negative sides and refuses one of zero area', () => {
+    expect([
+      rectanglesOf(path => {
+        path.rectangle([10, 10, -5, -5]);
+      }),
+      rectanglesOf(path => {
+        path.rectangle([0, 0, 0, 10]);
+      }),
+    ]).toStrictEqual([[[5, 5, 10, 10]], undefined]);
+  });
+
+  it('recognises a rectangle closed by a fifth point equal to the first', () => {
+    expect(
+      rectanglesOf(path => {
+        path.moveTo(0, 0);
+        path.lineTo(10, 0);
+        path.lineTo(10, 10);
+        path.lineTo(0, 10);
+        path.lineTo(0, 0);
+      }),
+    ).toStrictEqual([[0, 0, 10, 10]]);
+  });
+
+  it('reads up to 64 rectangles and refuses 65', () => {
+    const expected = Array.from({ length: 64 }, (_, index) => [index * 10, 0, index * 10 + 5, 5]);
+    expect([disjoint(64), disjoint(65)]).toStrictEqual([expected, undefined]);
+  });
+});
+
+const coordinate = fc.integer({ min: -1000, max: 1000 });
+
+describe('properties', () => {
+  it('keeps every chord of a cubic curve within 0.05 of it, with at most 4,096 chords', () => {
+    fc.assert(
+      fc.property(fc.tuple(coordinate, coordinate, coordinate, coordinate, coordinate, coordinate, coordinate, coordinate), controls => {
+        const [x0, y0, x1, y1, x2, y2, x3, y3] = controls;
+        const path = new PathBuilder(IDENTITY);
+        path.moveTo(x0, y0);
+        path.curveTo([x1, y1, x2, y2, x3, y3]);
+        const points = path.polygons().flat();
+        expect([chordDeviations(points, controls).every(deviation => deviation <= 0.05), points.length <= 4097]).toStrictEqual([true, true]);
+      }),
+    );
+  });
+
+  it('reads disjoint rectangles under a positive scale and a translation as their transformed corners', () => {
+    // Each rectangle lies in its own cell 20 wide, so no two overlap.
+    const cell = fc.record({
+      x: fc.integer({ min: 0, max: 5 }),
+      y: fc.integer({ min: -50, max: 50 }),
+      width: fc.integer({ min: 1, max: 10 }),
+      height: fc.integer({ min: 1, max: 10 }),
+    });
+    const scale = fc.integer({ min: 1, max: 40 }).map(value => value / 4);
+    fc.assert(
+      fc.property(fc.array(cell, { minLength: 1, maxLength: 64 }), scale, scale, coordinate, coordinate, (cells, sx, sy, tx, ty) => {
+        const path = new PathBuilder([sx, 0, 0, sy, tx, ty]);
+        const placed = cells.map(({ x, y, width, height }, index) => [index * 20 + x, y, width, height] as const);
+        for (const operands of placed) {
+          path.rectangle(operands);
+        }
+        expect(path.axisAlignedRectangles()).toStrictEqual(
+          placed.map(([x, y, width, height]) => [sx * x + tx, sy * y + ty, sx * (x + width) + tx, sy * (y + height) + ty]),
+        );
+      }),
+    );
   });
 });
