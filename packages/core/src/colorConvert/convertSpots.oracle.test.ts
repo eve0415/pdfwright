@@ -939,6 +939,28 @@ describe('spot spaces in resource carriers', () => {
     expect(report.spots.separations).toBe(1);
     expectConverted(document, 5);
   });
+
+  it('converts a Type 3 font Separation alternate and a DeviceN Colorants entry when the whole document is converted and saved', () => {
+    const document = loadDocument(
+      carrierPdf(
+        `/Resources<</Font<</F 5 0 R>>/ColorSpace<</CS2[/DeviceN[/A]/DeviceCMYK<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[1 0 0 0]/N 1>><</Colorants<</A ${SEPARATION_A}>>>>]>>>>`,
+        [
+          { number: 5, body: `<<${TYPE3}${OWN_SPOT}>>` },
+          { number: 6, body: streamBody('', '1000 0 d0 /CS1 cs 1 sc 0 0 500 500 re f') },
+        ],
+        '/CS2 cs 1 sc 0 0 10 10 re f BT /F 12 Tf 10 10 Td (A) Tj ET',
+      ),
+    );
+    const report = convertToCmyk(document, {
+      sourceRgbProfile: source.bytes,
+      outputProfile: destination.bytes,
+      outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+    });
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(report.spots.separations).toBe(2);
+    expectConverted(reloaded, 5);
+    expectConvertedA(reloaded, pageSpace(reloaded, 'CS2'));
+  });
 });
 
 const quantized = (values: ReadonlyArray<number>): ReadonlyArray<number> => values.map(value => Math.round(value * 65_535));

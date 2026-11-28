@@ -472,6 +472,33 @@ describe('indexed colour conversion', () => {
     expect(streamText(document, 5)).toBe('/CS1 cs 1 sc 0 0 10 10 re f');
   });
 
+  it('converts an appearance stream lookup when the whole document is converted and saved', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+            { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<<>>/Annots[5 0 R]>>' },
+            { number: 4, body: streamBody('', '0 0 1 1 re f') },
+            { number: 5, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/F 4/AP<</N 6 0 R>>>>' },
+            { number: 6, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${OWN_SPACE}`, '/CS1 cs 0 sc 0 0 10 10 re f 0 1 0 rg 0 0 5 5 re f') },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    const report = convertToCmyk(document, {
+      sourceRgbProfile: source.bytes,
+      outputProfile: destination.bytes,
+      outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+    });
+    const reloaded = loadDocument(document.save().toBytes());
+    expect(report.indexed.indexed).toBe(1);
+    expect(resourceLookup(reloaded, 6)).toStrictEqual({ base: 'DeviceCMYK', lookup: lookupOf({ kind: 'icc', profile: source }, [255, 128, 64]) });
+  });
+
   it.each([
     { options: { intent: 'perceptual' }, transform: { intent: 'perceptual', blackPointCompensation: true } },
     { options: { blackPointCompensation: false }, transform: { intent: 'relativeColorimetric', blackPointCompensation: false } },
