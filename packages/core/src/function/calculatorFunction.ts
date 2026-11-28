@@ -32,7 +32,8 @@ const literal = (word: string): Token => {
 const lex = (data: Uint8Array): Array<Token> => {
   // ISO 32000-1:2008, 7.10.5.1: calculator code is enclosed in braces; conditional expressions use nested braces.
   const source = new TextDecoder('latin1').decode(data).replaceAll(/%[^\r\n]*/gu, ' ');
-  const words = source.match(/\{|\}|[^\s{}]+/gu) ?? [];
+  // ISO 32000-1:2008, 7.2.2, Table 1: only NUL, HT, LF, FF, CR and SP are white space.
+  const words = source.match(/\{|\}|[^\0\t\n\f\r {}]+/gu) ?? [];
   if (words.length > 10_000) {
     throw new ResourceLimitError('calculator function has too many tokens');
   }
