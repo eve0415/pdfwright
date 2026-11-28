@@ -255,6 +255,26 @@ describe('cross-reference reconstruction', () => {
     ]);
   });
 
+  // A member above 2^31 - 1 is skipped as a top-level object above it is; 2^32 + 1 would otherwise wrap to object 1.
+  const objectStream = (number: number, body: string): string => {
+    const header = `5 0 ${String(number)} 3 `;
+    return `%PDF-1.5\n1 0 obj (a) endobj\n2 0 obj (b) endobj\n3 0 obj\n${streamBody(`/Type/ObjStm/N 2/First ${String(header.length)}`, `${header}(m)${body}`)}\nendobj\n`;
+  };
+
+  it.each([
+    [2_147_483_647, [2_147_483_647]],
+    [2_147_483_648, []],
+    [4_294_967_297, []],
+  ])('reads an object-stream member numbered %i only up to 2^31 - 1', (number, kept) => {
+    const readable = reconstruct(objectStream(number, '(n)')).reconstruction;
+    const unreadable = reconstruct(objectStream(number, '<zz>')).reconstruction;
+    expect([located(readable).map(([objectNumber, type]) => [objectNumber, type]), readable.objects, unreadable.unreadable]).toStrictEqual([
+      [[1, 'file'], [2, 'file'], [3, 'file'], [5, 'compressed'], ...kept.map(objectNumber => [objectNumber, 'compressed'])],
+      4 + kept.length,
+      kept,
+    ]);
+  });
+
   it('reads only trailer keywords that stand alone and hold a dictionary, and scans on past a broken one', () => {
     const text = '%PDF-1.4\nxtrailer<</Root 8 0 R>>\ntrailer 5\ntrailer <</A [>>\n1 0 obj (a) endobj\ntrailer <</Root 1 0 R>>\n';
     const { reconstruction } = reconstruct(text);
