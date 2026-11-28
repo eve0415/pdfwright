@@ -5,12 +5,13 @@ import { coordinateNumber } from './coordinateNumber.ts';
 
 const digits = (value: bigint): number => String(value < 0n ? -value : value).length;
 
-// An oracle that shares nothing with the implementation: 25 significant decimal digits of the quotient by bigint division, read back by the correctly rounding decimal parser.
-const decimalQuotient = (numerator: bigint, denominator: bigint): number => {
+// An oracle that shares nothing with the implementation: 25 significant decimal digits of the quotient by bigint division, truncated and raised by one in the last digit so that the exact quotient lies between them, each read back by the correctly rounding decimal parser.
+const decimalBounds = (numerator: bigint, denominator: bigint): readonly [number, number] => {
   const magnitude = numerator < 0n ? -numerator : numerator;
   const exponent = 25 - (digits(magnitude) - digits(denominator));
   const scaled = exponent >= 0 ? (magnitude * 10n ** BigInt(exponent)) / denominator : magnitude / (denominator * 10n ** BigInt(-exponent));
-  return Number.parseFloat(`${numerator < 0n ? '-' : ''}${String(scaled)}e${String(-exponent)}`);
+  const read = (significand: bigint): number => Number.parseFloat(`${numerator < 0n ? '-' : ''}${String(significand)}e${String(-exponent)}`);
+  return [read(scaled), read(scaled + 1n)];
 };
 
 const term = (minDigits: number, maxDigits: number): fc.Arbitrary<bigint> =>
@@ -49,6 +50,10 @@ describe('coordinate numbers', () => {
     { case: 'exactly at the midpoint after 1 to the even 1', numerator: (2n ** 53n + 1n) * large, denominator: 2n ** 53n * large, expected: 1 },
     { case: 'just above the midpoint after 2^-1073 up', numerator: 5n * large + 1n, denominator: 2n ** 1075n * large, expected: 3 * 2 ** -1074 },
     { case: 'exactly at the midpoint after 2^-1073 to the even 2^-1073', numerator: 5n, denominator: 2n ** 1075n, expected: 2 ** -1073 },
+    { case: 'just below the midpoint after the largest number down', numerator: (2n ** 1024n - 2n ** 970n) * large - 1n, denominator: large, expected: Number.MAX_VALUE },
+    { case: 'exactly at the midpoint after the largest number to Infinity', numerator: 2n ** 1024n - 2n ** 970n, denominator: 1n, expected: Number.POSITIVE_INFINITY },
+    { case: 'exactly at 2^-1075 to the even 0', numerator: 1n, denominator: 2n ** 1075n, expected: 0 },
+    { case: 'just above 2^-1075 up to 2^-1074', numerator: 2n, denominator: 2n ** 1076n - 1n, expected: 2 ** -1074 },
   ])('rounds a quotient $case', ({ numerator, denominator, expected }) => {
     expect(coordinateNumber({ numerator, denominator })).toBe(expected);
   });
@@ -57,12 +62,14 @@ describe('coordinate numbers', () => {
     it('agrees with the decimal quotient to within 1e-15', () => {
       fc.assert(
         fc.property(pair, ([numerator, denominator]) => {
-          const expected = decimalQuotient(numerator, denominator);
           const actual = coordinateNumber({ numerator, denominator });
           // An infinite quotient must be met exactly, since Infinity − Infinity is NaN and any finite error is within Infinity × 1e-15.
-          const error = Object.is(actual, expected) ? 0 : Math.abs(actual - expected);
-          expect(error).toBeLessThanOrEqual(Number.isFinite(expected) ? Math.abs(expected) * 1e-15 : 0);
+          const near = (expected: number): boolean => Object.is(actual, expected) || (Number.isFinite(expected) && Math.abs(actual - expected) <= Math.abs(expected) * 1e-15);
+          // Away from a rounding boundary both bounds read back as one number; beside one, such as the midpoint between the largest number and Infinity, the exact quotient may round to either.
+          expect(decimalBounds(numerator, denominator).some(near)).toBe(true);
         }),
+        // The midpoint between the largest number and Infinity, and a quotient just past 2^-1075, whose truncated decimals round the other way.
+        { examples: [[[2n ** 1024n - 2n ** 970n, 1n]], [[2n, 2n ** 1076n - 1n]]] },
       );
     });
   });
