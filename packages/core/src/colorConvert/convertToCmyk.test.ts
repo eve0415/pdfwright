@@ -423,6 +423,32 @@ describe('forms drawn from converted pages', () => {
     expect(forms[0]).not.toBe(forms[1]);
   });
 
+  it('renames the Do of a form copy that follows an inline image', () => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject<</Fm 5 0 R>>',
+            content: `BI /W 1 /H 1 /BPC 8 /CS /RGB ID ${String.fromCodePoint(255, 0, 0)} EI /CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do`,
+          },
+        ],
+        [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') }],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const forms = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => {
+      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(match[1] ?? '').bytes) : undefined;
+      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${match[1] ?? ''}`;
+    });
+    expect(pageText).toMatch(/^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
+    expect(forms[0]).not.toBe(forms[1]);
+  });
+
   it('names the second copy of a form apart from an image in an indirect XObject dictionary', () => {
     const document = loadDocument(
       documentBytes(
