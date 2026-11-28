@@ -1,4 +1,6 @@
-import type { PdfObject, PdfReference } from '../object/pdfObject.ts';
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfFunction } from '../function/pdfFunction.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -15,6 +17,8 @@ import { xyzToLab } from '../color/pcs.ts';
 import { sourceEvaluator } from '../color/profilePipeline.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -28,6 +32,17 @@ const fixture = async (name: string): Promise<Uint8Array> =>
 const source = parseIccProfile(await fixture('sRGB.icm'));
 const destination = parseIccProfile(await fixture('fogra28l.icc'));
 const toPcs = sourceEvaluator(destination, 'relativeColorimetric', 'icc');
+const options = { intent: 'relativeColorimetric', blackPointCompensation: true } as const;
+const rgbTransform = createColorTransform({ kind: 'icc', profile: source }, destination, options);
+
+const cmykOf = (...rgb: ReadonlyArray<number>): Float64Array => {
+  const output = new Float64Array(4);
+  rgbTransform.convert(Float64Array.from(rgb), output);
+  return output;
+};
+
+const close = (actual: ReadonlyArray<number>, expected: Float64Array): boolean =>
+  actual.length === expected.length && actual.every((value, index) => Math.abs(value - (expected[index] ?? Number.NaN)) <= 0.005);
 
 const lab = (channels: ReadonlyArray<number> | Float64Array): ReadonlyArray<number> => {
   const pcs = toPcs([...channels]);
@@ -220,9 +235,6 @@ const numberValue = (value: PdfObject): number => {
   throw new Error('shading number is invalid');
 };
 
-const closeChannels = (actual: ReadonlyArray<number>, expected: Float64Array): Array<boolean> =>
-  actual.map((value, index) => Math.abs(value - (expected[index] ?? 0)) <= 0.005);
-
 const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: ReadonlyArray<number>) => Array<number>) => {
   const shading = document.get(pdfReference(5, 0));
   if (shading.kind !== 'dictionary') {
@@ -316,14 +328,6 @@ const shadingStop = (document: ReturnType<typeof loadDocument>): number => {
   return stop === undefined ? -1 : numberValue(stop);
 };
 
-const shadingCoordsKind = (document: ReturnType<typeof loadDocument>): string | undefined => {
-  const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') {
-    throw new Error('shading is missing');
-  }
-  return shading.entries.get(pdfName('Coords').bytes)?.kind;
-};
-
 const directShadingSpace = (document: ReturnType<typeof loadDocument>): string => {
   const resources = document.page(0).resources();
   const category = resources.get(pdfName('Shading').bytes);
@@ -401,6 +405,89 @@ const patternShadingColor = (document: ReturnType<typeof loadDocument>) => {
   return shading.entries.get(pdfName('ColorSpace').bytes);
 };
 
+interface ShadingFixture {
+  readonly content?: string;
+  readonly resources?: string;
+  readonly objects?: ReadonlyArray<{ readonly number: number; readonly body: string }>;
+}
+
+const shadingPdf = (shading: string, config: ShadingFixture = {}): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<</Shading<</Sh1 5 0 R>>${config.resources ?? ''}>>>>` },
+        { number: 4, body: streamBody('', config.content ?? '/Sh1 sh') },
+        { number: 5, body: shading },
+        { number: 6, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+        ...(config.objects ?? []),
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+const decodedObject = (document: LoadedDocument, object: PdfObject): PdfObject => {
+  const internals = internalsOf(document);
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
+  if (object.kind !== 'stream') {
+    return object;
+  }
+  const data = decodedData(internals, object);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return { kind: 'stream', dictionary: object.dictionary, data };
+};
+
+/** Reads a written function graph, following and decoding the indirect children of a Type 3 function. */
+const functionOf = (document: LoadedDocument, value: PdfDirectObject | undefined): PdfFunction => {
+  if (value === undefined) {
+    throw new Error('function is missing');
+  }
+  const resolve = (item: PdfDirectObject): PdfObject => decodedObject(document, item.kind === 'reference' ? document.get(item) : item);
+  return createPdfFunction(resolve(value), resolve);
+};
+
+const shadingEntry = (document: LoadedDocument, key: string): PdfDirectObject | undefined => {
+  const shading = document.get(pdfReference(5, 0));
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
+  return shading.entries.get(pdfName(key).bytes);
+};
+
+const writtenFunction = (document: LoadedDocument): PdfFunction => functionOf(document, shadingEntry(document, 'Function'));
+
+const writtenSize = (document: LoadedDocument): ReadonlyArray<number> => {
+  const reference = shadingEntry(document, 'Function');
+  const object = reference?.kind === 'reference' ? document.get(reference) : undefined;
+  const size = object?.kind === 'stream' ? object.dictionary.get(pdfName('Size').bytes) : undefined;
+  if (size?.kind !== 'array') {
+    throw new Error('sampled function Size is missing');
+  }
+  return size.items.map(item => (item.kind === 'integer' ? item.value : Number.NaN));
+};
+
+/** Converts the document and names the result, so a table can hold both converted and refused rows. */
+const outcome = (document: LoadedDocument, intent: 'document' | 'saturation' = 'document'): string => {
+  try {
+    const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+    return `converted ${String(report.shadings)}`;
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return `ValidationError ${error.reason ?? ''}`;
+    }
+    if (error instanceof ResourceLimitError) {
+      return 'ResourceLimitError';
+    }
+    throw error;
+  }
+};
+
 describe('function shading conversion', () => {
   it('converts an axial shading named by a shading pattern', () => {
     const document = loadDocument(shadingPatternPdf.bytes);
@@ -420,13 +507,12 @@ describe('function shading conversion', () => {
     const document = loadDocument(pdf.bytes);
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     const shading = convertedShading(document);
-    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
-    const expected = new Float64Array(4);
-    transform.convert(Float64Array.of(0.5, 0, 0.5), expected);
     expect(report.shadings).toBe(1);
     expect(shading.space).toBe('DeviceCMYK');
-    expect(shading.background).toHaveLength(4);
-    const difference = deltaE2000(lab(shading.evaluate(0.5)), lab(expected));
+    // ISO 32000-1:2008, 8.7.4.5.1 Table 78: Background is a colour in the shading's colour space, so it converts with the function.
+    expect(close(shading.background, cmykOf(0.25, 0.5, 0.75))).toBe(true);
+    expect([close(shading.evaluate(0), cmykOf(1, 0, 0)), close(shading.evaluate(1), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
+    const difference = deltaE2000(lab(shading.evaluate(0.5)), lab(cmykOf(0.5, 0, 0.5)));
     expect(difference).toBeLessThanOrEqual(0.5);
   });
 
@@ -456,24 +542,31 @@ describe('function shading conversion', () => {
   it('samples a two-input function shading on a 65 by 65 grid', () => {
     const document = loadDocument(functionPdf.bytes);
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
-    const expected = new Float64Array(4);
-    transform.convert(Float64Array.of(0.25, 0.25, 0.25), expected);
+    const evaluate = shadingFunction(document);
     expect(report.shadings).toBe(1);
-    expect(closeChannels(shadingFunction(document)([0.5, 0.5]), expected)).toStrictEqual([true, true, true, true]);
+    expect(writtenSize(document)).toStrictEqual([65, 65]);
+    // ISO 32000-1:2008, 7.10.2: the first input varies fastest in the source table, so (1, 0) is red and (0, 1) green.
+    const points = [
+      { input: [1, 0], rgb: [1, 0, 0] },
+      { input: [0, 1], rgb: [0, 1, 0] },
+      { input: [1, 1], rgb: [0, 0, 1] },
+      { input: [0.5, 0.5], rgb: [0.25, 0.25, 0.25] },
+    ] as const;
+    expect(points.map(({ input, rgb }) => close(evaluate(input), cmykOf(...rgb)))).toStrictEqual([true, true, true, true]);
   });
 
   it('converts a radial Function array without changing its coordinates', () => {
     const document = loadDocument(radialPdf.bytes);
+    const coords = shadingEntry(loadDocument(radialPdf.bytes), 'Coords');
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
-    const transform = createColorTransform({ kind: 'icc', profile: source }, destination, { intent: 'relativeColorimetric', blackPointCompensation: true });
-    const expected = new Float64Array(4);
-    transform.convert(Float64Array.of(0.5, 0, 0.5), expected);
     expect(report.shadings).toBe(1);
     const sampled = shadingFunction(document);
-    const difference = deltaE2000(lab(sampled([0.5])), lab(expected));
+    const difference = deltaE2000(lab(sampled([0.5])), lab(cmykOf(0.5, 0, 0.5)));
     expect(difference).toBeLessThanOrEqual(0.5);
-    expect(shadingCoordsKind(document)).toBe('array');
+    // ISO 32000-1:2008, 8.7.4.5.4 Table 81: a Function array holds one function per colour component, here red falling and blue rising.
+    expect([close(sampled([0]), cmykOf(1, 0, 0)), close(sampled([1]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
+    expect(shadingEntry(document, 'Coords')).toStrictEqual(coords);
+    expect(coords).toBeDefined();
   });
 
   it.each([
@@ -484,6 +577,9 @@ describe('function shading conversion', () => {
     const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(report.shadings).toBe(1);
     expect(shadingStop(document)).toBe(0.5);
+    // ISO 32000-1:2008, 7.10.4: below the bound the first child (red) applies, above it the second (blue).
+    const evaluate = writtenFunction(document);
+    expect([close(evaluate([0.25]), cmykOf(1, 0, 0)), close(evaluate([0.75]), cmykOf(0, 0, 1))]).toStrictEqual([true, true]);
     expect(stitchedGrids(document)).toStrictEqual([2, 2]);
     expect([document.get(pdfReference(7, 0)).kind, document.get(pdfReference(8, 0)).kind]).toStrictEqual(['null', 'null']);
     stdout.write(`${name} Type 3 child grids: 2, 2\n`);
@@ -533,5 +629,118 @@ describe('function shading conversion', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it.each([
+    {
+      name: 'converts one shading painted twice under the same intent',
+      content: '/Perceptual ri /Sh1 sh /Perceptual ri /Sh1 sh',
+      intent: 'document',
+      result: 'converted 1',
+    },
+    {
+      name: 'refuses one shading painted under two intents',
+      content: '/Perceptual ri /Sh1 sh /RelativeColorimetric ri /Sh1 sh',
+      intent: 'document',
+      result: 'ValidationError color-space',
+    },
+    {
+      name: 'converts one shading painted under two intents when the caller fixes the intent',
+      content: '/Perceptual ri /Sh1 sh /RelativeColorimetric ri /Sh1 sh',
+      intent: 'saturation',
+      result: 'converted 1',
+    },
+  ] as const)('$name', ({ content, intent, result }) => {
+    const document = loadDocument(shadingPdf('<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>', { content }));
+    expect(outcome(document, intent)).toBe(result);
+  });
+
+  it.each([
+    { name: 'ColorSpace', shading: '<</ShadingType 2/Coords[0 0 100 0]/Function 6 0 R>>' },
+    { name: 'Function', shading: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]>>' },
+  ])('refuses a function shading without $name', ({ shading }) => {
+    const document = loadDocument(shadingPdf(shading));
+    expect(() => convertShadings(document, { sourceRgbProfile: source, outputProfile: destination })).toThrow(
+      expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }),
+    );
+  });
+
+  it('samples an axial function over the shading Domain', () => {
+    const document = loadDocument(shadingPdf('<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Domain[0.2 0.8]/Function 6 0 R>>'));
+    convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const evaluate = writtenFunction(document);
+    // ISO 32000-1:2008, 8.7.4.5.3 Table 80: the Function is called with t in Domain, so the written function keeps that domain.
+    expect(evaluate.domain).toStrictEqual([0.2, 0.8]);
+    expect([close(evaluate([0.2]), cmykOf(0.8, 0, 0.2)), close(evaluate([0.8]), cmykOf(0.2, 0, 0.8))]).toStrictEqual([true, true]);
+  });
+
+  it('converts a CalGray axial shading through its gamma', () => {
+    const document = loadDocument(
+      shadingPdf('<</ShadingType 2/ColorSpace[/CalGray<</WhitePoint[0.9505 1 1.089]/Gamma 2.2>>]/Coords[0 0 100 0]/Function 7 0 R>>', {
+        objects: [{ number: 7, body: '<</FunctionType 2/Domain[0 1]/C0[1]/C1[0]/N 1>>' }],
+      }),
+    );
+    const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    const transform = createColorTransform({ kind: 'calGray', whitePoint: { x: 0.9505, y: 1, z: 1.089 }, gamma: 2.2 }, destination, options);
+    const expected = new Float64Array(4);
+    transform.convert(Float64Array.of(0.75), expected);
+    expect(report.shadings).toBe(1);
+    expect(shadingEntry(document, 'ColorSpace')).toStrictEqual(pdfName('DeviceCMYK'));
+    expect(close(writtenFunction(document)([0.25]), expected)).toBe(true);
+  });
+
+  it('samples a step tint at 4096 points and reports it as an approximation', () => {
+    const document = loadDocument(
+      shadingPdf('<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 7 0 R>>', {
+        objects: [{ number: 7, body: streamBody('/FunctionType 4/Domain[0 1]/Range[0 1 0 1 0 1]', '{ 0.5 lt { 1 0 0 } { 0 0 1 } ifelse }') }],
+      }),
+    );
+    const report = convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(writtenSize(document)).toStrictEqual([4096]);
+    expect(report.approximations).toHaveLength(1);
+    expect(report.approximations[0]?.maxDeltaE2000).toBeGreaterThan(0.5);
+  });
+
+  it.each([
+    {
+      name: 'axial Coords and Extend',
+      shading: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[10 20 90 80]/Extend[true false]/Function 6 0 R>>',
+      keys: ['Coords', 'Extend'],
+    },
+    {
+      name: 'function-based Matrix and Domain',
+      shading: '<</ShadingType 1/ColorSpace/DeviceRGB/Domain[0 1 0 1]/Matrix[2 0 0 2 10 10]/Function 7 0 R>>',
+      keys: ['Matrix', 'Domain'],
+    },
+  ])('copies the $name of a converted shading unchanged', ({ shading, keys }) => {
+    const objects = [
+      {
+        number: 7,
+        body: streamBody(
+          '/FunctionType 0/Domain[0 1 0 1]/Range[0 1 0 1 0 1]/Size[2 2]/BitsPerSample 8',
+          String.fromCodePoint(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255),
+        ),
+      },
+    ];
+    const original = loadDocument(shadingPdf(shading, { objects }));
+    const document = loadDocument(shadingPdf(shading, { objects }));
+    convertShadings(document, { sourceRgbProfile: source, outputProfile: destination });
+    expect(shadingEntry(document, 'ColorSpace')).toStrictEqual(pdfName('DeviceCMYK'));
+    expect(keys.map(key => shadingEntry(document, key))).toStrictEqual(keys.map(key => shadingEntry(original, key)));
+    expect(keys.map(key => shadingEntry(original, key)?.kind)).toStrictEqual(['array', 'array']);
+  });
+
+  it.each([
+    { name: 'paints a form twice in sequence', content: '/Fm Do /Fm Do', form: '0 0 10 10 re f', result: 'converted 1' },
+    { name: 'draws a form that draws itself', content: '/Fm Do', form: '/Fm Do', result: 'ResourceLimitError' },
+  ])('scans shading intents through forms: $name', ({ content, form, result }) => {
+    const document = loadDocument(
+      shadingPdf('<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 100 0]/Function 6 0 R>>', {
+        content,
+        resources: '/XObject<</Fm 7 0 R>>',
+        objects: [{ number: 7, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</XObject<</Fm 7 0 R>>>>', form) }],
+      }),
+    );
+    expect(outcome(document)).toBe(result);
   });
 });
