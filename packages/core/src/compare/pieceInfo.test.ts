@@ -191,10 +191,14 @@ describe('page-piece data, LastModified and attribute comparison', () => {
       compareDocuments(source, changed, { include: ['lastModified'] }).differences,
       compareDocuments(source, dated, { include: ['pieceInfo'] }).differences,
     ]).toStrictEqual([[], []]);
-    expect(compareDocuments(unreadable(), unreadable(), { include: ['lastModified'] }).differences).toMatchObject([
+    const both = [
       { kind: 'undecodable', where: ['page', 0, 'PieceInfo'], document: 'a' },
       { kind: 'undecodable', where: ['page', 0, 'PieceInfo'], document: 'b' },
-    ]);
+    ];
+    expect([
+      compareDocuments(unreadable(), unreadable(), { include: ['lastModified'] }).differences,
+      compareDocuments(unreadable(), unreadable(), { include: ['pieceInfo'] }).differences,
+    ]).toMatchObject([both, both]);
   });
 
   it('compares the page-piece data and LastModified of the catalog', () => {
