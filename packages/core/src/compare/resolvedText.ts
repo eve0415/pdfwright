@@ -105,6 +105,9 @@ interface Building {
 /** How much written text is gathered before it is passed to the hash. */
 const HASH_CHUNK = 4096;
 
+/** The text of a chain of references alone that comes back to where it started, in the texts of stream encodings: unlike null, which a dictionary entry or an absent filter also reads as, it names nothing the decoder can apply. */
+const LOOP = 'loop';
+
 /** The result a walk gives a value that leads into a reference cycle until the value is described; every such text starts with this, and no other text does. */
 const INTO_CYCLE = '~';
 
@@ -298,11 +301,15 @@ const readable = (read: () => string): string | undefined => {
  * Objects that lead back to each other through references are found as one cycle while the walk runs. A value that leads into a cycle unfolds without end, so each of its arrays, dictionaries and streams that lead into a cycle, direct or indirect, is described by what it unfolds to, one strongly connected component of them at a time, after the components it leads into.
  * One on no cycle reads as a digest of its own texts and of the texts its links lead to. Those of a cycle are merged into classes that unfold alike, and read as a digest of the merged component, written in a numbering of its classes that does not depend on how objects are numbered, and of the number of their own class. A node that unfolds like one already described, in this value or an earlier one, takes its text, so a cycle that many values lead into is described once.
  * Two such values therefore read the same exactly when they unfold to the same value, whichever object of a cycle a walk met first, whether a dictionary is direct or an indirect object, and however many objects hold the same value; each value in them that leads into no cycle compares by its text, by digest when long, whether it is direct or an indirect object.
- * A chain of references alone that comes back to where it started leads to no object, and reads as null like a reference to an undefined object.
+ * A chain of references alone that comes back to where it started leads to no object, and reads as null like a reference to an undefined object, except in the texts of stream encodings, which keep it apart from null because no filter can be decoded through it.
  * ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
  */
 export class ResolvedTexts {
   private readonly document: DocumentInternals;
+  /** The text a chain of references alone that comes back to where it started reads as. */
+  private loop = 'null';
+  /** The texts of stream encodings, worked out apart since a chain of references alone reads differently in them. */
+  private encodings: ResolvedTexts | undefined;
   private readonly known = new Map<string, string>();
   /** The objects found to lead into a reference cycle, by key. */
   private readonly endless = new Map<string, Reference>();
@@ -317,7 +324,8 @@ export class ResolvedTexts {
   /** The texts of those on a cycle by a text that one of their links within the cycle leads to, the place of that link and their label. */
   private readonly linkedFrom = new Map<string, Array<string>>();
   private readonly maxCycleSteps: number;
-  private cycleSteps = 0;
+  /** The steps taken so far, shared with the texts of stream encodings so that both stay within one limit. */
+  private cycleSteps = { taken: 0 };
 
   constructor(document: DocumentInternals, maxCycleSteps: number = MAX_CYCLE_STEPS) {
     this.document = document;
@@ -378,9 +386,9 @@ export class ResolvedTexts {
     }
     if (frame.cyclic && cycle.every(member => this.document.objects.deref(member)?.kind === 'reference')) {
       for (const member of cycle) {
-        this.known.set(referenceKey(member), 'null');
+        this.known.set(referenceKey(member), this.loop);
       }
-      walk.results.push('null');
+      walk.results.push(this.loop);
       return;
     }
     if (!frame.cyclic && !leadsIntoCycle(text)) {
@@ -407,8 +415,8 @@ export class ResolvedTexts {
   }
 
   private step(count: number): void {
-    this.cycleSteps += count;
-    if (this.cycleSteps > this.maxCycleSteps) {
+    this.cycleSteps.taken += count;
+    if (this.cycleSteps.taken > this.maxCycleSteps) {
       throw new ResourceLimitError(`describing the reference cycles of compared values takes more than ${String(this.maxCycleSteps)} steps`);
     }
   }
@@ -892,9 +900,15 @@ export class ResolvedTexts {
     results.push(scalarText(value));
   }
 
-  /** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5); undefined when an object they lead to cannot be read. */
+  /** The filters and their parameters that a stream's data is encoded with (ISO 32000-1:2008, 7.3.8.2, Table 5), in which a chain of references alone that comes back to where it started does not read as null; undefined when an object they lead to cannot be read. */
   encoding(stream: Extract<PdfObject, { kind: 'stream' }>): string | undefined {
-    return readable(() => `${this.text(stream.dictionary.get(FILTER))} ${this.text(stream.dictionary.get(DECODE_PARMS))}`);
+    if (this.encodings === undefined) {
+      this.encodings = new ResolvedTexts(this.document, this.maxCycleSteps);
+      this.encodings.loop = LOOP;
+      this.encodings.cycleSteps = this.cycleSteps;
+    }
+    const texts = this.encodings;
+    return readable(() => `${texts.text(stream.dictionary.get(FILTER))} ${texts.text(stream.dictionary.get(DECODE_PARMS))}`);
   }
 
   /** A value's text; undefined when an object it leads to cannot be read. */

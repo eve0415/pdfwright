@@ -168,6 +168,21 @@ describe('reference cycles', () => {
     expect(() => new ResolvedTexts(internals, 16).text(pdfReference(20, 0))).toThrow(/reference cycles/);
   });
 
+  // A cycle of references alone reads differently in a stream encoding, so encodings are described apart from other values, and the same two-object cycle is described again for one.
+  it('counts the steps of describing stream encodings toward the same limit as those of other values', () => {
+    const internals = internalsOrThrow([streamBody('/Filter 21 0 R', 'x'), '[22 0 R]', '[21 0 R]']);
+    const stream = internals.objects.deref(pdfReference(FIRST, 0));
+    if (stream?.kind !== 'stream') {
+      throw new Error('object 20 is not a stream');
+    }
+    const encoding = (texts: ResolvedTexts): string => texts.encoding(stream) ?? '';
+    expect([
+      fewestSteps(internals, texts => [texts.text(pdfReference(21, 0))]),
+      fewestSteps(internals, texts => [encoding(texts)]),
+      fewestSteps(internals, texts => [texts.text(pdfReference(21, 0)), encoding(texts)]),
+    ]).toStrictEqual([17, 17, 34]);
+  });
+
   // The value asked for is described in nineteen steps: entering each of the three objects, its array and the array's link; following the three links while the arrays are sorted into strongly connected components; for the self-referring array, the array and its link while it is put into a class, the class and its link while it is numbered, writing the class and keeping its text with its link. Each of the other two arrays then has the same label and leads to the same text, so it reads as that text, already kept.
   it('describes only the value asked for, not each object it passes on the way into a cycle', () => {
     const internals = internalsOrThrow(['[21 0 R]', '[22 0 R]', '[22 0 R]']);
