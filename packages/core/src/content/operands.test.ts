@@ -37,7 +37,7 @@ describe('operand checking', () => {
     ['/P (x) BDC', 'bad', 'BDC', [name('P'), string('x')]],
     ['0 0 10 re', 'bad', 're', [integer(0), integer(0), integer(10)]],
   ] as const)('reads the operands of %s as %s', (_, kind, operator, operands) => {
-    expect(checkOperands(operator, operands).kind).toBe(kind);
+    expect(checkOperands(operator, operands)).toStrictEqual(kind === 'known' ? { kind, values: operands } : { kind });
   });
 
   it.each([
