@@ -3,6 +3,7 @@ import type { SyntheticVariations } from '../../testing/syntheticTrueType.ts';
 import type { PageText } from './extractText.ts';
 import type { MatchTextOptions, TextMatch } from './matchText.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
@@ -274,6 +275,41 @@ describe('text matching', () => {
     expect(statusOf({ texts: ['山', '田'], content, entries: '/CropBox[0 0 1000 1000]' }, '山')).toBe('match');
   });
 
+  it('selects every visible glyph when the page boxes cannot be read', () => {
+    // Table 30: a CropBox must be a rectangle; with neither box known, a glyph past the MediaBox's right edge at 600 is compared too.
+    const result = match({ texts: ['山', '田'], content: `${drawnAt(100, 700, show(1))} ${drawnAt(700, 700, show(2))}`, entries: '/CropBox (x)' }, '山田');
+    expect([...summary(result), result.glyphs]).toStrictEqual(['unverified', '山田', [{ kind: 'page-incomplete' }], [0, 1]]);
+  });
+
+  it('compares a space glyph the intended text lacks when white space is compared', () => {
+    const proof = { texts: ['山', ' ', '田'], content: line(3) };
+    expect([summaryOf(proof, '山田', { whitespace: 'exact' }), summaryOf(proof, '山 田', { whitespace: 'exact' })]).toStrictEqual([
+      ['mismatch', '山 田', [{ kind: 'extra', found: ' ', glyphs: [1] }]],
+      ['match', '山 田', []],
+    ]);
+  });
+
+  it('applies a caller’s equivalent to the folded text and lists both folds', () => {
+    const result = match({ texts: ['⼭'], content: line(1) }, 'X', { equivalents: [['山', 'X']] });
+    expect([...summary(result), result.folds]).toStrictEqual([
+      'match',
+      'X',
+      [],
+      [
+        { fold: 'radicals', from: '⼭', to: '山', glyphs: [0] },
+        { fold: 'caller', from: '山', to: 'X', glyphs: [0] },
+      ],
+    ]);
+  });
+
+  it.each([
+    ['a substitution on a page whose content could not all be read', `${line(2)} /Missing Do`, '山中', ['substituted', 'page-incomplete']],
+    ['an extra glyph beside a glyph hidden in part', `${clipAbove([800, 704])} ${line(2)}`, '山', ['extra', 'partly-hidden']],
+  ])('reports a mismatch for %s', (_, content, intended, kinds) => {
+    const result = match({ texts: ['山', '田'], content }, intended);
+    expect([result.status, result.differences.map(difference => difference.kind)]).toStrictEqual(['mismatch', kinds]);
+  });
+
   describe('never matches text that does not print', () => {
     const states = '/ExtGState<</Clear<</ca 0>>>>';
 
@@ -393,6 +429,30 @@ describe('text matching', () => {
       ]);
     });
 
+    it('reads an empty Type 3 glyph without text as nothing, and one that claims text as missing', () => {
+      // Codes a and b paint; code c's procedure paints nothing, and its glyph name g1 stands for no character.
+      const type3: ReadonlyArray<TestObject> = [
+        {
+          number: 120,
+          body: '<</Type/Font/Subtype/Type3/FontBBox[0 -120 1000 880]/FontMatrix[.001 0 0 .001 0 0]/CharProcs<</a 121 0 R/b 121 0 R/g1 122 0 R>>/Encoding<</Differences[97/a/b/g1]>>/FirstChar 97/LastChar 99/Widths[1000 1000 1000]>>',
+        },
+        { number: 121, body: streamBody('', '1000 0 0 -120 1000 880 d1 0 0 1000 800 re f') },
+        { number: 122, body: streamBody('', '1000 0 0 0 0 0 d1') },
+      ];
+      const claimed: ReadonlyArray<TestObject> = [
+        { number: 120, body: `${type3[0]?.body.slice(0, -2) ?? ''}/ToUnicode 123 0 R>>` },
+        ...type3.slice(1),
+        { number: 123, body: streamBody('', 'begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <63> <0078> endbfchar endcmap') },
+      ];
+      const shown = [type3, claimed].map(objects =>
+        summaryOf({ texts: [], content: 'BT /E 10 Tf 100 700 Td (acb) Tj ET', resources: '/Font<</E 120 0 R>>', objects }, 'ab'),
+      );
+      expect(shown).toStrictEqual([
+        ['match', 'ab', []],
+        ['mismatch', 'axb', [{ kind: 'missing-glyph', glyphs: [1], intendedIndex: undefined }]],
+      ]);
+    });
+
     it('rejects a Chromium g0 glyph whatever text it claims', () => {
       const chromium: ReadonlyArray<TestObject> = [
         {
@@ -437,7 +497,6 @@ describe('text matching', () => {
           { kind: 'actual-text-disagrees', actualText: '曽', glyphText: '曾', span: 1, glyphs: [1] },
         ],
       ]);
-      expect(statusOf({ texts: ['侭'], content: spanned(['儘', 1]) }, '儘', { actualText: 'ignore' })).toBe('mismatch');
     });
 
     it('applies caller equivalents after checking a span against its glyphs', () => {
@@ -462,8 +521,16 @@ describe('text matching', () => {
     it('does not set aside a variation selector the glyphs have and the span lacks, or one on another glyph', () => {
       // A glyph whose own text is 葛󠄀 under a span claiming plain 葛 shows the variant, not the intended character.
       expect(statusOf({ texts: ['葛󠄀', '城'], content: spanned(['葛', 1], 2) }, '葛城')).toBe('mismatch');
-      // The span's selector belongs to 葛, but the glyphs carry it on 辻.
-      expect(statusOf({ texts: ['葛', '辻󠄀'], content: spanned(['葛󠄀辻', 1, 2]) }, '葛󠄀辻')).not.toBe('match');
+      // The span's selector belongs to 葛, but the glyphs carry it on 辻: their own text is compared, and each character differs.
+      expect(summaryOf({ texts: ['葛', '辻󠄀'], content: spanned(['葛󠄀辻', 1, 2]) }, '葛󠄀辻')).toStrictEqual([
+        'mismatch',
+        '葛辻󠄀',
+        [
+          { kind: 'substituted', intended: '葛󠄀', found: '葛', intendedIndex: 0, glyphs: [0, 1] },
+          { kind: 'substituted', intended: '辻', found: '辻󠄀', intendedIndex: 3, glyphs: [0, 1] },
+          { kind: 'actual-text-disagrees', actualText: '葛󠄀辻', glyphText: '葛辻󠄀', span: 0, glyphs: [0, 1] },
+        ],
+      ]);
     });
 
     it('reports a missing glyph under a span whatever the span claims', () => {
@@ -499,8 +566,54 @@ describe('text matching', () => {
       expect([statusOf(proof, 'BAX', { order: 'rows' }), statusOf(proof, 'BXA', { order: 'rows' })]).toStrictEqual(['mismatch', 'match']);
     });
 
-    it('reads the shared hyphenation point without spans when they are ignored', () => {
-      expect(statusOf({ texts: ['‧'], content: spanned(['・', 1]) }, '・', { actualText: 'ignore' })).toBe('match');
+    it('compares only the glyphs’ own text when spans are ignored', () => {
+      // A span-only variation selector, which a checked span leaves unverified, is no evidence at all; nor is a span whose glyphs are not selected.
+      const variant = { texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) };
+      const unseen = { texts: ['山', '中', '田'], content: `BT /T 10 Tf 100 700 Td ${show(1)} 3 Tr ${span('中', show(2))} 0 Tr ${show(3)} ET` };
+      expect([summaryOf(variant, '葛󠄀城', { actualText: 'ignore' }), summaryOf(unseen, '山田', { actualText: 'ignore' })]).toStrictEqual([
+        ['mismatch', '葛城', [{ kind: 'substituted', intended: '葛󠄀', found: '葛', intendedIndex: 0, glyphs: [0] }]],
+        ['match', '山田', []],
+      ]);
+    });
+
+    it.each([
+      ['empty', ''],
+      ['another text', 'x'],
+    ])('leaves a glyph whose text is intended unverified under a span whose text is %s', (_, actualText) => {
+      expect(summaryOf({ texts: ['山'], content: spanned([actualText, 1]) }, '山')).toStrictEqual([
+        'unverified',
+        '山',
+        [{ kind: 'actual-text-disagrees', actualText, glyphText: '山', span: 0, glyphs: [0] }],
+      ]);
+    });
+
+    it('sets variation selectors of spans and glyphs aside when selectors are ignored', () => {
+      const ignore = { variationSelectors: 'ignore' } as const;
+      expect([
+        summaryOf({ texts: ['葛', '城'], content: spanned(['葛󠄀', 1], 2) }, '葛󠄀城', ignore),
+        summaryOf({ texts: ['葛󠄀', '城'], content: line(2) }, '葛城', ignore),
+      ]).toStrictEqual([
+        ['match', '葛城', []],
+        ['match', '葛城', []],
+      ]);
+    });
+
+    it.each([
+      ['ignores a span of white space between compared glyphs when white space is ignored', ' ', 'between', {}, ['match', '山田', []]],
+      [
+        'reports a span of white space between compared glyphs when white space is compared',
+        ' ',
+        'between',
+        { whitespace: 'exact' },
+        ['unverified', '山田', [{ kind: 'no-glyph-evidence', text: ' ', span: 0 }]],
+      ],
+      ['does not report a span before the first compared glyph', '中', 'before', {}, ['match', '山田', []]],
+    ] as const)('%s', (_, text, where, options, expected) => {
+      // Glyph 2 is drawn in render mode 3, so the default selection leaves it out.
+      const hidden = `3 Tr ${span(text, show(2))} 0 Tr`;
+      const content =
+        where === 'between' ? `BT /T 10 Tf 100 700 Td ${show(1)} ${hidden} ${show(3)} ET` : `BT /T 10 Tf 100 700 Td ${hidden} ${show(1)} ${show(3)} ET`;
+      expect(summaryOf({ texts: ['山', text, '田'], content }, '山田', options)).toStrictEqual(expected);
     });
   });
 
@@ -623,6 +736,93 @@ describe('text matching', () => {
       ]).toStrictEqual(['match', [disagrees], [{ ...disagrees, glyphs: [0] }]]);
     });
 
+    it.each([
+      // The vertical alternate of 、 is drawn first and 山 after it, 0.5 to 2 em down the column and less than 0.5 em across it.
+      ['half an em down', 0, -5, 'match'],
+      ['two ems down', 0, -20, 'match'],
+      ['just under half an em down', 0, -4.9, 'mismatch'],
+      ['just over two ems down', 0, -20.1, 'mismatch'],
+      ['an em down and just under half an em across', 4.9, -10, 'match'],
+      ['an em down and half an em across', 5, -10, 'mismatch'],
+    ])('reads a vertical alternate followed by a glyph %s as set upright in a column, or not', (_, dx, dy, status) => {
+      const both = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, box, box, box, box],
+        characters: [
+          [0x5c_71, 1],
+          [0x30_01, 3],
+        ],
+      });
+      const content = `BT /T 10 Tf 100 700 Td ${show(4)} ${String(dx)} ${String(dy)} Td ${show(1)} ET`;
+      expect(statusOf({ texts: ['山', null, null, '、'], program: both, content }, '、山')).toBe(status);
+    });
+
+    it.each([
+      // Ａ is code 2 and Ｂ code 4, neither in the cmap; Ａ is half-width within 0.1 em of 500 thousandths, and Ｂ makes the font proportional more than 0.02 em away from 1000.
+      ['Ａ 600 wide is half-width', '/W[2[600]]', 'mismatch'],
+      ['Ａ 610 wide is not', '/W[2[610]]', 'match'],
+      ['Ａ 400 wide is half-width', '/W[2[400]]', 'mismatch'],
+      ['Ａ 390 wide is not', '/W[2[390]]', 'match'],
+      ['Ｂ 981 wide keeps the font from being proportional', '/W[2[500]4[981]]', 'mismatch'],
+      ['Ｂ 979 wide makes it proportional', '/W[2[500]4[979]]', 'match'],
+      ['Ｂ 1019 wide keeps the font from being proportional', '/W[2[500]4[1019]]', 'mismatch'],
+      ['Ｂ 1021 wide makes it proportional', '/W[2[500]4[1021]]', 'match'],
+    ])('reads widths against the em: %s', (_, widths, status) => {
+      const unlisted = syntheticTrueType({ name: 'Test', glyphs: [{ advance: 1000 }, box, box, box, box], characters: [[0x5c_71, 1]] });
+      expect(statusOf({ texts: ['山', 'Ａ', 'A', 'Ｂ'], program: unlisted, content: `BT /T 10 Tf 100 700 Td ${show(1, 2, 4)} ET`, widths }, '山ＡＢ')).toBe(
+        status,
+      );
+    });
+
+    it('lists the glyphs of a program without a Unicode cmap as unchecked, apart from white space', () => {
+      const result = match({ texts: ['山', ' ', '田'], program: withoutCmap(plain), content: line(3) }, '山 田');
+      expect(summary(result)).toStrictEqual(['unverified', '山田', [{ kind: 'glyph-unchecked', font: '105.0', glyphs: [0, 2] }]]);
+    });
+
+    it('checks ToUnicode against the encoding only for a simple TrueType font', () => {
+      // A Type1 font's glyph names are not compared with its ToUnicode, which decides its text alone.
+      const objects: ReadonlyArray<TestObject> = [
+        {
+          number: 120,
+          body: '<</Type/Font/Subtype/Type1/BaseFont/Test/FirstChar 65/LastChar 65/Widths[1000]/Encoding<</Differences[65/A]>>/FontDescriptor 122 0 R/ToUnicode 121 0 R>>',
+        },
+        { number: 121, body: streamBody('', 'begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <0058> endbfchar endcmap') },
+        {
+          number: 122,
+          body: '<</Type/FontDescriptor/FontName/Test/Flags 4/FontBBox[0 0 1000 1000]/ItalicAngle 0/Ascent 800/Descent 0/CapHeight 700/StemV 80>>',
+        },
+      ];
+      const bytes = textPdfBytes({ pages: [{ content: 'BT /S 10 Tf 100 700 Td (A) Tj ET', resources: '/Font<</S 120 0 R>>' }], objects });
+      expect(summary(matchText(extractText(loadDocument(bytes), 0), 'X'))).toStrictEqual(['match', 'X', []]);
+    });
+
+    it('accepts a character by the cmap only for one glyph, not for a cluster or span of two', () => {
+      // The cmap maps 戸 and ⼾ to glyph 1, the first of the two glyphs shown.
+      const shared = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, box, box],
+        characters: [
+          [0x2f_3e, 1],
+          [0x62_38, 1],
+          [0x78, 2],
+        ],
+      });
+      const agreeing = match({ texts: ['⼾', 'x'], program: shared, content: spanned(['⼾x', 1, 2]) }, '戸x');
+      const claiming = match({ texts: ['⼾', 'x'], program: shared, content: spanned(['戸', 1, 2]) }, '戸');
+      expect([summary(agreeing), summary(claiming)]).toStrictEqual([
+        ['mismatch', '⼾x', [{ kind: 'substituted', intended: '戸', found: '⼾', intendedIndex: 0, glyphs: [0, 1] }]],
+        [
+          'mismatch',
+          '⼾x',
+          [
+            { kind: 'substituted', intended: '戸', found: '⼾', intendedIndex: 0, glyphs: [0, 1] },
+            { kind: 'extra', found: 'x', glyphs: [0, 1] },
+            { kind: 'actual-text-disagrees', actualText: '戸', glyphText: '⼾x', span: 0, glyphs: [0, 1] },
+          ],
+        ],
+      ]);
+    });
+
     it('accepts a substituted character the embedded cmap maps to exactly the glyph drawn, and no other', () => {
       // Noto Sans JP draws 戸 with the glyph it also maps from U+2F3E, and Chromium's ToUnicode gives U+2F3E; the jis78 form of 儘 is a glyph the cmap gives 侭, not 儘.
       const shared = syntheticTrueType({
@@ -701,6 +901,42 @@ describe('text matching', () => {
       expect(statusOf({ texts: ['山', '田'], content: shadow }, '山田', { duplicates: 'keep' })).toBe('mismatch');
     });
 
+    it.each([
+      // At 10 points a copy must lie less than 2.5 points from the first run, and each of its glyphs within 0.05 points of the same translation.
+      ['2.49 points away', `${drawnAt(102.49, 700, show(1, 2))} ${drawnAt(100, 700, show(1, 2))}`, 'match'],
+      ['2.5 points away', `${drawnAt(102.5, 700, show(1, 2))} ${drawnAt(100, 700, show(1, 2))}`, 'mismatch'],
+      ['with a glyph 0.05 points further on', `${drawnAt(101, 700, `[<${code(1)}> -5 <${code(2)}>] TJ`)} ${drawnAt(100, 700, show(1, 2))}`, 'match'],
+      ['with a glyph 0.051 points further on', `${drawnAt(101, 700, `[<${code(1)}> -5.1 <${code(2)}>] TJ`)} ${drawnAt(100, 700, show(1, 2))}`, 'mismatch'],
+    ])('collapses a copy %s, or not', (_, content, status) => {
+      expect(statusOf({ texts: ['山', '田'], content }, '山田')).toBe(status);
+    });
+
+    it('does not collapse copies whose positions are unknown', () => {
+      // A string in 90ms-RKSJ-H, which no provider supplies, cannot be split, so the position after it is unknown until the next Td.
+      const objects: ReadonlyArray<TestObject> = [
+        ...cidFont(['山', '田']),
+        { number: 115, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/90ms-RKSJ-H/DescendantFonts[106 0 R]>>' },
+      ];
+      const compared = (unsplit: string): TextMatch['status'] => {
+        const content = [101, 100].map(x => `BT /T 10 Tf ${String(x)} 700 Td ${unsplit} /T 10 Tf ${show(1, 2)} ET`).join(' ');
+        const bytes = textPdfBytes({ pages: [{ content, resources: '/Font<</T 105 0 R/J 115 0 R>>' }], objects });
+        return matchText(extractText(loadDocument(bytes), 0), '山田', { select: glyph => glyph.font === '105.0' }).status;
+      };
+      expect([compared(''), compared('/J 10 Tf <8341> Tj')]).toStrictEqual(['match', 'mismatch']);
+    });
+
+    it('compares copies whose glyphs interleave in the chosen order as they are', () => {
+      // In rows the shadow's glyphs and the text's alternate by left edge, so no consecutive runs repeat one another.
+      const shadow = `${drawnAt(101, 699, show(1, 2))} ${drawnAt(100, 700, show(1, 2))}`;
+      const result = match({ texts: ['山', '田'], content: shadow }, '山田', { order: 'rows' });
+      expect([result.status, result.found, result.duplicates, result.differences.map(difference => difference.kind)]).toStrictEqual([
+        'mismatch',
+        '山山田田',
+        [],
+        ['extra', 'extra'],
+      ]);
+    });
+
     it('leaves copies that are not exact translations, and repeated text side by side, alone', () => {
       const spaced = `${drawnAt(100, 700, show(1, 2))} BT /T 10 Tf 2 Tc 101 699 Td ${show(1, 2)} ET`;
       expect(statusOf({ texts: ['山', '田'], content: spaced }, '山田')).toBe('mismatch');
@@ -713,5 +949,34 @@ describe('text matching', () => {
       expect(statusOf({ texts: ['こ'], content: repeated }, 'こ')).toBe('mismatch');
       expect(statusOf({ texts: ['こ'], content: repeated }, 'ここ')).toBe('match');
     });
+  });
+});
+
+describe('properties', () => {
+  // Distinct CJK ideographs, some outside the Basic Multilingual Plane so that UTF-16 offsets differ from positions; none is a fold source.
+  const ideograph = fc
+    .oneof(fc.integer({ min: 0x4e_00, max: 0x9f_ff }), fc.integer({ min: 0x2_00_00, max: 0x2_a6_df }))
+    .map(codePoint => String.fromCodePoint(codePoint));
+  const drawn = fc.uniqueArray(ideograph, { minLength: 1, maxLength: 8 }).chain(characters =>
+    fc.record({
+      characters: fc.constant(characters),
+      at: fc.integer({ min: 0, max: characters.length - 1 }),
+      replacement: ideograph.filter(character => !characters.includes(character)),
+    }),
+  );
+
+  it('matches the text a page draws one glyph per character, and finds one substitution where one character differs', () => {
+    fc.assert(
+      fc.property(drawn, ({ characters, at, replacement }) => {
+        const shown = page({ texts: characters, content: line(characters.length) });
+        const text = characters.join('');
+        const intended = characters.map((character, index) => (index === at ? replacement : character)).join('');
+        const offset = characters.slice(0, at).join('').length;
+        expect([summary(matchText(shown, text)), summary(matchText(shown, intended))]).toStrictEqual([
+          ['match', text, []],
+          ['mismatch', text, [{ kind: 'substituted', intended: replacement, found: characters[at], intendedIndex: offset, glyphs: [at] }]],
+        ]);
+      }),
+    );
   });
 });
