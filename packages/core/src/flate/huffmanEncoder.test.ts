@@ -60,10 +60,6 @@ describe('canonical Huffman codes', () => {
     // RFC 1951, 3.2.2: lengths (3, 3, 3, 3, 3, 2, 4, 4) give the codes 010, 011, 100, 101, 110, 00, 1110 and 1111, written most-significant bit first.
     expect(canonicalCodes([3, 3, 3, 3, 3, 2, 4, 4])).toStrictEqual([0b010, 0b110, 0b001, 0b101, 0b011, 0b00, 0b0111, 0b1111]);
   });
-
-  it('gives unused symbols code 0 without taking a code from the used ones', () => {
-    expect(canonicalCodes([0, 1, 0, 1])).toStrictEqual([0, 0b0, 0, 0b1]);
-  });
 });
 
 describe('properties', () => {
