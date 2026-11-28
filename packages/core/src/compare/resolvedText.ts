@@ -68,9 +68,10 @@ type Task =
 
 type Reference = Extract<PdfDirectObject, { kind: 'reference' }>;
 
-/** A step of reading a value that leads into a reference cycle: a value to read, text to add to the current run, or the end of an array or dictionary. */
+/** A step of reading a value that leads into a reference cycle: a value to read, the text of a value already read, text between values, or the end of an array or dictionary. */
 type Step =
   | { readonly kind: 'value'; readonly value: PdfObject | undefined; readonly producer: StreamProducer | undefined }
+  | { readonly kind: 'item'; readonly text: string }
   | { readonly kind: 'text'; readonly text: string }
   | { readonly kind: 'close'; readonly text: string };
 
@@ -90,11 +91,12 @@ interface Shape {
   readonly root: Link;
 }
 
-/** An array, dictionary or stream being read into a shape. */
+/** An array, dictionary or stream being read into a shape: its segments and links so far, the text of the segment being read, and its whole text while it has no links. */
 interface Building {
   readonly segments: Array<string>;
   readonly links: Array<Link>;
   run: string;
+  whole: string;
 }
 
 /** How much written text is gathered before it is passed to the hash. */
@@ -283,7 +285,7 @@ const readable = (read: () => string): string | undefined => {
  * Canonical texts for values with their references followed, for comparing values that two documents may number, order or spell differently: numbers by value, strings and names by bytes, dictionaries by sorted keys, stream data by digest.
  * The text of each referenced object is worked out once and kept, and the walk keeps its own work list, so shared objects and deep nesting cost neither repeated work nor call stack.
  * Objects that lead back to each other through references are found as one cycle while the walk runs. A value that leads into a cycle unfolds without end, so it is described by a digest of the graph of its arrays, dictionaries and streams that lead into a cycle, direct or indirect: those that unfold to the same value are merged into one, and the merged graph is written out from the value, each merged one in full where it is first met, dictionary keys in sorted order, and at every later link as its position in that writing.
- * Two such values therefore read the same exactly when they unfold to the same value, whichever object of a cycle a walk met first, whether a dictionary is direct or an indirect object, and however many objects hold the same value; the parts of them that lead into no cycle compare by their texts, with long ones by digest.
+ * Two such values therefore read the same exactly when they unfold to the same value, whichever object of a cycle a walk met first, whether a dictionary is direct or an indirect object, and however many objects hold the same value; each value in them that leads into no cycle compares by its text, by digest when long, whether it is direct or an indirect object.
  * A chain of references alone that comes back to where it started leads to no object, and reads as null like a reference to an undefined object.
  * ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
  */
@@ -495,7 +497,7 @@ export class ResolvedTexts {
     return value.kind === 'reference' ? (this.known.get(referenceKey(value)) ?? this.text(value)) : scalarText(value);
   }
 
-  // A value that leads into a reference cycle, read into its arrays, dictionaries and streams that lead into one; those that do not are folded into the text around them, as their texts with long ones by digest.
+  // A value that leads into a reference cycle, read into its arrays, dictionaries and streams that lead into one; each value in them that does not is folded into the text around it as its text, by digest when long, so that it reads as it would as an indirect object.
   private shape(value: PdfObject | undefined, producer: StreamProducer | undefined): Shape {
     if (value?.kind === 'reference') {
       return { structures: [], root: { kind: 'object', key: referenceKey(value) } };
@@ -503,10 +505,13 @@ export class ResolvedTexts {
     const structures: Array<Structure> = [];
     const open: Array<Building> = [];
     let root: Link = { kind: 'local', index: 0 };
-    const add = (text: string): void => {
+    const add = (text: string, item: boolean): void => {
       const parent = open.at(-1);
       if (parent !== undefined) {
-        parent.run += text;
+        parent.run += item ? kept(text) : text;
+        if (parent.links.length === 0) {
+          parent.whole += text;
+        }
       }
     };
     const link = (to: Link): void => {
@@ -521,8 +526,8 @@ export class ResolvedTexts {
     };
     const steps: Array<Step> = [{ kind: 'value', value, producer }];
     for (let step = steps.pop(); step !== undefined; step = steps.pop()) {
-      if (step.kind === 'text') {
-        add(step.text);
+      if (step.kind === 'item' || step.kind === 'text') {
+        add(step.text, step.kind === 'item');
         continue;
       }
       if (step.kind === 'close') {
@@ -530,12 +535,11 @@ export class ResolvedTexts {
         if (done === undefined) {
           continue;
         }
-        const text = done.run + step.text;
         if (done.links.length === 0) {
-          add(kept(text));
+          add(done.whole + step.text, true);
           continue;
         }
-        done.segments.push(kept(text));
+        done.segments.push(kept(done.run + step.text));
         structures.push({ label: `${String(done.links.length)}\n${done.segments.join('\n')}`, segments: done.segments, links: done.links });
         link({ kind: 'local', index: structures.length - 1 });
         continue;
@@ -544,7 +548,7 @@ export class ResolvedTexts {
       if (item?.kind === 'reference' && this.endless.has(referenceKey(item))) {
         link({ kind: 'object', key: referenceKey(item) });
       } else if (item?.kind === 'array') {
-        open.push({ segments: [], links: [], run: '[' });
+        open.push({ segments: [], links: [], run: '[', whole: '[' });
         const items: Array<Step> = [];
         for (const [index, entry] of item.items.entries()) {
           if (index > 0) {
@@ -554,7 +558,7 @@ export class ResolvedTexts {
         }
         steps.push({ kind: 'close', text: ']' }, ...items.toReversed());
       } else if (item?.kind === 'dictionary' || item?.kind === 'stream') {
-        open.push({ segments: [], links: [], run: '<<' });
+        open.push({ segments: [], links: [], run: '<<', whole: '<<' });
         steps.push(
           {
             kind: 'close',
@@ -563,7 +567,7 @@ export class ResolvedTexts {
           ...this.entrySteps(item.kind === 'stream' ? item.dictionary : item.entries, item.kind === 'stream').toReversed(),
         );
       } else {
-        add(this.leafText(item));
+        add(this.leafText(item), true);
       }
     }
     return { structures, root };
@@ -578,9 +582,9 @@ export class ResolvedTexts {
       }
       let step: Step = { kind: 'value', value: item, producer: undefined };
       if (item.kind !== 'array' && item.kind !== 'dictionary' && (item.kind !== 'reference' || !this.endless.has(referenceKey(item)))) {
-        step = { kind: 'text', text: this.leafText(item) };
+        step = { kind: 'item', text: this.leafText(item) };
       }
-      if (step.kind !== 'text' || step.text !== 'null') {
+      if (step.kind !== 'item' || step.text !== 'null') {
         named.push({ name: hex(key), step });
       }
     }
