@@ -245,6 +245,10 @@ const colorantPlans = (context: SpotContext, original: Extract<PdfDirectObject, 
   }
   const plans: Array<SpotPlan> = [];
   for (const [name, value] of colorants.entries.entries()) {
+    // ISO 32000-1:2008, 7.3.7: an entry whose value is null is treated as absent, which covers a reference to a missing object (7.3.10).
+    if (internals.objects.deref(value)?.kind === 'null') {
+      continue;
+    }
     const plan = planSpace(context, name, value, 'separation');
     if (plan !== undefined) {
       plans.push(plan);
