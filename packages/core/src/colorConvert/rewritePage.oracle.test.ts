@@ -693,7 +693,7 @@ describe('page colour conversion', () => {
   it.each([
     { image: 'BI /W 1 /H 1 /BPC 8 ID\n\0\0\0\nEI', what: 'no ColorSpace' },
     { image: 'BI /W 1 /H 1 /BPC 8 /CS /RGB /D ID\n\0\0\0\nEI', what: 'unpaired parameters' },
-    { image: 'BI /W 1 /H 1 (BPC) 8 /CS /RGB ID\n\0\0\0\nEI', what: 'a key that is not a name' },
+    { image: 'BI /W 1 /H 1 /BPC 8 /CS /RGB (X) 1 ID\n\0\0\0\nEI', what: 'a key that is not a name' },
     { image: 'BI /W 2 /H 1 /BPC 8 /CS /RGB ID\n\0\0\0\nEI', what: 'data shorter than its dimensions' },
     { image: 'BI /W 1 /H 1 /BPC 8 /CS /RGB /D [0 1 0 1] ID\n\0\0\0\nEI', what: 'a four-number Decode' },
     { image: 'BI /W 1 /H 1 /BPC 3 /CS /RGB ID\n\0\0\nEI', what: 'a bit depth of 3' },
@@ -701,7 +701,7 @@ describe('page colour conversion', () => {
     expect(() => rewrite(image)).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'color-space' }));
   });
 
-  it('converts an inline image exactly at the in-memory ceiling and refuses one row more', () => {
+  it('converts an inline image whose working bytes equal the in-memory ceiling and refuses it under a ceiling one byte lower', () => {
     // Each row holds 30 input and 40 output bytes, so 14 rows use 980 bytes.
     expect(rewrite(tenWide(14), {}, undefined, 980).inlineImages).toBe(1);
     expect(() => rewrite(tenWide(14), {}, undefined, 979)).toThrow(ResourceLimitError);
