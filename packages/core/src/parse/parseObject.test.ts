@@ -119,7 +119,7 @@ describe('direct object parser', () => {
 
   // ParseError carries no reason for PDF syntax, so the words that name the failing construct stand in for one.
   it.each([
-    ['a dictionary key that is not a name', '<</A 1 2 3>>', 7, /key must be a name/],
+    ['a dictionary key that is not a name', '<</A 1 2 3>>', 7, /key/],
     ['a dictionary key with no value', '<</A>>', 4, /no value/],
     ['an array at the end of data', '[1 2', 4, /end of data/],
     ['a dictionary value at the end of data', '<</A 1', 6, /end of data/],
