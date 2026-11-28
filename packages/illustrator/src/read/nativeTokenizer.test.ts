@@ -2,8 +2,10 @@ import type { RasterItem } from '../model/illustratorDocument.ts';
 import type { NativeRecord } from './nativeTokenizer.ts';
 
 import { ParseError } from '@pdfwright/core';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { escapeNativeString } from '../native/nativeString.ts';
 import { createNativeWriter } from '../native/nativeWriter.ts';
 import { writeRaster } from '../native/writeRaster.ts';
 
@@ -57,6 +59,31 @@ describe('native tokenizer', () => {
     expect(parseNativeLiteral(String.raw`(Die \(outer\) \\ White)`, 0)).toBe(String.raw`Die (outer) \ White`);
     expect(parseNativeLiteral('(非表示)', 0)).toBe('非表示');
   });
+
+  it('reads an empty literal string', () => {
+    expect(parseNativeLiteral('()', 0)).toBe('');
+  });
+
+  it('gives each raster the alpha length of the size line before it', () => {
+    // Two pixels and then three, so a reader that keeps the first size would take the wrong alpha plane for the second raster.
+    const native = encoder.encode(
+      `[ 1 0 0 1 0 0 ] 0 0 2 1 2 1 8 4 1 18 1 0 4 4 0 0\r%%BeginData: 5\rXI\nab12\r[ 1 0 0 1 0 0 ] 0 0 3 1 3 1 8 4 1 18 1 0 4 4 0 0\r%%BeginData: 4\rXI\nc345\r`,
+    );
+    expect(tokenizeNative(native).filter(record => record.kind === 'rasterData')).toStrictEqual([
+      { kind: 'rasterData', color: encoder.encode('ab'), alpha: encoder.encode('12'), offset: 64 },
+      { kind: 'rasterData', color: encoder.encode('c'), alpha: encoder.encode('345'), offset: 136 },
+    ]);
+  });
+
+  it('reads a data count of 3 as an empty colour plane', () => {
+    const native = encoder.encode('[ 1 0 0 1 0 0 ] 0 0 2 1 2 1 8 4 1 18 1 0 4 4 0 0\r%%BeginData: 3\rXI\n12\r');
+    expect(tokenizeNative(native).find(record => record.kind === 'rasterData')).toStrictEqual({
+      kind: 'rasterData',
+      color: new Uint8Array(),
+      alpha: encoder.encode('12'),
+      offset: 64,
+    });
+  });
 });
 
 describe('malformed native bytes', () => {
@@ -83,5 +110,51 @@ describe('malformed native bytes', () => {
     });
     expect(error).toBeInstanceOf(ParseError);
     expect(error).toMatchObject({ offset: 12 });
+  });
+
+  it('reports a literal string that is not opened', () => {
+    const error = thrown(() => {
+      parseNativeLiteral('abc)', 7);
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 7 });
+  });
+
+  // The %%BeginData line starts at byte 49 in each input; the raster size line before it gives two pixels.
+  const sizeLine = '[ 1 0 0 1 0 0 ] 0 0 2 1 2 1 8 4 1 18 1 0 4 4 0 0\r';
+  it.each([
+    { name: 'a data count below 3', native: `${sizeLine}%%BeginData: 2\rXI\n12\r`, offset: 49 },
+    { name: 'a data count with no raster size line before it', native: `${'%'.repeat(48)}\r%%BeginData: 3\rXI\n12\r`, offset: 49 },
+    { name: 'raster data that does not start with XI LF', native: `${sizeLine}%%BeginData: 3\rXJ\n12\r`, offset: 64 },
+  ])('reports $name at its offset', ({ native, offset }) => {
+    const error = thrown(() => {
+      tokenizeNative(encoder.encode(native));
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset });
+  });
+});
+
+// No line can spell a raster size or %%BeginData line, which need digits; multi-byte characters make byte and character offsets differ.
+const lineText = fc.string({ unit: fc.constantFrom('a', ' ', '%', ':', '(', ')', '\\', 'é', '非', '😀', '\n'), maxLength: 12 });
+const nameText = fc.string({ unit: fc.constantFrom('a', ' ', '(', ')', '\\', 'é', '非', '😀'), maxLength: 12 });
+
+describe('properties', () => {
+  it('splits CR-terminated text back into its lines at their byte offsets', () => {
+    fc.assert(
+      fc.property(fc.array(lineText, { maxLength: 8 }), texts => {
+        const records = tokenizeNative(encoder.encode(texts.map(text => `${text}\r`).join('')));
+        const offsets = texts.map((_, index) => texts.slice(0, index).reduce((sum, text) => sum + encoder.encode(text).length + 1, 0));
+        expect(records).toStrictEqual(texts.map((text, index) => ({ kind: 'line', text, offset: offsets[index] })));
+      }),
+    );
+  });
+
+  it('reads back every name the native writer escapes', () => {
+    fc.assert(
+      fc.property(nameText, name => {
+        expect(parseNativeLiteral(new TextDecoder().decode(escapeNativeString(name)), 0)).toBe(name);
+      }),
+    );
   });
 });
