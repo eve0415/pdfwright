@@ -398,6 +398,17 @@ describe('text matching', () => {
       expect([...hidden, fallback]).toStrictEqual([['none'], ['partly'], ['partly']]);
     });
 
+    it('leaves a match unverified when a later fill cuts into ink that rises above every advance box', () => {
+      // At 10 points from (100, 700) the advance box spans 698.8–708.8 and the ink inset by 0.1 em 700–711: a fill from 709 cuts into it, one from 711.5 does not.
+      const program = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, { advance: 1000, box: [100, -100, 900, 1200] }],
+        characters: [[0x5c_71, 1]],
+      });
+      const statuses = ['0 709 600 20 re f', '0 711.5 600 20 re f'].map(fill => statusOf({ texts: ['山'], program, content: `${line(1)} 1 g ${fill}` }, '山'));
+      expect(statuses).toStrictEqual(['unverified', 'match']);
+    });
+
     it('measures the cut by the d1 box of a Type 3 glyph, and by the em box for a d0 glyph', () => {
       const hidden = ['1000 0 500 -100 900 800 d1 500 -100 400 900 re f', '1000 0 d0 500 -100 400 900 re f'].map(procedure =>
         page({
