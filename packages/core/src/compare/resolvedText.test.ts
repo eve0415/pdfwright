@@ -97,6 +97,13 @@ const extraSteps = (size: number): number => {
   return fewestSteps(internals, texts => [texts.text(first), texts.text(second)]) - fewestSteps(internals, texts => [texts.text(first)]);
 };
 
+// The fewest steps for describing an array of `count` like cycles of two objects, which differ only in a number and each lead out into one self-referring array.
+const likeCyclesSteps = (count: number): number => {
+  const cycles = Array.from({ length: count }, (_, index) => [`[${String(23 + 2 * index)} 0 R 20 0 R]`, `[${String(22 + 2 * index)} 0 R ${String(index)}]`]);
+  const internals = internalsOrThrow(['[20 0 R]', `[${cycles.map((_, index) => `${String(22 + 2 * index)} 0 R`).join(' ')}]`, ...cycles.flat()]);
+  return fewestSteps(internals, texts => [texts.text(pdfReference(21, 0))]);
+};
+
 const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
   items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
 
@@ -219,6 +226,10 @@ describe('reference cycles', () => {
   // A cycle that many values lead into, such as a page tree that encoding dictionaries reach through their pages, is described once, so each further value costs only what it holds itself.
   it('describes a second value that leads into a cycle in steps that do not grow with the cycle', () => {
     expect(extraSteps(40)).toBe(extraSteps(2));
+  });
+
+  it('describes each of many like cycles that lead into one cycle in steps that do not grow with how many came before', () => {
+    expect(likeCyclesSteps(41) - likeCyclesSteps(40)).toBe(likeCyclesSteps(11) - likeCyclesSteps(10));
   });
 
   // A chain of references that comes back to where it started reaches no object, so it reads as null like a reference to an object that is not defined.
