@@ -95,8 +95,11 @@ describe('inline image data', () => {
     expect(read(text, parameters)).toStrictEqual(expected);
   });
 
-  it('scans for EI when the measured data is not followed by white space and EI', () => {
-    expect(read('ID\nA EI BEI Q', gray(6, 1, 8))).toStrictEqual(['A', ' BEI Q']);
+  it.each([
+    ['no white space before EI', 'ID\nA EI BEI Q', ['A', ' BEI Q']],
+    ['no white space after EI', 'ID\nA EI B EIQ EI Q', ['A', ' B EIQ EI Q']],
+  ] as const)('scans for EI when the measured data is followed by %s', (_, text, expected) => {
+    expect(read(text, gray(6, 1, 8))).toStrictEqual(expected);
   });
 });
 
