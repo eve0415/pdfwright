@@ -48,7 +48,7 @@ describe('pdf objects', () => {
     entries.set(first, pdfInteger(1));
     entries.set(second, { kind: 'null' });
     expect(entries.get(second)).toBeUndefined();
-    expect([entries.has(second), entries.size]).toStrictEqual([false, 1]);
+    expect([entries.has(second), entries.size, [...entries.entries()].map(([key]) => key)]).toStrictEqual([false, 1, [first]]);
     entries.set(second, pdfInteger(3));
     expect([...entries.entries()].map(([key]) => key)).toStrictEqual([first, second]);
     // Replacing a value keeps the key where it was, so a rewritten dictionary keeps its byte order.
