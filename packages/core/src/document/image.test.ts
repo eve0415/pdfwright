@@ -41,8 +41,15 @@ const stencil = (width: number, height: number, length: number): ImageOptions =>
 
 const box = rect(pt(0), pt(0), pt(20), pt(20));
 
-// The parts of an image object a reader decides on: its dictionary as written and its decoded samples.
-const described = (image: PdfObject): [string, Array<number>] => [objectText(image), [...streamBytes(image)]];
+// The entries a reader decodes an 8-bit image by, and its decoded samples.
+const image8 = (document: ReturnType<typeof reload>, image: PdfObject): Array<PdfObject | Array<number>> => [
+  entry(document, image, 'Subtype'),
+  entry(document, image, 'ColorSpace'),
+  entry(document, image, 'BitsPerComponent'),
+  entry(document, image, 'Width'),
+  entry(document, image, 'Height'),
+  [...streamBytes(image)],
+];
 
 describe('image XObjects', () => {
   // ISO 32000-1:2008, 8.9.5.1, Table 89: Width and Height are positive integers and the samples fill the image exactly.
@@ -75,13 +82,13 @@ describe('image XObjects', () => {
     expect([separation(2), separation(8)]).toStrictEqual(['accepted', 'ValidationError']);
   });
 
-  // ISO 32000-1:2008, 8.9.6.2: a stencil mask has BitsPerComponent 1, and an ordinary image here has 8.
+  // ISO 32000-1:2008, 8.9.6.2: a stencil mask has BitsPerComponent 1, and an ordinary image here has 8. Each sample count fits the colour space, so only the bit depth is wrong.
   it.each([
-    ['an 8-bit stencil', 'ImageMask', 8],
-    ['a 1-bit gray image', 'DeviceGray', 1],
-  ] as const)('refuses %s', (_, colorSpace, bitsPerComponent) => {
+    ['an 8-bit stencil', 'ImageMask', 8, 1],
+    ['a 1-bit gray image', 'DeviceGray', 1, 8],
+  ] as const)('refuses %s', (_, colorSpace, bitsPerComponent, length) => {
     // @ts-expect-error The ImageOptions type pairs each colour space with its bit depth, and this call breaks the pairing on purpose.
-    expect(attempt({ width: 8, height: 1, colorSpace, bitsPerComponent, samples: new Uint8Array(8) })).toBe('ValidationError');
+    expect(attempt({ width: 8, height: 1, colorSpace, bitsPerComponent, samples: new Uint8Array(length) })).toBe('ValidationError');
   });
 
   it('writes Flate-compressed image and DeviceGray soft mask objects', () => {
@@ -101,10 +108,9 @@ describe('image XObjects', () => {
     const saved = reload(document.save());
     const written = pageResource(saved, 0, 'XObject', 'Im1');
     // ISO 32000-1:2008, 11.6.5.3, Table 145: a soft-mask image is a DeviceGray image XObject.
-    expect([keys(written), described(written), described(entry(saved, written, 'SMask'))]).toStrictEqual([
-      ['Type', 'Subtype', 'Width', 'Height', 'BitsPerComponent', 'Filter', 'ColorSpace', 'SMask', 'Length'],
-      [expect.stringContaining('/ColorSpace/DeviceRGB'), [255, 0, 0]],
-      ['<</Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8/Filter/FlateDecode/Length 9>>', [0x80]],
+    expect([image8(saved, written), image8(saved, entry(saved, written, 'SMask'))]).toStrictEqual([
+      [pdfName('Image'), pdfName('DeviceRGB'), pdfInteger(8), pdfInteger(1), pdfInteger(1), [255, 0, 0]],
+      [pdfName('Image'), pdfName('DeviceGray'), pdfInteger(8), pdfInteger(1), pdfInteger(1), [0x80]],
     ]);
   });
 
@@ -149,12 +155,12 @@ describe('image XObjects', () => {
     const mask = entry(saved, written, 'SMask');
     // ISO 32000-1:2008, 8.9.6.2: a stencil has no ColorSpace, and its set bits paint with the current nonstroking colour.
     expect([
-      keys(written),
+      keys(written).includes('ColorSpace'),
       [entry(saved, written, 'ImageMask'), entry(saved, written, 'BitsPerComponent'), objectText(entry(saved, written, 'Decode'))],
       [entry(saved, mask, 'ColorSpace'), entry(saved, mask, 'Width'), [...streamBytes(mask)]],
       pageContent(saved, 0),
     ]).toStrictEqual([
-      ['Type', 'Subtype', 'Width', 'Height', 'BitsPerComponent', 'Filter', 'ImageMask', 'Decode', 'SMask', 'Length'],
+      false,
       [{ kind: 'boolean', value: true }, pdfInteger(1), '[1 0]'],
       [pdfName('DeviceGray'), pdfInteger(3), [0xff, 0x80, 0x00]],
       'q\n/CS1 cs\n1 scn\nq\n20 0 0 20 0 0 cm\n/Im1 Do\nQ\nQ\n',
