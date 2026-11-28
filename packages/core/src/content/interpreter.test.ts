@@ -304,8 +304,24 @@ describe('text state', () => {
   });
 
   it('reports a TJ element that is neither a string nor a number and shows the strings around it', () => {
-    const { texts, result } = textRun('BT /F1 10 Tf [(A) /N (A)] TJ ET');
-    expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([2, false, ['bad-operands']]);
+    const { texts, result } = textRun('BT /F1 10 Tf [(A) /N ( )] TJ ET');
+    // The second string starts 6.67 along, after the A, and the bad element adds no TJ number.
+    expect([
+      texts.map(text => latin1Text(text.string)),
+      positions(texts),
+      texts.map(text => text.adjustment),
+      result.complete,
+      result.warnings.map(warning => warning.code),
+    ]).toStrictEqual([
+      ['A', ' '],
+      [
+        [0, 0],
+        [6.67, 0],
+      ],
+      [undefined, undefined],
+      false,
+      ['bad-operands'],
+    ]);
   });
 
   // ISO 32000-1:2008, 9.3.6, Table 106: modes 4 to 7 add the glyphs to the path for clipping, which ET applies; without the glyph outlines the clip's shape is not known.
