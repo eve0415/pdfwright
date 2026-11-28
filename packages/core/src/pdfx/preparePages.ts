@@ -66,6 +66,7 @@ class TransparencyScan {
   private readonly page: PdfDictionaryEntries;
   private readonly seen = new Set<number>();
   private readonly procedures = new Set<string>();
+  private readonly fonts = new Set<PdfDictionaryEntries>();
 
   constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
     this.internals = internals;
@@ -137,7 +138,12 @@ class TransparencyScan {
       this.seen.add(value.objectNumber);
     }
     const font = entriesOf(this.internals, value);
-    if (font === undefined || nameOf(this.internals.objects.deref(font.get(key('Subtype')))) !== 'Type3') {
+    // A direct font has no object number, so each font read is remembered by its dictionary and a later selection of it returns at once. A dictionary parsed again after the object cache drops it is a new one, so the procedure keys below, not this set, are what end a glyph that selects its own font.
+    if (font === undefined || this.fonts.has(font)) {
+      return false;
+    }
+    this.fonts.add(font);
+    if (nameOf(this.internals.objects.deref(font.get(key('Subtype')))) !== 'Type3') {
       return false;
     }
     // ISO 32000-1:2008, 9.6.5: each CharProcs entry is a glyph procedure, a content stream; Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
