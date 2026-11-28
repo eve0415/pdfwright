@@ -1,6 +1,7 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { InheritedCache } from '../document/loadedPage.ts';
 import type { PageEntry } from '../document/pageTree.ts';
+import type { CodespaceBudget } from '../font/cmap/cmap.ts';
 import type { FontGlyph, FontModel, FontString } from '../font/fontModel.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
@@ -466,6 +467,8 @@ class Interpreter {
   private readonly maxContentBytes: number;
   private readonly maxGlyphs: number;
   private shownGlyphs = 0;
+  // One count for every string the page shows, in every font and every nested stream, so that many short strings cannot each spend a budget of their own.
+  private readonly codespace: CodespaceBudget = { checks: 0 };
   private contentBytes = 0;
   // The streams being interpreted, by reference, so that a stream that draws itself is not entered again.
   private readonly active = new Set<string>();
@@ -1124,7 +1127,10 @@ class Interpreter {
     this.reportFont(font);
     const start = { textMatrix: this.textMatrix, positionKnown: this.positionKnown };
     const remaining = this.glyphBudget(scope.pageText);
-    const split: FontString = this.font(font.key, () => font.glyphs(string, remaining)) ?? { kind: 'undecodable', reason: 'the font cannot be read' };
+    const split: FontString = this.font(font.key, () => font.glyphs(string, remaining, this.codespace)) ?? {
+      kind: 'undecodable',
+      reason: 'the font cannot be read',
+    };
     const glyphs: Array<ShownGlyph> = [];
     if (split.kind === 'glyphs') {
       this.claimGlyphs(split.glyphs.length, scope.pageText);
