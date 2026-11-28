@@ -16,8 +16,8 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodeStream } from '../filter/decodeStream.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { DEFAULT_FRACTION_DIGITS, formatNumber } from '../number/formatNumber.ts';
@@ -179,6 +179,29 @@ const inlineData = (bytes: Uint8Array): Uint8Array => {
     throw new Error('converted inline image is missing');
   }
   return data;
+};
+
+/** The converted inline image as a reader sees it: the operators the content holds, the warnings its own filters raise and the samples they decode to. */
+const readInline = (bytes: Uint8Array) => {
+  const operations = [...readContent(bytes, 32)];
+  const image = operations[0]?.inlineImage;
+  if (image === undefined) {
+    throw new Error('converted inline image is missing');
+  }
+  const dictionary = new PdfDictionaryEntries();
+  for (let index = 0; index + 1 < image.parameters.length; index += 2) {
+    const key = image.parameters[index];
+    const value = image.parameters[index + 1];
+    if (key?.kind === 'name' && value !== undefined && value.kind !== 'stray-delimiter') {
+      const name = latin1Text(key.bytes);
+      if (name === 'F' || name === 'DP') {
+        dictionary.set(pdfName(name === 'F' ? 'Filter' : 'DecodeParms').bytes, value);
+      }
+    }
+  }
+  const warnings: Array<string> = [];
+  const samples = decodeStream({ kind: 'stream', dictionary, data: image.data }, { maxDecodedBytes: 1_048_576, warn: warning => warnings.push(warning.code) });
+  return { operators: operations.map(operation => operation.operator), warnings, samples };
 };
 
 const inlineIndexedLookup = (bytes: Uint8Array): Uint8Array => {
@@ -363,9 +386,8 @@ describe('page colour conversion', () => {
       resources: document.page(0).resources(),
       options: { sourceRgbProfile: source, outputProfile: destination },
     });
-    const data = inlineData(result.bytes);
     expect(result.inlineImages).toBe(1);
-    expect(inflateZlib(data).data).toStrictEqual(rgbRow([0, 0, 0]));
+    expect(readInline(result.bytes).samples).toStrictEqual(rgbRow([0, 0, 0]));
     expect(rgbRow([0, 0, 0])).not.toStrictEqual(Uint8Array.of(0, 0, 0, 255));
     expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
   });
@@ -379,7 +401,7 @@ describe('page colour conversion', () => {
       options: { sourceRgbProfile: source, outputProfile: destination },
     });
     expect(result.inlineImages).toBe(1);
-    expect(inflateZlib(inlineData(result.bytes)).data).toHaveLength(4);
+    expect(readInline(result.bytes).samples).toHaveLength(4);
   });
 
   it('keeps a DCT inline RGB image as an ICC-tagged image XObject', () => {
@@ -674,7 +696,7 @@ describe('page colour conversion', () => {
     const result = rewrite(`BI /W 1 /H 1 /BPC ${String(bits)} /CS /RGB ID\n${latin1Text(Uint8Array.from(packed))}\nEI`);
     const output = new Float64Array(4);
     createColorTransform(srgb, destination, { intent: 'relativeColorimetric', blackPointCompensation: true }).convert(Float64Array.from(rgb), output);
-    expect(inflateZlib(inlineData(result.bytes)).data).toStrictEqual(Uint8Array.from(output, value => Math.round(value * 255)));
+    expect(readInline(result.bytes).samples).toStrictEqual(Uint8Array.from(output, value => Math.round(value * 255)));
     expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
   });
 
@@ -686,7 +708,7 @@ describe('page colour conversion', () => {
       expected,
       1,
     );
-    expect(inflateZlib(inlineData(result.bytes)).data).toStrictEqual(Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256])));
+    expect(readInline(result.bytes).samples).toStrictEqual(Uint8Array.from([...expected].flatMap(value => [Math.floor(value / 256), value % 256])));
     expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 16 /CS /CMYK /F /Fl');
   });
 

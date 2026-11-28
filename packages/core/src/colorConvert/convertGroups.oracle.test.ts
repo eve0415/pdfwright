@@ -14,12 +14,12 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodeStream } from '../filter/decodeStream.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
-import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
@@ -395,7 +395,8 @@ const maskShadingValues = (document: ReturnType<typeof loadDocument>) => {
   return { color: shading.entries.get(pdfName('ColorSpace').bytes), start: evaluate([0])[0], end: evaluate([1])[0] };
 };
 
-const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
+/** The inline image of mask form 6 as a reader sees it: the operators the form holds, the warnings the image's own filters raise and the samples they decode to. */
+const maskInline = (document: ReturnType<typeof loadDocument>) => {
   const form = document.get(pdfReference(6, 0));
   if (form.kind !== 'stream') {
     throw new Error('mask form is missing');
@@ -408,12 +409,25 @@ const maskInline = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   if (typeof data === 'string') {
     throw new TypeError(data);
   }
-  const [operation] = readContent(data, internals.maxNesting);
-  if (operation?.inlineImage === undefined) {
+  const operations = [...readContent(data, internals.maxNesting)];
+  const image = operations[0]?.inlineImage;
+  if (image === undefined) {
     throw new Error('inline image is missing');
   }
-  const decoded = inflateZlib(operation.inlineImage.data);
-  return decoded.data;
+  const dictionary = new PdfDictionaryEntries();
+  for (let index = 0; index + 1 < image.parameters.length; index += 2) {
+    const key = image.parameters[index];
+    const value = image.parameters[index + 1];
+    if (key?.kind === 'name' && value !== undefined && value.kind !== 'stray-delimiter') {
+      const name = latin1Text(key.bytes);
+      if (name === 'F' || name === 'DP') {
+        dictionary.set(pdfName(name === 'F' ? 'Filter' : 'DecodeParms').bytes, value);
+      }
+    }
+  }
+  const warnings: Array<string> = [];
+  const samples = decodeStream({ kind: 'stream', dictionary, data: image.data }, { maxDecodedBytes: 1_048_576, warn: warning => warnings.push(warning.code) });
+  return { operators: operations.map(operation => operation.operator), warnings, samples };
 };
 
 const maskXObject = (document: ReturnType<typeof loadDocument>, name: string) => {
@@ -778,7 +792,7 @@ describe('transparency group conversion', () => {
     const document = loadDocument(inlineImageMaskPdf.bytes);
     convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(luminosityContent(document)).toContain('/CS /G');
-    expect(maskInline(document)).toStrictEqual(Uint8Array.of(77));
+    expect(maskInline(document).samples).toStrictEqual(Uint8Array.of(77));
   });
 
   it('converts an axial RGB shading in a luminosity group to a gray function', () => {
