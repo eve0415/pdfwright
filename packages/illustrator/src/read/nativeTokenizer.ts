@@ -9,6 +9,48 @@ const decoder = new TextDecoder();
 const RASTER_SIZE = /\]\s+0 0\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+8\s+\d+\s+1\s+/u;
 const BEGIN_DATA = /^%%BeginData: (\d+)$/u;
 
+interface Line {
+  readonly text: string;
+  /** The offset of the CR that ends the line. */
+  readonly end: number;
+}
+
+// PostScript Language Reference, 3.2.2: inside a literal string, a backslash before an end-of-line marker (CR, LF or CR LF) is dropped with it, so a string may run on past the CR that would end a native line.
+const continuedLine = (bytes: Uint8Array, start: number): Line => {
+  const kept: Array<number> = [];
+  let depth = 0;
+  let position = start;
+  let byte = bytes[position];
+  while (byte !== undefined && byte !== 13) {
+    if (depth > 0 && byte === 92) {
+      const next = bytes[position + 1];
+      if (next === 13 || next === 10) {
+        position += next === 13 && bytes[position + 2] === 10 ? 3 : 2;
+      } else {
+        // An escape is kept whole, so an escaped parenthesis or backslash neither opens nor closes the string.
+        kept.push(byte);
+        if (next !== undefined) {
+          kept.push(next);
+        }
+        position += 2;
+      }
+    } else {
+      if (byte === 40) {
+        depth++;
+      } else if (byte === 41 && depth > 0) {
+        depth--;
+      }
+      kept.push(byte);
+      position++;
+    }
+    byte = bytes[position];
+  }
+  if (byte === undefined) {
+    throw new ParseError('native line is missing its closing CR', start);
+  }
+  return { text: decoder.decode(Uint8Array.from(kept)), end: position };
+};
+
 /** Reads CR records while treating the colour and alpha planes following `XI\n` as binary. */
 export const tokenizeNative = (bytes: Uint8Array): Array<NativeRecord> => {
   const records: Array<NativeRecord> = [];
@@ -16,15 +58,14 @@ export const tokenizeNative = (bytes: Uint8Array): Array<NativeRecord> => {
   let rasterPixels: number | undefined;
   while (position < bytes.length) {
     const start = position;
-    while (position < bytes.length && bytes[position] !== 13) {
-      position++;
-    }
-    if (position >= bytes.length) {
+    const cr = bytes.indexOf(13, start);
+    if (cr === -1) {
       throw new ParseError('native line is missing its closing CR', start);
     }
-    const line = decoder.decode(bytes.subarray(start, position));
+    const plain = bytes.subarray(start, cr);
+    const { text: line, end: lineEnd } = plain.includes(92) ? continuedLine(bytes, start) : { text: decoder.decode(plain), end: cr };
     records.push({ kind: 'line', text: line, offset: start });
-    position++;
+    position = lineEnd + 1;
     const dimensions = RASTER_SIZE.exec(line);
     if (dimensions !== null) {
       rasterPixels = Number(dimensions[1]) * Number(dimensions[2]);

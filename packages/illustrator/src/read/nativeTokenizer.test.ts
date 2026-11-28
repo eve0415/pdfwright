@@ -208,7 +208,11 @@ describe('malformed native bytes', () => {
 });
 
 // No line can spell a raster size or %%BeginData line, which need digits; multi-byte characters make byte and character offsets differ.
-const lineText = fc.string({ unit: fc.constantFrom('a', ' ', '%', ':', '(', ')', '\\', 'é', '非', '😀', '\n'), maxLength: 12 });
+// A backslash comes only as an escape pair, since one before an end-of-line marker inside a literal string continues the line.
+const lineText = fc.string({
+  unit: fc.constantFrom('a', ' ', '%', ':', '(', ')', String.raw`\(`, String.raw`\)`, String.raw`\\`, String.raw`\a`, 'é', '非', '😀', '\n'),
+  maxLength: 12,
+});
 const nameText = fc.string({ unit: fc.constantFrom('a', ' ', '(', ')', '\\', 'é', '非', '😀'), maxLength: 12 });
 
 describe('properties', () => {
