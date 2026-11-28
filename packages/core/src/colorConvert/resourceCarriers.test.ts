@@ -297,3 +297,124 @@ describe('direct shadings in resource carriers', () => {
     expectShading(document, ownResource(document, 5, 'Shading', 'Sh1'));
   });
 });
+
+const INDEXED = '[/Indexed/DeviceRGB 0 <ff8040>]';
+const SPOT = '[/Separation/Spot/DeviceRGB<</FunctionType 2/Domain[0 1]/C0[1 1 1]/C1[1 0 0]/N 1>>]';
+const SHADING = '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>';
+const GLYPH = { number: 6, body: streamBody('', '1000 0 d0 0 0 500 500 re f') };
+
+/** Follows dictionary keys from an indirect object, dereferencing each step. */
+const at = (document: LoadedDocument, owner: number, keys: ReadonlyArray<string>): PdfObject | undefined =>
+  keys.reduce<PdfObject | undefined>((value, key) => deref(document, entriesOf(value)?.get(pdfName(key).bytes)), document.get(pdfReference(owner, 0)));
+
+const passes = [
+  {
+    pass: 'Indexed',
+    category: 'ColorSpace',
+    value: INDEXED,
+    convert: (document: LoadedDocument) => convertIndexedSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).indexed,
+    check: (_document: LoadedDocument, value: PdfObject | undefined) => {
+      expectIndexed(value);
+    },
+  },
+  {
+    pass: 'spot',
+    category: 'ColorSpace',
+    value: SPOT,
+    convert: (document: LoadedDocument) => convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).separations,
+    check: expectSpot,
+  },
+  {
+    pass: 'shading',
+    category: 'Shading',
+    value: SHADING,
+    convert: (document: LoadedDocument) => convertShadings(document, { sourceRgbProfile: source, outputProfile: destination }).shadings,
+    check: expectShading,
+  },
+];
+
+const directFont = (category: string, value: string, extra = ''): string => `<<${TYPE3}/Resources<</${category}<</X1 ${value}>>${extra}>>>>`;
+
+/** Holders of a direct Type 3 font that each also hold an entry X0 of their own, so a replacement that drops either one shows. */
+const fontHolders = (category: string, value: string) =>
+  [
+    {
+      holder: 'a page',
+      page: `/Resources<</${category}<</X0 ${value}>>/Font<</F ${directFont(category, value)}>>>>`,
+      objects: [GLYPH],
+      paths: [
+        [3, ['Resources', category, 'X0']],
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      holder: 'a form',
+      page: '/Resources<</XObject<</Fm 5 0 R>>>>',
+      objects: [
+        GLYPH,
+        {
+          number: 5,
+          body: streamBody(
+            `/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</${category}<</X0 ${value}>>/Font<</F ${directFont(category, value)}>>>>`,
+            '',
+          ),
+        },
+      ],
+      paths: [
+        [5, ['Resources', category, 'X0']],
+        [5, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      holder: 'an indirect Font category',
+      page: `/Resources<</${category}<</X0 ${value}>>/Font 5 0 R>>`,
+      objects: [GLYPH, { number: 5, body: `<</F ${directFont(category, value)}>>` }],
+      paths: [
+        [3, ['Resources', category, 'X0']],
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      holder: 'another direct Type 3 font',
+      page: `/Resources<</Font<</F <<${TYPE3}/Resources<</${category}<</X0 ${value}>>/Font<</G ${directFont(category, value)}>>>>>>>>>>`,
+      objects: [GLYPH],
+      paths: [
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X0']],
+        [3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'G', 'Resources', category, 'X1']],
+      ],
+    },
+  ] as const;
+
+describe('direct Type 3 fonts', () => {
+  it.each(passes.flatMap(pass => fontHolders(pass.category, pass.value).map(holder => ({ ...pass, ...holder }))))(
+    'converts the $pass entry of a direct Type 3 font in $holder and keeps the holder entry converted',
+    ({ convert, check, page, objects, paths }) => {
+      // ISO 32000-1:2008, Table 112: a Type 3 font dictionary holds the Resources its glyph descriptions name, wherever the font dictionary itself is stored.
+      const document = carrierPdf(page, objects);
+      expect(convert(document)).toBe(2);
+      for (const [owner, keys] of paths) {
+        check(document, at(document, owner, keys));
+      }
+    },
+  );
+
+  it('converts the resources and glyph colours of a direct Type 3 font when the whole document is converted and saved', () => {
+    const document = carrierPdf(
+      `/Resources<</ColorSpace<</X0 ${INDEXED}>>/Font<</F <<${TYPE3}/Resources<</ColorSpace<</CS1 ${INDEXED}/Sp ${SPOT}>>/Shading<</Sh1 ${SHADING}>>>>>>>>>>`,
+      [{ number: 6, body: streamBody('', '1000 0 d0 /CS1 cs 0 sc 0 0 500 500 re f /Sp cs 1 scn 0 0 5 5 re f /Sh1 sh 0 1 0 rg 0 0 5 5 re f') }],
+      '/X0 cs 0 sc 0 0 10 10 re f BT /F 12 Tf 10 10 Td (A) Tj ET',
+    );
+    const report = convertToCmyk(document, FULL_OPTIONS);
+    const reloaded = loadDocument(document.save().toBytes());
+    const font = ['Resources', 'Font', 'F', 'Resources'];
+    expect([report.indexed.indexed, report.spots.separations, report.shadings.shadings, report.otherCarriers.glyphs]).toStrictEqual([2, 1, 1, 1]);
+    expectIndexed(at(reloaded, 3, ['Resources', 'ColorSpace', 'X0']));
+    expectIndexed(at(reloaded, 3, [...font, 'ColorSpace', 'CS1']));
+    expectSpot(reloaded, at(reloaded, 3, [...font, 'ColorSpace', 'Sp']));
+    expectShading(reloaded, at(reloaded, 3, [...font, 'Shading', 'Sh1']));
+    const glyph = /^1000 0 d0 \/CS1 cs 0 sc 0 0 500 500 re f \/Sp cs 1 scn 0 0 5 5 re f \/Sh1 sh (\S+) (\S+) (\S+) (\S+) k 0 0 5 5 re f$/u.exec(
+      streamText(reloaded, 6),
+    );
+    expect(close((glyph?.slice(1) ?? []).map(Number), cmykOf(0, 1, 0))).toBe(true);
+  });
+});
