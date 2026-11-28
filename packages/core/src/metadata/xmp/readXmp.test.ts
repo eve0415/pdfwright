@@ -232,6 +232,18 @@ describe('reading XMP packets', () => {
     expect(cases.map(value => refusal(value))).toStrictEqual(['not-well-formed', 'not-well-formed', undefined, undefined, undefined]);
   });
 
+  // 30,480 attributes in one 300 KiB namespace: a check whose work grows with the attributes times the length of their namespace name does not finish within the test timeout.
+  it('checks many attributes in one long namespace for unique expanded names', () => {
+    const uri = `urn:${'x'.repeat(300 * 1024)}`;
+    const names = Array.from({ length: 254 }, (_, index) => `a:p${String(index)}="1"`).join(' ');
+    const elements = Array.from({ length: 120 }, () => `<a:e ${names}/>`).join('');
+    const list = (last: string): string => packet(`<rdf:Description xmlns:a="${uri}"><a:list>${elements}${last}</a:list></rdf:Description>`);
+    expect([summary(list('')), refusal(list(`<a:e xmlns:b="${uri}" ${names} b:p0="2"/>`))]).toStrictEqual([
+      [[`${uri}list`, 'element', { kind: 'opaque' }]],
+      'not-well-formed',
+    ]);
+  });
+
   it.each([
     ['UTF-16BE', [0xfe, 0xff], utf16be],
     ['UTF-32BE', [0x00, 0x00, 0xfe, 0xff], utf32be],
