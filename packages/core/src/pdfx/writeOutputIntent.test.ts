@@ -9,6 +9,7 @@ import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import srgb from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
+import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -136,6 +137,23 @@ const withIntents = (intents: string, objects: ReadonlyArray<TestObject>) =>
   );
 
 const unreadable = { number: 5, body: streamBody('', 'x'.repeat(200)) };
+
+const objectStreamProfile = () =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R/OutputIntents[4 0 R]>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources 21 0 R>>' },
+          { number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 20 0 R>>' },
+        ],
+        objectStreams: [{ number: 20, members: [{ number: 21, body: '<</ProcSet[/PDF]>>' }] }],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
 
 describe('gts pdfx output intent', () => {
   it('writes registry defaults', () => {
@@ -366,6 +384,17 @@ describe('gts pdfx output intent', () => {
     expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
     expect([document.get(pdfReference(4, 0)).kind, document.get(pdfReference(5, 0)).kind]).toStrictEqual(['null', kept]);
     expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
+  });
+
+  it('replaces an intent whose profile reference names an object stream, keeping the stream its objects need', () => {
+    const refused = objectStreamProfile();
+    expect(() => writeGtsPdfxOutputIntent(refused, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39' })).toThrow(InvalidProfileError);
+    expect([subtypesOf(refused), refused.get(pdfReference(4, 0)).kind]).toStrictEqual([['GTS_PDFA1'], 'dictionary']);
+    const document = objectStreamProfile();
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['GTS_PDFA1'], ['GTS_PDFX']]);
+    expect([document.get(pdfReference(4, 0)).kind, document.get(pdfReference(20, 0)).kind]).toStrictEqual(['null', 'stream']);
+    expect(loadDocument(document.save().toBytes()).page(0).resources().get(pdfName('ProcSet').bytes)).toStrictEqual(pdfArray([pdfName('PDF')]));
   });
 
   it('refuses an existing intent whose profile decodes past the limit by default', () => {
