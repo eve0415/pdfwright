@@ -1,24 +1,13 @@
 import type { DecodedPng } from './decodePng.ts';
 
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { arrayBuffer, text } from 'node:stream/consumers';
-
 import { describe, expect, it } from 'vitest';
+
+import { magick } from '../../../../scripts/readerOracle.ts';
 
 import { decodePng, pngToRgba8 } from './decodePng.ts';
 
 // The PNGs here are written by ImageMagick 7 from raw 16-bit samples computed below, with png:color-type and png:bit-depth selecting the colour type and bit depth and -interlace PNG selecting Adam7.
 // The reference decode is ImageMagick's own reading of the same file as 16-bit RGBA; each test first checks that the file's IHDR is the one requested.
-const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => {
-  const child = spawn('magick', args);
-  child.stdin.end(input);
-  const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
-  if (closed[0] !== 0) {
-    throw new Error(errors);
-  }
-  return new Uint8Array(output);
-};
 
 const WIDTH = 13;
 const HEIGHT = 9;
