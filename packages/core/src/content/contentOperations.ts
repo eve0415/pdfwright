@@ -34,9 +34,11 @@ export interface ContentOperation {
 }
 
 export interface SpannedContentOperation extends ContentOperation {
-  /** First operand byte, or the operator byte when it has no operands. */
+  /** First operand byte, or the operator byte when it has no operands; an offset in `stream`. */
   readonly start: number;
-  /** First byte after the operator, including EI for an inline image. */
+  /** The index of the stream `end` is in: `stream`, or for an inline image the stream holding EI, which can be a later one. */
+  readonly endStream: number;
+  /** First byte after the operator, including EI for an inline image; an offset in `endStream`. */
   readonly end: number;
 }
 
@@ -234,18 +236,19 @@ class OperationReader {
             stream: image.stream,
             offset: image.offset,
             start: image.start,
+            endStream: stream,
             end: lexer.position,
           };
           continue;
         }
         // Without ID the parameters stay on the operand stack for the operator that follows them.
-        yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, end: image.offset + 2 };
+        yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, endStream: image.stream, end: image.offset + 2 };
       }
       const start = this.firstOperand?.stream === stream ? this.firstOperand.offset : token.start;
       if (operator === 'BI') {
         this.image = { operands: this.take(), stream, offset: token.start, start };
       } else {
-        yield { operator, operands: this.take(), stream, offset: token.start, start, end: token.end };
+        yield { operator, operands: this.take(), stream, offset: token.start, start, endStream: stream, end: token.end };
       }
     }
   }
@@ -255,7 +258,7 @@ class OperationReader {
     const { image } = this;
     this.image = undefined;
     if (image !== undefined) {
-      yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, end: image.offset + 2 };
+      yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, endStream: image.stream, end: image.offset + 2 };
     }
     return this.take();
   }
@@ -288,7 +291,7 @@ export const readContent = function* (
     if (step.done === true) {
       return step.value;
     }
-    const { start: _start, end: _end, ...operation } = step.value;
+    const { start: _start, endStream: _endStream, end: _end, ...operation } = step.value;
     yield operation;
   }
 };
