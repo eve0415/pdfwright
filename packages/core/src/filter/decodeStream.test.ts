@@ -36,10 +36,11 @@ const pngColumns4 = dictionary([
   ['Columns', pdfInteger(4)],
 ]);
 
-// Resolves 9 0 R to the name ASCIIHexDecode and 10 0 R to the Predictor 12, Columns 4 dictionary; any other reference names no object.
+// Resolves 9 0 R to the name ASCIIHexDecode, 10 0 R to the Predictor 12, Columns 4 dictionary and 11 0 R to the null object; any other reference names no object.
 const objects = new Map<string, PdfObject>([
   ['9 0', pdfName('ASCIIHexDecode')],
   ['10 0', pngColumns4],
+  ['11 0', NULL],
 ]);
 const deref = (value: PdfDirectObject | undefined): PdfObject | undefined =>
   value?.kind === 'reference' ? objects.get(`${String(value.objectNumber)} ${String(value.generation)}`) : value;
@@ -202,9 +203,11 @@ describe('stream decoding', () => {
   });
 
   // ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
-  it('reads a null Filter, given directly or as a reference to no object, as no filter', () => {
+  it('reads a null Filter, given directly, as a reference to the null object or as a reference to no object, as no filter', () => {
     expect(decode(stream(text, [['Filter', NULL]])).data).toStrictEqual(text);
-    expect(decodeStream(stream(text, [['Filter', pdfReference(8, 0)]]), { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(text);
+    for (const reference of [pdfReference(11, 0), pdfReference(8, 0)]) {
+      expect(decodeStream(stream(text, [['Filter', reference]]), { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(text);
+    }
   });
 
   // ISO 32000-1:2008, 7.4.10: a Crypt filter other than Identity needs the document's security handler.
