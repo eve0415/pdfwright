@@ -1,6 +1,6 @@
 import type { Clut } from '../icc/iccLut.ts';
 
-import { isUint8Array } from '../bytes/isUint8Array.ts';
+import { sampleScale } from './sampleScale.ts';
 
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
@@ -31,7 +31,7 @@ const node = (clut: Clut, coordinates: ReadonlyArray<number>, channel: number): 
   for (let axis = 0; axis < clut.inputChannels; axis++) {
     index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
   }
-  return (clut.values[index * clut.outputChannels + channel] ?? 0) / (isUint8Array(clut.values) ? 255 : 65_535);
+  return (clut.values[index * clut.outputChannels + channel] ?? 0) / sampleScale(clut.values);
 };
 
 const interpolateThree = (

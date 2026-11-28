@@ -1,8 +1,7 @@
 import type { Curve } from '../icc/iccTags.ts';
 
-import { isUint8Array } from '../bytes/isUint8Array.ts';
-
 import { deterministicPow } from './ieeeMath.ts';
+import { sampleScale } from './sampleScale.ts';
 
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
 
@@ -10,7 +9,7 @@ const table = (values: Uint8Array | Uint16Array, input: number): number => {
   const position = clip(input) * (values.length - 1);
   const low = Math.min(Math.floor(position), values.length - 2);
   const fraction = position - low;
-  const scale = isUint8Array(values) ? 255 : 65_535;
+  const scale = sampleScale(values);
   return (values[low] ?? 0) / scale + fraction * ((values[low + 1] ?? 0) / scale - (values[low] ?? 0) / scale);
 };
 
@@ -53,7 +52,7 @@ interface Inversion {
 }
 
 const invertTable = (values: Uint8Array | Uint16Array, inversion: Inversion): number => {
-  const scale = isUint8Array(values) ? 255 : 65_535;
+  const scale = sampleScale(values);
   const at = (index: number): number => (inversion.direction * (values[index] ?? 0)) / scale;
   const last = values.length - 1;
   if (inversion.target >= inversion.top) {
