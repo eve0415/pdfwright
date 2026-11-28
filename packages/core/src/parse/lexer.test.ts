@@ -78,10 +78,19 @@ describe('pdf lexer', () => {
     expect(lex('4. 4').tokens.map(token => token.kind)).toStrictEqual(['real', 'integer']);
   });
 
+  it('reads negative zero as zero', () => {
+    const values = lex('-0 -0.0').tokens.map(token => (token.kind === 'integer' || token.kind === 'real' ? [token.kind, Object.is(token.value, 0)] : []));
+    expect(values).toStrictEqual([
+      ['integer', true],
+      ['real', true],
+    ]);
+  });
+
   it('keeps malformed numbers as invalid tokens instead of inventing values', () => {
     expect(summaries('--5 1.2.3 3e2 - . +')).toStrictEqual(Array.from({ length: 6 }, () => 'malformed-number'));
-    expect(summaries('9007199254740991 9007199254740993 -9007199254740993')).toStrictEqual([
+    expect(summaries('9007199254740991 9007199254740992 9007199254740993 -9007199254740993')).toStrictEqual([
       9_007_199_254_740_991,
+      'integer-out-of-range',
       'integer-out-of-range',
       'integer-out-of-range',
     ]);
@@ -108,7 +117,7 @@ describe('pdf lexer', () => {
   });
 
   it('decodes names with number-sign escapes and the empty name', () => {
-    expect(summaries('/Name1 /A#20B /#23 / /a#2F')).toStrictEqual(['/Name1', '/A B', '/#', '/', '/a/']);
+    expect(summaries('/Name1 /A#20B /#23 / /a#2F /a#2f')).toStrictEqual(['/Name1', '/A B', '/#', '/', '/a/', '/a/']);
     expect(lex('/Type/Page').tokens.map(token => [token.start, token.end])).toStrictEqual([
       [0, 5],
       [5, 10],
@@ -124,16 +133,38 @@ describe('pdf lexer', () => {
       ['name-contains-null', 11],
       ['name-too-long', 17],
     ]);
+    // Annex C, Table C.1 limits the decoded name to 127 bytes, not its spelling: the second name is 129 bytes long as written.
+    const atLimit = `/${'x'.repeat(127)} /#41${'x'.repeat(126)}`;
+    expect([nameLengths(atLimit), lex(atLimit).warnings]).toStrictEqual([[127, 127], []]);
   });
 
-  it('interns identical names', () => {
-    const source = lexer('/Type /Type');
-    expect([sameNameArray(source.next(), source.next())]).toStrictEqual([true]);
+  it('reports warning offsets in the source, not in the window', () => {
+    const warnings: Array<LoadWarning> = [];
+    const source = new Lexer({ bytes: encode(`/A#4 /${'x'.repeat(128)}`), base: 100, final: true }, 0, {
+      warn: warning => {
+        warnings.push(warning);
+      },
+      names: new Map(),
+    });
+    source.next();
+    source.next();
+    expect(warnings.map(warning => [warning.code, warning.offset])).toStrictEqual([
+      ['malformed-name-escape', 102],
+      ['name-too-long', 105],
+    ]);
+  });
+
+  it('interns identical names and only those', () => {
+    const source = lexer('/Type /Type /Typf');
+    const [first, second, third] = [source.next(), source.next(), source.next()];
+    expect([sameNameArray(first, second), sameNameArray(first, third)]).toStrictEqual([true, false]);
   });
 
   it('decodes the escapes of Table 3 and ignores a backslash before any other byte', () => {
     expect(stringBytes(String.raw`(\n\r\t\b\f\(\)\\\q)`)).toStrictEqual([[0x0a, 0x0d, 0x09, 0x08, 0x0c, 0x28, 0x29, 0x5c, 0x71]]);
     expect(stringBytes(String.raw`(\0053 \053 \53 \777 \7)`)).toStrictEqual([[5, 0x33, 0x20, 0x2b, 0x20, 0x2b, 0x20, 0xff, 0x20, 7]]);
+    // 8 is not an octal digit, so it ends the escape and stays in the string.
+    expect(stringBytes(String.raw`(\18)`)).toStrictEqual([[0x01, 0x38]]);
   });
 
   it('keeps balanced parentheses and normalises line ends in literal strings', () => {
@@ -154,12 +185,16 @@ describe('pdf lexer', () => {
     expect(lex('<> ()').tokens.map(token => summary(token))).toStrictEqual(['hex', 'literal']);
   });
 
-  it('rejects unterminated strings and invalid hexadecimal digits at their offsets', () => {
-    expect(() => lex(' (abc')).toThrow(new ParseError('unterminated literal string', 1));
-    expect(() => lex('(a\\')).toThrow(ParseError);
-    expect(() => lex('<12')).toThrow(new ParseError('unterminated hexadecimal string', 0));
-    expect(() => lex('<12G4>')).toThrow(new ParseError('invalid digit in a hexadecimal string', 3));
-    expect(() => lexer('(abc', false).next()).toThrow(WindowEndError);
+  it.each([
+    ['an unterminated literal string', ' (abc', 1, /literal/],
+    ['a literal string ending in a backslash', '(a\\', 0, /literal/],
+    ['an unterminated hexadecimal string', '<12', 0, /hexadecimal/],
+    ['an invalid hexadecimal digit', '<12G4>', 3, /digit/],
+  ] as const)('rejects %s at its offset', (_, source, offset, word) => {
+    // ParseError carries no reason for PDF syntax, so the word that names the failing construct stands in for one.
+    expect(() => lex(source)).toThrow(ParseError);
+    expect(() => lex(source)).toThrow(expect.objectContaining({ offset }));
+    expect(() => lex(source)).toThrow(word);
   });
 
   it('skips comments as white space and reads delimiters', () => {
@@ -176,6 +211,7 @@ describe('pdf lexer', () => {
       'stray-delimiter',
     ]);
     expect(summaries('% (unbalanced\n(% not a comment)')).toStrictEqual(['literal']);
+    expect(summaries('1%x\r2')).toStrictEqual([1, 2]);
   });
 
   it('peeks without consuming and seeks to an offset', () => {
@@ -189,6 +225,23 @@ describe('pdf lexer', () => {
     expect(source.next()).toStrictEqual({ kind: 'eof', start: 5, end: 5 });
   });
 
+  it('peeks two tokens ahead, reading each once, and forgets both on seek', () => {
+    const warnings: Array<LoadWarning> = [];
+    const source = new Lexer({ bytes: encode('/A#zz /B#zz 3 4'), base: 0, final: true }, 0, {
+      warn: warning => {
+        warnings.push(warning);
+      },
+      names: new Map(),
+    });
+    expect([summary(source.peekSecond()), source.position]).toStrictEqual(['/B#zz', 0]);
+    expect([summary(source.next()), summary(source.next()), summary(source.next())]).toStrictEqual(['/A#zz', '/B#zz', 3]);
+    expect(warnings.map(warning => warning.offset)).toStrictEqual([2, 8]);
+    const seeking = lexer('1 2 3 4');
+    seeking.peekSecond();
+    seeking.seek(4);
+    expect([summary(seeking.next()), summary(seeking.next())]).toStrictEqual([3, 4]);
+  });
+
   it('asks for more bytes when a token reaches the end of a window that is not the end of the source', () => {
     const source = lexer('12 34', false);
     expect(source.next()).toMatchObject({ kind: 'integer', value: 12 });
@@ -196,5 +249,15 @@ describe('pdf lexer', () => {
     const commented = lexer('12 % comment', false);
     expect(commented.next()).toMatchObject({ kind: 'integer', value: 12 });
     expect(() => commented.next()).toThrow(WindowEndError);
+  });
+
+  it.each([
+    ['a literal string', '(abc'],
+    ['a hexadecimal string', '<12'],
+    ['a name', '/Name'],
+    ['a lone less-than sign', '<'],
+    ['an octal escape after one digit', String.raw`(\1`],
+  ])('asks for more bytes when %s reaches the end of a window', (_, source) => {
+    expect(() => lexer(source, false).next()).toThrow(WindowEndError);
   });
 });
