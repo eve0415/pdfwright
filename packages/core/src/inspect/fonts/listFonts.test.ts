@@ -1,7 +1,7 @@
 import type { CMapProvider } from '../../font/cmap/cmapProvider.ts';
 import type { PdfReference } from '../../object/pdfObject.ts';
 import type { TestObject } from '../../testing/pdfBuilder.ts';
-import type { TestPage } from '../../testing/textPdf.ts';
+import type { TestPage, TextPdf } from '../../testing/textPdf.ts';
 import type { FontEntry, FontInventory, ListFontsOptions } from './listFonts.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -17,6 +17,8 @@ import { listFonts } from './listFonts.ts';
 
 const inventory = (pages: ReadonlyArray<TestPage>, objects: ReadonlyArray<TestObject> = [], options: ListFontsOptions = {}): FontInventory =>
   listFonts(loadDocument(textPdfBytes({ pages, objects })), options);
+
+const DAMAGED: TestObject = { number: 150, body: '<</A [ 1 2' };
 
 const only = (result: FontInventory): FontEntry => {
   const [font, ...rest] = result.fonts;
@@ -46,10 +48,10 @@ const reference = (objectNumber: number): PdfReference => pdfReference(objectNum
 const TYPE3 =
   '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]';
 
-const type0With = (cid: string): ReadonlyArray<TestObject> => [
+const type0With = (cid: string, fileSubtype = 'CIDFontType0C'): ReadonlyArray<TestObject> => [
   { number: 100, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[102 0 R]>>' },
   { number: 102, body: `<</Type/Font/Subtype/${cid}/BaseFont/Test/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor 103 0 R>>` },
-  ...embedded(103, 'FontFile3', ['data', '/Subtype/CIDFontType0C']),
+  ...embedded(103, 'FontFile3', ['data', `/Subtype/${fileSubtype}`]),
 ];
 
 const taggedTrueType = (number: number, descriptor: number): TestObject => ({
@@ -142,11 +144,14 @@ describe('font inventory', () => {
     ];
     const cmap = latin1Bytes('/WMode 1 def begincmap 1 begincodespacerange <00> <FF> endcodespacerange endcmap');
     const provider: CMapProvider = { cmap: name => new Map([['90ms-RKSJ-V', cmap]]).get(name) };
-    const without = only(inventory([{ resources: '/Font<</F1 100 0 R>>' }], objects)).encoding;
-    const supplied = only(inventory([{ resources: '/Font<</F1 100 0 R>>' }], objects, { cmapProvider: provider })).encoding;
-    expect([without, supplied]).toStrictEqual([
+    const without = only(inventory([{ resources: '/Font<</F1 100 0 R>>' }], objects));
+    const supplied = only(inventory([{ resources: '/Font<</F1 100 0 R>>' }], objects, { cmapProvider: provider }));
+    // ISO 32000-1:2008, Table 117: a CIDFont's FontDescriptor is required, so both report it missing.
+    expect([without.encoding, codes(without), supplied.encoding, codes(supplied)]).toStrictEqual([
       { kind: 'cmap', name: latin1Bytes('90ms-RKSJ-V'), predefined: true, embedded: false, writingMode: 1, available: false },
+      ['descriptor-missing', 'cmap-unavailable'],
       { kind: 'cmap', name: latin1Bytes('90ms-RKSJ-V'), predefined: true, embedded: false, writingMode: 1, available: true },
+      ['descriptor-missing'],
     ]);
   });
 
@@ -181,6 +186,26 @@ describe('font inventory', () => {
     );
   });
 
+  // ISO 32000-1:2008, Table 126: FontFile holds a Type 1 program, for Type1 and MMType1 fonts; a FontFile3 stream is told apart by its Subtype.
+  it.each([
+    ['Type1', 'FontFile', undefined, true],
+    ['MMType1', 'FontFile', undefined, true],
+    ['MMType1', 'FontFile3', 'Type1C', true],
+    ['TrueType', 'FontFile', undefined, false],
+    ['Type1', 'FontFile3', undefined, false],
+  ] as const)('checks a %s font with a %s program of Subtype %s against Table 126', (subtype, file, fileSubtype, matches) => {
+    const font = onPage('/Font<</F1 100 0 R>>', [
+      { number: 100, body: `<</Type/Font/Subtype/${subtype}/BaseFont/Test/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>` },
+      ...embedded(101, file, ['data', fileSubtype === undefined ? '' : `/Subtype/${fileSubtype}`]),
+    ]);
+    expect(font.embedding).toStrictEqual({
+      state: 'embedded',
+      file,
+      fileSubtype: fileSubtype === undefined ? undefined : latin1Bytes(fileSubtype),
+      matchesFontType: matches,
+    });
+  });
+
   it('reads the embedded program of a Type 0 font from its descendant, accepting CIDFontType0C only for CIDFontType0', () => {
     const results = ['CIDFontType0', 'CIDFontType2'].map(cid => onPage('/Font<</F1 100 0 R>>', type0With(cid)).embedding);
     expect(results).toStrictEqual([
@@ -189,11 +214,55 @@ describe('font inventory', () => {
     ]);
   });
 
+  it('accepts an OpenType program for either kind of CIDFont', () => {
+    const results = ['CIDFontType0', 'CIDFontType2'].map(cid => onPage('/Font<</F1 100 0 R>>', type0With(cid, 'OpenType')).embedding);
+    expect(results).toStrictEqual(
+      ['CIDFontType0', 'CIDFontType2'].map(() => ({ state: 'embedded', file: 'FontFile3', fileSubtype: latin1Bytes('OpenType'), matchesFontType: true })),
+    );
+  });
+
+  // ISO 32000-1:2008, Table 122: at most one of FontFile, FontFile2 and FontFile3 is present; the first that is a stream is taken.
+  it.each([
+    ['FontFile and FontFile2 streams', '/FontFile 102 0 R/FontFile2 103 0 R', 'FontFile'],
+    ['a FontFile that is not a stream and a FontFile2 stream', '/FontFile 42/FontFile2 103 0 R', 'FontFile2'],
+  ])('takes the first program of a descriptor with %s', (_, programs, file) => {
+    const font = onPage('/Font<</F1 100 0 R>>', [
+      { number: 100, body: '<</Type/Font/Subtype/TrueType/BaseFont/Test/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>' },
+      { number: 101, body: `<</Type/FontDescriptor/FontName/Test/Flags 32${programs}>>` },
+      { number: 102, body: streamBody('', 'type 1') },
+      { number: 103, body: streamBody('', program('Test')) },
+    ]);
+    expect(font.embedding.state === 'embedded' ? font.embedding.file : font.embedding.state).toBe(file);
+  });
+
   it('reports a subset tag that is not six uppercase letters as malformed', () => {
     const font = onPage('/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/AbCDEF+Test/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>>>', [
       { number: 101, body: '<</Type/FontDescriptor/FontName/AbCDEF+Test/Flags 32>>' },
     ]);
     expect([font.subset, codes(font)]).toStrictEqual([{ state: 'not-subset' }, ['subset-tag-malformed']]);
+  });
+
+  // ISO 32000-1:2008, 9.6.4: "The tag shall consist of exactly six uppercase letters", followed by a plus sign.
+  it.each([
+    ['ABCDEF+', { state: 'subset', tag: 'ABCDEF' }, []],
+    ['ABCDE+Test', { state: 'not-subset' }, []],
+    ['ABCDEFG+Test', { state: 'not-subset' }, []],
+    ['ABCDEF', { state: 'not-subset' }, []],
+    ['ABCDE1+Test', { state: 'not-subset' }, ['subset-tag-malformed']],
+  ])('reads the name %s as %o', (name, subset, problems) => {
+    const font = onPage(`/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/${name}/FirstChar 65/LastChar 65/Widths[600]/FontDescriptor 101 0 R>>>>`, [
+      { number: 101, body: `<</Type/FontDescriptor/FontName/${name}/Flags 32>>` },
+    ]);
+    expect([font.subset, codes(font)]).toStrictEqual([subset, problems]);
+  });
+
+  it('reports no tag for a Type 3 font whose tag is malformed, and the malformed tag', () => {
+    const font = onPage('/Font<</T3 110 0 R>>', [
+      { number: 110, body: `<<${TYPE3}/FontDescriptor 112 0 R>>` },
+      { number: 111, body: streamBody('', '1000 0 d0') },
+      { number: 112, body: '<</Type/FontDescriptor/FontName/abcdef+X/Flags 4>>' },
+    ]);
+    expect([font.subset, codes(font)]).toStrictEqual([{ state: 'not-applicable', tag: undefined }, ['subset-tag-malformed']]);
   });
 
   it('reports one subset tag on fonts with different programs as reused, and not when they share a program', () => {
@@ -211,6 +280,26 @@ describe('font inventory', () => {
     ]);
   });
 
+  it('tells programs apart by their bytes, not their objects, and ignores a tagged font without a program', () => {
+    const copies = inventory(
+      [{ resources: '/Font<</F1 100 0 R/F2 110 0 R>>' }],
+      [taggedTrueType(100, 101), ...embedded(101, 'FontFile2', [program('One')]), taggedTrueType(110, 111), ...embedded(111, 'FontFile2', [program('One')])],
+    );
+    const unembedded = inventory(
+      [{ resources: '/Font<</F1 100 0 R/F2 110 0 R>>' }],
+      [
+        taggedTrueType(100, 101),
+        ...embedded(101, 'FontFile2', [program('One')]),
+        taggedTrueType(110, 111),
+        { number: 111, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 32>>' },
+      ],
+    );
+    expect([copies, unembedded].map(result => result.fonts.map(entry => codes(entry)))).toStrictEqual([
+      [[], []],
+      [[], []],
+    ]);
+  });
+
   it('reports a Type 3 font by its descriptor name, with embedding and subset not applicable', () => {
     const font = onPage('/Font<</T3 110 0 R>>', [
       { number: 110, body: `<<${TYPE3}/FontDescriptor 112 0 R>>` },
@@ -224,6 +313,46 @@ describe('font inventory', () => {
       { kind: 'differences', base: undefined, differences: 1 },
       [],
     ]);
+  });
+
+  // ISO 32000-1:2008, Table 112: a Type 3 font's BaseFont is not defined, and its descriptor's FontName is the name a reader can give it.
+  it.each([
+    ['neither a descriptor nor a BaseFont', '', undefined],
+    ['a BaseFont and no descriptor', '/BaseFont/Glyphs', 'Glyphs'],
+    ['a BaseFont and a descriptor FontName', '/BaseFont/Glyphs/FontDescriptor 112 0 R', 'AAAAAA+Chromium'],
+  ])('names a Type 3 font with %s', (_, entries, name) => {
+    const font = onPage('/Font<</T3 110 0 R>>', [
+      { number: 110, body: `<<${TYPE3}${entries}>>` },
+      { number: 111, body: streamBody('', '1000 0 d0') },
+      { number: 112, body: '<</Type/FontDescriptor/FontName/AAAAAA+Chromium/Flags 4>>' },
+    ]);
+    expect(text(font.name)).toBe(name);
+  });
+
+  // ISO 32000-1:2008, Table 116: Registry and Ordering are strings and Supplement an integer.
+  it('reads only the string Registry and Ordering of a CIDSystemInfo, and no Supplement when it is absent', () => {
+    const font = onPage('/Font<</F1 100 0 R>>', [
+      { number: 100, body: '<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-H/DescendantFonts[102 0 R]>>' },
+      { number: 102, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Test/CIDSystemInfo<</Registry/Adobe/Ordering(Identity)>>/FontDescriptor 103 0 R>>' },
+      ...embedded(103, 'FontFile2', [program('Test')]),
+    ]);
+    expect(font.descendant).toStrictEqual({
+      subtype: 'CIDFontType2',
+      reference: reference(102),
+      registry: undefined,
+      ordering: latin1Bytes('Identity'),
+      supplement: undefined,
+    });
+  });
+
+  // ISO 32000-1:2008, 9.10.3: "the value of the last byte in the string shall be less than or equal to 255 − (srcCode2 − srcCode1)".
+  it.each([
+    ['passes byte 255', '<00FA>', ['to-unicode-range-overflow']],
+    ['ends at byte 255', '<00EF>', []],
+  ])('reports a ToUnicode bfrange whose destination %s', (_, destination, problems) => {
+    const cmap = `begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <41> <51> ${destination} endbfrange endcmap`;
+    const font = onPage('/Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica/ToUnicode 100 0 R>>>>', [{ number: 100, body: streamBody('', cmap) }]);
+    expect(codes(font)).toStrictEqual(problems);
   });
 
   it('flags a missing descriptor and missing widths for a simple font outside the standard 14, but not for a Type 3 font', () => {
@@ -256,28 +385,55 @@ describe('font inventory', () => {
       { number: 101, body: '<</Type/FontDescriptor/FontName/Test/Flags 32/FontFile2 150 0 R>>' },
       damaged,
     ]);
-    const type3 = onPage('/Font<</T3 110 0 R>>', [
-      { number: 110, body: `<<${TYPE3}/FontDescriptor 112 0 R/Resources 150 0 R>>` },
-      { number: 111, body: streamBody('', '1000 0 d0 0 0 1 1 re f') },
-      { number: 112, body: '<</Type/FontDescriptor/FontName 150 0 R/Flags 4>>' },
-      damaged,
-    ]);
-    expect([trueType.embedding, codes(trueType), type3.type3, codes(type3)]).toStrictEqual([
+    // The FontName and the Resources are objects damaged in different ways, so that each report is seen to come from its own read.
+    const type3 = inventory(
+      [{ resources: '/Font<</T3 110 0 R>>' }],
+      [
+        { number: 110, body: `<<${TYPE3}/FontDescriptor 112 0 R/Resources 151 0 R>>` },
+        { number: 111, body: streamBody('', '1000 0 d0 0 0 1 1 re f') },
+        { number: 112, body: '<</Type/FontDescriptor/FontName 150 0 R/Flags 4>>' },
+        damaged,
+        { number: 151, body: '<</C 1 2>>' },
+      ],
+    );
+    const font = only(type3);
+    expect([
+      trueType.embedding,
+      codes(trueType),
+      font.type3,
+      font.problems.map(problem => [problem.code, /^the FontName cannot be read: unexpected keyword endobj$/u.test(problem.detail)]),
+      type3.unreadable.map(entry => [entry.page, /a dictionary key must be a name/u.test(entry.reason)]),
+    ]).toStrictEqual([
       { state: 'unreadable', file: 'FontFile2' },
       ['font-unreadable'],
       { glyphs: 'vector', procedures: 1, coloured: 1 },
-      ['font-unreadable'],
+      [['font-unreadable', true]],
+      [[0, true]],
     ]);
   });
 
   it('lists the pages whose resources reach each font, ordered by the first page and then by object number', () => {
+    // Page 3 first reaches 200 and 1000, whose keys sort the other way as text, and the resource walk meets 1000 first.
     const result = inventory(
-      [{ resources: '/Font<</F1 120 0 R>>' }, { resources: '/XObject<</X1 130 0 R>>' }, { resources: '/Font<</F1 120 0 R/F2 100 0 R>>' }],
-      [helvetica(100), helvetica(120), { number: 130, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F3 100 0 R>>>>', '') }],
+      [
+        { resources: '/Font<</F1 120 0 R>>' },
+        { resources: '/XObject<</X1 130 0 R>>' },
+        { resources: '/Font<</F1 120 0 R/F2 100 0 R>>' },
+        { resources: '/Font<</F1 200 0 R/F2 1000 0 R>>' },
+      ],
+      [
+        helvetica(100),
+        helvetica(120),
+        { number: 130, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F3 100 0 R>>>>', '') },
+        helvetica(200),
+        helvetica(1000),
+      ],
     );
     expect(result.fonts.map(font => [font.key, font.pages])).toStrictEqual([
       ['120.0', [0, 2]],
       ['100.0', [1, 2]],
+      ['200.0', [3]],
+      ['1000.0', [3]],
     ]);
   });
 
@@ -306,6 +462,25 @@ describe('font inventory', () => {
   it('refuses a value that is not a loaded document', () => {
     const source = loadDocument(textPdfBytes({ pages: [{}] }));
     expect(() => listFonts({ ...source })).toThrow(InvalidArgumentError);
+  });
+
+  it.each([
+    [
+      'a font dictionary that cannot be read',
+      { pages: [{ resources: '/Font<</F1 100 0 R>>' }], objects: [{ number: 100, body: '<</Type/Font/Subtype/Type1/BaseFont 150 0 R>>' }, DAMAGED] },
+      0,
+      /font 100\.0/u,
+    ],
+    [
+      'AcroForm default resources that cannot be read',
+      { pages: [{}], objects: [DAMAGED], catalog: '/AcroForm<</DR 150 0 R/Fields[]>>' },
+      -1,
+      /unexpected keyword endobj/u,
+    ],
+    ['content that names a missing font', { pages: [{ resources: '', content: 'BT /Missing 12 Tf ET' }] }, 0, /Missing/u],
+  ])('reports %s as unreadable on its page', (_, pdf: TextPdf, page, reason) => {
+    const result = listFonts(loadDocument(textPdfBytes(pdf)));
+    expect(result.unreadable.map(entry => [entry.page, reason.test(entry.reason)])).toStrictEqual([[page, true]]);
   });
 });
 
