@@ -137,9 +137,6 @@ export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Ar
     const name = latin1(filter.bytes);
     const parameter = parameters[index];
     data = applyFilter({ name: NAMES.get(name) ?? name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);
-    if (data.length > context.maxDecodedBytes) {
-      throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
-    }
   }
   if (data.length > context.maxDecodedBytes) {
     throw new ResourceLimitError(`decoded stream exceeds maxDecodedBytes (${String(context.maxDecodedBytes)} bytes)`);
