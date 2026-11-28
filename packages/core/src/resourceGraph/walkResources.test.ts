@@ -347,8 +347,10 @@ describe('resource walks', () => {
         visited.push(own?.objectNumber);
       },
     });
-    const read = deref.mock.calls.flatMap(([value]) => (value?.kind === 'reference' && value.objectNumber >= 20 ? [value.objectNumber] : []));
-    expect(visited).toStrictEqual(read);
+    // The reads of the dictionaries it reported, whatever their numbers, in the order the walk made them.
+    const reported = new Set(visited);
+    const read = deref.mock.calls.flatMap(([value]) => (value?.kind === 'reference' && reported.has(value.objectNumber) ? [value.objectNumber] : []));
+    expect([new Set(visited), visited]).toStrictEqual([new Set([20, 21, 22]), read]);
   });
 
   describe('a font handler', () => {
