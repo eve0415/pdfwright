@@ -114,6 +114,34 @@ describe('metadata in created documents', () => {
     expect([packetText(data, 'CreateDate'), row?.agreement]).toStrictEqual(['2024-03-01T12:00:00Z', 'agree']);
   });
 
+  // ISO 32000-1:2008, 14.3.3: a value that is not known "should be omitted from the dictionary, rather than included with an empty string".
+  const TEXT_KEYS = [
+    ['title', 'Title', 'title'],
+    ['author', 'Author', 'creator'],
+    ['subject', 'Subject', 'description'],
+    ['keywords', 'Keywords', 'Keywords'],
+    ['creator', 'Creator', 'CreatorTool'],
+    ['producer', 'Producer', 'Producer'],
+  ] as const;
+  const EVERY_TEXT = { title: 'T', author: 'A', subject: 'S', keywords: 'K', creator: 'C', producer: 'P', modificationDate: MODIFIED };
+
+  it.each(TEXT_KEYS)('omits an empty %s from Info and the packet and keeps every other value', (field, infoKey, xmpName) => {
+    const metadata = readMetadata(loadDocument(bytes({ info: { ...EVERY_TEXT, [field]: '' } })));
+    const xmpNames = metadata.xmp !== undefined && 'packet' in metadata.xmp ? metadata.xmp.packet.properties.map(property => property.localName) : [];
+    const others = TEXT_KEYS.filter(([other]) => other !== field);
+    expect([
+      metadata.findings,
+      TEXT_KEYS.filter(([, key]) => metadata.info?.values.has(key) === true).map(([other]) => other),
+      TEXT_KEYS.filter(([, , name]) => xmpNames.includes(name)).map(([other]) => other),
+      metadata.info?.values.has(infoKey) === true || xmpNames.includes(xmpName),
+    ]).toStrictEqual([[], others.map(([other]) => other), others.map(([other]) => other), false]);
+  });
+
+  it('omits an empty Info value without a packet', () => {
+    const metadata = readMetadata(loadDocument(bytes({ info: { title: '', author: 'A', modificationDate: MODIFIED }, metadata: { xmp: false } })));
+    expect([...(metadata.info?.values.keys() ?? [])]).toStrictEqual(['Author', 'ModDate']);
+  });
+
   it('derives different InstanceIDs for documents that differ in one page or one Info value', () => {
     const base = instanceId(INFO, 100);
     expect([instanceId(INFO, 100) === base, instanceId({ ...INFO, title: 'Other' }, 100) === base, instanceId(INFO, 200) === base]).toStrictEqual([
