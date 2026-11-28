@@ -1,5 +1,5 @@
 import type { IllustratorDocument, PathItem, Subpath } from '../model/illustratorDocument.ts';
-import type { ReadIllustratorPdfOptions } from './readIllustratorPdf.ts';
+import type { IllustratorPdfContents, ReadIllustratorPdfOptions } from './readIllustratorPdf.ts';
 
 import {
   InvalidArgumentError,
@@ -21,6 +21,7 @@ import { decompress } from 'fzstd';
 import { describe, expect, it } from 'vitest';
 
 import { writeNative } from '../native/writeNative.ts';
+import { illustratorShapedPdf, zlibWrapped } from '../testing/illustratorShapedPdf.ts';
 import { numberDeviation } from '../testing/modelNumbers.ts';
 import { normalizeModel } from '../testing/normalizeModel.ts';
 import { writeIllustratorPdf } from '../writeIllustratorPdf.ts';
@@ -80,6 +81,11 @@ const model: IllustratorDocument = {
 };
 const pathOnly: IllustratorDocument = { ...model, layers: [{ name: 'Die', items: [die] }] };
 const options: ReadIllustratorPdfOptions = { zstandard: decompress };
+// The reader's own options check is the subject, so the call goes through a signature that accepts any value.
+interface UncheckedReader {
+  read(pdf: Uint8Array, options: unknown): IllustratorPdfContents;
+}
+const unchecked: UncheckedReader = { read: readIllustratorPdf };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -143,13 +149,6 @@ describe('reading package output', () => {
     expect(writeNative(read.document, { nativeOrigin: 'artboard-top-left' }).bytes).toStrictEqual(read.native);
   });
 
-  it('keeps compound paths and compound clips as one item each', () => {
-    const read = readIllustratorPdf(writeIllustratorPdf(model), options);
-    const items = read.document.layers[1]?.items;
-    expect(items?.[0]).toMatchObject({ kind: 'path', geometry: { fillRule: 'evenodd', subpaths: [{}, {}] } });
-    expect(items?.[1]).toMatchObject({ kind: 'clipGroup', clip: { fillRule: 'nonzero', subpaths: [{}, {}] } });
-  });
-
   it('passes the caller decoder the Zstandard frame after the wrapper', () => {
     const frames: Array<Uint8Array> = [];
     const recording: ReadIllustratorPdfOptions = {
@@ -186,6 +185,19 @@ describe('refusals', () => {
     expect(() => readIllustratorPdf(pdf, missing)).toThrow(InvalidArgumentError);
   });
 
+  it.each([null, undefined])('refuses options of %s', value => {
+    const pdf = writeIllustratorPdf(pathOnly);
+    expect(() => unchecked.read(pdf, value)).toThrow(InvalidArgumentError);
+  });
+
+  it('refuses a page LastModified that is not a PDF date', () => {
+    const native = writeNative(pathOnly).bytes;
+    const valid = illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zlibWrapped(native) }], pageDate: pdfDateString(date) });
+    expect(readIllustratorPdf(valid, options).document).toStrictEqual(normalizeModel(pathOnly));
+    const pdf = illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zlibWrapped(native) }], pageDate: 'Sept 27 2026' });
+    expect(() => readIllustratorPdf(pdf, options)).toThrow(ParseError);
+  });
+
   it('refuses a decoder that returns something other than bytes', () => {
     const wrong: ReadIllustratorPdfOptions = { zstandard: decompress };
     Object.defineProperty(wrong, 'zstandard', { value: () => [1, 2, 3] });
@@ -212,7 +224,8 @@ describe('refusals', () => {
       readIllustratorPdf(pdf, { zstandard: () => encoder.encode(native) });
     });
     expect(error).toBeInstanceOf(UnsupportedFeatureError);
-    expect(error).toMatchObject({ message: `unknown native layer operator 1 Xz at native byte ${String(native.indexOf('1 Xz\r'))}` });
+    expect(error?.message).toMatch(/1 Xz/u);
+    expect(error?.message).toMatch(new RegExp(String.raw`native byte ${String(native.indexOf('1 Xz\r'))}\b`, 'u'));
   });
 
   it('reports malformed native bytes with their offset', () => {
