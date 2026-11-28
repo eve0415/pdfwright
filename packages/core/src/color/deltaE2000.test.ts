@@ -1,7 +1,11 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { md5 } from '../hash/md5.ts';
+
 import { deltaE2000 } from './deltaE2000.ts';
+
+const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 // Sharma, Wu and Dalal, "The CIEDE2000 color-difference formula: implementation notes, supplementary test data, and mathematical observations", Color Research & Application 30(1), 2005, Table 1: L*a*b* pairs and their ΔE00 with unit parametric factors, to four decimals.
 const SHARMA_PAIRS = [
@@ -52,6 +56,24 @@ describe('CIEDE2000', () => {
   it('gives zero for a colour against itself, including a neutral one', () => {
     expect(deltaE2000([50, 2.5, 0], [50, 2.5, 0])).toBe(0);
     expect(deltaE2000([50, 0, 0], [50, 0, 0])).toBe(0);
+  });
+
+  // Mesh subdivision and sampled-function fitting compare ΔE00 against a threshold, so the bits must not depend on the engine's own trigonometry.
+  it('keeps the same float64 digest over 20,000 pairs in every runtime', () => {
+    const count = 20_000;
+    const bytes = new Uint8Array(count * 8);
+    const view = new DataView(bytes.buffer);
+    let seed = 12_345;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      return seed / 4_294_967_296;
+    };
+    for (let index = 0; index < count; index++) {
+      const first = [next() * 100, next() * 255 - 128, next() * 255 - 128];
+      const second = [next() * 100, next() * 255 - 128, next() * 255 - 128];
+      view.setFloat64(index * 8, deltaE2000(first, second), true);
+    }
+    expect(hex(md5(bytes))).toBe('9c53be55c717ea7a7a7b89e00284d18b');
   });
 });
 
