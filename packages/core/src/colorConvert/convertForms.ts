@@ -89,7 +89,7 @@ const spaceKey = (space: SourceSpace): string => {
     const { source } = space;
     return `${space.kind}:${source.kind === 'icc' ? bytesKey(source.profile.identity) : JSON.stringify(source)}`;
   }
-  if (space.kind === 'indexed') return `indexed:${spaceKey(space.base)}:${space.hival}:${bytesKey(space.lookup)}`;
+  if (space.kind === 'indexed') return `indexed:${spaceKey(space.base)}:${String(space.hival)}:${bytesKey(space.lookup)}`;
   if (space.kind === 'separation' || space.kind === 'deviceN') {
     return `${space.kind}:${space.names.map(name => bytesKey(name)).join(',')}:${spaceKey(space.alternate)}`;
   }

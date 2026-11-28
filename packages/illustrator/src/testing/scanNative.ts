@@ -6,7 +6,7 @@ const withoutLiteralStrings = (line: string): string => {
   let output = '';
   let depth = 0;
   for (let index = 0; index < line.length; index++) {
-    const character = line[index];
+    const character = line.charAt(index);
     if (character === '\\' && depth > 0) {
       index++;
     } else if (character === '(') {

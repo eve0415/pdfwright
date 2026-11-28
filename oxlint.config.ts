@@ -1,5 +1,92 @@
+import type { DummyRuleMap } from 'oxlint';
+
 import cloudflare from '@cloudflare/oxlint-config';
 import { defineConfig } from 'oxlint';
+
+// typescript-eslint v8.74.0, configs/flat/strict-type-checked.ts.
+const strictTypeChecked = {
+  'typescript/await-thenable': 'error',
+  'typescript/ban-ts-comment': ['error', { minimumDescriptionLength: 10 }],
+  'no-array-constructor': 'error',
+  'typescript/no-array-delete': 'error',
+  'typescript/no-base-to-string': 'error',
+  'typescript/no-confusing-void-expression': 'error',
+  'typescript/no-deprecated': 'error',
+  'typescript/no-duplicate-enum-values': 'error',
+  'typescript/no-duplicate-type-constituents': 'error',
+  'typescript/no-dynamic-delete': 'error',
+  'typescript/no-empty-object-type': 'error',
+  'typescript/no-explicit-any': 'error',
+  'typescript/no-extra-non-null-assertion': 'error',
+  'typescript/no-extraneous-class': 'error',
+  'typescript/no-floating-promises': 'error',
+  'typescript/no-for-in-array': 'error',
+  'typescript/no-generated-empty-object-type': 'error',
+  'no-implied-eval': 'off',
+  'typescript/no-implied-eval': 'error',
+  'typescript/no-invalid-void-type': 'error',
+  'typescript/no-meaningless-void-operator': 'error',
+  'typescript/no-misused-new': 'error',
+  'typescript/no-misused-promises': 'error',
+  'typescript/no-misused-spread': 'error',
+  'typescript/no-mixed-enums': 'error',
+  'typescript/no-namespace': 'error',
+  'typescript/no-non-null-asserted-nullish-coalescing': 'error',
+  'typescript/no-non-null-asserted-optional-chain': 'error',
+  'typescript/no-non-null-assertion': 'error',
+  'typescript/no-redundant-type-constituents': 'error',
+  'typescript/no-require-imports': 'error',
+  'typescript/no-this-alias': 'error',
+  'typescript/no-unnecessary-boolean-literal-compare': 'error',
+  'typescript/no-unnecessary-condition': 'error',
+  'typescript/no-unnecessary-template-expression': 'error',
+  'typescript/no-unnecessary-type-arguments': 'error',
+  'typescript/no-unnecessary-type-assertion': 'error',
+  'typescript/no-unnecessary-type-constraint': 'error',
+  'typescript/no-unnecessary-type-conversion': 'error',
+  'typescript/no-unnecessary-type-parameters': 'error',
+  'typescript/no-unsafe-argument': 'error',
+  'typescript/no-unsafe-assignment': 'error',
+  'typescript/no-unsafe-call': 'error',
+  'typescript/no-unsafe-class-instance-assignment': 'error',
+  'typescript/no-unsafe-declaration-merging': 'error',
+  'typescript/no-unsafe-enum-assignment': 'error',
+  'typescript/no-unsafe-enum-comparison': 'error',
+  'typescript/no-unsafe-function-type': 'error',
+  'typescript/no-unsafe-member-access': 'error',
+  'typescript/no-unsafe-return': 'error',
+  'typescript/no-unsafe-unary-minus': 'error',
+  'no-unused-expressions': 'error',
+  'no-unused-vars': 'error',
+  'no-useless-constructor': 'error',
+  'typescript/no-useless-default-assignment': 'error',
+  'typescript/no-wrapper-object-types': 'error',
+  'no-throw-literal': 'off',
+  'typescript/only-throw-error': 'error',
+  'typescript/prefer-as-const': 'error',
+  'typescript/prefer-literal-enum-member': 'error',
+  'typescript/prefer-namespace-keyword': 'error',
+  'prefer-promise-reject-errors': 'off',
+  'typescript/prefer-promise-reject-errors': 'error',
+  'typescript/prefer-reduce-type-parameter': 'error',
+  'typescript/prefer-return-this-type': 'error',
+  'typescript/related-getter-setter-pairs': 'error',
+  'require-await': 'off',
+  'typescript/require-await': 'error',
+  'typescript/restrict-plus-operands': [
+    'error',
+    { allowAny: false, allowBoolean: false, allowNullish: false, allowNumberAndString: false, allowRegExp: false },
+  ],
+  'typescript/restrict-template-expressions': [
+    'error',
+    { allowAny: false, allowBoolean: false, allowNever: false, allowNullish: false, allowNumber: false, allowRegExp: false },
+  ],
+  'typescript/return-await': ['error', 'error-handling-correctness-only'],
+  'typescript/triple-slash-reference': 'error',
+  'typescript/unbound-method': 'error',
+  'typescript/unified-signatures': 'error',
+  'typescript/use-unknown-in-catch-callback-variable': 'error',
+} satisfies DummyRuleMap;
 
 export default defineConfig({
   extends: [cloudflare],
@@ -11,6 +98,7 @@ export default defineConfig({
     reportUnusedDisableDirectives: 'error',
   },
   rules: {
+    ...strictTypeChecked,
     // A variable a closure reads before its one assignment cannot be const: declared at the assignment, a call to the closure before it would throw a ReferenceError.
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
     // The rule takes any function whose name starts with `use` for a React hook, and this repository has no React.
@@ -35,6 +123,11 @@ export default defineConfig({
       rules: {
         'no-console': 'off',
       },
+    },
+    {
+      // The preset turns some of these off in test files.
+      files: ['**/*.test.ts'],
+      rules: strictTypeChecked,
     },
   ],
 });

@@ -77,7 +77,7 @@ const pageBoxes = (json: unknown): PageReport => {
 const checkDocument = async (directory: string, pageCount: number): Promise<OracleReport> => {
   const document = createDocument();
   for (let index = 0; index < pageCount; index++) document.addPage({ mediaBox: [pt(0), pt(0), mm(210), mm(297)] });
-  const file = path.join(directory, `a4-${pageCount}.pdf`);
+  const file = path.join(directory, `a4-${String(pageCount)}.pdf`);
   await writeFile(file, document.save().toBytes());
   const checked = await qpdf(['--check', file]);
   const reported = await qpdf(['--json', file]);
@@ -117,7 +117,7 @@ describe('qpdf document oracle', () => {
       const json: unknown = JSON.parse(report.stdout);
       const { page, entries } = pageBoxEntries(json);
       for (const [key, box] of Object.entries(boxes)) {
-        const name = `/${key[0]?.toUpperCase()}${key.slice(1)}`;
+        const name = `/${key.charAt(0).toUpperCase()}${key.slice(1)}`;
         expect(boxForPage(entries, page, name)).toStrictEqual(box.map(length => formatLength(length, 5)));
       }
     } finally {

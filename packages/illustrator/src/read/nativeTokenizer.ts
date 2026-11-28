@@ -43,7 +43,7 @@ export const parseNativeLiteral = (literal: string, offset: number): string => {
   if (!literal.startsWith('(') || !literal.endsWith(')')) throw new ParseError('expected a PostScript literal string', offset);
   let result = '';
   for (let index = 1; index < literal.length - 1; index++) {
-    const character = literal[index];
+    const character = literal.charAt(index);
     if (character === '\\') {
       index++;
       const escaped = literal[index];

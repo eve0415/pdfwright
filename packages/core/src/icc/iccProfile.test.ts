@@ -15,7 +15,7 @@ const sharedLutProfile = (): Uint8Array => {
   bytes.set(new TextEncoder().encode('acsp'), 36);
   view.setUint32(128, 6);
   for (let index = 0; index < 6; index++) {
-    bytes.set(new TextEncoder().encode(index < 3 ? `A2B${index}` : `B2A${index - 3}`), 132 + index * 12);
+    bytes.set(new TextEncoder().encode(index < 3 ? `A2B${String(index)}` : `B2A${String(index - 3)}`), 132 + index * 12);
     view.setUint32(136 + index * 12, offset);
     view.setUint32(140 + index * 12, length);
   }

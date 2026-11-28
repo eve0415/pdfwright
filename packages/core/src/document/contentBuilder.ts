@@ -212,7 +212,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
   const separationName = (separation: Separation): string => {
     let name = localSeparations.get(separation);
     if (name === undefined) {
-      name = hooks.registerSeparation?.(separation) ?? `CS${localSeparations.size + 1}`;
+      name = hooks.registerSeparation?.(separation) ?? `CS${String(localSeparations.size + 1)}`;
       localSeparations.set(separation, name);
     }
     return name;
@@ -404,7 +404,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       ]);
       let name = localStates.get(key);
       if (name === undefined) {
-        name = hooks.registerGraphicsState?.(normalized) ?? `GS${localStates.size + 1}`;
+        name = hooks.registerGraphicsState?.(normalized) ?? `GS${String(localStates.size + 1)}`;
         localStates.set(key, name);
       }
       push(`/${name} gs\n`);
@@ -415,7 +415,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       reach(depth + 1);
       let name = localImages.get(image);
       if (name === undefined) {
-        name = hooks.registerImage?.(image) ?? `Im${localImages.size + 1}`;
+        name = hooks.registerImage?.(image) ?? `Im${String(localImages.size + 1)}`;
         localImages.set(image, name);
       }
       // ISO 32000-1:2008, 8.9.4 paints an image XObject into the unit square under the current transformation matrix.
@@ -432,7 +432,7 @@ export const createContentBuilder = (fractionDigits: number, hooks: ContentHooks
       checkGroupWhite(summary, options);
       let name = localGroups.get(group);
       if (name === undefined) {
-        name = hooks.registerGroup?.(group) ?? `Fm${localGroups.size + 1}`;
+        name = hooks.registerGroup?.(group) ?? `Fm${String(localGroups.size + 1)}`;
         localGroups.set(group, name);
       }
       emit('q');

@@ -85,7 +85,7 @@ export const parseIccProfile = (source: Uint8Array, options: ParseIccProfileOpti
       if ((type === 'mAB ' && prefix === 'B2A') || (type === 'mBA ' && prefix === 'A2B')) {
         throw new InvalidProfileError('ICC LUT type disagrees with direction', 'tag-type-mismatch', { offset: tag.offset, tag: tag.signature });
       }
-      const key = `${tag.offset}:${tag.size}`;
+      const key = `${String(tag.offset)}:${String(tag.size)}`;
       let lut = decodedLuts.get(key);
       if (lut === undefined) {
         // ICC.1:2022, 7.3.1 allows tags to share an element when both its offset and size match.
