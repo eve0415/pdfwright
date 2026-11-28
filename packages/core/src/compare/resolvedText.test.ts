@@ -178,6 +178,24 @@ describe('reference cycles', () => {
       textOf(['<</B 1>>']),
     ]);
   });
+
+  // Wider than the arguments a call can take on some engines, so that an array whose items are passed to one call cannot be read.
+  const WIDE = 70_000;
+
+  it('describes an array of many items that leads into a cycle', () => {
+    const internals = internalsOrThrow(['<</X 21 0 R>>', `[${'22 0 R '.repeat(WIDE)}]`, '[22 0 R]', '<</X 24 0 R>>', '[22 0 R 22 0 R]']);
+    const texts = new ResolvedTexts(internals);
+    const direct = texts.text(internals.objects.deref(pdfReference(FIRST, 0)));
+    expect([direct === new ResolvedTexts(internals).text(pdfReference(FIRST, 0)), direct === texts.text(pdfReference(23, 0))]).toStrictEqual([true, false]);
+  });
+
+  it('describes a dictionary of many entries that leads into a cycle', () => {
+    const entries = Array.from({ length: WIDE }, (_, index) => `/K${String(index)} 22 0 R`).join('');
+    const internals = internalsOrThrow(['<</X 21 0 R>>', `<<${entries}>>`, '[22 0 R]', '<</X 24 0 R>>', '<</K0 22 0 R/K1 22 0 R>>']);
+    const texts = new ResolvedTexts(internals);
+    const direct = texts.text(internals.objects.deref(pdfReference(FIRST, 0)));
+    expect([direct === new ResolvedTexts(internals).text(pdfReference(FIRST, 0)), direct === texts.text(pdfReference(23, 0))]).toStrictEqual([true, false]);
+  });
 });
 
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
