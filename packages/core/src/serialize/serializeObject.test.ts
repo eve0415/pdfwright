@@ -230,14 +230,20 @@ describe('object serialization', () => {
 });
 
 describe('properties', () => {
-  const name = fc.uint8Array({ min: 1, maxLength: 127 }).map(bytes => pdfNameFromBytes(bytes));
+  // ISO 32000-1:2008, 7.3.4.2 and 7.3.5: bytes that need an escape in a literal string or a name are drawn as often as all the others together.
+  const escaped = fc.constantFrom(0x23, 0x28, 0x29, 0x5c, 0x25, 0x2f, 0x0a, 0x0d);
+  const name = fc
+    .array(fc.oneof(escaped, fc.integer({ min: 1, max: 255 })), { minLength: 1, maxLength: 127 })
+    .map(bytes => pdfNameFromBytes(Uint8Array.from(bytes)));
   const direct = fc.letrec<{ object: PdfDirectObject }>(tie => ({
     object: fc.oneof(
       { depthSize: 'small', withCrossShrink: true },
       fc.boolean().map(value => ({ kind: 'boolean', value }) as const),
       fc.integer({ min: -2_147_483_647, max: 2_147_483_647 }).map(value => pdfInteger(value)),
       name,
-      fc.tuple(fc.uint8Array({ maxLength: 40 }), fc.constantFrom('literal', 'hex')).map(([bytes, encoding]) => pdfString(bytes, encoding)),
+      fc
+        .tuple(fc.array(fc.oneof(escaped, fc.integer({ min: 0, max: 255 })), { maxLength: 40 }), fc.constantFrom('literal', 'hex'))
+        .map(([bytes, encoding]) => pdfString(Uint8Array.from(bytes), encoding)),
       fc
         .tuple(fc.integer({ min: 1, max: 2_147_483_647 }), fc.integer({ min: 0, max: 65_535 }))
         .map(([objectNumber, generation]) => pdfReference(objectNumber, generation)),
