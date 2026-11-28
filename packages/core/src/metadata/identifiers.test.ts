@@ -1,6 +1,7 @@
 import type { ObjectChange } from '../document/editedObjects.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ValidationError } from '../error/validationError.ts';
@@ -25,7 +26,7 @@ describe('identifiers in XMP', () => {
     expect(formatUuid(bytes(16, 0xa0))).toBe('uuid:a0a1a2a3-a4a5-a6a7-a8a9-aaabacadaeaf');
   });
 
-  it('keeps an existing DocumentID, else takes the first file identifier, else a supplied value', () => {
+  it('uses a supplied DocumentID, else a non-empty existing one, else the first file identifier', () => {
     const sixteen = bytes(16);
     const other = bytes(20);
     expect([
@@ -33,8 +34,14 @@ describe('identifiers in XMP', () => {
       resolveDocumentId({ existing: 'xmp.did:1', fileIdentifier: sixteen, supplied: 'uuid:given' }),
       resolveDocumentId({ existing: undefined, fileIdentifier: sixteen, supplied: undefined }),
       resolveDocumentId({ existing: undefined, fileIdentifier: other, supplied: undefined }),
-      resolveDocumentId({ existing: '', fileIdentifier: undefined, supplied: 'uuid:given' }),
-    ]).toStrictEqual(['xmp.did:1', 'uuid:given', formatUuid(sixteen), formatUuid(md5(other)), 'uuid:given']);
+      resolveDocumentId({ existing: '', fileIdentifier: sixteen, supplied: undefined }),
+    ]).toStrictEqual(['xmp.did:1', 'uuid:given', formatUuid(sixteen), formatUuid(md5(other)), formatUuid(sixteen)]);
+  });
+
+  // ISO 32000-1:2008, 14.4 gives the first file identifier no fixed length, so only exactly 16 bytes are used as they are.
+  it.each([[0], [15], [17]])('derives the DocumentID from the MD5 of a %i-byte file identifier', length => {
+    const id = bytes(length, 0x30);
+    expect(resolveDocumentId({ existing: undefined, fileIdentifier: id, supplied: undefined })).toBe(formatUuid(md5(id)));
   });
 
   it('requires a DocumentID when there is neither a packet value nor a file identifier', () => {
@@ -67,6 +74,15 @@ describe('identifiers in XMP', () => {
     ]).toStrictEqual([base, expect.not.stringMatching(base), expect.not.stringMatching(base), expect.not.stringMatching(base)]);
   });
 
+  it.each([
+    ['object number of a set object', [[2, set(1)]], [[3, set(1)]]],
+    ['generation of a set object', [[2, set(1)]], [[2, { generation: 1, value: pdfInteger(1) }]]],
+    ['object number of a deleted object', [[2, { generation: 1, deleted: true }]], [[3, { generation: 1, deleted: true }]]],
+    ['generation of a deleted object', [[2, { generation: 1, deleted: true }]], [[2, { generation: 2, deleted: true }]]],
+  ] satisfies Array<[string, Array<[number, ObjectChange]>, Array<[number, ObjectChange]>]>)('digests a change of the %s differently', (_name, left, right) => {
+    expect(digestOf(left)).not.toBe(digestOf(right));
+  });
+
   it('derives an InstanceID that changes with every input', () => {
     const input = { documentId: 'uuid:d', metadataDate: '2024-01-01T00:00:00Z', previous: 'uuid:p', changes: bytes(16) };
     const derived = deriveInstanceId(input);
@@ -78,5 +94,57 @@ describe('identifiers in XMP', () => {
       deriveInstanceId({ ...input, previous: undefined }) === derived,
       deriveInstanceId({ ...input, changes: bytes(16, 1) }) === derived,
     ]).toStrictEqual([true, true, false, false, false, false]);
+  });
+});
+
+describe('properties', () => {
+  const change = fc.oneof(
+    fc.record({ generation: fc.integer({ min: 0, max: 65_535 }), value: fc.integer({ min: -1000, max: 1000 }).map(pdfInteger) }),
+    fc.record({ generation: fc.integer({ min: 0, max: 65_535 }), deleted: fc.constant(true) }),
+  );
+  const changes = fc.uniqueArray(fc.tuple(fc.integer({ min: 1, max: 40 }), change), { selector: ([objectNumber]) => objectNumber, maxLength: 8 });
+
+  it('digests the same changes the same in any insertion order', () => {
+    fc.assert(
+      fc.property(changes, fc.func(fc.integer()), (entries, order) => {
+        const shuffled = entries.toSorted((left, right) => order(left[0]) - order(right[0]) || left[0] - right[0]);
+        expect(digestOf(shuffled)).toBe(digestOf(entries));
+      }),
+    );
+  });
+
+  it('digests differently when an included object gains another number, generation or value', () => {
+    const edit = fc.constantFrom('number', 'generation', 'value');
+    fc.assert(
+      fc.property(
+        changes.filter(entries => entries.some(([objectNumber]) => objectNumber !== 9)),
+        fc.nat(),
+        edit,
+        (entries, pick, kind) => {
+          const included = entries.filter(([objectNumber]) => objectNumber !== 9);
+          const [objectNumber, original] = included[pick % included.length] ?? [1, set(0)];
+          // Generated object numbers stop at 40, so 41 is never taken.
+          const freeNumber = 41;
+          const replacement: [number, ObjectChange] =
+            kind === 'number'
+              ? [freeNumber, original]
+              : kind === 'generation'
+                ? [objectNumber, { ...original, generation: original.generation + 1 }]
+                : [objectNumber, 'deleted' in original ? set(0) : { generation: original.generation, deleted: true }];
+          const edited = entries.map((entry): [number, ObjectChange] => (entry[0] === objectNumber ? replacement : entry));
+          expect(digestOf(edited)).not.toBe(digestOf(entries));
+        },
+      ),
+    );
+  });
+
+  it('formats any 16 bytes as a distinct uuid: GUID', () => {
+    const sixteen = fc.uint8Array({ minLength: 16, maxLength: 16 });
+    fc.assert(
+      fc.property(sixteen, sixteen, (left, right) => {
+        expect(formatUuid(left)).toMatch(/^uuid:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u);
+        expect(formatUuid(left) === formatUuid(right)).toBe(hex(left) === hex(right));
+      }),
+    );
   });
 });
