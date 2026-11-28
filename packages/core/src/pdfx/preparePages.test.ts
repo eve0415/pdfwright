@@ -756,6 +756,21 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 5)).toHaveLength(1);
   });
 
+  it('reads a glyph procedure once for two direct Type 3 fonts whose direct CharProcs and Resources have the same entries', () => {
+    const font = type3Font('<</a 6 0 R>>', '<</ExtGState<</GS 9 0 R>>>>');
+    const document = single(`<</Font<</A ${font}/B ${font}>>>>`, streamBody('', 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET'), [
+      { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+      { number: 9, body: '<</ca 1>>' },
+    ]);
+    const parts = internalsOf(document);
+    if (parts === undefined) {
+      throw new Error('document internals are unavailable');
+    }
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    expect(addedGroups(document)).toStrictEqual([]);
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 9)).toHaveLength(1);
+  });
+
   it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
     ['a form that Do draws after Tf names it', '<</Font<</F 5 0 R>>/XObject<</X 5 0 R>>>>', 'BT /F 12 Tf ET /X Do', [], ''],
     [
