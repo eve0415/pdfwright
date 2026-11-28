@@ -185,7 +185,79 @@ const anyObjects = fc.integer({ min: 1, max: 4 }).chain(count => {
   );
 });
 
+type Item = number | { readonly to: number };
+
+type Body = { readonly kind: 'array' | 'dictionary'; readonly items: ReadonlyArray<Item> } | { readonly kind: 'reference'; readonly to: number };
+
+// Objects that are arrays, dictionaries or a bare reference, whose references may lead anywhere among them.
+const anyBodies = fc.integer({ min: 1, max: 4 }).chain(count => {
+  const to = fc.integer({ min: 0, max: count - 1 });
+  const item = fc.oneof(
+    fc.integer({ min: 0, max: 2 }),
+    to.map((index): Item => ({ to: index })),
+  );
+  return fc.array(
+    fc.oneof(
+      fc.record({ kind: fc.constantFrom('array' as const, 'dictionary' as const), items: fc.array(item, { maxLength: 3 }) }),
+      to.map((index): Body => ({ kind: 'reference', to: index })),
+    ),
+    { minLength: count, maxLength: count },
+  );
+});
+
+const reference = (index: number): string => `${String(FIRST + index)} 0 R`;
+
+const written = (body: Body): string => {
+  if (body.kind === 'reference') {
+    return reference(body.to);
+  }
+  const items = body.items.map(item => (typeof item === 'number' ? String(item) : reference(item.to)));
+  return body.kind === 'array' ? `[${items.join(' ')}]` : `<<${items.map((value, position) => `/K${String(position)} ${value}`).join('')}>>`;
+};
+
+// The value an object unfolds to, cut off at `depth` arrays and dictionaries; a chain of bare references that comes back to where it started is null, and a dictionary entry whose value is null is left out.
+const unfolded = (bodies: ReadonlyArray<Body>, index: number, depth: number): string => {
+  const passed = new Set<number>();
+  let body = bodies[index];
+  for (let at = index; body?.kind === 'reference'; body = bodies[at]) {
+    if (passed.has(at)) {
+      return 'null';
+    }
+    passed.add(at);
+    at = body.to;
+  }
+  if (body === undefined) {
+    return 'null';
+  }
+  if (depth === 0) {
+    return '*';
+  }
+  const items = body.items.map(item => (typeof item === 'number' ? String(item) : unfolded(bodies, item.to, depth - 1)));
+  return body.kind === 'array'
+    ? `[${items.join(' ')}]`
+    : `<<${items
+        .map((value, position) => `K${String(position)} ${value}`)
+        .filter(entry => !entry.endsWith(' null'))
+        .join(' ')}>>`;
+};
+
+// For each pair of objects, whether the two read the same.
+const sameness = (values: ReadonlyArray<string>): Array<Array<boolean>> => values.map(left => values.map(right => left === right));
+
 describe('properties', () => {
+  // Values in a graph of n objects that differ, differ within n arrays and dictionaries of their start, so unfolding one more than that tells them apart.
+  it('gives two objects the same text exactly when they unfold to the same value', () => {
+    fc.assert(
+      fc.property(anyBodies, bodies => {
+        const internals = internalsOrThrow(bodies.map(written));
+        const texts = new ResolvedTexts(internals);
+        expect(sameness(bodies.map((_, index) => texts.text(pdfReference(FIRST + index, 0))))).toStrictEqual(
+          sameness(bodies.map((_, index) => unfolded(bodies, index, bodies.length + 1))),
+        );
+      }),
+    );
+  });
+
   it('gives an object the same text whichever objects had their texts worked out before it, when references form cycles', () => {
     const graphs = anyObjects.chain(bodies =>
       fc.record({ bodies: fc.constant(bodies), order: fc.shuffledSubarray([...bodies.keys()], { minLength: bodies.length, maxLength: bodies.length }) }),
