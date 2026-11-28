@@ -209,6 +209,7 @@ describe('synthetic TrueType programs', () => {
     ['a box coordinate above int16', { glyphs: [{ advance: 500, box: [0, 0, 32_768, 10] }] }],
     ['a box whose minimum exceeds its maximum', { glyphs: [{ advance: 500, box: [10, 0, 5, 10] }] }],
     ['a box too wide for an int16 delta', { glyphs: [{ advance: 500, box: [-20_000, 0, 20_000, 10] }] }],
+    ['a negative vertical advance', { glyphs: [{ advance: 500, vertical: { advance: -1, topSideBearing: 0 } }] }],
     ['a vertical advance above uint16', { glyphs: [{ advance: 500, vertical: { advance: 70_000, topSideBearing: 0 } }] }],
     ['a top side bearing above int16', { glyphs: [{ advance: 500, vertical: { advance: 1000, topSideBearing: 40_000 } }] }],
     ['a character mapped to a missing glyph', { characters: [[0x41, 1]] }],
