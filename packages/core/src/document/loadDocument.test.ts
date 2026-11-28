@@ -227,6 +227,23 @@ describe('loading documents', () => {
     expect(() => loadDocument(Uint16Array.from(base.bytes))).toThrow(new ParseError('not a PDF file: no objects found', 0));
   });
 
+  // ISO 32000-1:2008, 7.3.8.2, Table 5: Length counts the stream's data bytes. When it is wrong, the loader finds the data's end at an endstream keyword, here the last one in the file, so the split may fall inside the keyword.
+  it('recovers a stream with a wrong Length from input split at any byte as from the contiguous bytes', () => {
+    const { bytes } = buildPdf([
+      { xref: 'classic', objects: [catalog, pages, { number: 3, body: '<</Length 2>>\nstream\nabcdefgh\nendstream' }], trailer: '/Root 1 0 R' },
+    ]);
+    const read = (input: Uint8Array | ReadonlyArray<Uint8Array>): Array<unknown> => {
+      const document = loadDocument(input);
+      return [document.get(pdfReference(3, 0)), document.warnings];
+    };
+    const contiguous = read(bytes);
+    const cuts = Array.from({ length: bytes.length - 1 }, (_, index) => index + 1);
+    expect([contiguous[0], cuts.map(cut => read([bytes.subarray(0, cut), bytes.subarray(cut)]))]).toStrictEqual([
+      expect.objectContaining({ kind: 'stream', data: latin1Bytes('abcdefgh') }),
+      cuts.map(() => contiguous),
+    ]);
+  });
+
   // ISO 32000-1:2008, Annex F.2: a linearized file's first object is its linearization dictionary, so the same dictionary later in the file does not make it linearized.
   it('detects linearized files by their first object only', () => {
     const linearization = { number: 3, body: '<</Linearized 1/L 999>>' };
