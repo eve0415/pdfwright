@@ -1,6 +1,7 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext, Token } from '../parse/lexer.ts';
 
+import { isUint8Array } from '../bytes/isUint8Array.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
@@ -162,7 +163,7 @@ export const readContentSpans = function* (
   maxNesting: number,
 ): Generator<SpannedContentOperation, ReadonlyArray<ContentOperand>> {
   const reader = new OperationReader(maxNesting);
-  const streams = ArrayBuffer.isView(content) ? [content] : content;
+  const streams = isUint8Array(content) ? [content] : content;
   for (const [index, bytes] of streams.entries()) {
     yield* reader.read(bytes, index);
   }

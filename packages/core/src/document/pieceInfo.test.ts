@@ -1,3 +1,5 @@
+import type { PieceData } from './pieceInfo.ts';
+
 import { describe, expect, it } from 'vitest';
 
 import { compareDocuments } from '../compare/compareDocuments.ts';
@@ -60,6 +62,15 @@ describe('page-piece data and indirect objects', () => {
     expect(pdf).toContain('/#82b<</LastModified(D:20240302010405Z)/Private 7>>');
     expect(pdf).toContain('/ModDate(D:20240302010405Z)');
     expect(pdf).toContain('/PieceInfo<</App<</LastModified(D:20240302010405Z)');
+  });
+
+  it('reads the entries of a Map subclass that overrides its Symbol.toStringTag', () => {
+    class RetaggedMap extends Map<string, PieceData> {}
+    Object.defineProperty(RetaggedMap.prototype, Symbol.toStringTag, { get: () => 'Other' });
+    const document = createDocument();
+    const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(20), pt(20)) });
+    page.pieceInfo({ lastModified, data: new RetaggedMap([['App', { private: { kind: 'integer', value: 7 } }]]) });
+    expect(ascii(document.save().toBytes())).toContain('/PieceInfo<</App<</LastModified(D:20240302010405Z)/Private 7>>>>');
   });
 
   it('requires an explicit Info modification date for document data and rejects direct private streams', () => {

@@ -1,13 +1,14 @@
 import { ByteWriter } from '../bytes/byteWriter.ts';
+import { isUint8Array } from '../bytes/isUint8Array.ts';
 
 export type EmittedPart = Uint8Array | { readonly length: number; readonly produce: () => Generator<Uint8Array> };
 
 export const emittedChunks = function* (parts: ReadonlyArray<EmittedPart>): Generator<Uint8Array> {
   for (const part of parts) {
-    if ('produce' in part) {
-      yield* part.produce();
-    } else {
+    if (isUint8Array(part)) {
       yield part;
+    } else {
+      yield* part.produce();
     }
   }
 };
@@ -57,9 +58,9 @@ export class PdfEmitter {
   /** The chunks emitted so far, finishing the current buffer. */
   finish(): Array<Uint8Array> {
     this.flush();
-    if (this.chunks.some(part => 'produce' in part)) {
+    if (!this.chunks.every(part => isUint8Array(part))) {
       throw new Error('produced output requires a streamed save');
     }
-    return this.chunks.filter((part): part is Uint8Array => !('produce' in part));
+    return this.chunks.filter(part => isUint8Array(part));
   }
 }

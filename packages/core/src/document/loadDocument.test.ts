@@ -205,6 +205,11 @@ describe('loading documents', () => {
     expect(() => load(withStartxref(packed.text, 5))).toThrow(EncryptedDocumentError);
   });
 
+  it('reads segments only from Uint8Arrays, so a Uint16Array holding the same values is not a PDF', () => {
+    // @ts-expect-error A Uint16Array is not one of the byte inputs loadDocument accepts.
+    expect(() => loadDocument(Uint16Array.from(base.bytes))).toThrow(new ParseError('not a PDF file: no objects found', 0));
+  });
+
   it('detects linearized files', () => {
     const linearized = buildPdf([{ xref: 'classic', objects: [{ number: 3, body: '<</Linearized 1/L 999>>' }, catalog, pages], trailer: '/Root 1 0 R' }]);
     expect([loadDocument(linearized.bytes).structure.linearized]).toStrictEqual([true]);

@@ -1,6 +1,8 @@
 import type { LexContext, LexWindow } from './lexer.ts';
 import type { LoadWarning } from './loadWarning.ts';
 
+import { isUint8Array } from '../bytes/isUint8Array.ts';
+
 import { WindowEndError } from './windowEndError.ts';
 
 const MIN_COPY = 4096;
@@ -15,7 +17,7 @@ export class ByteSource {
   private readonly starts: Array<number>;
 
   constructor(input: Uint8Array | ReadonlyArray<Uint8Array>) {
-    const segments = ArrayBuffer.isView(input) ? [input] : input.filter(segment => segment.length > 0);
+    const segments = isUint8Array(input) ? [input] : input.filter(segment => segment.length > 0);
     this.segments = segments;
     this.starts = [];
     let length = 0;
