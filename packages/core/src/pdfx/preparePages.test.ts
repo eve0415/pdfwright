@@ -135,6 +135,18 @@ const nested = (kind: Nesting, levels: number) => {
   return single(`<<${page.resources}>>`, streamBody('', page.operators), objects);
 };
 
+/** A page with an annotation whose N appearance leads through the given number of indirect subdictionaries, numbered from 10, to a transparency group form. */
+const chained = (levels: number) =>
+  single(
+    '<<>>',
+    streamBody('', ''),
+    [
+      ...Array.from({ length: levels }, (_, index) => ({ number: 10 + index, body: `<</On ${String(11 + index)} 0 R>>` })),
+      { number: 10 + levels, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Group<</S/Transparency>>', '') },
+    ],
+    '/Annots[<</Type/Annot/Subtype/Stamp/Rect[0 0 1 1]/AP<</N 10 0 R>>>>]',
+  );
+
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
 
@@ -363,6 +375,13 @@ describe('pdfx page preparation', () => {
       ]).bytes,
     );
     expect(preparePdfX4Pages(document).addedPageGroups).toStrictEqual([0]);
+  });
+
+  it('reads annotation appearance subdictionaries as deep as maxNesting and refuses one more', () => {
+    expect(addedGroups(chained(256))).toStrictEqual([0]);
+    const prepare = () => preparePdfX4Pages(chained(257));
+    expect(prepare).toThrow(ResourceLimitError);
+    expect(prepare).toThrow(/maxNesting \(256\)/u);
   });
 
   it('adds a page group for transparency in an annotation appearance', () => {
