@@ -4,6 +4,7 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { readFile } from 'node:fs/promises';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { createColorTransform } from '../color/createColorTransform.ts';
@@ -14,6 +15,7 @@ import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { inflateZlib } from '../flate/inflate.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { createPdfFunction } from '../function/pdfFunction.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
@@ -21,6 +23,7 @@ import { PdfDictionaryEntries, pdfDictionary, pdfName, pdfReference } from '../o
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertSpotSpaces } from './convertSpots.ts';
+import { sampleCmykFunction } from './sampleCmykFunction.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
   Uint8Array.from(await readFile(new URL(`../../../../tests/fixtures/icc/${name}`, import.meta.url)));
@@ -721,5 +724,41 @@ describe('spot alternate conversion', () => {
     convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(pageSpace(document, 'CS1').at(3)).not.toStrictEqual(pdfReference(6, 0));
     expect(document.get(pdfReference(6, 0)).kind).toBe(kind);
+  });
+});
+
+const quantized = (values: ReadonlyArray<number>): ReadonlyArray<number> => values.map(value => Math.round(value * 65_535));
+
+describe('properties', () => {
+  const channel = fc.record({
+    offset: fc.double({ min: 0, max: 1, noNaN: true }),
+    slopes: fc.array(fc.double({ min: -1, max: 1, noNaN: true }), { minLength: 2, maxLength: 2 }),
+  });
+  const config = fc.record({
+    dimensions: fc.constantFrom(1, 2),
+    low: fc.integer({ min: -4, max: 4 }),
+    width: fc.integer({ min: 1, max: 8 }),
+    channels: fc.array(channel, { minLength: 4, maxLength: 4 }),
+  });
+
+  it('writes a sampled function whose value at every grid point is the evaluated colour at 16 bits', () => {
+    fc.assert(
+      fc.property(config, ({ dimensions, low, width, channels }) => {
+        const domain = Array.from({ length: dimensions }, () => [low, low + width]).flat();
+        const evaluate = (inputs: ReadonlyArray<number>): Float64Array =>
+          Float64Array.from(channels, ({ offset, slopes }) =>
+            Math.min(1, Math.max(0, offset + inputs.reduce((sum, input, axis) => sum + (slopes[axis] ?? 0) * ((input - low) / width), 0))),
+          );
+        const written = sampleCmykFunction({ dimensions, domain, evaluate, destination, grid: 5 });
+        const size = written.dictionary.get(pdfName('Size').bytes);
+        const grid = size?.kind === 'array' && size.items[0]?.kind === 'integer' ? size.items[0].value : 0;
+        const read = createPdfFunction({ kind: 'stream', dictionary: written.dictionary, data: inflateZlib(written.data).data });
+        const points = Array.from({ length: grid ** dimensions }, (_, index) =>
+          Array.from({ length: dimensions }, (_, axis) => low + ((Math.floor(index / grid ** axis) % grid) / (grid - 1)) * width),
+        );
+        // ISO 32000-1:2008, 7.10.2: a Type 0 function returns its stored sample at a grid point, which is the colour rounded to 16 bits.
+        expect(points.map(point => quantized(read(point)))).toStrictEqual(points.map(point => quantized([...evaluate(point)])));
+      }),
+    );
   });
 });
