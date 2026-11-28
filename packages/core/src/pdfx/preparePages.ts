@@ -174,7 +174,7 @@ class TransparencyScan {
     }
   }
 
-  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Array<Use>): boolean {
+  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Map<string, Use>): boolean {
     this.enter();
     const found = this.operations(bytes, resources, record);
     this.depth--;
@@ -323,13 +323,13 @@ class TransparencyScan {
         continue;
       }
       this.reading.add(objectNumber);
-      const uses: Array<Use> = [];
+      const uses = new Map<string, Use>();
       const found = this.nested(bytes, resources, uses);
       this.reading.delete(objectNumber);
       if (found) {
         return true;
       }
-      this.glyphUses.set(objectNumber, uses);
+      this.glyphUses.set(objectNumber, [...uses.values()]);
     }
     return false;
   }
@@ -406,15 +406,14 @@ class TransparencyScan {
     }
   }
 
-  operations(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Array<Use>): boolean {
+  // `record` keeps each distinct name the content selects, in the order it first selects it.
+  operations(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries, record?: Map<string, Use>): boolean {
     const lookup = this.lookup(resources);
-    const distinct = new Set<string>();
     for (const use of usesOf(bytes, this.internals.maxNesting)) {
       if (record !== undefined) {
         const text = `${use.operator} ${latin1.decode(use.name)}`;
-        if (!distinct.has(text)) {
-          distinct.add(text);
-          record.push(use);
+        if (!record.has(text)) {
+          record.set(text, use);
         }
       }
       if (this.use(use, lookup)) {
