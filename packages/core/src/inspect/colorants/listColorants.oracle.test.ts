@@ -293,6 +293,10 @@ const caseRelation = async (pdf: TextPdf): Promise<Relation | undefined> => {
     await writeFile(file, bytes);
     return renderPagePlates(file, path.join(directory, 'plates'), 72);
   });
+  // A page Ghostscript could not draw would read as a page without plates.
+  if (plates.failed.has(1)) {
+    throw new Error('Ghostscript could not draw the page of the case');
+  }
   return colorants === undefined ? undefined : relation(colorants, plates.plates.get(1) ?? []);
 };
 
