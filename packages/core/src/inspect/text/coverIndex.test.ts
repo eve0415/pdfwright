@@ -97,6 +97,20 @@ describe('cover index', () => {
     expect(index.hides(100, 15)).toBe(true);
   });
 
+  it('keeps a fill that starts exactly 10⁻⁶ outside the bounds on any side, for a point on that edge of the bounds', () => {
+    const hides = (rectangle: CoverEvent['rectangle'], [x, y]: readonly [number, number]): boolean => {
+      const index = new CoverIndex(BOUNDS, 1);
+      index.add(fill(rectangle));
+      return index.hides(x, y);
+    };
+    expect([
+      hides([100 + 1e-6, 10, 120, 20], [100, 15]),
+      hides([-20, 10, -1e-6, 20], [0, 15]),
+      hides([10, 100 + 1e-6, 20, 120], [15, 100]),
+      hides([10, -20, 20, -1e-6], [15, 0]),
+    ]).toStrictEqual([true, true, true, true]);
+  });
+
   it('skips a fill that starts further outside the bounds, even for a point inside its rectangle', () => {
     // Callers bound the index by every box they will query, so a fill wholly outside the bounds can hide nothing they ask about.
     const index = new CoverIndex(BOUNDS, 1);
