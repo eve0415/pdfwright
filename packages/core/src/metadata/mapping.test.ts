@@ -139,6 +139,26 @@ describe('mapping Info to XMP', () => {
     ]);
   });
 
+  // XMP Part 3 Table 20 lists the pre-Part-2 properties; one is reported only when it says something else than the current property, or than Info where the current property is missing.
+  it.each([
+    [
+      'agrees with the current property',
+      info({ Author: text('A') }),
+      '<pdf:Author>A</pdf:Author><dc:creator><rdf:Seq><rdf:li>A</rdf:li></rdf:Seq></dc:creator>',
+      [],
+    ],
+    [
+      'agrees with the current property but not with Info',
+      info({ Title: text('I') }),
+      `<pdf:Title>X</pdf:Title><dc:title>${alt('X')}</dc:title>`,
+      ['info-xmp-mismatch'],
+    ],
+    ['differs from Info without a current property', info({ Subject: text('S') }), '<pdf:Subject>T</pdf:Subject>', ['legacy-property-mismatch']],
+    ['agrees with Info without a current property', info({ Subject: text('S') }), '<pdf:Subject>S</pdf:Subject>', []],
+  ])('reports a legacy property that %s accordingly', (_name, values, body, expected) => {
+    expect(codes(mapMetadata(values, packet(body)))).toStrictEqual(expected);
+  });
+
   it('takes an empty XMP value as unknown, like an empty Info string', () => {
     const mapping = mapMetadata(
       info({ Title: text('T'), Subject: text('') }),
@@ -158,6 +178,90 @@ describe('mapping Info to XMP', () => {
       },
       ['xmp-empty-value', 'xmp-empty-value', 'info-empty-string', 'xmp-empty-value'],
     ]);
+  });
+
+  it('takes an alternative as empty only when every item is empty', () => {
+    const mapping = mapMetadata(
+      info({}),
+      packet('<dc:title><rdf:Alt><rdf:li xml:lang="x-default"></rdf:li><rdf:li xml:lang="de">Titel</rdf:li></rdf:Alt></dc:title>'),
+    );
+    expect([agreements(mapping)['Title'], codes(mapping)]).toStrictEqual(['xmp-only', []]);
+  });
+
+  it('reports Info text with undecodable bytes and still maps its text', () => {
+    const mapping = mapMetadata(info({ Title: { kind: 'text', text: 'T\uFFFD', encoding: 'utf-16be', languages: [], replaced: 1 } }), undefined);
+    expect([mapping.properties.find(property => property.key === 'Title')?.info, codes(mapping)]).toStrictEqual(['T\uFFFD', ['info-text-undecodable']]);
+    expect(mapping.findings[0]?.detail).toContain('Title');
+  });
+
+  it.each([
+    [
+      'a creators list compared with a title',
+      'Title',
+      info({ Title: text('A; B') }),
+      '<dc:title><rdf:Alt><rdf:li xml:lang="en">A</rdf:li><rdf:li xml:lang="de">B</rdf:li></rdf:Alt></dc:title>',
+      'differ',
+      ['info-xmp-mismatch'],
+    ],
+    [
+      'creators that differ after the first',
+      'Author',
+      info({ Author: text('A; C') }),
+      '<dc:creator><rdf:Seq><rdf:li>A</rdf:li><rdf:li>B</rdf:li></rdf:Seq></dc:creator>',
+      'differ',
+      ['info-xmp-mismatch'],
+    ],
+    [
+      'an XMP date that does not parse',
+      'CreationDate',
+      info({ CreationDate: text('D:20240101') }),
+      '<xmp:CreateDate>yesterday</xmp:CreateDate>',
+      'indeterminate',
+      ['date-unparseable', 'info-xmp-indeterminate'],
+    ],
+    ['a URI compared with text', 'Creator', info({ Creator: text('C') }), '<xmp:CreatorTool rdf:resource="x"/>', 'indeterminate', ['info-xmp-indeterminate']],
+    // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
+    ['Trapped Unknown against True', 'Trapped', info({ Trapped: { kind: 'name', name: 'Unknown' } }), '<pdf:Trapped>True</pdf:Trapped>', 'xmp-only', []],
+    [
+      'Trapped True against False',
+      'Trapped',
+      info({ Trapped: { kind: 'name', name: 'True' } }),
+      '<pdf:Trapped>False</pdf:Trapped>',
+      'differ',
+      ['info-xmp-mismatch'],
+    ],
+    ['Trapped of another type', 'Trapped', info({ Trapped: { kind: 'other', type: 'integer' } }), '', 'absent', ['trapped-not-name']],
+  ])('maps %s', (_name, key, values, body, agreement, expected) => {
+    const mapping = mapMetadata(values, packet(body));
+    expect([agreements(mapping)[key], codes(mapping)]).toStrictEqual([agreement, expected]);
+  });
+
+  it('names the property that does not parse and the type of a Trapped that is not a name', () => {
+    const date = mapMetadata(info({ CreationDate: text('D:20240101') }), packet('<xmp:CreateDate>yesterday</xmp:CreateDate>'));
+    const trapped = mapMetadata(info({ Trapped: { kind: 'other', type: 'integer' } }), undefined);
+    expect(date.findings[0]?.detail).toContain('xmp:CreateDate');
+    expect(trapped.findings[0]?.detail).toContain('of type integer');
+  });
+
+  // ISO 32000-1:2008, 14.3.2 compares the metadata stream's date stamp with Info ModDate; without either readable, neither side is authoritative.
+  it.each([
+    ['Info has no ModDate', info({ Title: text('T') }), '<xmp:MetadataDate>2024-01-02T00:00:00Z</xmp:MetadataDate>'],
+    ['Info ModDate is a name', info({ ModDate: { kind: 'name', name: 'D:20240102000000Z' } }), '<xmp:MetadataDate>2024-01-02T00:00:00Z</xmp:MetadataDate>'],
+    [
+      'the metadata date does not parse beside a modify date that does',
+      info({ ModDate: text('D:20240101000000Z') }),
+      '<xmp:MetadataDate>soon</xmp:MetadataDate><xmp:ModifyDate>2024-01-02T00:00:00Z</xmp:ModifyDate>',
+    ],
+  ])('leaves the authority indeterminate when %s', (_name, values, body) => {
+    expect(mapMetadata(values, packet(body)).authority).toBe('indeterminate');
+  });
+
+  it.each([
+    ['xmp', info({ Title: text('Info'), ModDate: text('D:20240101000000Z') }), '<xmp:MetadataDate>2024-01-02T00:00:00Z</xmp:MetadataDate>'],
+    ['info', info({ Title: text('Info'), ModDate: text('D:20240103000000Z') }), '<xmp:MetadataDate>2024-01-02T00:00:00Z</xmp:MetadataDate>'],
+  ])('names %s as authoritative in a mismatch', (authority, values, body) => {
+    const mapping = mapMetadata(values, packet(`<dc:title>${alt('Packet')}</dc:title>${body}`));
+    expect(mapping.findings.find(finding => finding.code === 'info-xmp-mismatch')?.detail).toMatch(new RegExp(`; ${authority} is authoritative$`, 'u'));
   });
 
   it('is Info-authoritative without a packet and XMP-authoritative without Info', () => {

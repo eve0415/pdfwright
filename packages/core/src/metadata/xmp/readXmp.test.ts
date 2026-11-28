@@ -59,6 +59,12 @@ const encodingFindings = (bytes: Uint8Array): ReadonlyArray<string> => {
   return result.ok ? [result.packet.encoding, ...result.packet.findings.map(finding => finding.code)] : [result.reason];
 };
 
+// Text as UTF-16BE or UTF-32BE bytes without a byte-order mark.
+const utf16be = (text: string): Array<number> =>
+  Array.from({ length: text.length }, (_, index) => text.charCodeAt(index)).flatMap(unit => [unit >> 8, unit & 0xff]);
+const utf32be = (text: string): Array<number> =>
+  Array.from(text, character => character.codePointAt(0) ?? 0).flatMap(code => [code >>> 24, (code >> 16) & 0xff, (code >> 8) & 0xff, code & 0xff]);
+
 describe('reading XMP packets', () => {
   it('reads simple, attribute, URI, language alternative, ordered and opaque properties', () => {
     const text = packet(
@@ -164,7 +170,7 @@ describe('reading XMP packets', () => {
     expect([findings(duplicated), encodingFindings(utf16)]).toStrictEqual([['duplicate-property'], ['utf-16be', 'xmp-not-utf8']]);
   });
 
-  it('refuses a packet with too many properties before building its tree', () => {
+  it('refuses a packet above the token cap passed to readXmp', () => {
     const text = packet(`<rdf:Description xmlns:p="urn:p">${'<p:x/>'.repeat(8193)}</rdf:Description>`);
     expect(readXmp(new TextEncoder().encode(text), 8192)).toStrictEqual({ ok: false, reason: 'too-many-tokens' });
   });
@@ -185,8 +191,19 @@ describe('reading XMP packets', () => {
       refusal(packet('<rdf:Description><u:a/></rdf:Description>')),
       refusal(packet(`<rdf:Description xmlns:q=""/>`)),
       refusal(packet(`<rdf:Description xmlns=""/>`)),
-      readXmp(Uint8Array.of(0x3c, 0xff)).ok,
-    ]).toStrictEqual(['not-well-formed', 'doctype', 'no-rdf', 'multiple-rdf', 'not-xmp', 'not-xmp', 'unbound-prefix', 'not-well-formed', undefined, false]);
+      readXmp(Uint8Array.of(0x3c, 0xff)),
+    ]).toStrictEqual([
+      'not-well-formed',
+      'doctype',
+      'no-rdf',
+      'multiple-rdf',
+      'not-xmp',
+      'not-xmp',
+      'unbound-prefix',
+      'not-well-formed',
+      undefined,
+      { ok: false, reason: 'undecodable' },
+    ]);
   });
 
   it('refuses reserved namespace rebinding and malformed qualified names', () => {
@@ -194,8 +211,48 @@ describe('reading XMP packets', () => {
       `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:xml="urn:evil"/>`,
       `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:xmlns="urn:evil"/>`,
       `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:p="http://www.w3.org/XML/1998/namespace"/>`,
+      // Namespaces in XML 1.0, 3: "Other prefixes MUST NOT be bound to this namespace name" for the XML namespace, and no prefix may be bound to the xmlns one, nor the default namespace to either.
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns:p="http://www.w3.org/2000/xmlns/"/>`,
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns="http://www.w3.org/XML/1998/namespace"/>`,
+      `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}" xmlns="http://www.w3.org/2000/xmlns/"/>`,
       `<rdf:RDF xmlns:rdf="${RDF_NAMESPACE}"><rdf:Description><p:x:y xmlns:p="urn:p"/></rdf:Description></rdf:RDF>`,
     ];
-    expect(cases.map(value => refusal(value))).toStrictEqual(['not-well-formed', 'not-well-formed', 'not-well-formed', 'not-well-formed']);
+    expect(cases.map(value => refusal(value))).toStrictEqual(Array.from({ length: 7 }, () => 'not-well-formed'));
+  });
+
+  it.each([
+    ['UTF-16BE', [0xfe, 0xff], utf16be],
+    ['UTF-32BE', [0x00, 0x00, 0xfe, 0xff], utf32be],
+  ])('gives spans in the bytes of a %s packet with an astral character', (_name, mark, encode) => {
+    const bytes = Uint8Array.from([
+      ...mark,
+      ...encode(packet(`<rdf:Description rdf:about="" ${PDF} pdf:Producer="\u{20BB7}"><pdf:Keywords>\u{20BB7}山</pdf:Keywords></rdf:Description>`)),
+    ]);
+    const result = readXmp(bytes);
+    const spans = result.ok ? result.packet.properties.map(property => [...bytes.subarray(property.span.start, property.span.end)]) : [];
+    expect(spans).toStrictEqual([encode('pdf:Producer="\u{20BB7}"'), encode('<pdf:Keywords>\u{20BB7}山</pdf:Keywords>')]);
+  });
+
+  it('gives an attribute property the language of its rdf:Description and reads a bag', () => {
+    const text = packet(
+      `<rdf:Description rdf:about="" ${PDF} ${DC} xml:lang="fr" pdf:Producer="P"><dc:subject><rdf:Bag><rdf:li>a</rdf:li></rdf:Bag></dc:subject></rdf:Description>`,
+    );
+    expect(summary(text)).toStrictEqual([
+      ['http://ns.adobe.com/pdf/1.3/Producer', 'attribute', { kind: 'text', text: 'P', language: 'fr' }],
+      ['http://purl.org/dc/elements/1.1/subject', 'element', { kind: 'array', type: 'Bag', items: [{ text: 'a', language: 'fr' }] }],
+    ]);
+  });
+
+  // XMP Part 1 7.5 and 7.7: only an array of rdf:li items with simple values, or a URI given by rdf:resource alone on an empty element, is read; anything else is kept as opaque.
+  it.each([
+    ['an array with an item that is not rdf:li', '<dc:subject><rdf:Bag><dc:x>a</dc:x></rdf:Bag></dc:subject>'],
+    ['an array item with nested elements', '<dc:subject><rdf:Bag><rdf:li><dc:x>a</dc:x></rdf:li></rdf:Bag></dc:subject>'],
+    ['an array beside text', '<dc:subject>text<rdf:Bag><rdf:li>a</rdf:li></rdf:Bag></dc:subject>'],
+    ['a resource with text', '<dc:subject rdf:resource="urn:x">text</dc:subject>'],
+    ['a resource with another attribute', '<dc:subject rdf:resource="urn:x" dc:other="y"/>'],
+  ])('keeps %s as opaque', (_name, property) => {
+    expect(summary(packet(`<rdf:Description rdf:about="" ${DC}>${property}</rdf:Description>`))).toStrictEqual([
+      ['http://purl.org/dc/elements/1.1/subject', 'element', { kind: 'opaque' }],
+    ]);
   });
 });

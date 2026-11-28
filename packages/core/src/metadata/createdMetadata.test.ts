@@ -1,4 +1,5 @@
 import type { DocumentOptions } from '../document/pdfDocument.ts';
+import type { DocumentInfo } from './documentInfo.ts';
 
 import { describe, expect, it } from 'vitest';
 
@@ -33,6 +34,13 @@ const firstId = (data: Uint8Array): Uint8Array => {
   const id = loadDocument(data).structure.trailer.get(new TextEncoder().encode('ID'));
   const first = id?.kind === 'array' ? id.items[0] : undefined;
   return first?.kind === 'string' ? first.bytes : new Uint8Array();
+};
+
+// The InstanceID of a created document with one page of the given width; the file identifier is fixed, so that the DocumentID is the same for every document.
+const instanceId = (info: DocumentInfo, width: number): string | undefined => {
+  const document = createDocument({ info, fileIdentifier: [new Uint8Array(16).fill(0xab), new Uint8Array(16).fill(0xcd)] });
+  document.addPage({ mediaBox: rect(pt(0), pt(0), pt(width), pt(100)) });
+  return packetText(document.save().toBytes(), 'InstanceID');
 };
 
 describe('metadata in created documents', () => {
@@ -81,5 +89,37 @@ describe('metadata in created documents', () => {
 
   it('writes a caller-supplied InstanceID', () => {
     expect(packetText(bytes({ info: INFO, metadata: { xmp: true, instanceId: 'uuid:given-instance' } }), 'InstanceID')).toBe('uuid:given-instance');
+  });
+
+  it('requires a modification date for XMP when there is no Info at all', () => {
+    expect(() => createDocument({ metadata: { xmp: true } })).toThrow(ValidationError);
+    expect(() => createDocument({ metadata: { xmp: true } })).toThrow(expect.objectContaining({ reason: 'metadata-date-required' }));
+  });
+
+  // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
+  it('writes Trapped Unknown in Info only', () => {
+    const data = bytes({ info: { ...INFO, trapped: 'Unknown' } });
+    const metadata = readMetadata(loadDocument(data));
+    expect([
+      metadata.info?.values.get('Trapped'),
+      packetText(data, 'Trapped'),
+      metadata.properties.find(property => property.key === 'Trapped')?.agreement,
+      metadata.findings,
+    ]).toStrictEqual([{ kind: 'name', name: 'Unknown' }, undefined, 'agree', []]);
+  });
+
+  it('writes the creation date as xmp:CreateDate', () => {
+    const data = bytes({ info: INFO });
+    const row = readMetadata(loadDocument(data)).properties.find(property => property.key === 'CreationDate');
+    expect([packetText(data, 'CreateDate'), row?.agreement]).toStrictEqual(['2024-03-01T12:00:00Z', 'agree']);
+  });
+
+  it('derives different InstanceIDs for documents that differ in one page or one Info value', () => {
+    const base = instanceId(INFO, 100);
+    expect([instanceId(INFO, 100) === base, instanceId({ ...INFO, title: 'Other' }, 100) === base, instanceId(INFO, 200) === base]).toStrictEqual([
+      true,
+      false,
+      false,
+    ]);
   });
 });

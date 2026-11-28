@@ -1,11 +1,12 @@
-import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { pdfDate } from '../date/pdfDate.ts';
 import { createDocument } from '../document/pdfDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
-import { PdfDictionaryEntries, pdfInteger, pdfName, pdfReference, pdfString } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference, pdfString } from '../object/pdfObject.ts';
 
 import { pdfTextString, readInfoValues, readTextString } from './documentInfo.ts';
 
@@ -104,7 +105,28 @@ describe('reading text strings', () => {
       languages: [],
       replaced: 1,
     });
-    expect(readTextString(Uint8Array.of(0xfe, 0xff, 0x00, 0x41, 0x00)).text).toBe('A�');
+    expect(readTextString(Uint8Array.of(0xfe, 0xff, 0x00, 0x41, 0x00))).toStrictEqual({ text: 'A�', encoding: 'utf-16be', languages: [], replaced: 1 });
+  });
+
+  // ISO 32000-1:2008, 7.9.2.2: only the bytes 254 followed by 255 mark UTF-16BE; anything else, including an empty string, is PDFDocEncoding.
+  it.each([
+    ['an empty string', new Uint8Array(), { text: '', encoding: 'pdfdoc', languages: [], replaced: 0 }],
+    ['a byte-order mark alone', Uint8Array.of(0xfe, 0xff), { text: '', encoding: 'utf-16be', languages: [], replaced: 0 }],
+    ['a lone 254 byte', Uint8Array.of(0xfe), { text: 'þ', encoding: 'pdfdoc', languages: [], replaced: 0 }],
+    ['the marker bytes reversed', Uint8Array.of(0xff, 0xfe), { text: 'ÿþ', encoding: 'pdfdoc', languages: [], replaced: 0 }],
+  ])('decodes %s', (_name, bytes, expected) => {
+    expect(readTextString(bytes)).toStrictEqual(expected);
+  });
+
+  // ISO 32000-1:2008, 7.9.2.2: an escape is U+001B, two ASCII letters, optionally two more, and U+001B; anything else is text.
+  it.each([
+    ['numerals between two escapes', utf16(0x1b, 0x31_32, 0x1b, 0x41), { text: '\u001B\u3132\u001BA', languages: [], replaced: 0 }],
+    ['an escape truncated at the end', utf16(0x1b, 0x6a_61), { text: '\u001B\u6A61', languages: [], replaced: 0 }],
+    ['a country code without its closing escape', utf16(0x1b, 0x65_6e, 0x55_53), { text: '\u001B\u656E\u5553', languages: [], replaced: 0 }],
+    ['a high surrogate before an escape', utf16(0xd8_00, 0x1b, 0x6a_61, 0x1b, 0x41), { text: '\uFFFDA', languages: ['ja'], replaced: 1 }],
+    ['a lone low surrogate', utf16(0xdc_00, 0x41), { text: '\uFFFDA', languages: [], replaced: 1 }],
+  ])('removes only well-formed language escapes and replaces only unpaired surrogates: %s', (_name, bytes, expected) => {
+    expect(readTextString(bytes)).toStrictEqual({ encoding: 'utf-16be', ...expected });
   });
 
   it('removes language escapes and reports their codes', () => {
@@ -117,6 +139,21 @@ describe('reading text strings', () => {
       const bytes = stringBytes(pdfTextString(text));
       expect(readTextString(bytes).text).toBe(text);
     }
+  });
+});
+
+describe('writing text strings', () => {
+  // ISO 32000-1:2008, Annex D, Table D.2 maps 0xE9 to U+00E9 too, but only the self-mapped ASCII range is written as PDFDocEncoding.
+  it.each([
+    ['é', pdfString(Uint8Array.of(0xfe, 0xff, 0x00, 0xe9), 'hex')],
+    ['\u00FF', pdfString(Uint8Array.of(0xfe, 0xff, 0x00, 0xff), 'hex')],
+    ['~', pdfString(Uint8Array.of(0x7e))],
+  ])('writes %j in the encoding its code points need', (text, expected) => {
+    expect(pdfTextString(text)).toStrictEqual(expected);
+  });
+
+  it.each([['\uD800'], ['\uDC00'], ['a\uDBFF']])('rejects the unpaired surrogate in %j', text => {
+    expect(() => pdfTextString(text)).toThrow(ValidationError);
   });
 });
 
@@ -136,5 +173,36 @@ describe('reading document information', () => {
       Pages: { kind: 'other', type: 'integer' },
       Author: { kind: 'text', text: 'B', encoding: 'pdfdoc', languages: [], replaced: 0 },
     });
+  });
+
+  // ISO 32000-1:2008, 7.3.9: a null value, or a reference to an object that does not exist, is the same as an absent entry.
+  it('leaves out null values and missing references and reports the kind of a dictionary or array', () => {
+    const entries = new PdfDictionaryEntries([
+      [pdfName('Title').bytes, { kind: 'null' }],
+      [pdfName('Author').bytes, pdfReference(8, 0)],
+      [pdfName('Subject').bytes, pdfReference(9, 0)],
+      [pdfName('Keywords').bytes, pdfDictionary(new PdfDictionaryEntries())],
+      [pdfName('Creator').bytes, pdfArray([])],
+    ]);
+    const objects = new Map<number, PdfObject>([[9, { kind: 'null' }]]);
+    const values = readInfoValues(entries, reference => objects.get(reference.objectNumber));
+    expect(Object.fromEntries(values)).toStrictEqual({
+      Keywords: { kind: 'other', type: 'dictionary' },
+      Creator: { kind: 'other', type: 'array' },
+    });
+  });
+});
+
+describe('properties', () => {
+  // U+001B is left out because in UTF-16BE it opens a language escape (ISO 32000-1:2008, 7.9.2.2), which the writer does not escape.
+  const text = fc.string({ unit: 'binary', maxLength: 64 }).filter(value => !value.includes('\u001B'));
+
+  it('reads back every string of Unicode scalar values the writer produces', () => {
+    fc.assert(
+      fc.property(text, value => {
+        const read = readTextString(stringBytes(pdfTextString(value)));
+        expect({ text: read.text, replaced: read.replaced, languages: read.languages }).toStrictEqual({ text: value, replaced: 0, languages: [] });
+      }),
+    );
   });
 });

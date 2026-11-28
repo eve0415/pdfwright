@@ -1,10 +1,14 @@
 import type { ManagedValues } from './writeXmp.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+
+import { ValidationError } from '../../error/validationError.ts';
 
 import { readXmp } from './readXmp.ts';
 import { splicePacket } from './splicePacket.ts';
 import { managedDescription } from './writeXmp.ts';
+import { tokenizeXml } from './xmlTokenizer.ts';
 
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 
@@ -34,6 +38,11 @@ const properties = (bytes: Uint8Array | undefined): ReadonlyArray<readonly [stri
   const read = readXmp(bytes ?? new Uint8Array());
   return read.ok ? read.packet.properties.map(property => [`${property.namespace}${property.localName}`, property.value] as const) : [];
 };
+
+const escaped = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+const unmanagedOf = (bytes: Uint8Array | undefined): ReadonlyArray<readonly [string, unknown]> =>
+  properties(bytes).filter(([name]) => name.startsWith('urn:p'));
 
 // The XML declaration of a UTF-16 packet that starts with `declaration`, after a splice.
 const declarationAfterSplice = (declaration: string): string => {
@@ -117,12 +126,22 @@ describe('splicing managed properties into an existing packet', () => {
     ]).toStrictEqual(['<?xml version="1.0" encoding="UTF-8"?>', "<?xml version='1.0' encoding = 'UTF-8' standalone='yes'?>", '<?xml version="1.0"?>']);
   });
 
-  it('keeps unmanaged properties within the packet limit', () => {
+  it('copies 2,000 repeated unmanaged properties and reads the result back under the cap it is given', () => {
     const repeated = '<pdf:X>1</pdf:X>'.repeat(2000);
-    const source = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${repeated}</rdf:Description></rdf:RDF>`;
-    const result = splice(source);
-    const copied = new TextDecoder().decode(result?.bytes).split('<pdf:X>').length - 1;
-    expect([result?.transcoded, copied]).toStrictEqual([false, 2000]);
+    const read = readXmp(
+      encode(`<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${repeated}</rdf:Description></rdf:RDF>`),
+    );
+    const packet = read.ok ? read.packet : undefined;
+    const result = packet === undefined ? undefined : splicePacket(packet, VALUES);
+    const text = new TextDecoder().decode(result?.bytes);
+    const tokens = tokenizeXml(text);
+    const count = tokens.ok ? tokens.tokens.length : 0;
+    expect([result?.transcoded, text.split('<pdf:X>').length - 1]).toStrictEqual([false, 2000]);
+    expect(packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count }).bytes).toStrictEqual(result?.bytes);
+    expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count - 1 }))).toThrow(ValidationError);
+    expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count - 1 }))).toThrow(
+      expect.objectContaining({ reason: 'xmp-unreadable' }),
+    );
   });
 
   it('re-encodes a packet in another encoding as UTF-8', () => {
@@ -131,5 +150,80 @@ describe('splicing managed properties into an existing packet', () => {
     const result = splice(utf16);
     const expected = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about=""/>${managedDescription(VALUES, { about: '', declareRdf: true, resetLanguage: false })}\n</rdf:RDF>`;
     expect([new TextDecoder().decode(result?.bytes), result?.transcoded]).toStrictEqual([expected, true]);
+  });
+
+  it('leaves the property of a kept key byte for byte and rewrites the others', () => {
+    const title = '<dc:title xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Alt><rdf:li xml:lang="x-default">Kept &amp; title</rdf:li></rdf:Alt></dc:title>';
+    const source = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${title}<pdf:Producer>Old</pdf:Producer></rdf:Description></rdf:RDF>`;
+    const read = readXmp(encode(source));
+    const result = read.ok ? splicePacket(read.packet, { ...VALUES, title: undefined }, { kept: new Set(['Title']) }) : undefined;
+    const text = new TextDecoder().decode(result?.bytes);
+    expect([
+      text.includes(title),
+      text.includes('<pdf:Producer>Old</pdf:Producer>'),
+      properties(result?.bytes).filter(([name]) => name.endsWith('title') || name.endsWith('Producer')),
+    ]).toStrictEqual([
+      true,
+      false,
+      [
+        ['http://purl.org/dc/elements/1.1/title', { kind: 'array', type: 'Alt', items: [{ text: 'Kept & title', language: 'x-default' }] }],
+        ['http://ns.adobe.com/pdf/1.3/Producer', { kind: 'text', text: 'New producer', language: undefined }],
+      ],
+    ]);
+  });
+
+  // The result is read back, so a property the splice did not know of and left in place is caught rather than shipped.
+  it.each([
+    ['a legacy property', '<pdf:Title>Legacy</pdf:Title>', 'Title'],
+    ['a second occurrence of a managed property', '<pdf:Producer>New producer</pdf:Producer>', 'Producer'],
+  ])('refuses a result that still holds %s', (_name, property, omitted) => {
+    const read = readXmp(
+      encode(`<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${property}</rdf:Description></rdf:RDF>`),
+    );
+    const packet = read.ok ? { ...read.packet, properties: read.packet.properties.filter(item => item.localName !== omitted) } : undefined;
+    expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES))).toThrow(ValidationError);
+    expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES))).toThrow(expect.objectContaining({ reason: 'xmp-unreadable' }));
+  });
+
+  it.each([
+    ['two adjacent attributes', ' pdf:Producer="a" pdf:Keywords="b" pdf:X="c"', ' pdf:X="c"'],
+    ['the only attribute', ' pdf:Producer="a"', ''],
+  ])('removes %s without leaving white space behind', (_name, attributes, left) => {
+    const start = `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/"`;
+    const result = splice(`${start}${attributes}/></rdf:RDF>`);
+    const description = managedDescription(VALUES, { about: '', declareRdf: true, resetLanguage: false });
+    expect(new TextDecoder().decode(result?.bytes)).toBe(`${start}${left}/>${description}\n</rdf:RDF>`);
+  });
+
+  // XML 1.0, 3.3.3: a tab or line feed in an attribute value reads back as a space unless written as a reference.
+  it('gives the new rdf:Description the subject of the packet, quotes and white space included', () => {
+    const subject = 'uuid:a"b\tc\nd';
+    const result = splice(`<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="uuid:a&quot;b&#9;c&#10;d"/></rdf:RDF>`);
+    const read = readXmp(result?.bytes ?? new Uint8Array());
+    expect(read.ok ? [read.packet.subject, read.packet.findings] : read.reason).toStrictEqual([subject, []]);
+  });
+});
+
+describe('properties', () => {
+  // Characters XML can carry, among them the ones it escapes and one outside the Basic Multilingual Plane.
+  const text = fc
+    .array(fc.constantFrom('a', 'Z', ' ', '&', '<', '>', '"', "'", '\t', '\n', '山', '\u{1F600}'), { maxLength: 12 })
+    .map(characters => characters.join(''));
+  const unmanaged = fc.array(fc.tuple(fc.constantFrom('a', 'b', 'c'), text), { maxLength: 6 });
+  const managed = fc.subarray(['<pdf:Producer>old</pdf:Producer>', '<pdf:Title>legacy</pdf:Title>', '<pdf:Keywords>k</pdf:Keywords>']);
+
+  it('keeps the unmanaged properties of a packet in order', () => {
+    fc.assert(
+      fc.property(unmanaged, managed, text, text, (others, ours, title, producer) => {
+        const body = [...others.map(([name, value]) => `<p:${name}>${escaped(value)}</p:${name}>`), ...ours].join('');
+        const read = readXmp(
+          encode(
+            `<rdf:RDF xmlns:rdf="${RDF}"><rdf:Description rdf:about="" xmlns:p="urn:p" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">${body}</rdf:Description></rdf:RDF>`,
+          ),
+        );
+        const spliced = read.ok ? splicePacket(read.packet, { ...VALUES, title, producer }) : undefined;
+        expect(unmanagedOf(spliced?.bytes)).toStrictEqual(others.map(([name, text]) => [`urn:p${name}`, { kind: 'text', text, language: undefined }]));
+      }),
+    );
   });
 });

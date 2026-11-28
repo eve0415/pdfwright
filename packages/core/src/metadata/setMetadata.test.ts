@@ -1,7 +1,9 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
+import type { InfoValue } from './documentInfo.ts';
 import type { MetadataInput } from './resolveMetadata.ts';
+import type { SetMetadataOptions } from './setMetadata.ts';
 import type { XmpValue } from './xmp/readXmp.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -175,6 +177,20 @@ const withUnparsedXmp = (info: string): LoadedDocument =>
 const hexOf = (text: string): string => [...new TextEncoder().encode(text)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 const packetCount = (document: LoadedDocument): number => latin1Text(document.save().toBytes()).split('<?xpacket begin=').length - 1;
+
+const withRating = (): LoadedDocument =>
+  load('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('<xmp:Rating>1</xmp:Rating>')) }]);
+
+// The DocumentID setMetadata reports and the one the saved packet holds, after an edit of a packet whose DocumentID is xmp.did:kept.
+const documentIds = (options: SetMetadataOptions): readonly [string, string | undefined] => {
+  const edited = load('/Metadata 4 0 R', [
+    { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('<xmpMM:DocumentID>xmp.did:kept</xmpMM:DocumentID>')) },
+  ]);
+  const change = setMetadata(edited, INPUT, options);
+  const { xmp } = readMetadata(saved(edited));
+  const value = xmp !== undefined && 'packet' in xmp ? xmp.packet.properties.find(property => property.localName === 'DocumentID')?.value : undefined;
+  return [change.documentId, value?.kind === 'text' ? value.text : undefined];
+};
 
 describe('setting document metadata', () => {
   it('keeps one packet after editing a metadata stream with two concatenated packets', () => {
@@ -424,6 +440,33 @@ describe('setting document metadata', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 14.3.2: a metadata date later than Info ModDate makes the packet authoritative.
+  it('reconciles a left-out value from the packet when the packet is authoritative', () => {
+    const document = load(
+      '/Metadata 4 0 R',
+      [
+        {
+          number: 4,
+          body: streamBody(
+            '/Type/Metadata/Subtype/XML',
+            packet(
+              '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Packet title</rdf:li></rdf:Alt></dc:title><xmp:MetadataDate>2022-01-01T00:00:00Z</xmp:MetadataDate>',
+            ),
+          ),
+        },
+        { number: 5, body: '<</Title(Info title)/ModDate(D:20210101000000Z)>>' },
+      ],
+      `${ID}/Info 5 0 R`,
+    );
+    const change = setMetadata(document, { modificationDate: MODIFIED });
+    const reloaded = saved(document);
+    expect([change.reconciled, infoText(reloaded, 'Title'), agreements(reloaded)['Title']]).toStrictEqual([
+      [{ key: 'Title', from: 'xmp', discarded: 'Info title' }],
+      'Packet title',
+      'agree',
+    ]);
+  });
+
   it('replaces the packet in place, keeps its DocumentID and unmanaged properties, and removes legacy duplicates', () => {
     const existing = packet(
       '<pdf:Title>Legacy</pdf:Title><xmpMM:DocumentID>xmp.did:kept</xmpMM:DocumentID><xmpMM:InstanceID>uuid:old</xmpMM:InstanceID><xmp:Rating>3</xmp:Rating>',
@@ -447,17 +490,20 @@ describe('setting document metadata', () => {
   });
 
   it('deletes orphaned metadata streams and keeps component packets', () => {
-    const document = load('/Metadata 4 0 R', [
+    const document = load('/Metadata 4 0 R/Extra 8 0 R', [
       { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
       { number: 5, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
       { number: 6, body: '<</Type/Metadata>>' },
+      { number: 7, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
+      { number: 8, body: '<</Metadata 7 0 R>>' },
     ]);
     const change = setMetadata(document, INPUT);
-    const reloaded = saved(document);
-    expect([change.deletedOrphans, readMetadata(reloaded).packets.orphans, packetCount(document)]).toStrictEqual([
+    const reloaded = readMetadata(saved(document));
+    expect([change.deletedOrphans, reloaded.packets.orphans, reloaded.packets.components, packetCount(document)]).toStrictEqual([
       [pdfReference(5, 0), pdfReference(6, 0)],
       [],
-      1,
+      [{ owner: pdfReference(8, 0), reference: pdfReference(7, 0) }],
+      2,
     ]);
   });
 
@@ -517,7 +563,10 @@ describe('setting document metadata', () => {
     );
     const replaced = unreadable();
     setMetadata(replaced, INPUT, { unreadableXmp: 'replace' });
-    expect([refused.save().mode, codes(saved(replaced))]).toStrictEqual(['incremental', []]);
+    expect([refused.save().toBytes(), codes(saved(replaced))]).toStrictEqual([
+      source('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', '<!DOCTYPE x><x/>') }], ID),
+      [],
+    ]);
   });
 
   it('changes nothing when a step after the first edit it plans fails', () => {
@@ -599,5 +648,204 @@ describe('setting document metadata', () => {
 
   it('writes identical bytes for identical edits', () => {
     expect(editedBytes()).toBe(editedBytes());
+  });
+
+  it('refuses a packet whose edit does not read back under the token cap, unless told to replace it', () => {
+    // The packet is 11 tokens, so a cap of 11 reads it, and the managed properties the edit adds take it over the cap.
+    const refused = withRating();
+    expect(readMetadata(refused, { maxXmpTokens: 11 }).xmp).toHaveProperty('packet');
+    expect(() => setMetadata(refused, INPUT, { maxXmpTokens: 11 })).toThrow(ValidationError);
+    expect(() => setMetadata(refused, INPUT, { maxXmpTokens: 11 })).toThrow(expect.objectContaining({ reason: 'xmp-unreadable' }));
+    const replaced = withRating();
+    setMetadata(replaced, INPUT, { maxXmpTokens: 11, unreadableXmp: 'replace' });
+    const reloaded = saved(replaced);
+    expect([packetProperties(reloaded).includes('Rating'), codes(reloaded)]).toStrictEqual([false, []]);
+  });
+
+  // ISO 32000-1:2008, Table 5: F, FFilter and FDecodeParms name an external file that holds the data; the replacement packet is held in the file.
+  it('drops the external file entries of a metadata stream it replaces', () => {
+    const document = load('/Metadata 4 0 R', [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML/F(packet.xml)/FFilter/ASCIIHexDecode/FDecodeParms<<>>/Custom 1', '') },
+    ]);
+    setMetadata(document, INPUT, { unreadableXmp: 'replace' });
+    const reloaded = saved(document);
+    const stream = reloaded.get(pdfReference(4, 0));
+    const keys = stream.kind === 'stream' ? [...stream.dictionary.entries()].map(([key]) => latin1Text(key)).toSorted() : [];
+    expect([keys, codes(reloaded)]).toStrictEqual([['Custom', 'Length', 'Subtype', 'Type'], []]);
+  });
+
+  it('refuses a value that did not come from loadDocument', () => {
+    expect(() => setMetadata({ ...load('') }, INPUT)).toThrow(InvalidArgumentError);
+  });
+
+  // ISO 32000-1:2008, Table 5: DecodeParms and DL describe the old encoding, which the unfiltered packet no longer has; other entries stay.
+  it('drops the encoding entries of the metadata stream and keeps its other entries', () => {
+    const document = load('/Metadata 4 0 R', [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML/Filter/ASCIIHexDecode/DecodeParms<<>>/DL 10/Custom 1', `${hexOf(packet(''))}>`) },
+    ]);
+    setMetadata(document, INPUT);
+    const stream = saved(document).get(pdfReference(4, 0));
+    const keys = stream.kind === 'stream' ? [...stream.dictionary.entries()].map(([key]) => latin1Text(key)).toSorted() : [];
+    expect(keys).toStrictEqual(['Custom', 'Length', 'Subtype', 'Type']);
+  });
+
+  it('writes a supplied DocumentID over an existing one and keeps the existing one by default or when told to keep it', () => {
+    expect([documentIds({ documentId: { value: 'uuid:new' } }), documentIds({ documentId: 'keep' }), documentIds({})]).toStrictEqual([
+      ['uuid:new', 'uuid:new'],
+      ['xmp.did:kept', 'xmp.did:kept'],
+      ['xmp.did:kept', 'xmp.did:kept'],
+    ]);
+  });
+
+  it('counts the packets an incremental update of an unsigned document leaves behind when revisions are kept', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R/Metadata 4 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+            { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
+          ],
+          trailer: `/Root 1 0 R${ID}`,
+        },
+        { xref: 'classic', objects: [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) }], trailer: `/Root 1 0 R${ID}` },
+      ]).bytes,
+    );
+    const change = setMetadata(document, INPUT, { revisions: 'keep' });
+    const update = document.save({ mode: 'incremental' });
+    expect([change.saveMode, change.supersededPackets, update.mode, readMetadata(loadDocument(update.chunks)).packets.scanned.superseded]).toStrictEqual([
+      'any',
+      2,
+      'incremental',
+      2,
+    ]);
+  });
+
+  it.each([
+    ['a permissions dictionary', '/Perms<<>>'],
+    ['signature flags that are not an integer', '/AcroForm<</SigFlags 2.5>>'],
+  ])('refuses a document with %s unless revisions are kept', (_name, catalog) => {
+    expect(() => setMetadata(load(catalog), INPUT)).toThrow(ValidationError);
+    expect(() => setMetadata(load(catalog), INPUT)).toThrow(expect.objectContaining({ reason: 'signed-document' }));
+    expect(setMetadata(load(catalog), INPUT, { revisions: 'keep' }).saveMode).toBe('incremental-required');
+  });
+
+  // ISO 32000-1:2008, 14.3.2 makes the packet authoritative when its date stamp is not earlier than Info ModDate; where the two creation dates differ, the authoritative side's is kept, and Info's where neither side is.
+  it.each([
+    [
+      'the packet',
+      '2022-01-01T00:00:00Z',
+      '/ModDate(D:20210101000000Z)',
+      [{ key: 'CreationDate', from: 'xmp', discarded: 'D:20200101' }],
+      'D:20210101',
+      '2021-01-01',
+    ],
+    [
+      'Info',
+      '2020-06-01T00:00:00Z',
+      '/ModDate(D:20210101000000Z)',
+      [{ key: 'CreationDate', from: 'info', discarded: '2021-01-01' }],
+      'D:20200101',
+      '2020-01-01',
+    ],
+    [
+      'Info, with no Info ModDate to decide the authority',
+      '2022-01-01T00:00:00Z',
+      '',
+      [{ key: 'CreationDate', from: 'info', discarded: '2021-01-01' }],
+      'D:20200101',
+      '2020-01-01',
+    ],
+  ])('keeps the creation date of %s when the two differ', (_name, metadataDate, modified, reconciled, info, xmp) => {
+    const document = load(
+      '/Metadata 4 0 R',
+      [
+        {
+          number: 4,
+          body: streamBody(
+            '/Type/Metadata/Subtype/XML',
+            packet(`<xmp:CreateDate>2021-01-01</xmp:CreateDate><xmp:MetadataDate>${metadataDate}</xmp:MetadataDate>`),
+          ),
+        },
+        { number: 5, body: `<</CreationDate(D:20200101)${modified}>>` },
+      ],
+      `${ID}/Info 5 0 R`,
+    );
+    const change = setMetadata(document, { modificationDate: MODIFIED });
+    const row = readMetadata(saved(document)).properties.find(property => property.key === 'CreationDate');
+    expect([change.reconciled, row?.info, row?.xmp, row?.agreement]).toStrictEqual([reconciled, info, xmpText(xmp), 'agree']);
+  });
+
+  // XMP Part 2 3.1: pdf:Trapped is Boolean, so Info Unknown has no XMP form.
+  it.each([
+    ['set to Unknown', '<<>>', '', { trapped: 'Unknown' }, { kind: 'name', name: 'Unknown' }, false],
+    ['removed', '<</Trapped/True>>', '<pdf:Trapped>True</pdf:Trapped>', { trapped: null }, undefined, false],
+    ['left out with only a packet value', '<<>>', '<pdf:Trapped>True</pdf:Trapped>', {}, { kind: 'name', name: 'True' }, true],
+  ] satisfies Array<[string, string, string, Omit<MetadataInput, 'modificationDate'>, InfoValue | undefined, boolean]>)(
+    'writes Trapped %s',
+    (_name, info, body, input, expectedInfo, inPacket) => {
+      const document = load(
+        '/Metadata 4 0 R',
+        [
+          { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(body)) },
+          { number: 5, body: info },
+        ],
+        `${ID}/Info 5 0 R`,
+      );
+      setMetadata(document, { modificationDate: MODIFIED, ...input });
+      const reloaded = saved(document);
+      expect([readMetadata(reloaded).info?.values.get('Trapped'), packetProperties(reloaded).includes('Trapped')]).toStrictEqual([expectedInfo, inPacket]);
+    },
+  );
+
+  it.each([
+    ['a boolean', '<</Title true>>', [], 'true'],
+    ['a reference to an integer', '<</Title 7 0 R>>', [{ number: 7, body: '7' }], '7 0 R'],
+    ['a real', '<</Title 1.5>>', [], 'a value of type real'],
+    ['an array', '<</Title[(T)]>>', [], 'a value of type array'],
+  ] satisfies Array<[string, string, Array<TestObject>, string]>)('lists a replaced Info Title that is %s as it was stored', (_name, info, objects, shown) => {
+    const document = load('', [{ number: 5, body: info }, ...objects], `${ID}/Info 5 0 R`);
+    expect(setMetadata(document, { modificationDate: MODIFIED, title: 'T' }).reconciled).toStrictEqual([{ key: 'Title', from: 'input', discarded: shown }]);
+  });
+
+  it.each([
+    ['Trapped', '<pdf:Trapped rdf:resource="urn:trapped"/>'],
+    ['CreationDate', '<xmp:CreateDate rdf:parseType="Resource"><rdf:value>2020</rdf:value></xmp:CreateDate>'],
+  ])('keeps a left-out %s in a form it does not read', (_key, property) => {
+    const document = load('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(property)) }]);
+    const change = setMetadata(document, { modificationDate: MODIFIED });
+    expect([change.findings.map(finding => finding.code), latin1Text(document.save().toBytes()).includes(property)]).toStrictEqual([
+      ['opaque-property-kept'],
+      true,
+    ]);
+  });
+
+  it('writes a managed property that occurs twice once', () => {
+    const title = '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">T</rdf:li></rdf:Alt></dc:title>';
+    const document = load(
+      '/Metadata 4 0 R',
+      [
+        { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet(`${title}${title}`)) },
+        { number: 5, body: '<</Title(T)>>' },
+      ],
+      `${ID}/Info 5 0 R`,
+    );
+    expect(codes(document)).toContain('duplicate-property');
+    setMetadata(document, { modificationDate: MODIFIED });
+    const reloaded = saved(document);
+    expect([packetProperties(reloaded).filter(name => name === 'title'), codes(reloaded), infoText(reloaded, 'Title')]).toStrictEqual([['title'], [], 'T']);
+  });
+
+  it('writes the default RenditionClass and VersionID of a new PDF/X packet', () => {
+    const document = load('');
+    setMetadata(document, { ...INPUT, pdfxVersion: 'PDF/X-4' });
+    const { xmp } = readMetadata(saved(document));
+    const properties = xmp !== undefined && 'packet' in xmp ? xmp.packet.properties : [];
+    const text = (name: string): string | undefined => {
+      const value = properties.find(property => property.localName === name)?.value;
+      return value?.kind === 'text' ? value.text : undefined;
+    };
+    expect([text('RenditionClass'), text('VersionID')]).toStrictEqual(['default', '1']);
   });
 });
