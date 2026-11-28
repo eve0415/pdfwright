@@ -1,3 +1,6 @@
+import type { PdfDirectObject } from '../object/pdfObject.ts';
+
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
@@ -26,6 +29,7 @@ describe('object serialization', () => {
   it('writes primitive objects and arrays', () => {
     expect(write({ kind: 'null' })).toBe('null');
     expect(write({ kind: 'boolean', value: false })).toBe('false');
+    expect(write({ kind: 'boolean', value: true })).toBe('true');
     expect(write(pdfInteger(-5))).toBe('-5');
     expect(write(pdfReal(0.000015))).toBe('0.00002');
     const array = pdfArray([pdfInteger(1), pdfName('X'), { kind: 'null' }]);
@@ -105,6 +109,8 @@ describe('object serialization', () => {
     expect(write(special)).toBe('/A#23#20#FF');
     expect(write(shiftJis)).toBe('/#82#A0');
     expect(write(delimiters)).toBe('/#28#29#2F#25');
+    expect(write(pdfNameFromBytes(new Uint8Array([0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x7f])))).toBe('/#3C#3E#5B#5D#7B#7D#7F');
+    expect(write(pdfNameFromBytes(new Uint8Array([0x21, 0x7e])))).toBe('/!~');
     expect(write(pdfName(''))).toBe('/');
   });
 
@@ -123,12 +129,54 @@ describe('object serialization', () => {
     expect(write(hex)).toBe('<00FF>');
   });
 
+  // ISO 32000-1:2008, 7.3.4.2: bytes outside the printable range 0x20 to 0x7e are written as octal escapes.
+  it.each([
+    [[0x1f], String.raw`(\037)`],
+    [[0x20], '( )'],
+    [[0x7e], '(~)'],
+    [[0x7f], String.raw`(\177)`],
+    [[], '()'],
+  ])('writes the literal string of bytes %o as %s', (bytes, expected) => {
+    expect(write(pdfString(Uint8Array.from(bytes)))).toBe(expected);
+  });
+
+  it('writes an empty hex string', () => {
+    expect(write(pdfString(new Uint8Array(), 'hex'))).toBe('<>');
+  });
+
+  // ISO 32000-1:2008, 7.2.2: a name followed by a regular character would read as a longer name, so such values are separated by a space.
+  it('separates dictionary values that start with a regular character from their key', () => {
+    const invalid = { kind: 'invalid', bytes: new TextEncoder().encode('--1'), reason: 'malformed-number' } as const;
+    const entries = new PdfDictionaryEntries([
+      [pdfName('A').bytes, { kind: 'boolean', value: true }],
+      [pdfName('B').bytes, pdfReal(1.5)],
+      [pdfName('C').bytes, pdfReference(2, 0)],
+      [pdfName('D').bytes, invalid],
+      [pdfName('E').bytes, pdfName('N')],
+      [pdfName('F').bytes, pdfArray([pdfInteger(1)])],
+      [pdfName('G').bytes, pdfDictionary()],
+      [pdfName('H').bytes, pdfString(new Uint8Array([0x78]))],
+      [pdfName('I').bytes, pdfString(new Uint8Array([0]), 'hex')],
+    ]);
+    expect(write(pdfDictionary(entries))).toBe('<</A true/B 1.5/C 2 0 R/D --1/E/N/F[1]/G<<>>/H(x)/I<00>>>');
+  });
+
+  it('nests arrays and dictionaries', () => {
+    const inner = new PdfDictionaryEntries([[pdfName('A').bytes, pdfInteger(1)]]);
+    expect(write(pdfArray([pdfArray([pdfInteger(1)]), pdfDictionary(inner)]))).toBe('[[1] <</A 1>>]');
+  });
+
+  it('rejects a hand-built reference outside the integer range', () => {
+    expect(() => write({ kind: 'reference', objectNumber: 2_147_483_648, generation: 0 })).toThrow(InvalidArgumentError);
+    expect(write({ kind: 'reference', objectNumber: 2_147_483_647, generation: 0 })).toBe('2147483647 0 R');
+  });
+
   it('skips null entries and keeps dictionary insertion order', () => {
     const entries = new PdfDictionaryEntries();
-    entries.set(pdfName('A').bytes, pdfInteger(1));
-    entries.set(pdfName('Ignored').bytes, { kind: 'null' });
     entries.set(pdfName('B').bytes, pdfReference(2, 0));
-    expect(write(pdfDictionary(entries))).toBe('<</A 1/B 2 0 R>>');
+    entries.set(pdfName('Ignored').bytes, { kind: 'null' });
+    entries.set(pdfName('A').bytes, pdfInteger(1));
+    expect(write(pdfDictionary(entries))).toBe('<</B 2 0 R/A 1>>');
   });
 
   it('rejects a stream nested in an array or dictionary', () => {
@@ -149,6 +197,18 @@ describe('object serialization', () => {
     expect(entries.get(pdfName('Length').bytes)).toStrictEqual(pdfInteger(999));
   });
 
+  it('writes an empty stream, and keeps a caller Length in its place among the other entries', () => {
+    expect(write({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: new Uint8Array() })).toBe('<</Length 0>>\nstream\n\nendstream');
+    const entries = new PdfDictionaryEntries([
+      [pdfName('Type').bytes, pdfName('XObject')],
+      [pdfName('Length').bytes, pdfInteger(999)],
+      [pdfName('Filter').bytes, pdfName('FlateDecode')],
+    ]);
+    expect(write({ kind: 'stream', dictionary: entries, data: new Uint8Array([65, 66]) })).toBe(
+      '<</Type/XObject/Length 2/Filter/FlateDecode>>\nstream\nAB\nendstream',
+    );
+  });
+
   it('writes a length real from its exact value, rounded once', () => {
     const kilometre = mm(1_000_000);
     const written = ascii(serializeObject(pdfReal(kilometre), { fractionDigits: 10 }));
@@ -166,5 +226,35 @@ describe('object serialization', () => {
       const value = (state / 4_294_967_296) * 10 ** ((index % 20) - 8);
       expect(write(pdfReal(value))).not.toMatch(/[eE]/u);
     }
+  });
+});
+
+describe('properties', () => {
+  const name = fc.uint8Array({ min: 1, maxLength: 127 }).map(bytes => pdfNameFromBytes(bytes));
+  const direct = fc.letrec<{ object: PdfDirectObject }>(tie => ({
+    object: fc.oneof(
+      { depthSize: 'small', withCrossShrink: true },
+      fc.boolean().map(value => ({ kind: 'boolean', value }) as const),
+      fc.integer({ min: -2_147_483_647, max: 2_147_483_647 }).map(value => pdfInteger(value)),
+      name,
+      fc.tuple(fc.uint8Array({ maxLength: 40 }), fc.constantFrom('literal', 'hex')).map(([bytes, encoding]) => pdfString(bytes, encoding)),
+      fc
+        .tuple(fc.integer({ min: 1, max: 2_147_483_647 }), fc.integer({ min: 0, max: 65_535 }))
+        .map(([objectNumber, generation]) => pdfReference(objectNumber, generation)),
+      fc.array(tie('object'), { maxLength: 5 }).map(items => pdfArray(items)),
+      fc
+        .uniqueArray(fc.tuple(name, tie('object')), { maxLength: 5, selector: ([key]) => ascii(key.bytes) })
+        .map(pairs => pdfDictionary(new PdfDictionaryEntries(pairs.map(([key, value]) => [key.bytes, value])))),
+    ),
+  })).object;
+
+  it('reads back every direct object it writes', () => {
+    fc.assert(
+      fc.property(direct, object => {
+        const bytes = serializeObject(object, { fractionDigits: 5 });
+        const lexer = new Lexer({ bytes, base: 0, final: true }, 0, { names: new Map(), warn: warning => expect.unreachable(warning.detail) });
+        expect(parseObject(lexer, 256)).toStrictEqual(object);
+      }),
+    );
   });
 });
