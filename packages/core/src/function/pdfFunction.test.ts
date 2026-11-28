@@ -1,5 +1,6 @@
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
@@ -476,5 +477,71 @@ describe('pdfFunctionReferences', () => {
         .map(reference => reference.objectNumber)
         .toSorted((a, b) => a - b),
     ).toStrictEqual([2, 3, 4]);
+  });
+});
+
+// A sampled function over a width by height grid whose Domain is the grid's index range, with Range [0 255] so that each decoded output is the sample itself.
+const gridFunction = (width: number, height: number, outputs: number, samples: Array<number>) =>
+  createPdfFunction(
+    streamFunction(
+      0,
+      {
+        Domain: numbers([0, width - 1, 0, height - 1]),
+        Size: numbers([width, height]),
+        BitsPerSample: pdfInteger(8),
+        Range: numbers(Array.from({ length: outputs }, () => [0, 255]).flat()),
+      },
+      Uint8Array.from(samples),
+    ),
+  );
+
+// ISO 32000-1:2008, 7.10.2: sample (i, j) of a grid width wide is at index i + j * width, each holding every output in turn.
+const sampleAt = (samples: Array<number>, width: number, outputs: number, column: number, row: number): Array<number> =>
+  samples.slice((column + row * width) * outputs, (column + row * width + 1) * outputs);
+
+describe('properties', () => {
+  // A grid of two inputs and one or two outputs, with its samples.
+  const grid = fc
+    .record({ width: fc.integer({ min: 2, max: 4 }), height: fc.integer({ min: 1, max: 4 }), outputs: fc.integer({ min: 1, max: 2 }) })
+    .chain(shape =>
+      fc.record({
+        shape: fc.constant(shape),
+        samples: fc.array(fc.integer({ min: 0, max: 255 }), {
+          minLength: shape.width * shape.height * shape.outputs,
+          maxLength: shape.width * shape.height * shape.outputs,
+        }),
+      }),
+    );
+
+  it('returns each sample exactly at its grid point', () => {
+    fc.assert(
+      fc.property(grid, ({ shape: { width, height, outputs }, samples }) => {
+        const evaluate = gridFunction(width, height, outputs, samples);
+        const points = Array.from({ length: width * height }, (_, index) => [index % width, Math.floor(index / width)] as const);
+        expect(points.map(([column, row]) => evaluate([column, row]))).toStrictEqual(
+          points.map(([column, row]) => sampleAt(samples, width, outputs, column, row)),
+        );
+      }),
+    );
+  });
+
+  it('interpolates linearly along the first input between two grid points', () => {
+    fc.assert(
+      fc.property(
+        grid,
+        fc.constantFrom(0.25, 0.5, 0.75),
+        fc.nat(),
+        fc.nat(),
+        ({ shape: { width, height, outputs }, samples }, fraction, columnSeed, rowSeed) => {
+          const column = columnSeed % (width - 1);
+          const row = rowSeed % height;
+          const low = sampleAt(samples, width, outputs, column, row);
+          const high = sampleAt(samples, width, outputs, column + 1, row);
+          expect(gridFunction(width, height, outputs, samples)([column + fraction, row])).toStrictEqual(
+            low.map((value, index) => value * (1 - fraction) + (high[index] ?? 0) * fraction),
+          );
+        },
+      ),
+    );
   });
 });
