@@ -233,7 +233,7 @@ describe('properties', () => {
   // ISO 32000-1:2008, 7.3.4.2 and 7.3.5: bytes that need an escape in a literal string or a name are drawn as often as all the others together.
   const escaped = fc.constantFrom(0x23, 0x28, 0x29, 0x5c, 0x25, 0x2f, 0x0a, 0x0d);
   const name = fc
-    .array(fc.oneof(escaped, fc.integer({ min: 1, max: 255 })), { minLength: 1, maxLength: 127 })
+    .array(fc.oneof(escaped, fc.integer({ min: 1, max: 255 })), { maxLength: 127 })
     .map(bytes => pdfNameFromBytes(Uint8Array.from(bytes)));
   const direct = fc.letrec<{ object: PdfDirectObject }>(tie => ({
     object: fc.oneof(
