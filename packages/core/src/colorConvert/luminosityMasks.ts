@@ -23,6 +23,7 @@ import { PdfDictionaryEntries as Entries } from '../object/pdfDictionaryEntries.
 import { pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal } from '../object/pdfObject.ts';
 import { walkResources } from '../resourceGraph/walkResources.ts';
 
+import { stencilRow } from './convertImages.ts';
 import { deleteDiscarded } from './discardedObjects.ts';
 import { readImageSample } from './imageRows.ts';
 import { addInlineXObjects } from './inlineResources.ts';
@@ -51,6 +52,8 @@ interface MaskGroup {
 interface GrayXObjectPlan {
   readonly name: Uint8Array;
   readonly stream: PdfStream;
+  /** The stencil that replaces a colour-key mask, written beside the gray image. */
+  readonly stencil?: PdfStream | undefined;
   readonly resources?: PdfDictionaryEntries | undefined;
   readonly children: ReadonlyArray<GrayXObjectPlan>;
   readonly shadings: ReadonlyArray<GrayShadingPlan>;
@@ -120,6 +123,9 @@ const WIDTH = pdfName('Width').bytes;
 const HEIGHT = pdfName('Height').bytes;
 const BITS = pdfName('BitsPerComponent').bytes;
 const DECODE = pdfName('Decode').bytes;
+const COLOR_KEY = pdfName('Mask').bytes;
+const IMAGE_MASK = pdfName('ImageMask').bytes;
+const TYPE = pdfName('Type').bytes;
 
 const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 
@@ -209,7 +215,28 @@ const imageDecode = (scan: MaskScan, image: PdfStream): Array<number> => {
   });
 };
 
-const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): PdfStream => {
+const colorKeyRanges = (scan: MaskScan, image: PdfStream, bits: number): Array<number> | undefined => {
+  const value = scan.internals.objects.deref(image.dictionary.get(COLOR_KEY));
+  if (value?.kind !== 'array') {
+    return undefined;
+  }
+  if (value.items.length !== 6) {
+    throw new ValidationError('luminosity image colour-key mask needs three ranges', 'color-space');
+  }
+  return value.items.map(item => {
+    const resolved = scan.internals.objects.deref(item);
+    if (resolved?.kind !== 'integer' || resolved.value < 0 || resolved.value > 2 ** bits - 1) {
+      throw new ValidationError('luminosity image colour-key mask range is invalid', 'color-space');
+    }
+    return resolved.value;
+  });
+};
+
+const grayImage = (
+  scan: MaskScan,
+  image: PdfStream,
+  rgbToGray: (values: ReadonlyArray<number>) => number,
+): { readonly stream: PdfStream; readonly stencil: PdfStream | undefined } => {
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
   const bits = imageInteger(scan, image, BITS);
@@ -230,11 +257,18 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
     throw new ValidationError('luminosity image sample count is invalid', 'color-space');
   }
   const output = new Uint8Array(outputRowBytes * height);
+  // ISO 32000-1:2008, 8.9.6.4: a colour key tests the raw RGB samples, which one gray component cannot hold, so the keyed pixels become a stencil mask (8.9.6.3).
+  const ranges = colorKeyRanges(scan, image, bits);
+  const stencilRowBytes = Math.ceil(width / 8);
+  const stencil = ranges === undefined ? undefined : new Uint8Array(stencilRowBytes * height);
   const decode = imageDecode(scan, image);
   const maximum = 2 ** bits - 1;
   const outputMaximum = 2 ** outputBits - 1;
   for (let row = 0; row < height; row++) {
     const input = data.subarray(row * inputRowBytes, (row + 1) * inputRowBytes);
+    if (stencil !== undefined && ranges !== undefined) {
+      stencil.set(stencilRow(input, { width, channels: 3, bits, ranges }), row * stencilRowBytes);
+    }
     for (let pixel = 0; pixel < width; pixel++) {
       const rgb = Array.from({ length: 3 }, (_, channel) => {
         const raw = readImageSample(input, pixel * 3 + channel, bits) / maximum;
@@ -257,7 +291,23 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
   dictionary.set(FILTER, pdfName('FlateDecode'));
   dictionary.delete(DECODE);
   dictionary.delete(DECODE_PARMS);
-  return { kind: 'stream', dictionary, data: deflateZlib(output) };
+  if (stencil === undefined) {
+    return { stream: { kind: 'stream', dictionary, data: deflateZlib(output) }, stencil: undefined };
+  }
+  dictionary.delete(COLOR_KEY);
+  const stencilDictionary = new Entries([
+    [TYPE, pdfName('XObject')],
+    [SUBTYPE, pdfName('Image')],
+    [IMAGE_MASK, { kind: 'boolean', value: true }],
+    [WIDTH, pdfInteger(width)],
+    [HEIGHT, pdfInteger(height)],
+    [BITS, pdfInteger(1)],
+    [FILTER, pdfName('FlateDecode')],
+  ]);
+  return {
+    stream: { kind: 'stream', dictionary, data: deflateZlib(output) },
+    stencil: { kind: 'stream', dictionary: stencilDictionary, data: deflateZlib(stencil) },
+  };
 };
 
 // The image, shading and mesh passes convert calibrated gray to CMYK unless the caller keeps it, and inside a DeviceGray mask group that CMYK paint would change the mask values. A renderer converts calibrated gray into a device blending space in its own way, so no DeviceGray value reproduces the source mask, and that paint is refused.
@@ -381,7 +431,7 @@ const planGrayImage = (
   }
   const gray = nameOf(scan.internals.objects.deref(color));
   const imageGray = gray === 'DeviceRGB' || gray === 'RGB' ? paintGray : cieLuminosity(space.source, scan.options.lut8LabEncoding ?? 'icc');
-  return { name, stream: grayImage(scan, image, imageGray), children: [], shadings: [] };
+  return { name, ...grayImage(scan, image, imageGray), children: [], shadings: [] };
 };
 
 const planGrayXObjects = (scan: MaskScan, walk: GrayWalk): ReadonlyArray<GrayXObjectPlan> => {
@@ -827,6 +877,9 @@ const grayXObjects = (scan: MaskScan, resources: PdfDictionaryEntries, plans: Re
         mapped = grayShadings(scan, mapped, plan.shadings);
       }
       dictionary.set(RESOURCES, pdfDictionary(mapped));
+    }
+    if (plan.stencil !== undefined) {
+      dictionary.set(COLOR_KEY, scan.document.object(plan.stencil));
     }
     xobjects.set(plan.name, scan.document.object({ kind: 'stream', dictionary, data: plan.stream.data }));
   }
