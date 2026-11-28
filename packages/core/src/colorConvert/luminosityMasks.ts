@@ -232,11 +232,12 @@ const colorKeyRanges = (scan: MaskScan, image: PdfStream, bits: number): Array<n
   });
 };
 
-const grayImage = (
-  scan: MaskScan,
-  image: PdfStream,
-  rgbToGray: (values: ReadonlyArray<number>) => number,
-): { readonly stream: PdfStream; readonly stencil: PdfStream | undefined } => {
+interface GrayImage {
+  readonly stream: PdfStream;
+  readonly stencil: PdfStream | undefined;
+}
+
+const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): GrayImage => {
   const softMask = scan.internals.objects.deref(image.dictionary.get(MASK));
   // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space and the samples are preblended with it.
   if (softMask?.kind === 'stream' && softMask.dictionary.get(pdfName('Matte').bytes) !== undefined) {
