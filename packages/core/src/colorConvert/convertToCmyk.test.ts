@@ -449,7 +449,9 @@ describe('forms drawn from converted pages', () => {
       return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${match[1] ?? ''}`;
     });
     expect(pageText.slice(0, before.length)).toBe(before);
-    expect(pageText.slice(before.length)).toMatch(/^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(pageText.slice(before.length)).toMatch(
+      /^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u,
+    );
     expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
     expect(forms[0]).not.toBe(forms[1]);
   });
