@@ -60,10 +60,13 @@ describe('page rectangles', () => {
     expect(page.boxes().TrimBox.rect).toStrictEqual([28.34646, 28.34646, 56.69291, 56.69291]);
   });
 
-  // ISO 32000-1:2008, 7.7.3.3, Table 30: MediaBox is required and inheritable. 7.3.7: a dictionary entry whose value is null is treated as absent, so a null on the ancestor supplies nothing.
+  // ISO 32000-1:2008, 7.7.3.3, Table 30: MediaBox is required and inheritable. 7.3.7: a dictionary entry whose value is null is treated as absent, and 7.3.10 reads a reference to a missing object as null, so neither on the ancestor supplies anything.
   it.each([
     ['[0 0 50 50]', [0, 0, 50, 50], [0, 0, 50, 50]],
     ['null', 'ValidationError', [0, 0, 10, 10]],
+    ['9 0 R', [0, 0, 40, 40], [0, 0, 40, 40]],
+    ['99 0 R', 'ValidationError', [0, 0, 10, 10]],
+    ['8 0 R', 'ValidationError', [0, 0, 10, 10]],
   ])('removes the page MediaBox under an ancestor MediaBox of %s only when the ancestor supplies one', (ancestor, outcome, after) => {
     const page = loadDocument(
       buildPdf([
@@ -73,6 +76,8 @@ describe('page rectangles', () => {
             { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
             { number: 2, body: `<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox ${ancestor}>>` },
             { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<<>>/MediaBox[0 0 10 10]>>' },
+            { number: 8, body: 'null' },
+            { number: 9, body: '[0 0 40 40]' },
           ],
           trailer: '/Root 1 0 R',
         },

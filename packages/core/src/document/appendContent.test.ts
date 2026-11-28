@@ -65,12 +65,45 @@ describe('appending page content', () => {
         if (key === 'subarray') {
           return target.subarray.bind(target);
         }
-        return typeof key === 'string' && /^\d+$/u.test(key) ? target[Number(key)] : undefined;
+        if (typeof key === 'string' && /^\d+$/u.test(key)) {
+          return target[Number(key)];
+        }
+        // The native iterator is forwarded unbound, so it is called with the proxy as its receiver.
+        return key === Symbol.iterator ? target[Symbol.iterator] : undefined;
       },
     });
     expect(() => {
       document.page(0).appendContent(proxied, { isolate: false });
     }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
+  });
+
+  it('writes the raw bytes it checked when a proxy changes them after the check', () => {
+    const document = load(page('/Contents 4 0 R/Resources<<>>'));
+    const benign = latin1Bytes('n                     ');
+    const harmful = latin1Bytes('0 0 0 0 k 0 0 9 9 re f');
+    // Reading every byte once takes as many indexed reads as there are bytes; every indexed read after those sees the harmful bytes.
+    let reads = 0;
+    const proxied = new Proxy(benign, {
+      get: (target, key) => {
+        if (typeof key === 'string' && /^\d+$/u.test(key)) {
+          const value = (reads >= target.length ? harmful : target)[Number(key)];
+          reads++;
+          return value;
+        }
+        if (key === 'length') {
+          return target.length;
+        }
+        if (key === 'subarray') {
+          return target.subarray.bind(target);
+        }
+        // The native iterator is forwarded unbound, so it is called with the proxy as its receiver.
+        return key === Symbol.iterator ? target[Symbol.iterator] : undefined;
+      },
+    });
+    document.page(0).appendContent(proxied, { isolate: false });
+    const contents = entry(document, document.get(pdfReference(3, 0)), 'Contents');
+    const last = contents.kind === 'array' ? contents.items.at(-1) : contents;
+    expect(latin1Text(streamBytes(resolved(document, last)))).toBe('\nn                     ');
   });
 
   it('separates appended operators from a stream without trailing whitespace', () => {
@@ -265,6 +298,10 @@ describe('raw content checks', () => {
     ['a restore with no save', 'Q', true, unchecked],
     ['one restore too many', 'q Q Q', true, unchecked],
     ['a balanced save and restore', 'q Q', true, 'accepted'],
+    ['a save left open', 'q 2 w', true, unchecked],
+    ['a save left open without isolation', 'q 2 w', false, unchecked],
+    ['one restore too few', 'q q Q', true, unchecked],
+    ['two balanced saves', 'q q Q Q', true, 'accepted'],
     ['an unterminated string', '(unterminated', true, unchecked],
     ['arrays nested past the parse limit', '['.repeat(300), true, unchecked],
     ['a line width without isolation', '1 w', false, 'accepted'],
@@ -349,18 +386,78 @@ describe('appending built content', () => {
     ]);
   });
 
-  // The source writes every colour component as a real, the number kind the Separation built for this document holds.
-  it('reuses a name the page resources already give the same separation', () => {
-    const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]/N 1>>]';
+  // ISO 32000-1:2008, 7.3.3, NOTE 2: "Wherever a real number is expected, an integer may be used instead", so a component written as 0 or 1 is the same number as 0.0 or 1.0.
+  it.each([
+    ['every component written as a real', '/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]', 'CS7', ['CS7']],
+    ['the components a save writes, whole ones as integers', '/C0[0 0 0 0]/C1[0 0.5 0 0]', 'CS7', ['CS7']],
+    ['a different tint', '/C0[0 0 0 0]/C1[0 0.4 0 0]', 'CS1', ['CS1', 'CS7']],
+    ['a further function entry', '/C0[0 0 0 0]/C1[0 0.5 0 0]/Range[0 1 0 1 0 1 0 1]', 'CS1', ['CS1', 'CS7']],
+    ['a fifth component', '/C0[0 0 0 0]/C1[0 0.5 0 0 0]', 'CS1', ['CS1', 'CS7']],
+  ])('reuses a name the page resources already give the same separation, with %s', (_, components, name, names) => {
+    const spot = `[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]${components}/N 1>>]`;
     const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
     document.page(0).appendContent(builder => {
       builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
     });
-    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace'))]).toStrictEqual([
-      'q\n/CS7 cs\n1 scn\nQ\n',
-      ['CS7'],
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
     ]);
   });
+
+  // A separation is written with five fraction digits, so a tint matches an existing one when both round to the same five digits.
+  it.each([
+    ['0.12345', 0.123454, 'CS7', ['CS7']],
+    ['0.12345', 0.123456, 'CS1', ['CS1', 'CS7']],
+    ['0.12346', 0.123456, 'CS7', ['CS7']],
+  ])('compares an existing tint of %s with a tint of %d as written', (existing, tint, name, names) => {
+    const spot = `[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 ${existing} 0 0]/N 1>>]`;
+    const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
+    document.page(0).appendContent(builder => {
+      builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
+    });
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
+    ]);
+  });
+
+  // ISO 32000-1:2008, 7.3.5: a name byte that is not a regular character, or is NUMBER SIGN, is written as a # escape, which content names the builder writes never carry.
+  it.each([
+    ['an escaped solidus', 'CS#2FSpot', 'CS1', ['CS/Spot', 'CS1']],
+    ['an escaped space', 'CS#207', 'CS1', ['CS 7', 'CS1']],
+    ['an escaped number sign', 'CS#237', 'CS1', ['CS#7', 'CS1']],
+    ['an escaped regular character', 'C#537', 'CS7', ['CS7']],
+    ['an escaped control byte', 'CS#1F7', 'CS1', ['CS\u001F7', 'CS1']],
+    ['an escaped byte past the printable range', 'CS#7F7', 'CS1', ['CS1', 'CS\u007F7']],
+    ['the first printable byte', 'CS!7', 'CS!7', ['CS!7']],
+    ['the last printable byte', 'CS~7', 'CS~7', ['CS~7']],
+  ])('reuses the name of the same separation only when its key needs no escape, given %s', (_, key, name, names) => {
+    const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 0.5 0 0]/N 1>>]';
+    const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</${key} ${spot}>>>>`));
+    document.page(0).appendContent(builder => {
+      builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+    });
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
+    ]);
+  });
+
+  it.each([0.5, 0.12345, 0.123456, 1 / 3, 0.000004])(
+    'reuses the name of a separation of tint %d an earlier save wrote, after the file is loaded again',
+    tint => {
+      const first = load(page('/Contents 4 0 R/Resources<<>>'));
+      first.page(0).appendContent(builder => {
+        builder.fillColor(first.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
+      });
+      const reloaded = loadDocument(first.save().chunks);
+      reloaded.page(0).appendContent(builder => {
+        builder.fillColor(reloaded.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
+      });
+      expect(keys(resolved(reloaded, reloaded.page(0).resources().get(pdfName('ColorSpace').bytes)))).toStrictEqual(['CS1']);
+    },
+  );
 
   it('writes a group drawn by two appends once and reuses its name', () => {
     const document = load(page('/Resources<<>>'));
