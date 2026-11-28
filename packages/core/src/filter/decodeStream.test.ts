@@ -279,6 +279,13 @@ describe('stream decoding', () => {
     expect(decode(input).data).toStrictEqual(upDecoded);
   });
 
+  // ISO 32000-1:2008, 7.4.10: "The Crypt filter shall be the first filter in the Filter array entry."
+  it('refuses an Identity crypt filter after the first filter', () => {
+    const input = stream(deflateZlib(text), [['Filter', pdfArray([pdfName('FlateDecode'), pdfName('Crypt')])]]);
+    expect(() => decode(input)).toThrow(ParseError);
+    expect(() => decode(input)).toThrow(/first/u);
+  });
+
   it('refuses a crypt filter Name that is not a name', () => {
     const crypt = stream(text, [
       ['Filter', pdfName('Crypt')],
