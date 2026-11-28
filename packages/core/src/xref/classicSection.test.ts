@@ -97,7 +97,7 @@ describe('classic cross-reference sections', () => {
   // The last entry of a subsection ends at its end-of-line, not at the next token, so white space after it is not counted.
   it.each([
     ['a 20-byte entry and a blank line before the trailer', '0000000000 65535 f \n\ntrailer<<>>', [20]],
-    ['a 20-byte entry and a blank line before the next subsection', '0000000000 65535 f \n\n5 1\n0000000017 00000 n \ntrailer<<>>', [20]],
+    ['a 20-byte entry and a blank line before a subsection of a 19-byte entry', '0000000000 65535 f \n\n5 1\n0000000017 00000 n\ntrailer<<>>', [19, 20]],
     ['a CR LF entry and spaces before the trailer', '0000000000 65535 f\r\n   trailer<<>>', [20]],
     ['a 19-byte entry and a blank line', '0000000000 65535 f\n\ntrailer<<>>', [19]],
     ['a CR-only entry and a second CR', '0000000000 65535 f\r\rtrailer<<>>', [19]],
