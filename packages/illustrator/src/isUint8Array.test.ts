@@ -10,7 +10,7 @@ describe('Uint8Array brand check', () => {
     expect([isUint8Array(new Uint8Array(1)), isUint8Array(new RetaggedUint8Array(1))]).toStrictEqual([true, true]);
   });
 
-  it('rejects other typed arrays, views, arrays and objects that only claim the tag', () => {
+  it('rejects other typed arrays, views, arrays, proxies and objects that only claim the tag', () => {
     const rejected: ReadonlyArray<unknown> = [
       new Uint8ClampedArray(1),
       new Uint16Array(1),
@@ -19,7 +19,9 @@ describe('Uint8Array brand check', () => {
       null,
       {},
       { [Symbol.toStringTag]: 'Uint8Array' },
+      // ECMA-262 16th edition (ES2025), 10.5: a proxy has no [[TypedArrayName]] slot of its own, although instanceof follows its target's prototype.
+      new Proxy(new Uint8Array(1), {}),
     ];
-    expect(rejected.map(value => isUint8Array(value))).toStrictEqual([false, false, false, false, false, false, false]);
+    expect(rejected.map(value => isUint8Array(value))).toStrictEqual([false, false, false, false, false, false, false, false]);
   });
 });
