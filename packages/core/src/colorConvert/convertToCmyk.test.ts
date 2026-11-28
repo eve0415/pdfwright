@@ -1,4 +1,5 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { ConvertToCmykOptions } from './convertToCmyk.ts';
@@ -14,12 +15,15 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
+import { createPdfFunction } from '../function/pdfFunction.ts';
 import { pdfArray, pdfLiteralString, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
 import { writeGtsPdfxOutputIntent } from '../pdfx/writeOutputIntent.ts';
 import { gammaCurveTag, iccProfileBytes } from '../testing/iccProfileBytes.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
+import { MeshBitReader } from './meshBits.ts';
+import { MeshBitWriter } from './meshBitWriter.ts';
 
 const converted = (resources: string, content: string, objects: ReadonlyArray<TestObject>) => {
   const { bytes } = buildPdf([
@@ -340,6 +344,8 @@ describe('refused shading functions', () => {
   });
 });
 
+const resolved = (document: LoadedDocument, value: PdfObject | undefined): PdfObject | undefined => (value?.kind === 'reference' ? document.get(value) : value);
+
 // The decoded content of a stream object, as text.
 const streamText = (document: LoadedDocument, number: number): string => {
   const stream = document.get(pdfReference(number, 0));
@@ -388,7 +394,161 @@ describe('forms drawn from converted pages', () => {
   });
 });
 
-const resolved = (document: LoadedDocument, value: PdfObject | undefined): PdfObject | undefined => (value?.kind === 'reference' ? document.get(value) : value);
+// The page paints through a luminosity soft mask whose DeviceRGB group is object 6.
+const maskPage = { resources: '/ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>', content: '/GS gs 1 0 0 rg 0 0 10 10 re f' };
+
+const maskGroup = (resources: string, content: string): TestObject => ({
+  number: 6,
+  body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<<${resources}>>`, content),
+});
+
+interface MaskResource {
+  readonly entries: PdfDictionaryEntries;
+  readonly data: Uint8Array | undefined;
+}
+
+// The stream, or the dictionary with its stream data decoded, that the mask group's resources name in the given category.
+const maskResource = (document: LoadedDocument, category: string, name: string): MaskResource => {
+  const group = document.get(pdfReference(6, 0));
+  const internals = internalsOf(document);
+  const resources = group.kind === 'stream' ? resolved(document, group.dictionary.get(pdfName('Resources').bytes)) : undefined;
+  const named = resources?.kind === 'dictionary' ? resolved(document, resources.entries.get(pdfName(category).bytes)) : undefined;
+  const object = named?.kind === 'dictionary' ? resolved(document, named.entries.get(pdfName(name).bytes)) : undefined;
+  if (object?.kind === 'dictionary') {
+    return { entries: object.entries, data: undefined };
+  }
+  if (object?.kind !== 'stream' || internals === undefined) {
+    throw new Error(`the mask group names no ${category} ${name}`);
+  }
+  const data = decodedData(internals, object);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return { entries: object.dictionary, data };
+};
+
+const maskGroupSpace = (document: LoadedDocument): PdfObject | undefined => {
+  const group = document.get(pdfReference(6, 0));
+  const attributes = group.kind === 'stream' ? resolved(document, group.dictionary.get(pdfName('Group').bytes)) : undefined;
+  return attributes?.kind === 'dictionary' ? attributes.entries.get(pdfName('CS').bytes) : undefined;
+};
+
+// Three vertices of a free-form triangle mesh, each a 2-bit flag, 8-bit x and y, and 8-bit red, green and blue.
+const rgbTriangle = (): string => {
+  const writer = new MeshBitWriter();
+  for (const vertex of [
+    [0, 0, 255, 0, 0],
+    [10, 0, 0, 255, 0],
+    [0, 10, 0, 0, 255],
+  ]) {
+    writer.write(2, 0);
+    for (const value of vertex) {
+      writer.write(8, value);
+    }
+    writer.alignByte();
+  }
+  return latin1Text(writer.finish(1024));
+};
+
+describe('luminosity soft masks', () => {
+  // ISO 32000-1:2008, 11.6.5.2, Table 144: a Luminosity soft mask derives its values from its group, which becomes DeviceGray, so red, green and blue paint becomes 0.3, 0.59 and 0.11 gray.
+  it('converts an RGB image the mask draws into a gray image', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+          {
+            number: 9,
+            body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB', String.fromCodePoint(255, 0, 0)),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    expect([maskGroupSpace(document), image.entries.get(pdfName('ColorSpace').bytes), image.data]).toStrictEqual([
+      pdfName('DeviceGray'),
+      pdfName('DeviceGray'),
+      Uint8Array.of(77),
+    ]);
+  });
+
+  it('converts an RGB axial shading the mask paints into a gray shading', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'),
+          { number: 9, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function 10 0 R>>' },
+          { number: 10, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const shading = maskResource(document, 'Shading', 'Sh1');
+    const functionValue = resolved(document, shading.entries.get(pdfName('Function').bytes));
+    const internals = internalsOf(document);
+    const data = functionValue?.kind === 'stream' && internals !== undefined ? decodedData(internals, functionValue) : 'no sampled function';
+    if (functionValue?.kind !== 'stream' || typeof data === 'string') {
+      throw new Error('the gray shading has no sampled function');
+    }
+    const gray = createPdfFunction({ kind: 'stream', dictionary: functionValue.dictionary, data });
+    expect([maskGroupSpace(document), shading.entries.get(pdfName('ColorSpace').bytes)]).toStrictEqual([pdfName('DeviceGray'), pdfName('DeviceGray')]);
+    expect(gray([0])[0]).toBeCloseTo(0.3, 3);
+    expect(gray([1])[0]).toBeCloseTo(0.11, 3);
+  });
+
+  it('converts an RGB mesh shading the mask paints into gray vertices', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/Shading<</Sh1 9 0 R>>', '/Sh1 sh'),
+          {
+            number: 9,
+            body: streamBody(
+              '/ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 8/BitsPerComponent 8/BitsPerFlag 2/Decode[0 10 0 10 0 1 0 1 0 1]',
+              rgbTriangle(),
+            ),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const shading = maskResource(document, 'Shading', 'Sh1');
+    const reader = new MeshBitReader(shading.data ?? new Uint8Array());
+    const records: Array<ReadonlyArray<number>> = [];
+    while (reader.remainingBits > 0) {
+      records.push([reader.read(2), reader.read(8), reader.read(8), reader.read(8)]);
+      reader.alignByte();
+    }
+    expect([maskGroupSpace(document), shading.entries.get(pdfName('ColorSpace').bytes)]).toStrictEqual([pdfName('DeviceGray'), pdfName('DeviceGray')]);
+    expect(records).toStrictEqual([
+      [0, 0, 0, 77],
+      [0, 10, 0, 150],
+      [0, 0, 10, 28],
+    ]);
+  });
+
+  it('converts a form the page and the mask both draw into CMYK for the page and gray for the mask', () => {
+    const document = loadDocument(
+      documentBytes(
+        [{ resources: `${maskPage.resources}/XObject<</Fm 9 0 R>>`, content: `${maskPage.content} /Fm Do` }],
+        [
+          maskGroup('/XObject<</Fm 9 0 R>>', '/Fm Do'),
+          { number: 9, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0 1 0 rg 0 0 10 10 re f') },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const masked = maskResource(document, 'XObject', 'Fm');
+    expect([latin1Text(masked.data ?? new Uint8Array()), streamText(document, 9)]).toStrictEqual([
+      '0.59 g 0 0 10 10 re f',
+      expect.stringMatching(/^(?:[\d.]+ ){4}k 0 0 10 10 re f$/u),
+    ]);
+  });
+});
 
 const pageShading = (document: LoadedDocument, page: number): PdfObject | undefined => {
   const shadings = resolved(document, document.page(page).resources().get(pdfName('Shading').bytes));
