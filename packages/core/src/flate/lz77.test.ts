@@ -4,17 +4,24 @@ import { describe, expect, it } from 'vitest';
 import { seededBytes } from '../testing/seededBytes.ts';
 
 import { matchToken, tokenize } from './lz77.ts';
-import { DISTANCE_BASE, LENGTH_BASE } from './tables.ts';
+import { DISTANCE_BASE, DISTANCE_EXTRA, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
 
 type Token = number | readonly [length: number, distance: number];
 
-// Reads a token back through the layout matchToken documents: bits 0-8 the literal/length symbol, 9-13 the distance symbol, 14-18 the length extra value and 19-31 the distance extra value, with bases from RFC 1951, 3.2.5.
+// An extra value is written with only as many bits as its symbol takes (RFC 1951, 3.2.5), so a value that needs more is not representable.
+const extraValue = (value: number, bits: number): number => (value < 2 ** bits ? value : Number.NaN);
+
+// Reads a token back through the layout matchToken documents: bits 0-8 the literal/length symbol, 9-13 the distance symbol, 14-18 the length extra value and 19-31 the distance extra value, with the bases and extra-bit counts of RFC 1951, 3.2.5.
 const decodeToken = (token: number): Token => {
   const symbol = token & 511;
   if (symbol < 256) {
     return symbol;
   }
-  return [(LENGTH_BASE[symbol - 257] ?? Number.NaN) + ((token >>> 14) & 31), (DISTANCE_BASE[(token >>> 9) & 31] ?? Number.NaN) + (token >>> 19)];
+  const distanceSymbol = (token >>> 9) & 31;
+  return [
+    (LENGTH_BASE[symbol - 257] ?? Number.NaN) + extraValue((token >>> 14) & 31, LENGTH_EXTRA[symbol - 257] ?? 0),
+    (DISTANCE_BASE[distanceSymbol] ?? Number.NaN) + extraValue(token >>> 19, DISTANCE_EXTRA[distanceSymbol] ?? 0),
+  ];
 };
 
 const tokens = (data: Uint8Array, level: number): Array<Token> => {
