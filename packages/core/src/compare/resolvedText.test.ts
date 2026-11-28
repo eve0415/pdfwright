@@ -232,6 +232,17 @@ describe('reference cycles', () => {
     expect(likeCyclesSteps(41) - likeCyclesSteps(40)).toBe(likeCyclesSteps(11) - likeCyclesSteps(10));
   });
 
+  // The cycle of 21 unfolds like that of 20; its first link that leaves it leads where 20's first link leaves 20's cycle, and only its last leads into 20's cycle.
+  it('describes a cycle that leads into one it unfolds like the same as that one, whichever of its links leads into it', () => {
+    const bodies = ['[22 0 R 20 0 R 20 0 R]', '[22 0 R 21 0 R 20 0 R]', '[22 0 R 1]', '[22 0 R 23 0 R 22 0 R]'];
+    const shared = new ResolvedTexts(internalsOrThrow(bodies));
+    expect([
+      shared.text(pdfReference(20, 0)) === shared.text(pdfReference(21, 0)),
+      textOf(bodies, 1) === textOf(bodies, 0),
+      textOf(bodies, 3) === textOf(bodies, 0),
+    ]).toStrictEqual([true, true, false]);
+  });
+
   // A chain of references that comes back to where it started reaches no object, so it reads as null like a reference to an object that is not defined.
   it('reads a cycle of references alone as null', () => {
     expect([textOf(['21 0 R', '20 0 R']), textOf(['[21 0 R]', '22 0 R', '21 0 R']), textOf(['<</A 21 0 R/B 1>>', '22 0 R', '21 0 R'])]).toStrictEqual([
