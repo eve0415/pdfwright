@@ -418,3 +418,32 @@ describe('direct Type 3 fonts', () => {
     expect(close((glyph?.slice(1) ?? []).map(Number), cmykOf(0, 1, 0))).toBe(true);
   });
 });
+
+describe('Type 3 fonts that a graphics state selects', () => {
+  // ISO 32000-1:2008, Table 58: a graphics state parameter dictionary's Font entry is an array whose first element is an indirect reference to a font dictionary.
+  const page = '/Resources<</ExtGState<</GS1 7 0 R>>>>';
+  const state = { number: 7, body: '<</Type/ExtGState/Font[5 0 R 12]>>' };
+
+  it.each(passes)('converts the $pass entry of a Type 3 font reached only through a graphics state', ({ category, value, convert, check }) => {
+    const document = carrierPdf(page, [state, GLYPH, { number: 5, body: directFont(category, value) }], '/GS1 gs BT (A) Tj ET');
+    expect(convert(document)).toBe(1);
+    check(document, ownResource(document, 5, category, 'X1'));
+  });
+
+  it('converts the resources and glyph colours of a Type 3 font reached only through a graphics state when the whole document is converted', () => {
+    const document = carrierPdf(
+      page,
+      [
+        state,
+        { number: 5, body: directFont('ColorSpace', INDEXED) },
+        { number: 6, body: streamBody('', '1000 0 d0 /X1 cs 0 sc 0 0 500 500 re f 0 1 0 rg 0 0 5 5 re f') },
+      ],
+      '/GS1 gs BT (A) Tj ET',
+    );
+    const report = convertToCmyk(document, FULL_OPTIONS);
+    expect([report.indexed.indexed, report.otherCarriers.glyphs]).toStrictEqual([1, 1]);
+    expectIndexed(ownResource(document, 5, 'ColorSpace', 'X1'));
+    const glyph = /^1000 0 d0 \/X1 cs 0 sc 0 0 500 500 re f (\S+) (\S+) (\S+) (\S+) k 0 0 5 5 re f$/u.exec(streamText(document, 6));
+    expect(close((glyph?.slice(1) ?? []).map(Number), cmykOf(0, 1, 0))).toBe(true);
+  });
+});
