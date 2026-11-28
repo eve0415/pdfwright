@@ -329,7 +329,14 @@ describe('jpeg frame markers and sampling', () => {
         [3, 0x11, 0],
       ],
     ],
-    ['a sampling factor of 3', [[1, 0x31, 0]]],
+    [
+      'luma sampled 3 × 1',
+      [
+        [1, 0x31, 0],
+        [2, 0x11, 0],
+        [3, 0x11, 0],
+      ],
+    ],
     [
       'two components',
       [
@@ -346,7 +353,8 @@ describe('jpeg header segments', () => {
   it.each([
     // ITU-T T.81 (1992), B.2.4.1: Pq is 0 or 1, Tq is 0 to 3, and quantization values are nonzero.
     ['a zero quantization value', [dqt(0, [1, 1, 0, ...ones(61)]), DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_SCAN]],
-    ['a quantization precision of 2', [dqt(0x20, ones(128)), DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_SCAN]],
+    // The 130 bytes after the selector also read as two 8-bit tables, so a parser that took precision 2 for 1 without advancing would accept the segment.
+    ['a quantization precision of 2', [dqt(0x20, ones(130)), DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_SCAN]],
     ['a quantization destination of 4', [Q_ONE, dqt(0x04, ones(64)), DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_SCAN]],
     // The APP1 segment after the short table holds no zero byte, so a parser that read past the table's end would take a valid table from it.
     ['a quantization table of 10 values', [dqt(0, ones(10)), segment(0xe1, ones(255)), DC_ZERO, AC_EOB, GRAY_FRAME, GRAY_SCAN]],
@@ -426,9 +434,9 @@ describe('jpeg header segments', () => {
   });
 
   it('reads 16-bit and 8-bit quantization tables and a segment holding two tables', () => {
-    // A DC difference of +1 quantised by 8 is a DC coefficient of 8, which the inverse DCT turns into 128 + 8 / 8.
-    const sixteenBit = dqt(0x10, [0, 8, ...Array.from({ length: 63 }, () => [0, 1]).flat()]);
-    expect(decodedRows(jpeg([sixteenBit, DC_ONE, AC_EOB, GRAY_FRAME, GRAY_SCAN], [0x5f]))).toStrictEqual(filled(8, 8, 129));
+    // A DC difference of +1 quantised by q is a DC coefficient of q, which the inverse DCT turns into 128 + q / 8: 0x0108 gives 161 and 8 gives 129.
+    const sixteenBit = dqt(0x10, [0x01, 0x08, ...Array.from({ length: 63 }, () => [0, 1]).flat()]);
+    expect(decodedRows(jpeg([sixteenBit, DC_ONE, AC_EOB, GRAY_FRAME, GRAY_SCAN], [0x5f]))).toStrictEqual(filled(8, 8, 161));
     expect(decodedRows(jpeg([Q_EIGHT, DC_ONE, AC_EOB, GRAY_FRAME, GRAY_SCAN], [0x5f]))).toStrictEqual(filled(8, 8, 129));
     const twoTables = segment(0xdb, [0x00, ...ones(64), 0x01, 8, ...ones(63)]);
     const usesTableOne = sof({ height: 8, width: 8, components: [[1, 0x11, 1]] });
@@ -509,7 +517,7 @@ describe('jpeg entropy-coded data', () => {
 
   it.each([
     ['a restart marker out of sequence', [0x3f, 0xff, 0xd1, 0x3f]],
-    ['a missing restart marker', [0x3f, 0x3f]],
+    ['a restart marker code without its 0xFF prefix', [0x3f, 0xd0, 0x3f]],
   ])('refuses %s', (_, entropy) => {
     const image = decodeJpeg(jpeg([Q_ONE, DC_ZERO, AC_EOB, dri(1), sof({ height: 8, width: 16, components: [[1, 0x11, 0]] }), GRAY_SCAN], entropy));
     expect(failure(() => [...image.rows()])).toStrictEqual({ type: 'parse', reason: 'image-invalid' });
