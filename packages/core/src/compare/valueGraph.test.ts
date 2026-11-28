@@ -136,7 +136,7 @@ describe('value graph comparison', () => {
   });
 
   it('reports arrays of different lengths once, without comparing their items', () => {
-    expect(compareDocuments(withPage('/Foo[1 2]'), withPage('/Foo[1 2 3]')).differences).toStrictEqual([
+    expect(compareDocuments(withPage('/Foo[9 2]'), withPage('/Foo[1 2 3]')).differences).toStrictEqual([
       { kind: 'page-attribute', page: 0, path: ['Foo'], a: { kind: 'array', text: '2 items' }, b: { kind: 'array', text: '3 items' } },
     ]);
   });
@@ -156,7 +156,7 @@ describe('value graph comparison', () => {
     ]);
   });
 
-  // ISO 32000-1:2008, 7.3.10: a reference that leads back to itself names no object, so it reads as absent.
+  // A reference chain that leads back to itself names no object, so it reads as absent.
   it('reads a reference chain that returns to itself as absent', () => {
     const looped = withPage('/Tabs 5 0 R', [{ number: 5, body: '5 0 R' }]);
     expect([compareDocuments(looped, withPage('')).differences, compareDocuments(looped, withPage('/Tabs/R')).differences]).toStrictEqual([
