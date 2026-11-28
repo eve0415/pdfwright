@@ -64,6 +64,9 @@ const axial = (functionObjects: ReadonlyArray<TestObject>) =>
 // Each vertex is an 8-bit flag, x, y and t.
 const triangle = String.fromCodePoint(0, 0, 0, 0, 0, 100, 0, 128, 0, 0, 100, 255);
 
+// A one-input exponential function from C0 to C1.
+const exponential = (c0: string, c1: string): string => `<</FunctionType 2/Domain[0 1]/C0[${c0}]/C1[${c1}]/N 1>>`;
+
 describe('function dictionaries with indirect entries', () => {
   it('converts an axial shading whose exponential function has indirect entries', () => {
     expect(
@@ -378,6 +381,20 @@ const pageCmyk = (operator: 'rg' | 'RG', rgb: string): string => {
   return cmyk;
 };
 
+// The names a converted page draws, with the content each one resolves to and the page's XObject dictionary.
+const drawnForms = (document: LoadedDocument) => {
+  const page = document.get(document.page(0).reference);
+  const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+  const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+  const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+  const names = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => match[1] ?? '');
+  const text = (name: string): string => {
+    const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(name).bytes) : undefined;
+    return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${name}`;
+  };
+  return { names, text, xobjects: xobjects?.kind === 'dictionary' ? xobjects.entries : undefined };
+};
+
 describe('forms drawn from converted pages', () => {
   // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do; 8.6.8: sc and SC take one operand per component of the current space.
   it.each([
@@ -514,20 +531,6 @@ describe('forms drawn from converted pages', () => {
   const grayImage = {
     number: 7,
     body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray', String.fromCodePoint(10)),
-  };
-
-  // The names a converted page draws, with the content each one resolves to and the page's XObject dictionary.
-  const drawnForms = (document: LoadedDocument) => {
-    const page = document.get(document.page(0).reference);
-    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
-    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
-    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
-    const names = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => match[1] ?? '');
-    const text = (name: string): string => {
-      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(name).bytes) : undefined;
-      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${name}`;
-    };
-    return { names, text, xobjects: xobjects?.kind === 'dictionary' ? xobjects.entries : undefined };
   };
 
   it.each([
@@ -922,7 +925,6 @@ describe('luminosity soft masks', () => {
     expect(error).toMatchObject({ reason: 'color-space' });
   });
 
-  const exponential = (c0: string, c1: string): string => `<</FunctionType 2/Domain[0 1]/C0[${c0}]/C1[${c1}]/N 1>>`;
   // A shading function of an RGB space returns one value per RGB component.
   it.each([
     {
