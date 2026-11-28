@@ -61,6 +61,12 @@ const summary = (reconstruction: Reconstruction): Summary => ({
   objectStreams: reconstruction.objectStreams,
 });
 
+// Objects 1 to 3, the last an object stream holding member 5 and a second member numbered `number` whose value is `body`.
+const objectStream = (number: number, body: string): string => {
+  const header = `5 0 ${String(number)} 3 `;
+  return `%PDF-1.5\n1 0 obj (a) endobj\n2 0 obj (b) endobj\n3 0 obj\n${streamBody(`/Type/ObjStm/N 2/First ${String(header.length)}`, `${header}(m)${body}`)}\nendobj\n`;
+};
+
 class CountedBytes extends Uint8Array {
   searchedBytes = 0;
 
@@ -256,11 +262,6 @@ describe('cross-reference reconstruction', () => {
   });
 
   // A member above 2^31 - 1 is skipped as a top-level object above it is; 2^32 + 1 would otherwise wrap to object 1.
-  const objectStream = (number: number, body: string): string => {
-    const header = `5 0 ${String(number)} 3 `;
-    return `%PDF-1.5\n1 0 obj (a) endobj\n2 0 obj (b) endobj\n3 0 obj\n${streamBody(`/Type/ObjStm/N 2/First ${String(header.length)}`, `${header}(m)${body}`)}\nendobj\n`;
-  };
-
   it.each([
     [2_147_483_647, [2_147_483_647]],
     [2_147_483_648, []],
