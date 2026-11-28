@@ -231,6 +231,9 @@ describe('refusing truncated and misplaced markup', () => {
     ['an unterminated CDATA section', '<a><![CDATA[x</a>'],
     ['an unterminated attribute value', '<a b="1/>'],
     ['an end tag before the root', '</a><a/>'],
+    // XML 1.0, 3, well-formedness constraint Element Type Match: an end tag must close an open element.
+    ['an end tag after the root closes', '<a/></a>'],
+    ['an extra end tag', '<a></a></a>'],
     ['CDATA outside the root', '<![CDATA[x]]><a/>'],
     ['a markup declaration inside the root', '<a><!ELEMENT x></a>'],
     ['a character reference without digits', '<a>&#;</a>'],
