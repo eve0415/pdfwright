@@ -505,6 +505,32 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(document)).toStrictEqual(groups);
   });
 
+  const fontPair = `<</A ${type3('9 0 R')}/B ${type3('7 0 R')}>>`;
+  it.each<[string, string, string, ReadonlyArray<TestObject>, LoadOptions]>(
+    (
+      [
+        ['in the page resources', `<</Font${fontPair}>>`, [], {}],
+        ['in an indirect Font dictionary', '<</Font 8 0 R>>', [{ number: 8, body: fontPair }], {}],
+        ['in an indirect Font dictionary that the object cache drops', '<</Font 8 0 R>>', [{ number: 8, body: fontPair }], { parsedObjectCacheBytes: 1 }],
+      ] as const
+    ).flatMap(([where, resources, extra, options]) =>
+      (['A', 'B'] as const).map(first => [where, first === 'A' ? 'A, then B' : 'B, then A', resources, extra, options] as const),
+    ),
+  )(
+    'reads a glyph procedure that two direct Type 3 fonts with direct Resources share with the Resources of each, %s, selecting %s',
+    (_, order, resources, extra, options) => {
+      // ISO 32000-1:2008, 9.6.5 and Table 112: a glyph procedure runs with the Resources of the font that shows it; B names a transparent GS and A an opaque one.
+      const content = order === 'A, then B' ? 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET' : 'BT /B 12 Tf (a) Tj /A 12 Tf (a) Tj ET';
+      const objects = [
+        ...extra,
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 0.5>>' },
+        { number: 9, body: '<</ca 1>>' },
+      ];
+      expect(addedGroups(single(resources, streamBody('', content), objects, '', options))).toStrictEqual([0]);
+    },
+  );
+
   it.each<[string, string, ReadonlyArray<TestObject>, LoadOptions]>([
     ['an indirect font', '<</Font<</T3 5 0 R>>>>', [{ number: 5, body: '<<FONT>>' }], {}],
     ['a direct font', '<</Font<</T3 <<FONT>>>>>>', [], {}],
