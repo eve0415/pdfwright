@@ -345,6 +345,102 @@ const unfolded = (bodies: ReadonlyArray<Body>, index: number, depth: number): st
 const sameness = (values: ReadonlyArray<string>): Array<Array<boolean>> => values.map(left => values.map(right => left === right));
 
 describe('properties', () => {
+  // Each object gets two copies whose links lead to copies or to the objects themselves, as chosen: the copies unfold like the objects, though the graph holds a different number of each. The objects are described first, so that the copies' cycles lead into cycles already described.
+  it('gives an object and a copy of it that leads to other copies the same text', () => {
+    const copied = anyBodies.chain(bodies =>
+      fc.record({
+        bodies: fc.constant(bodies),
+        copies: fc.array(fc.integer({ min: 0, max: 2 }), { minLength: bodies.length * 6, maxLength: bodies.length * 6 }),
+      }),
+    );
+    fc.assert(
+      fc.property(copied, ({ bodies, copies }) => {
+        const count = bodies.length;
+        // Copy `round` of object `index` is object `index + count * round`; round 0 is the object itself, whose links stay among the objects.
+        const copy = (round: number, index: number, place: number, to: number): number =>
+          round === 0 ? to : to + count * (copies[((round - 1) * count + index) * 3 + place] ?? 0);
+        const all = [0, 1, 2].flatMap(round =>
+          bodies.map((body, index): Body =>
+            body.kind === 'reference'
+              ? { kind: 'reference', to: copy(round, index, 0, body.to) }
+              : { kind: body.kind, items: body.items.map((item, place) => (typeof item === 'number' ? item : { to: copy(round, index, place, item.to) })) },
+          ),
+        );
+        const internals = internalsOrThrow(all.map(written));
+        const shared = new ResolvedTexts(internals);
+        const texts = all.map((_, index) => shared.text(pdfReference(FIRST + index, 0)));
+        expect(texts).toStrictEqual([0, 1, 2].flatMap(() => texts.slice(0, count)));
+        expect(texts).toStrictEqual(all.map((_, index) => new ResolvedTexts(internals).text(pdfReference(FIRST + index, 0))));
+      }),
+    );
+  });
+
+  // Arrays of references, some with a number among them, and three rounds of copies whose links lead to copies of any round, as chosen: each copy unfolds like its object, though the copies hold a different number of each, so the numbering of a cycle's classes cannot follow how many objects each holds.
+  it('gives an object the same text as its copies in a graph of copies apart from it', () => {
+    const graphs = fc.integer({ min: 3, max: 7 }).chain(count =>
+      fc.record({
+        shapes: fc.array(
+          fc.record({ first: fc.integer({ min: 0, max: count - 1 }), second: fc.integer({ min: 0, max: count - 1 }), form: fc.integer({ min: 0, max: 3 }) }),
+          { minLength: count, maxLength: count },
+        ),
+        copies: fc.array(fc.integer({ min: 1, max: 3 }), { minLength: count * 6, maxLength: count * 6 }),
+      }),
+    );
+    fc.assert(
+      fc.property(graphs, ({ shapes, copies }) => {
+        const count = shapes.length;
+        const all = [0, 1, 2, 3].flatMap(round =>
+          shapes.map(({ first, second, form }, index): Body => {
+            const to = (target: number, place: number): Item => ({
+              to: round === 0 ? target : target + count * (copies[((round - 1) * count + index) * 2 + place] ?? 1),
+            });
+            const forms: Array<Array<Item>> = [
+              [to(first, 0), to(second, 1)],
+              [to(first, 0), 1, to(second, 1)],
+              [to(first, 0)],
+              [to(first, 0), to(second, 1), 1],
+            ];
+            return { kind: 'array', items: forms[form] ?? [] };
+          }),
+        );
+        const internals = internalsOrThrow(all.map(written));
+        const textAt = (index: number): string => new ResolvedTexts(internals).text(pdfReference(FIRST + index, 0));
+        const originals = shapes.map((_, index) => textAt(index));
+        expect([1, 2, 3].flatMap(round => shapes.map((_, index) => textAt(index + count * round)))).toStrictEqual([1, 2, 3].flatMap(() => originals));
+      }),
+      // Two graphs where numbering a cycle's classes by how many objects each holds, or by the order its objects were met, gives the copies other texts.
+      {
+        examples: [
+          [
+            {
+              shapes: [
+                [5, 0, 0],
+                [0, 0, 1],
+                [0, 0, 0],
+                [2, 0, 0],
+                [0, 0, 0],
+                [0, 3, 1],
+              ].map(([first = 0, second = 0, form = 0]) => ({ first, second, form })),
+              copies: Array.from({ length: 36 }, (_, index) => (index === 11 || index === 19 ? 2 : 1)),
+            },
+          ],
+          [
+            {
+              shapes: [
+                [0, 1, 3],
+                [2, 0, 0],
+                [0, 3, 1],
+                [3, 4, 0],
+                [3, 0, 1],
+              ].map(([first = 0, second = 0, form = 0]) => ({ first, second, form })),
+              copies: Array.from({ length: 30 }, () => 1),
+            },
+          ],
+        ],
+      },
+    );
+  });
+
   // Values in a graph of n objects that differ, differ within n arrays and dictionaries of their start, so unfolding one more than that tells them apart.
   it('gives two objects the same text exactly when they unfold to the same value', () => {
     fc.assert(
