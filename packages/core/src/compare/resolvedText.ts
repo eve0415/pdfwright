@@ -313,7 +313,7 @@ export class ResolvedTexts {
   private readonly classes = new Map<string, { readonly label: string; readonly links: ReadonlyArray<string> }>();
   /** Those texts by the digest of their label and the texts their links lead to. */
   private readonly bySignature = new Map<string, string>();
-  /** Those texts by a text one of their links leads to, the place of that link and their label. */
+  /** The texts of those on a cycle by a text that one of their links within the cycle leads to, the place of that link and their label. */
   private readonly linkedFrom = new Map<string, Array<string>>();
   private readonly maxCycleSteps: number;
   private cycleSteps = 0;
@@ -339,7 +339,7 @@ export class ResolvedTexts {
         );
       }
     }
-    // Only the value asked for is described, since a value that leads into a cycle is described from its own shape and not from the texts of the objects it leads to.
+    // A value that leads into a cycle is described from its own shape and those of the objects it leads to, not from the texts the walk gave them.
     const text = results.pop() ?? 'null';
     if (!leadsIntoCycle(text) || value === undefined) {
       return text;
@@ -547,7 +547,7 @@ export class ResolvedTexts {
       const out = (links[only] ?? []).map(textOf);
       const signature = signatureOf(label, out);
       const text = this.bySignature.get(signature) ?? `${INTO_CYCLE}${hex(md5(latin1Bytes(`t\n${signature}`)))}`;
-      this.register(text, label, out, signature);
+      this.register(text, label, out, signature, []);
       texts[only] = text;
       return;
     }
@@ -599,11 +599,12 @@ export class ResolvedTexts {
       const member = members[index] ?? -1;
       const label = nodes[member]?.label ?? '';
       const out = (links[member] ?? []).map(textOf);
-      this.register(mergedTexts[merged] ?? '', label, out, signatureOf(label, out));
+      const within = (links[member] ?? []).map(target => typeof target === 'number' && inside.has(target));
+      this.register(mergedTexts[merged] ?? '', label, out, signatureOf(label, out), within);
     }
   }
 
-  // Whether a component's nodes unfold like nodes already described, whose texts they then take. Each of its nodes would match one, so a node with a link that leaves the component matches one described with its label and a link to the same text at the same place, and the match of each other node follows from its links.
+  // Whether a component's nodes unfold like the nodes of a cycle already described, whose texts they then take. Each of its nodes would match one, and when every link that leaves the component matches a link that leaves that cycle, the component reads the same as it without a match. So some node's link that leaves the component matches a link within that cycle, kept for that place and label, and the match of every other node follows from its links.
   private matched(
     members: ReadonlyArray<number>,
     inside: ReadonlySet<number>,
@@ -612,59 +613,73 @@ export class ResolvedTexts {
     texts: Array<string | undefined>,
   ): boolean {
     const textOf = (target: Target): string => (typeof target === 'string' ? target : (texts[target] ?? 'null'));
-    let exit: { readonly node: number; readonly key: string } | undefined;
+    const tried = new Set<string>();
     for (const member of members) {
-      const at = (links[member] ?? []).findIndex(target => typeof target === 'string' || !inside.has(target));
-      const target = links[member]?.[at];
-      if (target !== undefined) {
-        exit = { node: member, key: linkKey(textOf(target), at, nodes[member]?.label ?? '') };
-        break;
-      }
-    }
-    if (exit === undefined) {
-      return false;
-    }
-    for (const candidate of this.linkedFrom.get(exit.key) ?? []) {
-      this.step(1);
-      const matching = new Map<number, string>();
-      const work: Array<{ readonly node: number; readonly text: string }> = [{ node: exit.node, text: candidate }];
-      let fits = true;
-      for (let pair = work.pop(); pair !== undefined && fits; pair = work.pop()) {
-        const { node, text } = pair;
-        const already = matching.get(node);
-        if (already !== undefined) {
-          fits = already === text;
+      for (const [at, target] of (links[member] ?? []).entries()) {
+        if (typeof target === 'number' && inside.has(target)) {
           continue;
         }
-        const described = this.classes.get(text);
-        const out = links[node] ?? [];
-        if (described === undefined || described.label !== nodes[node]?.label || described.links.length !== out.length) {
-          fits = false;
-          continue;
-        }
-        matching.set(node, text);
-        this.step(1 + out.length);
-        for (const [at, target] of out.entries()) {
-          const to = described.links[at] ?? '';
-          if (typeof target === 'number' && inside.has(target)) {
-            work.push({ node: target, text: to });
-          } else if (textOf(target) !== to) {
-            fits = false;
+        for (const candidate of this.linkedFrom.get(linkKey(textOf(target), at, nodes[member]?.label ?? '')) ?? []) {
+          const pair = `${String(member)}\n${candidate}`;
+          if (tried.has(pair)) {
+            continue;
+          }
+          tried.add(pair);
+          this.step(1);
+          const matching = this.matching(member, candidate, inside, nodes, links, textOf);
+          if (matching?.size === members.length) {
+            for (const [node, text] of matching) {
+              texts[node] = text;
+            }
+            return true;
           }
         }
-      }
-      if (fits && matching.size === members.length) {
-        for (const [node, text] of matching) {
-          texts[node] = text;
-        }
-        return true;
       }
     }
     return false;
   }
 
-  // Keeps a described node's text with its label and the texts its links lead to, so that later nodes that unfold alike find it.
-  private register(text: string, label: string, out: ReadonlyArray<string>, signature: string): void {
+  // The described texts that a component's nodes match when one of them matches `candidate`, or undefined when they do not all match.
+  private matching(
+    start: number,
+    candidate: string,
+    inside: ReadonlySet<number>,
+    nodes: ReadonlyArray<Structure>,
+    links: ReadonlyArray<ReadonlyArray<Target>>,
+    textOf: (target: Target) => string,
+  ): Map<number, string> | undefined {
+    const matching = new Map<number, string>();
+    const work: Array<{ readonly node: number; readonly text: string }> = [{ node: start, text: candidate }];
+    for (let pair = work.pop(); pair !== undefined; pair = work.pop()) {
+      const { node, text } = pair;
+      const already = matching.get(node);
+      if (already !== undefined) {
+        if (already !== text) {
+          return undefined;
+        }
+        continue;
+      }
+      const described = this.classes.get(text);
+      const out = links[node] ?? [];
+      if (described === undefined || described.label !== nodes[node]?.label || described.links.length !== out.length) {
+        return undefined;
+      }
+      matching.set(node, text);
+      this.step(1 + out.length);
+      for (const [at, target] of out.entries()) {
+        const to = described.links[at] ?? '';
+        if (typeof target === 'number' && inside.has(target)) {
+          work.push({ node: target, text: to });
+        } else if (textOf(target) !== to) {
+          return undefined;
+        }
+      }
+    }
+    return matching;
+  }
+
+  // Keeps a described node's text with its label and the texts its links lead to, so that later nodes that unfold alike find it, and under each of its links that stays within its cycle, so that a later cycle can be matched to it.
+  private register(text: string, label: string, out: ReadonlyArray<string>, signature: string, within: ReadonlyArray<boolean>): void {
     if (this.classes.has(text)) {
       return;
     }
@@ -672,6 +687,9 @@ export class ResolvedTexts {
     this.classes.set(text, { label, links: out });
     this.bySignature.set(signature, text);
     for (const [at, to] of out.entries()) {
+      if (within[at] !== true) {
+        continue;
+      }
       const key = linkKey(to, at, label);
       const from = this.linkedFrom.get(key);
       if (from === undefined) {
