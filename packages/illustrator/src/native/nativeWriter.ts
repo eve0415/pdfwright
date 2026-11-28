@@ -1,9 +1,6 @@
-import type { Length } from '@pdfwright/core';
-
-import { formatNativeNumber } from './formatNativeNumber.ts';
 import { escapeNativeString } from './nativeString.ts';
 
-export type NativeToken = string | { readonly utf8: string } | { readonly ascii: string } | { readonly number: number | Length };
+export type NativeToken = string | { readonly utf8: string };
 
 export interface NativeWriter {
   readonly offset: number;
@@ -18,13 +15,7 @@ const tokenBytes = (token: NativeToken): Uint8Array => {
   if (typeof token === 'string') {
     return encoder.encode(token);
   }
-  if ('utf8' in token) {
-    return escapeNativeString(token.utf8);
-  }
-  if ('ascii' in token) {
-    return escapeNativeString(token.ascii, 'ascii');
-  }
-  return encoder.encode(formatNativeNumber(token.number));
+  return escapeNativeString(token.utf8);
 };
 
 export const createNativeWriter = (): NativeWriter => {
