@@ -1,5 +1,6 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
+import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { OutputIntentOptions } from './writeOutputIntent.ts';
 
 import { describe, expect, it } from 'vitest';
@@ -13,9 +14,9 @@ import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { pdfTextString, readTextString } from '../metadata/documentInfo.ts';
-import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { iccProfileBytes } from '../testing/iccProfileBytes.ts';
-import { buildPdf } from '../testing/pdfBuilder.ts';
+import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { checkPdfX4 } from './checkPdfX4.ts';
 import { registeredPrintingConditions } from './printingConditions.ts';
@@ -304,6 +305,41 @@ describe('gts pdfx output intent', () => {
     const { document } = compressedIntent(profile.length - over);
     const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual([action, removed, subtypes]);
+  });
+
+  const withIntents = (intents: string, objects: ReadonlyArray<TestObject>) =>
+    loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: `<</Type/Catalog/Pages 2 0 R/OutputIntents${intents}>>` },
+            { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+            { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+            ...objects,
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+  const unreadable = { number: 5, body: streamBody('', 'x'.repeat(200)) };
+
+  it.each<[string, string, ReadonlyArray<TestObject>, Array<string>, Array<number>]>([
+    [
+      'two intents that share one unreadable profile',
+      '[4 0 R 6 0 R]',
+      [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable, { number: 6, body: '<</S/ISO_PDFE1/DestOutputProfile 5 0 R>>' }],
+      ['GTS_PDFA1', 'ISO_PDFE1'],
+      [4, 5, 6],
+    ],
+    ['one intent listed twice', '[4 0 R 4 0 R]', [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable], ['GTS_PDFA1', 'GTS_PDFA1'], [4, 5]],
+    ['an intent whose profile reference names no object', '[4 0 R]', [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 9 0 R>>' }], ['GTS_PDFA1'], [4]],
+  ])('replaces %s, removing each object once', (_, intents, objects, removed, deleted) => {
+    const document = withIntents(intents, objects);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', removed, ['GTS_PDFX']]);
+    expect(deleted.map(number => document.get(pdfReference(number, 0)))).toStrictEqual(deleted.map(() => ({ kind: 'null' })));
+    expect(loadDocument(document.save().toBytes()).catalog().has(pdfName('OutputIntents').bytes)).toBe(true);
   });
 
   it('refuses an existing intent whose profile decodes past the limit by default', () => {
