@@ -25,7 +25,7 @@ export interface TestFreeObject {
 
 export interface TestSection {
   readonly objects: ReadonlyArray<TestObject>;
-  /** Free entries, linked in ascending order from the head at object 0 under ISO 32000-1:2008, 7.5.4; omitted, every free entry points at object 0 with generation 65535. */
+  /** Free entries, which object 0 links in ascending order with the last pointing back at 0 (ISO 32000-1:2008, 7.5.4); the list holds this section's entries only, not those an earlier section freed. The free entries an original section writes outside the list, object 0 when nothing is listed and every unused number of a classic or hybrid table, point at object 0 with generation 65535. */
   readonly free?: ReadonlyArray<TestFreeObject>;
   /** A hybrid section writes top-level objects to a classic section whose XRefStm entry names a cross-reference stream for object-stream members. */
   readonly xref: 'classic' | 'stream' | 'hybrid';
@@ -249,7 +249,7 @@ class TestPdfWriter {
       const visible = new Map([...[...entries].filter(([, entry]) => entry.type !== 2), [number, { type: 1, second: streamOffset, third: 0 }] as const]);
       offset = this.text.length;
       if (first) {
-        // A classic entry, even a free one, hides the stream entry from qpdf, MuPDF and this library, so the original table leaves the members out rather than covering every number.
+        // ISO 32000-1:2008, 7.5.8.4: a reader consults the XRefStm stream only for an entry the classic section does not have, and a free entry is one it has, so the original table fills every unused number but leaves the object-stream members out.
         for (let number = 0; number <= Math.max(...visible.keys()); number++) {
           if (!entries.has(number) && !visible.has(number)) {
             visible.set(number, { type: 0, second: 0, third: 65_535 });
