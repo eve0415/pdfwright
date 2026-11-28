@@ -577,6 +577,63 @@ describe('luminosity soft masks', () => {
       expect.stringMatching(/^(?:[\d.]+ ){4}k 0 0 10 10 re f$/u),
     ]);
   });
+
+  // ISO 32000-1:2008, 8.10.1 and 11.6.5.2: a form drawn with Do paints with the state at Do, while the same stream as a soft-mask group only supplies mask values.
+  it.each([
+    { name: 'a luminosity mask', subtype: 'Luminosity', before: '', color: '1 0 0', mask: '0.3 g 0 0 10 10 re f', maskSpace: 'DeviceGray' },
+    {
+      name: 'a luminosity mask under an RGB fill',
+      subtype: 'Luminosity',
+      before: '0.2 0.4 0.6 rg ',
+      color: '1 0 0',
+      mask: '0.3 g 0 0 10 10 re f',
+      maskSpace: 'DeviceGray',
+    },
+    {
+      name: 'an alpha mask under the Saturation intent',
+      subtype: 'Alpha',
+      before: '/Saturation ri ',
+      color: '0.2 0.8 0.3',
+      mask: undefined,
+      maskSpace: 'DeviceCMYK',
+    },
+  ] as const)('keeps the page colour of a form that is also the group of $name', ({ subtype, before, color, mask, maskSpace }) => {
+    const form = maskGroup('', `${color} rg 0 0 10 10 re f`);
+    const pageContent = `${before}/Fx Do`;
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: `/ExtGState<</GS<</SMask<</S/${subtype}/G 6 0 R>>>>>>/XObject<</Fx 6 0 R>>`,
+            content: `q /GS gs 0 0 1 rg 0 0 10 10 re f Q ${pageContent}`,
+          },
+        ],
+        [form],
+      ),
+    );
+    // The same page without the mask shows what the form must paint when the page draws it.
+    const unmasked = loadDocument(documentBytes([{ resources: '/XObject<</Fx 6 0 R>>', content: pageContent }], [form]));
+    convertToCmyk(document, cmykOptions);
+    convertToCmyk(unmasked, cmykOptions);
+    const states = resolved(document, document.page(0).resources().get(pdfName('ExtGState').bytes));
+    const state = states?.kind === 'dictionary' ? resolved(document, states.entries.get(pdfName('GS').bytes)) : undefined;
+    const softMask = state?.kind === 'dictionary' ? resolved(document, state.entries.get(pdfName('SMask').bytes)) : undefined;
+    const group = softMask?.kind === 'dictionary' ? softMask.entries.get(pdfName('G').bytes) : undefined;
+    if (group?.kind !== 'reference') {
+      throw new Error('the soft mask has no group reference');
+    }
+    const groupSpace = (number: number): PdfObject | undefined => {
+      const stream = document.get(pdfReference(number, 0));
+      const attributes = stream.kind === 'stream' ? resolved(document, stream.dictionary.get(pdfName('Group').bytes)) : undefined;
+      return attributes?.kind === 'dictionary' ? attributes.entries.get(pdfName('CS').bytes) : undefined;
+    };
+    expect(group.objectNumber).not.toBe(6);
+    expect([streamText(document, 6), groupSpace(6)]).toStrictEqual([streamText(unmasked, 6), pdfName('DeviceCMYK')]);
+    expect([streamText(document, group.objectNumber), groupSpace(group.objectNumber)]).toStrictEqual([
+      mask ?? `${pageCmyk('rg', color)}k 0 0 10 10 re f`,
+      pdfName(maskSpace),
+    ]);
+  });
 });
 
 const pageShading = (document: LoadedDocument, page: number): PdfObject | undefined => {
