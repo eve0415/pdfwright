@@ -34,7 +34,7 @@ const readManifest = (manifest: unknown): ReturnType<typeof readIllustratorExpor
 const sample = { file: 'first.pdf', blocks: 3, lastLength: 12, layers: 5, rasters: 2, widthMm: 100, heightMm: 70, paint: [1, 2, 3, 4, 5] } as const;
 const second = { file: 'second.pdf', blocks: 7, lastLength: 40, layers: 6, rasters: 1, widthMm: 210, heightMm: 297, paint: [6, 7, 8, 9, 10] } as const;
 interface SampleOverrides {
-  readonly file?: string;
+  readonly file?: string | number;
   readonly paint?: ReadonlyArray<number | string | null> | string;
   readonly widthMm?: string;
 }
@@ -193,6 +193,17 @@ describe('local Illustrator export manifest', () => {
     { case: 'with acceptance that is not an array', manifest: { samples: [sample], ladderSample: 0, acceptance: 'x.pdf' } },
   ])('refuses a manifest that is $case', async ({ manifest }) => {
     await expect(readManifest(manifest)).rejects.toThrow(/invalid Illustrator export manifest/u);
+  });
+
+  it('refuses a sample whose file is not a string', async () => {
+    await expect(readManifest(withSample({ file: 5 }))).rejects.toThrow(/invalid Illustrator export sample$/u);
+  });
+
+  it.each([
+    { case: 'without a label', entry: { file: 'a.pdf' } },
+    { case: 'whose file is not a string', entry: { label: 'x', file: 5 } },
+  ])('refuses an acceptance entry $case', async ({ entry }) => {
+    await expect(readManifest({ samples: [sample], ladderSample: 0, acceptance: [entry] })).rejects.toThrow(/invalid Illustrator export acceptance entry$/u);
   });
 
   it('refuses a manifest that is not JSON', async () => {
