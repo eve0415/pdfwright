@@ -61,6 +61,7 @@ const PATTERN = pdfName('Pattern').bytes;
 const PATTERN_TYPE = pdfName('PatternType').bytes;
 const PAINT_TYPE = pdfName('PaintType').bytes;
 const FONT = pdfName('Font').bytes;
+const EXT_G_STATE = pdfName('ExtGState').bytes;
 const SUBTYPE = pdfName('Subtype').bytes;
 const CHAR_PROCS = pdfName('CharProcs').bytes;
 const ANNOTS = pdfName('Annots').bytes;
@@ -147,39 +148,47 @@ const planPatternResources = (scan: Scan, resources: PdfDictionaryEntries): void
   }
 };
 
-const planGlyphs = (scan: Scan, resources: PdfDictionaryEntries): void => {
-  const category = scan.internals.objects.deref(resources.get(FONT));
-  if (category?.kind !== 'dictionary') {
+const planFontGlyphs = (scan: Scan, entry: PdfDirectObject | undefined, resources: PdfDictionaryEntries): void => {
+  const dictionary = dictionaryOf(scan.internals.objects.deref(entry));
+  if (dictionary === undefined || nameOf(dictionary.get(SUBTYPE)) !== 'Type3') {
     return;
   }
-  for (const [, entry] of category.entries.entries()) {
-    const font = scan.internals.objects.deref(entry);
-    const dictionary = dictionaryOf(font);
-    if (dictionary === undefined || nameOf(dictionary.get(SUBTYPE)) !== 'Type3') {
+  const own = scan.internals.objects.deref(dictionary.get(RESOURCES));
+  const effective = own?.kind === 'dictionary' ? own.entries : resources;
+  const glyphs = scan.internals.objects.deref(dictionary.get(CHAR_PROCS));
+  if (glyphs?.kind !== 'dictionary') {
+    return;
+  }
+  for (const [, glyph] of glyphs.entries.entries()) {
+    if (glyph.kind !== 'reference') {
       continue;
     }
-    const own = scan.internals.objects.deref(dictionary.get(RESOURCES));
-    const effective = own?.kind === 'dictionary' ? own.entries : resources;
-    const glyphs = scan.internals.objects.deref(dictionary.get(CHAR_PROCS));
-    if (glyphs?.kind !== 'dictionary') {
+    const stream = scan.internals.objects.deref(glyph);
+    if (stream?.kind !== 'stream') {
       continue;
     }
-    for (const [, glyph] of glyphs.entries.entries()) {
-      if (glyph.kind !== 'reference') {
-        continue;
-      }
-      const stream = scan.internals.objects.deref(glyph);
-      if (stream?.kind !== 'stream') {
-        continue;
-      }
-      const bytes = decodedData(scan.internals, stream);
-      if (typeof bytes === 'string') {
-        throw new ValidationError(`Type 3 glyph cannot be read: ${bytes}`, 'color-operator');
-      }
-      const [first] = readContent(bytes, scan.internals.maxNesting);
-      if (first?.operator === 'd0') {
-        planStream(scan, { reference: glyph, resources: effective, kind: 'glyph' });
-      }
+    const bytes = decodedData(scan.internals, stream);
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`Type 3 glyph cannot be read: ${bytes}`, 'color-operator');
+    }
+    const [first] = readContent(bytes, scan.internals.maxNesting);
+    if (first?.operator === 'd0') {
+      planStream(scan, { reference: glyph, resources: effective, kind: 'glyph' });
+    }
+  }
+};
+
+const planGlyphs = (scan: Scan, resources: PdfDictionaryEntries): void => {
+  const category = scan.internals.objects.deref(resources.get(FONT));
+  for (const [, entry] of category?.kind === 'dictionary' ? category.entries.entries() : []) {
+    planFontGlyphs(scan, entry, resources);
+  }
+  // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
+  const states = scan.internals.objects.deref(resources.get(EXT_G_STATE));
+  for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
+    const font = scan.internals.objects.deref(dictionaryOf(scan.internals.objects.deref(value))?.get(FONT));
+    if (font?.kind === 'array') {
+      planFontGlyphs(scan, font.items[0], resources);
     }
   }
 };
@@ -316,7 +325,7 @@ const apply = (scan: Scan): OtherCarrierReport => {
   };
 };
 
-/** Converts colours in annotation appearances and arrays, coloured tiling patterns, and Type 3 d0 glyphs. */
+/** Converts colours in annotation appearances and arrays, coloured tiling patterns, and the d0 glyphs of Type 3 fonts in Font resources or selected by a graphics state. */
 export const convertOtherCarriers = (document: LoadedDocument, options: RewriteColorOptions): OtherCarrierReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
