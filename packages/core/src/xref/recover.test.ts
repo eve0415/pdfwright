@@ -317,23 +317,37 @@ describe('properties', () => {
     }),
   );
 
+  const files = fc
+    .array(section, { minLength: 1, maxLength: 3 })
+    .map(drawn =>
+      buildPdf(
+        drawn.map((item, index): TestSection =>
+          item.xref === 'stream' && item.members.length > 0
+            ? { xref: 'stream', objects: item.objects, objectStreams: [{ number: 20 + index, members: item.members }] }
+            : { xref: item.xref, objects: item.objects },
+        ),
+      ),
+    );
+  const context = { warn: () => undefined, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576, maxObjectStreamMembers: 100 };
+
   it('rebuilds the index the cross-reference chain of an intact file gives', () => {
     fc.assert(
-      fc.property(fc.array(section, { minLength: 1, maxLength: 3 }), drawn => {
-        const pdf = buildPdf(
-          drawn.map((item, index): TestSection =>
-            item.xref === 'stream' && item.members.length > 0
-              ? { xref: 'stream', objects: item.objects, objectStreams: [{ number: 20 + index, members: item.members }] }
-              : { xref: item.xref, objects: item.objects },
-          ),
-        );
+      fc.property(files, pdf => {
         const source = new ByteSource(pdf.bytes);
-        const context = { warn: () => undefined, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576, maxObjectStreamMembers: 100 };
         const chain = readSectionChain(source, { startxref: locateStartxref(source)?.offset ?? -1, shift: 0 }, context);
         const expected = ObjectIndex.fromSections(searchOrder(chain));
         const rebuilt = reconstructIndex(source, context).index;
         const numbers = [...expected.inUse()];
         expect([[...rebuilt.inUse()], numbers.map(number => rebuilt.get(number))]).toStrictEqual([numbers, numbers.map(number => expected.get(number))]);
+      }),
+    );
+  });
+
+  it('reconstructs the same index whatever the segment sizes', () => {
+    fc.assert(
+      fc.property(files, fc.integer({ min: 1, max: 64 }), (pdf, size) => {
+        const chunks = Array.from({ length: Math.ceil(pdf.bytes.length / size) }, (_, index) => pdf.bytes.subarray(index * size, index * size + size));
+        expect(summary(reconstructIndex(new ByteSource(chunks), context))).toStrictEqual(summary(reconstructIndex(new ByteSource(pdf.bytes), context)));
       }),
     );
   });
