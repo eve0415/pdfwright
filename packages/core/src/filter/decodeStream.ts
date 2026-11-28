@@ -115,11 +115,16 @@ const applyFilter = ({ name, parameters }: FilterStep, data: Uint8Array, context
     }
     case 'Crypt': {
       // ISO 32000-1:2008, 7.4.10, Table 14: Name defaults to Identity, and 7.6.5, Table 26: Identity passes the data through unchanged.
-      const cryptFilter = parameters?.get(CRYPT_FILTER_NAME);
-      if (cryptFilter !== undefined && cryptFilter.kind !== 'name') {
+      const entry = parameters?.get(CRYPT_FILTER_NAME);
+      const cryptFilter = context.deref === undefined ? entry : context.deref(entry);
+      // ISO 32000-1:2008, 7.3.9: a null value, or a reference to a nonexistent object, is the same as omitting the entry.
+      if (cryptFilter === undefined || cryptFilter.kind === 'null') {
+        return data;
+      }
+      if (cryptFilter.kind !== 'name') {
         throw new ParseError('the Crypt filter Name is not a name', 0);
       }
-      if (cryptFilter === undefined || latin1(cryptFilter.bytes) === 'Identity') {
+      if (latin1(cryptFilter.bytes) === 'Identity') {
         return data;
       }
       // Every other crypt filter needs the document's security handler; pdfwright does not decrypt.
