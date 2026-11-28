@@ -67,16 +67,17 @@ const editMember = (document: LoadedDocument): void => {
   document.set(pdfReference(5, 0), pdfName('Changed'));
 };
 
+// A hint stream whose dictionary has S, which the rewrite checks for only in a file read with a shift.
 const hintStream = { number: 10, body: streamBody('/S 0', 'hints') };
 
 // A linearized file whose H entry gives the offset of object 10, its hint stream, in ten digits so that the offsets do not depend on its value.
-const linearizedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
+const linearizedObjects = (hintOffset: number, hints: TestObject = { number: 10, body: streamBody('', 'hints') }): ReadonlyArray<TestObject> => [
   { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
   catalog,
   pages,
   page,
   content,
-  hintStream,
+  hints,
 ];
 
 // The same file with the hint stream between the content stream and the page, so that a prefix of the right length puts one of them where the other reading of H falls.
@@ -388,8 +389,9 @@ describe('full rewrite', () => {
     ['from the start of the file', 'absolute', 0],
   ] as const)('drops the hint stream of a linearized file with bytes before its header, with offsets %s', (_, offsets, shift) => {
     const prefix = offsets === 'absolute' ? 'JUNK' : '';
-    const draft = buildPdf([{ xref: 'classic', objects: linearizedObjects(0), trailer: '/Root 1 0 R' }], { prefix });
-    const linearized = buildPdf([{ xref: 'classic', objects: linearizedObjects(draft.offsets.get(10) ?? 0), trailer: '/Root 1 0 R' }], { prefix });
+    const hints = offsets === 'absolute' ? undefined : hintStream;
+    const draft = buildPdf([{ xref: 'classic', objects: linearizedObjects(0, hints), trailer: '/Root 1 0 R' }], { prefix });
+    const linearized = buildPdf([{ xref: 'classic', objects: linearizedObjects(draft.offsets.get(10) ?? 0, hints), trailer: '/Root 1 0 R' }], { prefix });
     const document = loadDocument(latin1Bytes(offsets === 'absolute' ? linearized.text : `JUNK${linearized.text}`));
     const saved = document.save({ mode: 'full' });
     const reloaded = loadDocument(saved.chunks);
