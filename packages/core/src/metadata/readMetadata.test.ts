@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
-import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
+import { PdfDictionaryEntries, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
 import { readMetadata } from './readMetadata.ts';
@@ -15,6 +16,9 @@ const NAMESPACES =
 
 const packet = (body: string): string =>
   `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF ${NAMESPACES}><rdf:Description rdf:about="">${body}</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+
+// The packet as UTF-16BE with a byte-order mark, one latin1 character per byte; the packet text is ASCII.
+const utf16 = (text: string): string => `\u00FE\u00FF${Array.from(text, character => `\u0000${character}`).join('')}`;
 
 const PRODUCER = packet('<pdf:Producer>P</pdf:Producer><xmp:MetadataDate>2024-01-01T00:00:00Z</xmp:MetadataDate>');
 
@@ -51,10 +55,60 @@ const unreadable = (metadata: DocumentMetadata): string | undefined =>
 const codes = (metadata: DocumentMetadata): ReadonlyArray<string> => metadata.findings.map(finding => finding.code);
 
 describe('reading document metadata', () => {
+  // ISO 32000-1:2008, Table 315: a metadata stream has Type Metadata and Subtype XML, so an unreachable font or a non-stream dictionary with Subtype XML is not one.
   it('finds an orphan XML metadata stream without a Type entry', () => {
-    const metadata = read('', [{ number: 9, body: streamBody('/Subtype/XML', packet('')) }], '');
+    const metadata = read(
+      '',
+      [
+        { number: 9, body: streamBody('/Subtype/XML', packet('')) },
+        { number: 10, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+        { number: 11, body: '<</Subtype/XML>>' },
+      ],
+      '',
+    );
     expect(metadata.packets.orphans).toStrictEqual([pdfReference(9, 0)]);
-    expect(codes(metadata)).toContain('orphan-metadata');
+    expect(codes(metadata).filter(code => code === 'orphan-metadata')).toStrictEqual(['orphan-metadata']);
+  });
+
+  it('finds an orphan metadata stream that exists only as an edit', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    const added = document.object({
+      kind: 'stream',
+      dictionary: new PdfDictionaryEntries([
+        [pdfName('Type').bytes, pdfName('Metadata')],
+        [pdfName('Subtype').bytes, pdfName('XML')],
+      ]),
+      data: new TextEncoder().encode(packet('')),
+    });
+    expect(readMetadata(document).packets.orphans).toStrictEqual([added]);
+  });
+
+  it('lists the components of one owner by reference number', () => {
+    const metadata = read(
+      '',
+      [
+        { number: 4, body: '<</A<</Metadata 9 0 R>>/B<</Metadata 8 0 R>>/C<</Metadata 7 0 R>>>>' },
+        ...COMPONENTS,
+        { number: 9, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
+      ],
+      '/Extra 4 0 R',
+    );
+    expect(metadata.packets.components.filter(component => component.owner.objectNumber === 4)).toStrictEqual([
+      { owner: pdfReference(4, 0), reference: pdfReference(7, 0) },
+      { owner: pdfReference(4, 0), reference: pdfReference(8, 0) },
+      { owner: pdfReference(4, 0), reference: pdfReference(9, 0) },
+    ]);
   });
 
   it('reports an extra packet inside the catalog metadata stream', () => {
@@ -132,6 +186,121 @@ describe('reading document metadata', () => {
       [['info-missing', 'xmp-doctype'], 'doctype'],
       [['info-missing', 'xmp-unreadable'], 'not-well-formed'],
     ]);
+  });
+
+  // ISO 32000-1:2008, Table 315: Type "shall be Metadata" and Subtype "shall be XML", so either one missing is reported.
+  it.each([
+    ['Type only', '/Type/Metadata'],
+    ['Subtype only', '/Subtype/XML'],
+    ['a wrong Subtype', '/Type/Metadata/Subtype/Text'],
+  ])('reports a metadata stream with %s', (_name, dictionary) => {
+    const metadata = read('/Metadata 4 0 R', [{ number: 4, body: streamBody(dictionary, PRODUCER) }], '');
+    expect([codes(metadata), metadata.xmp !== undefined && 'packet' in metadata.xmp]).toStrictEqual([['info-missing', 'metadata-dictionary'], true]);
+  });
+
+  it.each([
+    ['a direct dictionary', '/Metadata<</Type/Metadata/Subtype/XML>>', [], 'metadata-not-stream'],
+    [
+      'a stream whose filter cannot decode its data',
+      '/Metadata 4 0 R',
+      [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML/Filter/FlateDecode', 'not deflated') }],
+      'xmp-unreadable',
+    ],
+  ] satisfies Array<[string, string, Array<TestObject>, string]>)('reports a catalog Metadata entry that is %s', (_name, catalog, objects, code) => {
+    const metadata = read(catalog, objects, '');
+    expect([codes(metadata), metadata.xmp === undefined ? undefined : unreadable(metadata)]).toStrictEqual([
+      ['info-missing', ...(code === 'xmp-unreadable' ? ['metadata-filtered'] : []), code],
+      code === 'xmp-unreadable' ? 'undecodable' : undefined,
+    ]);
+  });
+
+  it('reports packet findings of the document packet', () => {
+    const mismatch = read(
+      '/Metadata 4 0 R',
+      [
+        {
+          number: 4,
+          body: streamBody(
+            '/Type/Metadata/Subtype/XML',
+            packet('</rdf:Description><rdf:Description rdf:about="uuid:b"><pdf:Keywords>K</pdf:Keywords>').replace('rdf:about=""', 'rdf:about="uuid:a"'),
+          ),
+        },
+      ],
+      '',
+    );
+    const wide = read('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', utf16(PRODUCER)) }], '');
+    expect([codes(mismatch), codes(wide)]).toStrictEqual([
+      ['info-missing', 'rdf-about-mismatch'],
+      ['info-missing', 'xmp-not-utf8'],
+    ]);
+  });
+
+  it('reports packet headers that an update superseded', () => {
+    const metadata = readMetadata(
+      loadDocument(
+        buildPdf([
+          {
+            xref: 'classic',
+            objects: [
+              { number: 1, body: '<</Type/Catalog/Pages 2 0 R/Metadata 4 0 R>>' },
+              { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+              { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', PRODUCER) },
+            ],
+            trailer: '/Root 1 0 R',
+          },
+          { xref: 'classic', objects: [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', PRODUCER) }], trailer: '/Root 1 0 R' },
+        ]).bytes,
+      ),
+    );
+    expect([metadata.packets.scanned.superseded, codes(metadata)]).toStrictEqual([1, ['info-missing', 'superseded-packets']]);
+  });
+
+  it.each([[1], [Number.MAX_SAFE_INTEGER]])('accepts an XMP token limit of %d', limit => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(readMetadata(document, { maxXmpTokens: limit }).authority).toBe('info');
+  });
+
+  it.each([[1.5], [-1], [Number.NaN], [2 ** 53]])('refuses an XMP token limit of %d', limit => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(() => readMetadata(document, { maxXmpTokens: limit })).toThrow(InvalidArgumentError);
+  });
+
+  it('refuses a value that did not come from loadDocument', () => {
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[]/Count 0>>' },
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(() => readMetadata({ ...document })).toThrow(InvalidArgumentError);
   });
 });
 
