@@ -1,3 +1,4 @@
+import type { LoadOptions, LoadedDocument } from '../document/loadDocument.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { DocumentComparison, PdfDifference } from './pdfDifference.ts';
 
@@ -11,7 +12,7 @@ import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBui
 import { compareDocuments } from './compareDocuments.ts';
 import { contentOperations } from './contentTokens.ts';
 
-const document = (contents: string, streams: ReadonlyArray<TestObject>): ReturnType<typeof loadDocument> =>
+const page = (entries: string, objects: ReadonlyArray<TestObject>, options: LoadOptions = {}): LoadedDocument =>
   loadDocument(
     buildPdf([
       {
@@ -19,13 +20,18 @@ const document = (contents: string, streams: ReadonlyArray<TestObject>): ReturnT
         objects: [
           { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
           { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 100 100]/Resources<<>>>>' },
-          { number: 3, body: `<</Type/Page/Parent 2 0 R/Contents ${contents}>>` },
-          ...streams,
+          { number: 3, body: `<</Type/Page/Parent 2 0 R${entries}>>` },
+          ...objects,
         ],
         trailer: '/Root 1 0 R',
       },
     ]).bytes,
+    options,
   );
+
+const document = (contents: string, streams: ReadonlyArray<TestObject>): LoadedDocument => page(`/Contents ${contents}`, streams);
+
+const stream = (data: string, options: LoadOptions = {}): LoadedDocument => page('/Contents 4 0 R', [{ number: 4, body: streamBody('', data) }], options);
 
 const content = (comparison: DocumentComparison): ReadonlyArray<PdfDifference> => comparison.differences;
 
@@ -36,6 +42,16 @@ const filtered = (filter: string): ReturnType<typeof document> =>
     { number: 4, body: streamBody('/Filter 6 0 R', '302030206D>') },
     { number: 6, body: filter },
   ]);
+
+// A Contents array that names one 15-byte stream three times, so that the joined content is 45 bytes.
+const repeated = (maxDecodedBytes: number): LoadedDocument =>
+  page('/Contents[4 0 R 4 0 R 4 0 R]', [{ number: 4, body: streamBody('', '0 0 m 10 10 l S') }], { maxDecodedBytes });
+
+// Filter parameters reached through a chain of references, each object an array naming the next.
+const chained = (references: number): LoadedDocument => {
+  const links = Array.from({ length: references - 1 }, (_, index): TestObject => ({ number: 10 + index, body: `[${String(11 + index)} 0 R]` }));
+  return page('/Contents 4 0 R', [{ number: 4, body: streamBody('/DecodeParms 10 0 R', '0 0 m') }, ...links, { number: 9 + references, body: '1' }]);
+};
 
 describe('page content comparison', () => {
   it('compares content bytes across stream boundaries without inserting whitespace', () => {
@@ -154,5 +170,62 @@ describe('page content comparison', () => {
     const one = document('4 0 R', [{ number: 4, body: streamBody('', '(abc Tj') }]);
     const two = document('4 0 R', [{ number: 4, body: streamBody('', '(abd Tj') }]);
     expect(content(compareDocuments(one, two)).map(difference => difference.kind)).toStrictEqual(['undecodable', 'undecodable']);
+  });
+
+  it.each([
+    { a: 'q Q', b: 'q Q q Q', difference: { operationsA: 2, operationsB: 4, commonPrefix: 2, commonSuffix: 0 } },
+    { a: '0 0 m S', b: '0 0 m S S', difference: { operationsA: 2, operationsB: 3, commonPrefix: 2, commonSuffix: 0 } },
+    { a: '1 g', b: '2 g', difference: { operationsA: 1, operationsB: 1, commonPrefix: 0, commonSuffix: 0 } },
+    { a: '/P <</MCID 1>> BDC EMC', b: '/P <</MCID 0>> BDC EMC', difference: { operationsA: 2, operationsB: 2, commonPrefix: 0, commonSuffix: 1 } },
+    { a: 'BT (a) Tj ET', b: 'BT <62> Tj ET', difference: { operationsA: 3, operationsB: 3, commonPrefix: 1, commonSuffix: 1 } },
+    { a: '] Q', b: 'Q', difference: { operationsA: 1, operationsB: 1, commonPrefix: 0, commonSuffix: 0 } },
+  ])('reports $a against $b with a common prefix and suffix that do not overlap', ({ a, b, difference }) => {
+    expect(content(compareDocuments(stream(a), stream(b)))).toStrictEqual([{ kind: 'page-content', page: 0, ...difference }]);
+  });
+
+  it.each([
+    ['1 g', '1.0 g'],
+    ['/P <</MCID 0/X 1>> BDC EMC', '/P <</X 1/MCID 0>> BDC EMC'],
+    ['BT (a) Tj ET', 'BT <61> Tj ET'],
+  ])('treats %s and %s as the same operations', (a, b) => {
+    expect(content(compareDocuments(stream(a), stream(b)))).toStrictEqual([]);
+  });
+
+  it('holds the joined content at exactly maxDecodedBytes and refuses one byte more', () => {
+    expect(content(compareDocuments(single, repeated(45))).map(difference => difference.kind)).toStrictEqual(['page-content']);
+    expect(() => compareDocuments(single, repeated(44))).toThrow(ResourceLimitError);
+  });
+
+  it('treats a page without Contents like one with empty content', () => {
+    expect([content(compareDocuments(page('', []), stream(''))), content(compareDocuments(page('', []), page('', [])))]).toStrictEqual([[], []]);
+  });
+
+  // ISO 32000-1:2008, 7.7.3.3, Table 30: Contents is a stream or an array of streams.
+  it('reports a Contents value that is not a stream in the document that holds it', () => {
+    const integer = page('/Contents 4 0 R', [{ number: 4, body: '7' }]);
+    expect(content(compareDocuments(integer, stream('0 0 m')))).toMatchObject([{ kind: 'undecodable', where: ['page', 0, 'Contents'], document: 'a' }]);
+  });
+
+  it('reads operands nested exactly maxNesting deep and refuses one level more', () => {
+    expect(content(compareDocuments(stream('[[[[1]]]] Tj', { maxNesting: 4 }), stream('0 0 m'))).map(difference => difference.kind)).toStrictEqual([
+      'page-content',
+    ]);
+    expect(() => compareDocuments(stream('[[[[[1]]]]] Tj', { maxNesting: 4 }), stream('0 0 m'))).toThrow(ResourceLimitError);
+  });
+
+  it('follows filter parameters through exactly 64 references and refuses 65', () => {
+    expect(content(compareDocuments(chained(64), chained(64)))).toStrictEqual([]);
+    expect(() => compareDocuments(chained(65), chained(65))).toThrow(ResourceLimitError);
+  });
+});
+
+describe('content operations', () => {
+  it.each([
+    ['0 0 m 1 1', ['n0 n0 m', 'n1 n1']],
+    ['] Q', ['?5d Q']],
+    ['true null x', ['true null x']],
+    ['false x', ['false x']],
+  ])('splits %s into operations', (text, operations) => {
+    expect(contentOperations(latin1Bytes(text), 32)).toStrictEqual(operations);
   });
 });
