@@ -504,6 +504,40 @@ describe('luminosity soft masks', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 8.9.6.4: a colour-key mask tests the raw RGB samples, so the gray image gets a stencil that keys the same pixels.
+  it('keys the same pixels of a colour-keyed RGB image the mask draws as gray', () => {
+    const document = loadDocument(
+      documentBytes(
+        [maskPage],
+        [
+          maskGroup('/XObject<</Im 9 0 R>>', '/Im Do'),
+          {
+            number: 9,
+            // Red is keyed and green is not, and both become gray 77.
+            body: streamBody(
+              '/Type/XObject/Subtype/Image/Width 2/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB/Mask[200 255 0 10 0 10]',
+              String.fromCodePoint(255, 0, 0, 0, 130, 0),
+            ),
+          },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const image = maskResource(document, 'XObject', 'Im');
+    const key = resolved(document, image.entries.get(pdfName('Mask').bytes));
+    const internals = internalsOf(document);
+    const stencil = key?.kind === 'stream' && internals !== undefined ? decodedData(internals, key) : 'no stencil mask';
+    const entry = (name: string): PdfObject | undefined => (key?.kind === 'stream' ? key.dictionary.get(pdfName(name).bytes) : undefined);
+    expect([image.entries.get(pdfName('ColorSpace').bytes), image.data]).toStrictEqual([pdfName('DeviceGray'), Uint8Array.of(77, 77)]);
+    expect([entry('ImageMask'), entry('Width'), entry('Height'), entry('BitsPerComponent'), stencil]).toStrictEqual([
+      { kind: 'boolean', value: true },
+      { kind: 'integer', value: 2 },
+      { kind: 'integer', value: 1 },
+      { kind: 'integer', value: 1 },
+      Uint8Array.of(0b1000_0000),
+    ]);
+  });
+
   it('converts an RGB axial shading the mask paints into a gray shading', () => {
     const document = loadDocument(
       documentBytes(
