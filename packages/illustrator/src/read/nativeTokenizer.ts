@@ -52,25 +52,74 @@ export const tokenizeNative = (bytes: Uint8Array): Array<NativeRecord> => {
   return records;
 };
 
+// PostScript Language Reference, 3.2.2: the escapes that stand for a control character.
+const LETTER_ESCAPES: ReadonlyMap<string, number> = new Map([
+  ['n', 10],
+  ['r', 13],
+  ['t', 9],
+  ['b', 8],
+  ['f', 12],
+]);
+const encoder = new TextEncoder();
+// A name's bytes are UTF-8, and a byte order mark at their start is part of the name.
+const nameDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
+
+const octalDigit = (character: string): number | undefined => {
+  const code = character.charCodeAt(0) - 48;
+  return code >= 0 && code <= 7 ? code : undefined;
+};
+
+const appendUtf8 = (bytes: Array<number>, text: string): void => {
+  for (const byte of encoder.encode(text)) {
+    bytes.push(byte);
+  }
+};
+
 /** Unescapes one PostScript literal string used for a name in native data; `offset` locates the line holding it for a `ParseError`. */
 export const parseNativeLiteral = (literal: string, offset: number): string => {
   if (!literal.startsWith('(') || !literal.endsWith(')')) {
     throw new ParseError('expected a PostScript literal string', offset);
   }
   const end = literal.length - 1;
-  let result = '';
-  for (let index = 1; index < end; index++) {
-    const character = literal.charAt(index);
-    if (character === '\\') {
-      index++;
-      // A backslash before the final parenthesis escapes it, so nothing closes the string.
-      if (index === end) {
-        throw new ParseError('unterminated PostScript literal string', offset);
-      }
-      result += literal.charAt(index);
-    } else {
-      result += character;
-    }
+  if (!literal.includes('\\')) {
+    return literal.slice(1, end);
   }
-  return result;
+  // An octal escape codes one byte of the name rather than a character, so the name is rebuilt as bytes.
+  const bytes: Array<number> = [];
+  let run = 1;
+  for (let index = 1; index < end; index++) {
+    if (literal.charAt(index) !== '\\') {
+      continue;
+    }
+    appendUtf8(bytes, literal.slice(run, index));
+    index++;
+    // A backslash before the final parenthesis escapes it, so nothing closes the string.
+    if (index === end) {
+      throw new ParseError('unterminated PostScript literal string', offset);
+    }
+    // PostScript Language Reference, 3.2.2: \ddd is one to three octal digits with high-order overflow ignored, \n, \r, \t, \b and \f are control characters, a backslash before a line feed is dropped with it, and a backslash before any other character is dropped.
+    let code = 0;
+    let digits = 0;
+    let digit = octalDigit(literal.charAt(index));
+    while (digit !== undefined && digits < 3) {
+      code = code * 8 + digit;
+      digits++;
+      index++;
+      digit = octalDigit(literal.charAt(index));
+    }
+    if (digits > 0) {
+      bytes.push(code % 256);
+      run = index;
+      index--;
+      continue;
+    }
+    const escaped = literal.charAt(index);
+    const letter = LETTER_ESCAPES.get(escaped);
+    if (letter !== undefined) {
+      bytes.push(letter);
+    }
+    run = letter !== undefined || escaped === '\n' ? index + 1 : index;
+  }
+  appendUtf8(bytes, literal.slice(run, end));
+  return nameDecoder.decode(Uint8Array.from(bytes));
 };
