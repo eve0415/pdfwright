@@ -1035,3 +1035,30 @@ describe('many direct Type 3 fonts in one Font category', () => {
     expect((three?.copies ?? 0) - (two?.copies ?? 0)).toBe((two?.copies ?? 0) - (one?.copies ?? 0));
   });
 });
+
+const FONT_SHARERS = 50;
+
+/** Forms that all name one indirect Resources 200, which names every form and holds a direct Font category of one indirect font under many names, with or without one direct Type 3 font beside them, and the steps the walk takes. */
+const sharedFontCategories = [
+  { fonts: 'only indirect fonts', direct: '', steps: 2 * FONT_SHARERS + 1, carriers: FONT_SHARERS },
+  { fonts: 'indirect fonts and one direct Type 3 font', direct: `/D ${directFont('ColorSpace', INDEXED)}`, steps: 3 * FONT_SHARERS + 1, carriers: 2 * FONT_SHARERS },
+];
+
+describe('a direct Font category in an indirect Resources that many carriers share', () => {
+  it.each(sharedFontCategories)('examines a category of $fonts once and counts a step for every entry it queues', ({ direct, steps, carriers }) => {
+    const forms = Array.from({ length: FONT_SHARERS }, (_, index) => `/F${String(index)} ${String(5 + index)} 0 R`).join('');
+    const names = Array.from({ length: FONT_SHARERS }, (_, index) => `/T${String(index)} 300 0 R`).join('');
+    const document = carrierPdf('/Resources<</XObject<</F0 5 0 R>>>>', [
+      GLYPH,
+      ...Array.from({ length: FONT_SHARERS }, (_, index) => ({ number: 5 + index, body: streamBody(`${FORM}/Resources 200 0 R`, '') })),
+      { number: 200, body: `<</XObject<<${forms}>>/Font<<${names}${direct}>>>>` },
+      { number: 300, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+    ]);
+    const category = deref(document, entriesOf(deref(document, pdfReference(200, 0)))?.get(pdfName('Font').bytes));
+    const examined = vi.spyOn(PdfDictionaryEntries.prototype, 'entries');
+    const seen = carrierSeen();
+    expect(walkPage(document, 0, seen)).toHaveLength(carriers);
+    expect(examined.mock.contexts.filter(context => category?.kind === 'dictionary' && context === category.entries)).toHaveLength(1);
+    expect(seen.steps).toBe(steps);
+  });
+});
