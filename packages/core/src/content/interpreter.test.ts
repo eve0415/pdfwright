@@ -989,10 +989,17 @@ describe('damaged content', () => {
   });
 
   it('names a stream by its index in the Contents array, counting items it skips', () => {
-    const document = textPdf({ pages: [{ entries: '/Contents[null 120 0 R]' }], objects: [{ number: 120, body: streamBody('', 'foo') }] });
+    // The unknown operator is in the second stream read, so the index of that stream and the index of the first stream read differ.
+    const document = textPdf({
+      pages: [{ entries: '/Contents[null 120 0 R 121 0 R]' }],
+      objects: [
+        { number: 120, body: streamBody('', '0 g') },
+        { number: 121, body: streamBody('', 'foo') },
+      ],
+    });
     const { warnings } = interpretPage(document, 0);
     expect(warnings.map(warning => warning.code)).toStrictEqual(['unknown-operator']);
-    expect(warnings[0]?.detail).toMatch(/\bcontent stream 1$/u);
+    expect(warnings[0]?.detail).toMatch(/\bcontent stream 2$/u);
   });
 
   it('lets an error that is not about unreadable content propagate', () => {
