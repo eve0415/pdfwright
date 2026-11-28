@@ -117,6 +117,40 @@ describe('visible-page render oracle', () => {
     }
   });
 
+  it('renders a spot raster without samples at full tint under its alpha', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-full-tint-'));
+    try {
+      const file = path.join(directory, 'full-tint.pdf');
+      const raster: IllustratorDocument = {
+        artboard: { width: 30, height: 10 },
+        lastModified: date,
+        layers: [
+          {
+            name: 'White',
+            items: [
+              {
+                kind: 'raster',
+                width: 3,
+                height: 1,
+                bounds: { x: 0, y: 0, width: 30, height: 10 },
+                color: { space: 'spot', spot: white },
+                alpha: Uint8Array.of(255, 128, 0),
+              },
+            ],
+          },
+        ],
+      };
+      await writeFile(file, writeIllustratorPdf(raster));
+      const plate = await readPlate(await renderPlates(file, path.join(directory, 'plates'), true), new TextEncoder().encode('White'));
+      // Each pixel's ink is its alpha, because every sample is at full tint.
+      expect(Math.abs(plate.inkAt(5, 5) - 255)).toBeLessThanOrEqual(2);
+      expect(Math.abs(plate.inkAt(15, 5) - 128)).toBeLessThanOrEqual(2);
+      expect(plate.inkAt(25, 5)).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a rendered mitered triangle within its written ArtBox', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-miter-'));
     try {
