@@ -182,11 +182,12 @@ const once = (seen: Set<number>, value: number, what: string): void => {
 // A metric outside its field, a mapping to a glyph the font lacks, or a character mapped twice would be written as asked and read back as something else.
 const checkOptions = (options: SyntheticFontOptions): void => {
   const { unitsPerEm = 1000, ascender = 0, descender = 0 } = options;
+  // Only limits narrower than a field's width are checked here: bytesOf refuses a fraction or a value too wide for its field, which covers an odd unitsPerEm, because vhea writes half of it, and an advance above uint16.
   // OpenType head: unitsPerEm is 16 to 16384; usWinDescent in OS/2 is the descender's magnitude as a uint16.
-  if (!Number.isInteger(unitsPerEm) || unitsPerEm < 16 || unitsPerEm > 16_384 || unitsPerEm % 2 !== 0) {
-    throw new RangeError(`unitsPerEm ${String(unitsPerEm)} is not an even integer from 16 to 16384`);
+  if (unitsPerEm < 16 || unitsPerEm > 16_384) {
+    throw new RangeError(`unitsPerEm ${String(unitsPerEm)} is not from 16 to 16384`);
   }
-  if (!Number.isInteger(ascender) || !Number.isInteger(descender) || ascender < 0 || ascender > 32_767 || descender > 0 || descender < -32_767) {
+  if (ascender < 0 || ascender > 32_767 || descender > 0 || descender < -32_767) {
     throw new RangeError('the ascender must be 0 to 32767 and the descender -32767 to 0');
   }
   const glyph = (index: number): void => {
@@ -197,12 +198,8 @@ const checkOptions = (options: SyntheticFontOptions): void => {
   for (const [index, { advance, box, vertical }] of options.glyphs.entries()) {
     const verticalAdvance = vertical?.advance ?? 0;
     const topSideBearing = vertical?.topSideBearing ?? 0;
-    if (
-      ![advance, verticalAdvance, topSideBearing].every(Number.isInteger) ||
-      [advance, verticalAdvance].some(value => value < 0 || value > 0xff_ff) ||
-      Math.abs(topSideBearing) > 32_767
-    ) {
-      throw new RangeError(`glyph ${String(index)} has an advance outside uint16 or a side bearing outside int16`);
+    if (advance < 0 || verticalAdvance < 0 || Math.abs(topSideBearing) > 32_767) {
+      throw new RangeError(`glyph ${String(index)} has a negative advance or a top side bearing beyond 32767 font units`);
     }
     if (box !== undefined && (box[0] > box[2] || box[1] > box[3])) {
       throw new RangeError(`glyph ${String(index)} has a box whose minimum exceeds its maximum`);
