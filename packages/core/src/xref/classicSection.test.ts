@@ -102,6 +102,7 @@ describe('classic cross-reference sections', () => {
     ['a 19-byte entry and a blank line', '0000000000 65535 f\n\ntrailer<<>>', [19]],
     ['a CR-only entry and a second CR', '0000000000 65535 f\r\rtrailer<<>>', [19]],
     ['a 21-byte entry and a blank line', '0000000000 65535 f \r\n\r\ntrailer<<>>', [21]],
+    ['a comment after the entry and a blank line', '0000000000 65535 f %c\n\ntrailer<<>>', [22]],
   ])('measures the last entry of a subsection to its end-of-line, for %s', (_, rest, lengths) => {
     const text = `xref\n0 1\n${rest}`;
     expect([0, 1, 7].map(chunk => read(text, { chunk }).entryLengths)).toStrictEqual([lengths, lengths, lengths]);
