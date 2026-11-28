@@ -78,6 +78,19 @@ const annotation = (number: number, flags: string): TestObject => ({
   body: `<</Type/Annot/Subtype/Square/Rect[0 0 1 1]${flags}/AP<</N 10 0 R/D 12 0 R>>>>`,
 });
 
+// A key that does not depend on the order an object's properties were written in, so that unordered lists can be compared item by item.
+const canonical = (value: unknown): string =>
+  typeof value === 'object' && value !== null
+    ? `{${Object.entries(value)
+        .toSorted(([left], [right]) => left.localeCompare(right))
+        .map(([name, item]) => `${name}:${canonical(item)}`)
+        .join(',')}}`
+    : String(value);
+
+// The walk documents no order for origins, fonts or unreadable objects, so they are compared as multisets.
+const unordered = <T>(items: ReadonlyArray<T> | undefined): ReadonlyArray<T> | undefined =>
+  items?.toSorted((left, right) => canonical(left).localeCompare(canonical(right)));
+
 const describeOrigin = (origin: ResourceOrigin): string =>
   origin.kind === 'annotation' ? `${String(origin.index)}${origin.state}:${String(origin.printable)}` : origin.kind;
 
@@ -96,10 +109,12 @@ describe('resource walks', () => {
       { number: 11, body: '<</Type/Annot/Subtype/Square/Rect[0 0 1 1]/F 4/AP<</N 10 0 R>>>>' },
       { number: 20, body: '<<>>' },
     ]);
-    expect(originsOf(walk(document), 20)).toStrictEqual([
-      { kind: 'annotation', index: 0, state: 'N', printable: true },
-      { kind: 'form', reference: reference(10) },
-    ]);
+    expect(unordered(originsOf(walk(document), 20))).toStrictEqual(
+      unordered([
+        { kind: 'annotation', index: 0, state: 'N', printable: true },
+        { kind: 'form', reference: reference(10) },
+      ]),
+    );
   });
 
   it('reads each object once however many origins reach it', () => {
@@ -117,12 +132,12 @@ describe('resource walks', () => {
   it('reports every form that shares one resource dictionary', () => {
     const document = internals('/Resources<</XObject<</X1 10 0 R/X2 12 0 R>>>>', [form(10, '20 0 R'), form(12, '20 0 R'), { number: 20, body: '<<>>' }]);
     const walked = walk(document);
-    expect([walked.visits.length, originsOf(walked, 20)]).toStrictEqual([
+    expect([walked.visits.length, unordered(originsOf(walked, 20))]).toStrictEqual([
       2,
-      [
-        { kind: 'form', reference: reference(12) },
+      unordered([
         { kind: 'form', reference: reference(10) },
-      ],
+        { kind: 'form', reference: reference(12) },
+      ]),
     ]);
   });
 
@@ -154,15 +169,15 @@ describe('resource walks', () => {
       { number: 31, body: '<<>>' },
     ]);
     const walked = walk(document);
-    expect([originsOf(walked, 30), originsOf(walked, 31)]).toStrictEqual([
-      [
-        { kind: 'annotation', index: 1, state: 'N', printable: false },
+    expect([unordered(originsOf(walked, 30)), unordered(originsOf(walked, 31))]).toStrictEqual([
+      unordered([
         { kind: 'annotation', index: 0, state: 'N', printable: true },
-      ],
-      [
         { kind: 'annotation', index: 1, state: 'N', printable: false },
+      ]),
+      unordered([
         { kind: 'annotation', index: 0, state: 'N', printable: false },
-      ],
+        { kind: 'annotation', index: 1, state: 'N', printable: false },
+      ]),
     ]);
   });
 
@@ -177,14 +192,14 @@ describe('resource walks', () => {
       { number: 21, body: '<<>>' },
     ]);
     const walked = walk(document);
-    expect([originsOf(walked, 20), originsOf(walked, 21), walked.fonts]).toStrictEqual([
-      [
+    expect([unordered(originsOf(walked, 20)), originsOf(walked, 21), unordered(walked.fonts)]).toStrictEqual([
+      unordered([
         { kind: 'page' },
-        { kind: 'type3', font: reference(13), inheritsPageResources: true },
         { kind: 'type3', font: reference(10), inheritsPageResources: true },
-      ],
+        { kind: 'type3', font: reference(13), inheritsPageResources: true },
+      ]),
       [{ kind: 'type3', font: reference(12), inheritsPageResources: false }],
-      [reference(13), reference(12), reference(10)],
+      unordered([reference(10), reference(12), reference(13)]),
     ]);
   });
 
@@ -237,6 +252,10 @@ describe('resource walks', () => {
       { number: 10, body: '<</Type/XObject/Subtype/Form (unterminated' },
       { number: 11, body: '<</Type/Annot/AP<</N [1 2>>>>' },
     ]);
-    expect(walk(document).unreadable.map(({ from }) => from)).toStrictEqual(['Annots', 'Resources']);
+    expect(
+      walk(document)
+        .unreadable.map(({ from }) => from)
+        .toSorted(),
+    ).toStrictEqual(['Annots', 'Resources']);
   });
 });
