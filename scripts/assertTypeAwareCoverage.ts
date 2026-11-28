@@ -3,12 +3,13 @@
 
 import type { Dirent } from 'node:fs';
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { rmSync, writeFileSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { text } from 'node:stream/consumers';
+import { promisify } from 'node:util';
 
 const REPO = path.dirname(import.meta.dirname);
 const OXLINT = path.join(REPO, 'node_modules', '.bin', 'oxlint');
@@ -16,38 +17,43 @@ const FLAT_DIRS = ['scripts', 'tests'] as const;
 const CANARY = "const letters: string[] = ['a'];\nconst coverageCanary: string = letters[0];\nexport { coverageCanary };\n";
 const CANARY_CODE = 'typescript(TS2322)';
 
-const isDirectory = async (relative: string): Promise<boolean> => {
+const isDirectory = async (repo: string, relative: string): Promise<boolean> => {
   try {
-    const info = await stat(path.join(REPO, relative));
+    const info = await stat(path.join(repo, relative));
     return info.isDirectory();
   } catch {
     return false;
   }
 };
 
-const targetFiles = async (): Promise<Array<string>> => {
-  const entries = await readdir(path.join(REPO, 'packages'), { withFileTypes: true }).catch((): Array<Dirent> => []);
-  const packages = entries.filter(entry => entry.isDirectory()).map(entry => path.join('packages', entry.name));
+// Package tsconfigs exclude oracle tests, so each directory that holds one needs a tsconfig of its own; untracked files count, so a new directory is checked before its first commit.
+const oracleTestDirectories = async (repo: string): Promise<Array<string>> => {
+  const { stdout } = await promisify(execFile)('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '*.oracle.test.ts'], {
+    cwd: repo,
+  });
+  const files = stdout.split('\0').filter(file => file !== '');
+  return [...new Set(files.map(file => path.dirname(file)))].toSorted();
+};
+
+/** The canary files to plant in `repo`, relative to it. */
+export const targetFiles = async (repo: string): Promise<Array<string>> => {
+  const entries = await readdir(path.join(repo, 'packages'), { withFileTypes: true }).catch((): Array<Dirent> => []);
+  const packages = entries
+    .filter(entry => entry.isDirectory())
+    .map(entry => path.join('packages', entry.name))
+    .toSorted();
   const candidates = [...packages.map(dir => path.join(dir, 'src')), ...FLAT_DIRS];
-  const checked = await Promise.all(candidates.map(async dir => ((await isDirectory(dir)) ? path.join(dir, 'coverageCanary.ts') : null)));
+  const checked = await Promise.all(candidates.map(async dir => ((await isDirectory(repo, dir)) ? path.join(dir, 'coverageCanary.ts') : null)));
   return [
     ...checked.filter(file => file !== null),
-    'packages/core/src/document/coverageCanary.oracle.test.ts',
-    'packages/core/src/save/coverageCanary.oracle.test.ts',
-    'packages/core/src/inspect/coverageCanary.oracle.test.ts',
-    'packages/core/src/inspect/fonts/coverageCanary.oracle.test.ts',
-    'packages/core/src/inspect/colorants/coverageCanary.oracle.test.ts',
-    'packages/core/src/inspect/text/coverageCanary.oracle.test.ts',
-    'packages/core/src/metadata/coverageCanary.oracle.test.ts',
-    'packages/illustrator/src/zstd/coverageCanary.oracle.test.ts',
-    'packages/illustrator/src/page/coverageCanary.oracle.test.ts',
-    'packages/illustrator/src/testing/coverageCanary.oracle.test.ts',
+    ...(await oracleTestDirectories(repo)).map(dir => path.join(dir, 'coverageCanary.oracle.test.ts')),
     'coverageCanary.config.ts',
     ...packages.map(dir => path.join(dir, 'coverageCanary.config.ts')),
   ];
 };
 
-const canaryHits = (report: unknown): Set<string> => {
+/** The files in oxlint's JSON report that carry the canary's type error, which only this repository's compiler options raise. */
+export const canaryHits = (report: unknown): Set<string> => {
   if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics)) {
     throw new Error('oxlint JSON output has no diagnostics array');
   }
@@ -89,7 +95,7 @@ const lintReport = async (files: ReadonlyArray<string>): Promise<Set<string>> =>
 };
 
 const main = async (): Promise<void> => {
-  const planted = await targetFiles();
+  const planted = await targetFiles(REPO);
 
   const cleanup = (): void => {
     for (const file of planted) {
@@ -131,4 +137,6 @@ const main = async (): Promise<void> => {
   }
 };
 
-await main();
+if (import.meta.main) {
+  await main();
+}
