@@ -392,6 +392,14 @@ describe('page colour conversion', () => {
     expect(inlineParameters(result.bytes)).toBe('BI /W 1 /H 1 /BPC 8 /CS /CMYK /F /Fl');
   });
 
+  it('writes a small converted inline image whose zlib data holds white space, EI and white space so that it reads back whole', () => {
+    // These pixels convert to samples whose zlib data holds that run, which ends filtered inline data early when written as raw bytes (inlineImageData.ts).
+    const pixels = [18, 128, 192, 0, 0, 64, 0, 0, 57, 0, 0, 0];
+    expect(latin1Text(deflateZlib(rgbRow(pixels)))).toMatch(/[\0\t\n\f\r ]EI[\0\t\n\f\r ]/u);
+    const result = rewrite(`BI /W 4 /H 1 /BPC 8 /CS /RGB ID\n${latin1Text(Uint8Array.from(pixels))}\nEI`);
+    expect(readInline(result.bytes)).toStrictEqual({ operators: ['BI'], warnings: [], samples: rgbRow(pixels) });
+  });
+
   it('decodes a Flate inline RGB image before conversion', () => {
     const document = loadDocument(pdf());
     const compressed = latin1Text(deflateZlib(Uint8Array.of(255, 0, 0)));
