@@ -20,6 +20,7 @@ import { pdfArray, pdfName } from '../object/pdfObject.ts';
 import { serializeObject } from '../serialize/serializeObject.ts';
 
 import { convertIndexedColorSpace } from './convertIndexed.ts';
+import { drainRows } from './drainRows.ts';
 import { convertImageRow } from './imageRows.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
@@ -197,9 +198,7 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
     return invalid('inline JPEG frame geometry differs from its dictionary');
   }
   const rows = jpeg.rows();
-  while (rows.next().done !== true) {
-    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
-  }
+  drainRows(rows);
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
   if (space.kind !== 'rgb') {
     return invalid('DefaultRGB is not RGB');

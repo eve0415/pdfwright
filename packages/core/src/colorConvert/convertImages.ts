@@ -30,6 +30,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded } from './discardedObjects.ts';
+import { drainRows } from './drainRows.ts';
 import { convertImageRow, readImageSample } from './imageRows.ts';
 import { jpxHasRgbColor } from './jpxColor.ts';
 import { checkConversionRefusals } from './preflight.ts';
@@ -505,9 +506,7 @@ const checkSoftMaskRows = (scan: ImageScan, matte: SoftMaskMatte | undefined): v
     return;
   }
   const rows = imageRows(scan, matte.mask, matte.geometry);
-  while (rows.next().done !== true) {
-    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
-  }
+  drainRows(rows);
 };
 
 const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
@@ -519,9 +518,7 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
   const geometry = imageGeometry(scan, image, space);
   const { width, bits, channels, outputBits, ranges, matte } = geometry;
   const rows = imageRows(scan, image, geometry);
-  while (rows.next().done !== true) {
-    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
-  }
+  drainRows(rows);
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source, reference });
   const decode = decodeArray(scan, image, channels);
@@ -585,9 +582,7 @@ const transcodeJpegImage = (
     return invalid('JPEG frame geometry differs from the image dictionary');
   }
   const rows = jpeg.rows();
-  while (rows.next().done !== true) {
-    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
-  }
+  drainRows(rows);
   const { matte } = geometry;
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source: space.source, reference });
