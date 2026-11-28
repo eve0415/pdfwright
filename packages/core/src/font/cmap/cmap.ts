@@ -92,7 +92,8 @@ export class CMap {
     this.codespaceKeys = keys;
     this.codespaceChain = [local, ...(parent?.codespaceChain ?? [])];
     const inherited = parent?.codespaceChainByLength ?? [];
-    this.codespaceChainByLength = local.length === 0 ? inherited : [[1, 2, 3, 4].map(length => local.filter(range => range.low.length === length)), ...inherited];
+    this.codespaceChainByLength =
+      local.length === 0 ? inherited : [[1, 2, 3, 4].map(length => local.filter(range => range.low.length === length)), ...inherited];
     this.codespaceCount = local.length + (parent?.codespaceCount ?? 0);
     this.entryCount =
       parsed.codespaces.length +
