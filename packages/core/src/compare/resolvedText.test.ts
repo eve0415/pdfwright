@@ -148,12 +148,14 @@ describe('reference cycles', () => {
   });
 
   it('describes a value of a cycle that leads nowhere back the same whether it is direct or indirect', () => {
-    const LONG = '<</A 1/B 2/C 3/D 4/E 5/F 6/G 7/H 8>>';
+    const LONG = '<</A 1/B 2/C 3/D 4/E 5/F 6/G 7/H 8/I 9/J 10/K 11/L 12>>';
     expect([
       textOf(['[<</A 1>> 20 0 R]']) === textOf(['[21 0 R 20 0 R]', '<</A 1>>']),
       textOf([`[${LONG} 20 0 R]`]) === textOf(['[21 0 R 20 0 R]', LONG]),
+      textOf([`[[${LONG}] 20 0 R]`]) === textOf(['[21 0 R 20 0 R]', `[${LONG}]`]),
+      textOf([`[(${'x'.repeat(40)}) 20 0 R]`]) === textOf(['[21 0 R 20 0 R]', `(${'x'.repeat(40)})`]),
       textOf(['[<</A 1>> 20 0 R]']) === textOf(['[21 0 R 20 0 R]', '<</A 2>>']),
-    ]).toStrictEqual([true, true, false]);
+    ]).toStrictEqual([true, true, true, true, false]);
   });
 
   it('describes objects that unfold to the same value the same, in a cycle or leading into one', () => {
