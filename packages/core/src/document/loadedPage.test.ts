@@ -78,11 +78,14 @@ describe('page rectangles', () => {
         },
       ]).bytes,
     ).page(0);
-    const removed = (): unknown => {
+    const removed = (): 'ValidationError' | ReadonlyArray<number> => {
       try {
         page.setBox('MediaBox', undefined);
       } catch (error: unknown) {
-        return error instanceof ValidationError ? 'ValidationError' : error;
+        if (error instanceof ValidationError) {
+          return 'ValidationError';
+        }
+        throw error;
       }
       return page.boxes().MediaBox.rect;
     };
