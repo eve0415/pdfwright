@@ -135,6 +135,21 @@ describe('content operations', () => {
       ]);
     });
 
+    it('ends the span of a BI without ID in its own stream when the operator after it is in a later stream', () => {
+      const spans = [...readContentSpans([latin1Bytes('q BI /W 1'), latin1Bytes('Q')], 32)].map(operation => [
+        operation.operator,
+        operation.stream,
+        operation.start,
+        operation.endStream,
+        operation.end,
+      ]);
+      expect(spans).toStrictEqual([
+        ['q', 0, 0, 0, 1],
+        ['BI', 0, 2, 0, 4],
+        ['Q', 1, 0, 1, 1],
+      ]);
+    });
+
     it('places the operation in the stream of its operator, starting the span at the operator', () => {
       const spans = [...readContentSpans([latin1Bytes('[1'), latin1Bytes('2] 0 d')], 32)].map(operation => [
         operation.stream,
