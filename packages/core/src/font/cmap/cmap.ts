@@ -6,10 +6,10 @@ import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { MappingTable } from './mappingTable.ts';
 import { MAX_CMAP_ENTRIES, utf16Text } from './parseCMap.ts';
 
-// Repeated codespace checks over a long shown string otherwise multiply without a page operation.
-const MAX_CODESPACE_CHECKS = 1_000_000;
+// One operation can show many strings, and one code can be compared with every codespace range, so neither the operation limit nor the glyph limit bounds this work.
+const MAX_CODESPACE_CHECKS = 10_000_000;
 
-/** The count of codespace checks spent splitting one shown string: each string starts its own count at 0, and splitting fails once the count passes 1,000,000. */
+/** The count of codespace checks spent splitting the strings one page shows, whichever fonts and CMaps split them: splitting fails once the count passes 10,000,000. */
 export interface CodespaceBudget {
   checks: number;
 }
@@ -112,7 +112,7 @@ export class CMap {
 
   private match(range: CodespaceRange, bytes: Uint8Array, offset: number, budget: CodespaceBudget): number {
     if (++budget.checks > MAX_CODESPACE_CHECKS) {
-      throw new ResourceLimitError(`CMap code splitting exceeds ${String(MAX_CODESPACE_CHECKS)} codespace checks`);
+      throw new ResourceLimitError(`the page's shown strings take more than ${String(MAX_CODESPACE_CHECKS)} codespace checks to split`);
     }
     return matchesPrefix(range, bytes, offset);
   }
@@ -138,7 +138,7 @@ export class CMap {
   /**
    * Reads the code at `offset`. ISO 32000-1:2008, 9.7.6.2: "the first byte shall be matched against 1-byte codespace ranges; if no match is found, a second byte shall be extracted, and the 2-byte code shall be matched against 2-byte codespace ranges", up to 4 bytes.
    * A code that matches no range is consumed by the rules of 9.7.6.3 and is `valid: false`; a code cut short by the end of the string is shorter than its range.
-   * Each codespace range the read compares the code with is counted in `budget`, the count of the string being split.
+   * Each codespace range the read compares the code with is counted in `budget`, the count of the page being shown.
    */
   read(bytes: Uint8Array, offset: number, budget: CodespaceBudget): CodeRead {
     const remaining = bytes.length - offset;

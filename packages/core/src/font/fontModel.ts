@@ -1,6 +1,7 @@
 import type { Matrix } from '../content/matrix.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { CodespaceBudget } from './cmap/cmap.ts';
 import type { CmapReading } from './trueType/cmapTable.ts';
 import type { GlyphBoundsReading } from './trueType/glyphBounds.ts';
 
@@ -150,6 +151,6 @@ export interface FontModel {
   readonly embeddedCmap: () => CmapReading | undefined;
   /** The glyph bounding boxes of the same embedded TrueType program, read on the first call; undefined for a font that embeds no such program. */
   readonly embeddedGlyphBounds: () => GlyphBoundsReading | undefined;
-  /** Splits a shown string into its codes, checking maxGlyphs before each glyph is appended. */
-  readonly glyphs: (string: Uint8Array, maxGlyphs?: number) => FontString;
+  /** Splits a shown string into its codes, checking maxGlyphs before each glyph is appended and counting a composite font's codespace checks in `codespace`, the count of the page. */
+  readonly glyphs: (string: Uint8Array, maxGlyphs: number, codespace: CodespaceBudget) => FontString;
 }
