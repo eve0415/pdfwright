@@ -38,24 +38,35 @@ const iccSegment = (sequence: number, count: number, chunk: Uint8Array): Array<n
 const iccChunks = (profile: Uint8Array, size: number): Array<Uint8Array> =>
   Array.from({ length: Math.ceil(profile.length / size) }, (_, index) => profile.subarray(index * size, (index + 1) * size));
 
-// TIFF 6.0, Section 2: byte order, 42, the IFD0 offset 8, then one 12-byte entry.
-const exifSegment = (
-  order: 'II' | 'MM',
-  entry: { readonly tag: number; readonly type: number; readonly count: number; readonly value: number },
-): Array<number> => {
-  const tiff = new Uint8Array(8 + 2 + 12 + 4);
+interface IfdEntry {
+  readonly tag: number;
+  readonly type: number;
+  readonly count: number;
+  readonly value: number;
+}
+
+// TIFF 6.0, Section 2: byte order, 42, the IFD0 offset 8, the entry count, 12-byte entries, then the next IFD offset.
+const tiffHeader = (order: 'II' | 'MM', entries: ReadonlyArray<IfdEntry>): Uint8Array => {
+  const tiff = new Uint8Array(8 + 2 + 12 * entries.length + 4);
   const view = new DataView(tiff.buffer);
   const little = order === 'II';
   tiff.set(ascii(order));
   view.setUint16(2, 42, little);
   view.setUint32(4, 8, little);
-  view.setUint16(8, 1, little);
-  view.setUint16(10, entry.tag, little);
-  view.setUint16(12, entry.type, little);
-  view.setUint32(14, entry.count, little);
-  view.setUint16(18, entry.value, little);
-  return segment(0xe1, [...ascii('Exif'), 0, 0, ...tiff]);
+  view.setUint16(8, entries.length, little);
+  for (const [index, entry] of entries.entries()) {
+    const position = 10 + index * 12;
+    view.setUint16(position, entry.tag, little);
+    view.setUint16(position + 2, entry.type, little);
+    view.setUint32(position + 4, entry.count, little);
+    view.setUint16(position + 8, entry.value, little);
+  }
+  return tiff;
 };
+
+const exifPayload = (tiff: ReadonlyArray<number> | Uint8Array): Array<number> => segment(0xe1, [...ascii('Exif'), 0, 0, ...tiff]);
+
+const exifSegment = (order: 'II' | 'MM', entry: IfdEntry): Array<number> => exifPayload(tiffHeader(order, [entry]));
 
 const orientation = (order: 'II' | 'MM', value: number): Array<number> => exifSegment(order, { tag: 0x01_12, type: 3, count: 1, value });
 
@@ -111,9 +122,10 @@ describe('decodeJpeg public surface', () => {
   it.each([
     ['a missing chunk', [iccSegment(1, 2, Uint8Array.of(1))]],
     ['a repeated chunk', [iccSegment(1, 2, Uint8Array.of(1)), iccSegment(1, 2, Uint8Array.of(1)), iccSegment(2, 2, Uint8Array.of(2))]],
-    ['disagreeing counts', [iccSegment(1, 2, Uint8Array.of(1)), iccSegment(2, 3, Uint8Array.of(2))]],
-    ['sequence number zero', [iccSegment(0, 1, Uint8Array.of(1))]],
-    ['a sequence number above the count', [iccSegment(2, 1, Uint8Array.of(1))]],
+    // Each set below would be complete under the last count it declares, so only the rule the row names refuses it.
+    ['disagreeing counts', [iccSegment(1, 3, Uint8Array.of(1)), iccSegment(2, 2, Uint8Array.of(2))]],
+    ['sequence number zero', [iccSegment(0, 1, Uint8Array.of(1)), iccSegment(1, 1, Uint8Array.of(2))]],
+    ['a sequence number above the count', [iccSegment(1, 1, Uint8Array.of(1)), iccSegment(2, 1, Uint8Array.of(2))]],
   ])('refuses an ICC profile with %s', (_, segments) => {
     const jpeg = grayJpeg(segments.flat());
     expect(decodeReason(jpeg)).toBe('image-invalid');
@@ -136,7 +148,10 @@ describe('decodeJpeg public surface', () => {
       exifSegment('II', { tag: 0x01_12, type: 4, count: 1, value: 6 }),
       exifSegment('II', { tag: 0x01_12, type: 3, count: 2, value: 6 }),
       exifSegment('MM', { tag: 0x01_10, type: 3, count: 1, value: 6 }),
-      segment(0xe1, [...ascii('Exif'), 0, 0, ...ascii('XX'), 0, 42]),
+      // A whole big-endian TIFF with Orientation 6 whose byte order mark is neither II nor MM.
+      exifPayload([...ascii('XX'), ...tiffHeader('MM', [{ tag: 0x01_12, type: 3, count: 1, value: 6 }]).subarray(2)]),
+      // Six TIFF bytes cannot hold the IFD0 offset.
+      exifPayload([...ascii('II'), 42, 0, 8, 0]),
       segment(0xe1, [...ascii('Exif'), 0, 0, ...ascii('II'), 42, 0, 255, 255, 0, 0]),
       segment(0xe1, [...ascii('http://ns.adobe.com/xap/1.0/'), 0]),
     ];
@@ -148,7 +163,9 @@ describe('decodeJpeg public surface', () => {
   it('refuses images past its limits and invalid limits', () => {
     expect(() => decodeJpeg(grayJpeg(), { maxDecodedBytes: 63 })).toThrow(ResourceLimitError);
     expect(decodeJpeg(grayJpeg(), { maxDecodedBytes: 64 }).width).toBe(8);
-    expect(() => decodeJpeg(grayJpeg(), { maxRowBytes: 64 })).toThrow(ResourceLimitError);
+    // One 8 × 8 MCU stores 64 samples and the row holds 8 more: 72 bytes.
+    expect(() => decodeJpeg(grayJpeg(), { maxRowBytes: 71 })).toThrow(ResourceLimitError);
+    expect([...decodeJpeg(grayJpeg(), { maxRowBytes: 72 }).rows()]).toStrictEqual(UNIFORM_ROWS);
     for (const value of [0, -1, 1.5, Number.NaN]) {
       expect(() => decodeJpeg(grayJpeg(), { maxDecodedBytes: value })).toThrow(InvalidArgumentError);
       expect(() => decodeJpeg(grayJpeg(), { maxRowBytes: value })).toThrow(InvalidArgumentError);
