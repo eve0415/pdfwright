@@ -214,25 +214,30 @@ const visitAll = (context: Context, predicate: (value: PdfObject) => boolean): b
   return false;
 };
 
-const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean, what: string): Outcome => {
+// Reads a name that may be an indirect reference; a reference the loader refuses reads as undefined, and the caller learns it was unresolved.
+type NameReader = (value: PdfDirectObject | undefined) => string | undefined;
+
+const globalCheck = (context: Context, forbidden: (value: PdfObject, name: NameReader) => boolean, what: string): Outcome => {
   if (context.unreadable > 0) {
     return unchecked(
       `PDF/X-4 restricts ${what}, and this rule cannot check every occurrence because ${String(context.unreadable)} reachable objects could not be read`,
     );
   }
-  // A reference the loader refuses, such as one naming another generation, leaves its value unknown; a forbidden value found elsewhere is still reported.
+  // A reference the loader refuses, such as one naming another generation, leaves its value unknown; a forbidden value found elsewhere, in the same dictionary too, is still reported.
   const unresolved: Array<string> = [];
-  const found = visitAll(context, value => {
+  const guarded = <T>(read: () => T, otherwise: T): T => {
     try {
-      return forbidden(value);
+      return read();
     } catch (error: unknown) {
       if (!(error instanceof ParseError)) {
         throw error;
       }
       unresolved.push(error.message);
-      return false;
+      return otherwise;
     }
-  });
+  };
+  const name: NameReader = value => guarded(() => resolvedName(context, value), undefined);
+  const found = visitAll(context, value => guarded(() => forbidden(value, name), false));
   if (found) {
     return violation(`${what} was found`);
   }
@@ -369,11 +374,7 @@ const javascript: Check = context => {
   if (names?.has(key('JavaScript')) === true) {
     return violation('the JavaScript name tree is present');
   }
-  const script = globalCheck(
-    context,
-    value => value.kind === 'dictionary' && resolvedName(context, value.entries.get(key('S'))) === 'JavaScript',
-    'JavaScript action',
-  );
+  const script = globalCheck(context, (value, name) => value.kind === 'dictionary' && name(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
   if (script.status !== 'passed') {
     return script;
   }
@@ -453,7 +454,7 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
   'X4-EMBEDDED': context =>
     globalCheck(
       context,
-      value => {
+      (value, name) => {
         if (value.kind !== 'dictionary' && value.kind !== 'stream') {
           return false;
         }
@@ -461,8 +462,8 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
         return (
           entries.has(key('EmbeddedFiles')) ||
           entries.has(key('EF')) ||
-          resolvedName(context, entries.get(key('Subtype'))) === 'FileAttachment' ||
-          resolvedName(context, entries.get(key('Type'))) === 'EmbeddedFile'
+          name(entries.get(key('Subtype'))) === 'FileAttachment' ||
+          name(entries.get(key('Type'))) === 'EmbeddedFile'
         );
       },
       'embedded file or FileAttachment annotation',
