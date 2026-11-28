@@ -49,6 +49,25 @@ describe('appending page content', () => {
     }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
   });
 
+  it('checks raw content passed through a proxy over its bytes', () => {
+    const document = load(page('/Resources<<>>'));
+    const bytes = latin1Bytes('0 0 0 0 k 0 0 10 10 re f');
+    const proxied = new Proxy(bytes, {
+      get: (target, key) => {
+        if (key === 'length') {
+          return target.length;
+        }
+        if (key === 'subarray') {
+          return target.subarray.bind(target);
+        }
+        return typeof key === 'string' && /^\d+$/u.test(key) ? target[Number(key)] : undefined;
+      },
+    });
+    expect(() => {
+      document.page(0).appendContent(proxied, { isolate: false });
+    }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
+  });
+
   it('separates appended operators from a stream without trailing whitespace', () => {
     const isolated = load(page('/Contents 4 0 R/Resources<<>>'));
     isolated.page(0).appendContent(latin1Bytes('n'));
