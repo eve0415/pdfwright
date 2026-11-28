@@ -95,9 +95,28 @@ describe('structural equality', () => {
   });
 });
 
+// Removes the non-null entry at a drawn position, or adds one when the position is one past the last, so that the entries and the result differ in exactly one entry.
+const oneEntryOff = (entries: PdfDictionaryEntries, at: number): PdfDictionaryEntries => {
+  const kept = [...entries.entries()];
+  const index = at % (kept.length + 1);
+  return new PdfDictionaryEntries(index === kept.length ? [...kept, [pdfName('C').bytes, pdfInteger(1)]] : kept.toSpliced(index, 1));
+};
+
+// Applies oneEntryOff to a dictionary or a stream dictionary, and removes or appends an array element the same way.
+const oneOff = (item: PdfObject, at: number): PdfObject => {
+  if (item.kind === 'array') {
+    const index = at % (item.items.length + 1);
+    return pdfArray(index === item.items.length ? [...item.items, pdfInteger(1)] : item.items.toSpliced(index, 1));
+  }
+  if (item.kind === 'dictionary') {
+    return pdfDictionary(oneEntryOff(item.entries, at));
+  }
+  return item.kind === 'stream' ? { ...item, dictionary: oneEntryOff(item.dictionary, at) } : item;
+};
+
 describe('properties', () => {
   // Values drawn from two choices per kind, so that two independent draws are often equal or differ in one place.
-  const { value } = fc.letrec<{ value: PdfDirectObject }>(tie => ({
+  const { value, array, dictionaryValue } = fc.letrec<{ value: PdfDirectObject; array: PdfDirectObject; dictionaryValue: PdfDirectObject }>(tie => ({
     value: fc.oneof(
       { depthSize: 'small' },
       fc.constantFrom<PdfDirectObject>(
@@ -115,18 +134,19 @@ describe('properties', () => {
         pdfReference(2, 0),
         { kind: 'invalid', bytes: Uint8Array.of(0x2d), reason: 'malformed-number' },
       ),
-      fc.array(tie('value'), { maxLength: 2 }).map(items => pdfArray(items)),
-      fc
-        .array(fc.tuple(fc.constantFrom('A', 'B'), tie('value')), { maxLength: 2 })
-        .map(entries => pdfDictionary(new PdfDictionaryEntries(entries.map(([key, item]) => [pdfName(key).bytes, item])))),
+      tie('array'),
+      tie('dictionaryValue'),
     ),
+    array: fc.array(tie('value'), { maxLength: 2 }).map(items => pdfArray(items)),
+    dictionaryValue: fc
+      .array(fc.tuple(fc.constantFrom('A', 'B'), tie('value')), { maxLength: 2 })
+      .map(entries => pdfDictionary(new PdfDictionaryEntries(entries.map(([key, item]) => [pdfName(key).bytes, item])))),
   }));
-  const object = fc.oneof(
-    value,
-    fc
-      .tuple(value, fc.constantFrom(Uint8Array.of(), Uint8Array.of(1)))
-      .map(([item, data]): PdfObject => ({ kind: 'stream', dictionary: new PdfDictionaryEntries([[pdfName('K').bytes, item]]), data })),
-  );
+  const streamObject = fc
+    .tuple(value, fc.constantFrom(Uint8Array.of(), Uint8Array.of(1)))
+    .map(([item, data]): PdfObject => ({ kind: 'stream', dictionary: new PdfDictionaryEntries([[pdfName('K').bytes, item]]), data }));
+  const object = fc.oneof(value, streamObject);
+  const container = fc.oneof(array, dictionaryValue, streamObject);
   const mode = fc.constantFrom('strict' as const, 'lenient' as const);
 
   // Writes every whole number in the other numeric kind, so that a pair differs in strict mode and agrees in lenient mode.
@@ -146,11 +166,40 @@ describe('properties', () => {
     return item;
   };
 
-  // Independent draws are rarely equal, so a pair is also drawn as a value and its clone, or a value and its numbers swapped.
+  // Writes every string in the other encoding, so that a pair holding a string differs in strict mode and agrees in lenient mode.
+  const reencodeDirect = (item: PdfDirectObject): PdfDirectObject => {
+    if (item.kind === 'string') {
+      return pdfString(item.bytes, item.encoding === 'literal' ? 'hex' : 'literal');
+    }
+    if (item.kind === 'array') {
+      return pdfArray(item.items.map(child => reencodeDirect(child)));
+    }
+    if (item.kind === 'dictionary') {
+      return pdfDictionary(reencodeEntries(item.entries));
+    }
+    return item;
+  };
+  const reencodeEntries = (entries: PdfDictionaryEntries): PdfDictionaryEntries =>
+    new PdfDictionaryEntries([...entries.entries()].map(([key, child]) => [key, reencodeDirect(child)]));
+  const reencode = (item: PdfObject): PdfObject => (item.kind === 'stream' ? { ...item, dictionary: reencodeEntries(item.dictionary) } : reencodeDirect(item));
+  const holdsString = (item: PdfObject): boolean => {
+    if (item.kind === 'string') {
+      return true;
+    }
+    if (item.kind === 'array') {
+      return item.items.some(child => holdsString(child));
+    }
+    const entries = item.kind === 'dictionary' ? item.entries : item.kind === 'stream' ? item.dictionary : undefined;
+    return entries !== undefined && [...entries.entries()].some(([, child]) => holdsString(child));
+  };
+
+  // Independent draws are rarely equal or near misses, so a pair is also drawn as a value against its clone, its numbers swapped, its strings re-encoded, or one entry or element removed or added.
   const pair = fc.oneof(
     fc.tuple(object, object),
     object.map(left => [left, cloneObject(left)] as const),
     value.map(left => [left, swapNumbers(left)] as const),
+    object.filter(holdsString).map(left => [left, reencode(left)] as const),
+    fc.tuple(container, fc.nat()).map(([left, at]) => [left, oneOff(left, at)] as const),
   );
 
   it('is reflexive, also against a clone', () => {
