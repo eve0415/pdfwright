@@ -831,6 +831,26 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(single(resources, streamBody('', content), objects, '', { generationMismatch: 'null' }))).toStrictEqual([]);
   });
 
+  it('reads a shared glyph procedure with the Resources of a font after another font whose Resources reference names another generation of them', () => {
+    // A's Resources reference names no object, so A's glyph uses the page's opaque GS; B's Resources, object 8, name GS for a transparent state.
+    const document = single(
+      '<</Font<</A 10 0 R/B 11 0 R>>/ExtGState<</GS 9 0 R>>>>',
+      streamBody('', 'BT /A 12 Tf (a) Tj /B 12 Tf (a) Tj ET'),
+      [
+        { number: 5, body: '<</a 6 0 R>>' },
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 0.5>>' },
+        { number: 8, body: '<</ExtGState<</GS 7 0 R>>>>' },
+        { number: 9, body: '<</ca 1>>' },
+        { number: 10, body: type3Font('5 0 R', ' 8 1 R') },
+        { number: 11, body: type3Font('5 0 R', ' 8 0 R') },
+      ],
+      '',
+      { generationMismatch: 'null' },
+    );
+    expect(addedGroups(document)).toStrictEqual([0]);
+  });
+
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
     const document = single('<</Font<</T3 5 0 R>>>>', streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
       {
