@@ -705,10 +705,10 @@ describe('composite fonts, damaged', () => {
   it('reports the damage an embedded Encoding CMap holds and decodes with what it reads', () => {
     const cmap = streamBody('/Type/CMap', `${CODESPACE_2} 2 begincidrange <0010> <0001> 5 <0000> <00FF> 1 endcidrange`);
     const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]);
-    expect([pick(glyphsOf(font, Uint8Array.of(0, 0x41)), 'cid'), font.warnings.map(warning => [warning.code, warning.detail.startsWith('the Encoding CMap')])]).toStrictEqual([
-      [0x42],
-      [['font-unreadable', true]],
-    ]);
+    expect([
+      pick(glyphsOf(font, Uint8Array.of(0, 0x41)), 'cid'),
+      font.warnings.map(warning => [warning.code, warning.detail.startsWith('the Encoding CMap')]),
+    ]).toStrictEqual([[0x42], [['font-unreadable', true]]]);
   });
 
   it('gives no CID for a code that only the unavailable CMap its usecmap names could map', () => {
