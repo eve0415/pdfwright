@@ -164,10 +164,12 @@ describe('object index', () => {
   it.each([
     ['dense', 10],
     ['sparse', 50_000],
-  ])('lists free entries in ascending order and ignores numbers it does not hold, %s', (_, high) => {
+  ])('lists free entries in ascending order and frees no number it does not hold, %s', (_, high) => {
     const index = ObjectIndex.fromEntries([entry(high, 'free'), entry(4, 'file', [9, 0]), entry(2, 'free'), entry(7, 'free'), entry(3, 'file', [8, 0])]);
     index.free(-1);
     index.free(high + 1);
+    // 5 lies below the highest number but has no entry, so it stays absent in either layout.
+    index.free(5);
     index.free(4);
     expect([[...index.freeEntries()], [...index.inUse()], index.get(-1), index.get(5).type]).toStrictEqual([
       [2, 4, 7, high],
