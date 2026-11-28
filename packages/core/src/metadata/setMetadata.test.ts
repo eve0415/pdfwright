@@ -663,6 +663,22 @@ describe('setting document metadata', () => {
   });
 
   // ISO 32000-1:2008, Table 5: DecodeParms and DL describe the old encoding, which the unfiltered packet no longer has; other entries stay.
+  // ISO 32000-1:2008, Table 5: F, FFilter and FDecodeParms name an external file that holds the data; the replacement packet is held in the file.
+  it('drops the external file entries of a metadata stream it replaces', () => {
+    const document = load('/Metadata 4 0 R', [
+      { number: 4, body: streamBody('/Type/Metadata/Subtype/XML/F(packet.xml)/FFilter/ASCIIHexDecode/FDecodeParms<<>>/Custom 1', '') },
+    ]);
+    setMetadata(document, INPUT, { unreadableXmp: 'replace' });
+    const reloaded = saved(document);
+    const stream = reloaded.get(pdfReference(4, 0));
+    const keys = stream.kind === 'stream' ? [...stream.dictionary.entries()].map(([key]) => latin1Text(key)).toSorted() : [];
+    expect([keys, codes(reloaded)]).toStrictEqual([['Custom', 'Length', 'Subtype', 'Type'], []]);
+  });
+
+  it('refuses a value that did not come from loadDocument', () => {
+    expect(() => setMetadata({ ...load('') }, INPUT)).toThrow(InvalidArgumentError);
+  });
+
   it('drops the encoding entries of the metadata stream and keeps its other entries', () => {
     const document = load('/Metadata 4 0 R', [
       { number: 4, body: streamBody('/Type/Metadata/Subtype/XML/Filter/ASCIIHexDecode/DecodeParms<<>>/DL 10/Custom 1', `${hexOf(packet(''))}>`) },
@@ -715,11 +731,33 @@ describe('setting document metadata', () => {
     expect(setMetadata(load(catalog), INPUT, { revisions: 'keep' }).saveMode).toBe('incremental-required');
   });
 
-  // ISO 32000-1:2008, 14.3.2 makes the packet authoritative when its date stamp is not earlier than Info ModDate; where the two creation dates differ, the authoritative side's is kept.
+  // ISO 32000-1:2008, 14.3.2 makes the packet authoritative when its date stamp is not earlier than Info ModDate; where the two creation dates differ, the authoritative side's is kept, and Info's where neither side is.
   it.each([
-    ['the packet', '2022-01-01T00:00:00Z', [{ key: 'CreationDate', from: 'xmp', discarded: 'D:20200101' }], 'D:20210101', '2021-01-01'],
-    ['Info', '2020-06-01T00:00:00Z', [{ key: 'CreationDate', from: 'info', discarded: '2021-01-01' }], 'D:20200101', '2020-01-01'],
-  ])('keeps the creation date of %s when the two differ', (_name, metadataDate, reconciled, info, xmp) => {
+    [
+      'the packet',
+      '2022-01-01T00:00:00Z',
+      '/ModDate(D:20210101000000Z)',
+      [{ key: 'CreationDate', from: 'xmp', discarded: 'D:20200101' }],
+      'D:20210101',
+      '2021-01-01',
+    ],
+    [
+      'Info',
+      '2020-06-01T00:00:00Z',
+      '/ModDate(D:20210101000000Z)',
+      [{ key: 'CreationDate', from: 'info', discarded: '2021-01-01' }],
+      'D:20200101',
+      '2020-01-01',
+    ],
+    [
+      'Info, with no Info ModDate to decide the authority',
+      '2022-01-01T00:00:00Z',
+      '',
+      [{ key: 'CreationDate', from: 'info', discarded: '2021-01-01' }],
+      'D:20200101',
+      '2020-01-01',
+    ],
+  ])('keeps the creation date of %s when the two differ', (_name, metadataDate, modified, reconciled, info, xmp) => {
     const document = load(
       '/Metadata 4 0 R',
       [
@@ -730,7 +768,7 @@ describe('setting document metadata', () => {
             packet(`<xmp:CreateDate>2021-01-01</xmp:CreateDate><xmp:MetadataDate>${metadataDate}</xmp:MetadataDate>`),
           ),
         },
-        { number: 5, body: '<</CreationDate(D:20200101)/ModDate(D:20210101000000Z)>>' },
+        { number: 5, body: `<</CreationDate(D:20200101)${modified}>>` },
       ],
       `${ID}/Info 5 0 R`,
     );

@@ -138,6 +138,7 @@ describe('splicing managed properties into an existing packet', () => {
     const count = tokens.ok ? tokens.tokens.length : 0;
     expect([result?.transcoded, text.split('<pdf:X>').length - 1]).toStrictEqual([false, 2000]);
     expect(packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count }).bytes).toStrictEqual(result?.bytes);
+    expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count - 1 }))).toThrow(ValidationError);
     expect(() => (packet === undefined ? undefined : splicePacket(packet, VALUES, { maxTokens: count - 1 }))).toThrow(
       expect.objectContaining({ reason: 'xmp-unreadable' }),
     );
