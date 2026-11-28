@@ -395,17 +395,37 @@ describe('appending built content', () => {
     ]);
   });
 
-  it('reuses the name of a separation an earlier save wrote, after the file is loaded again', () => {
-    const first = load(page('/Contents 4 0 R/Resources<<>>'));
-    first.page(0).appendContent(builder => {
-      builder.fillColor(first.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
+  // A separation is written with five fraction digits, so a tint matches an existing one when both round to the same five digits.
+  it.each([
+    ['0.12345', 0.123454, 'CS7', ['CS7']],
+    ['0.12345', 0.123456, 'CS1', ['CS1', 'CS7']],
+    ['0.12346', 0.123456, 'CS7', ['CS7']],
+  ])('compares an existing tint of %s with a tint of %d as written', (existing, tint, name, names) => {
+    const spot = `[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[0 ${existing} 0 0]/N 1>>]`;
+    const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
+    document.page(0).appendContent(builder => {
+      builder.fillColor(document.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
     });
-    const reloaded = loadDocument(first.save().chunks);
-    reloaded.page(0).appendContent(builder => {
-      builder.fillColor(reloaded.separation({ name: 'Spot', alternate: cmyk(0, 0.5, 0, 0) }), 1);
-    });
-    expect(keys(resolved(reloaded, reloaded.page(0).resources().get(pdfName('ColorSpace').bytes)))).toStrictEqual(['CS1']);
+    expect([content(document, 5), keys(entry(document, pdfDictionary(document.page(0).resources()), 'ColorSpace')).toSorted()]).toStrictEqual([
+      `q\n/${name} cs\n1 scn\nQ\n`,
+      names,
+    ]);
   });
+
+  it.each([0.5, 0.12345, 0.123456, 1 / 3, 0.000004])(
+    'reuses the name of a separation of tint %d an earlier save wrote, after the file is loaded again',
+    tint => {
+      const first = load(page('/Contents 4 0 R/Resources<<>>'));
+      first.page(0).appendContent(builder => {
+        builder.fillColor(first.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
+      });
+      const reloaded = loadDocument(first.save().chunks);
+      reloaded.page(0).appendContent(builder => {
+        builder.fillColor(reloaded.separation({ name: 'Spot', alternate: cmyk(0, tint, 0, 0) }), 1);
+      });
+      expect(keys(resolved(reloaded, reloaded.page(0).resources().get(pdfName('ColorSpace').bytes)))).toStrictEqual(['CS1']);
+    },
+  );
 
   it('writes a group drawn by two appends once and reuses its name', () => {
     const document = load(page('/Resources<<>>'));
