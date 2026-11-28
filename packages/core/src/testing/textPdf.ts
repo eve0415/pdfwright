@@ -19,7 +19,7 @@ export interface TestPage {
 
 export interface TextPdf {
   readonly pages: ReadonlyArray<TestPage>;
-  /** Objects the pages refer to, numbered from 100 so that they do not collide with the pages and their contents. */
+  /** Objects the pages refer to, numbered above the pages and their content streams (from 100 by convention); a number already in use is refused. */
   readonly objects?: ReadonlyArray<TestObject>;
   /** Entries of the page tree root, such as inherited Resources. */
   readonly root?: string;
@@ -44,6 +44,16 @@ export const textPdfBytes = ({ pages, objects = [], root = '', catalog = '' }: T
     const contentsEntry = streams === undefined ? '' : `/Contents[${contents.join(' ')}]`;
     const resources = page.resources === undefined ? '' : `/Resources<<${page.resources}>>`;
     built.push({ number, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 600 800]${contentsEntry}${resources}${page.entries ?? ''}>>` });
+  }
+  // The builder keeps only the later of two objects with one number, so a collision would silently drop a page, a content stream or the caller's object.
+  const taken = new Set(Array.from({ length: next - 1 }, (_, index) => index + 1));
+  for (const object of objects) {
+    if (taken.has(object.number)) {
+      throw new RangeError(
+        `object ${String(object.number)} is already used by the document structure or another object; number the objects from ${String(next)}`,
+      );
+    }
+    taken.add(object.number);
   }
   const tree = `<</Type/Pages/Kids[${kids.map(kid => `${String(kid)} 0 R`).join(' ')}]/Count ${String(kids.length)}${root}>>`;
   return buildPdf([
