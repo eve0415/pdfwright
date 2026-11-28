@@ -23,6 +23,7 @@ import { PdfDictionaryEntries, pdfDictionary, pdfName, pdfReference } from '../o
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertSpotSpaces } from './convertSpots.ts';
+import { convertToCmyk } from './convertToCmyk.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 
 const fixture = async (name: string): Promise<Uint8Array> =>
@@ -724,6 +725,107 @@ describe('spot alternate conversion', () => {
     convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(pageSpace(document, 'CS1').at(3)).not.toStrictEqual(pdfReference(6, 0));
     expect(document.get(pdfReference(6, 0)).kind).toBe(kind);
+  });
+});
+
+describe('spot spaces in resource carriers', () => {
+  const OWN_SPOT = '/Resources<</ColorSpace<</CS1[/Separation/Spot/DeviceRGB<</FunctionType 2/Domain[0 1]/C0[1 1 1]/C1[1 0 0]/N 1>>]>>>>';
+  const PATTERN = '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 10 10]/XStep 10/YStep 10';
+  const TYPE3 =
+    '/Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</A 6 0 R>>/Encoding<</Type/Encoding/Differences[65/A]>>/FirstChar 65/LastChar 65/Widths[1000]';
+
+  const carrierPdf = (page: string, objects: ReadonlyArray<{ readonly number: number; readonly body: string }>, content = '0 0 1 1 re f'): Uint8Array =>
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R${page}>>` },
+          { number: 4, body: streamBody('', content) },
+          ...objects,
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes;
+
+  const ownSpace = (document: LoadedDocument, owner: number): ReadonlyArray<PdfDirectObject> => {
+    const internals = internalsOf(document);
+    const object = document.get(pdfReference(owner, 0));
+    const entries = object.kind === 'stream' ? object.dictionary : object.kind === 'dictionary' ? object.entries : undefined;
+    const resources = internals?.objects.deref(entries?.get(pdfName('Resources').bytes));
+    const spaces = resources?.kind === 'dictionary' ? internals?.objects.deref(resources.entries.get(pdfName('ColorSpace').bytes)) : undefined;
+    const space = spaces?.kind === 'dictionary' ? internals?.objects.deref(spaces.entries.get(pdfName('CS1').bytes)) : undefined;
+    if (space?.kind !== 'array') {
+      throw new Error('carrier Separation is missing');
+    }
+    return space.items;
+  };
+
+  const expectConverted = (document: LoadedDocument, owner: number): void => {
+    const space = ownSpace(document, owner);
+    const tint = functionOf(document, space.at(3));
+    expect(space.at(2)).toStrictEqual(pdfName('DeviceCMYK'));
+    expect([close(tint([0]), cmykOf(1, 1, 1)), close(tint([1]), cmykOf(1, 0, 0))]).toStrictEqual([true, true]);
+  };
+
+  it.each([
+    {
+      carrier: 'a tiling pattern',
+      page: '/Resources<</Pattern<</P 5 0 R>>>>',
+      objects: [{ number: 5, body: streamBody(`${PATTERN}${OWN_SPOT}`, '/CS1 cs 1 sc') }],
+      owner: 5,
+    },
+    {
+      carrier: 'a Type 3 font',
+      page: '/Resources<</Font<</F 5 0 R>>>>',
+      objects: [
+        { number: 5, body: `<<${TYPE3}${OWN_SPOT}>>` },
+        { number: 6, body: streamBody('', '1000 0 d0 /CS1 cs 1 sc 0 0 500 500 re f') },
+      ],
+      owner: 5,
+    },
+    {
+      carrier: 'an appearance stream',
+      page: '/Resources<<>>/Annots[5 0 R]',
+      objects: [
+        { number: 5, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 6 0 R>>>>' },
+        { number: 6, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${OWN_SPOT}`, '/CS1 cs 1 sc') },
+      ],
+      owner: 6,
+    },
+    {
+      carrier: 'a form that only a Type 3 glyph uses',
+      page: '/Resources<</Font<</F 5 0 R>>>>',
+      objects: [
+        { number: 5, body: `<<${TYPE3}/Resources<</XObject<</Fm 7 0 R>>>>>>` },
+        { number: 6, body: streamBody('', '1000 0 d0 /Fm Do') },
+        { number: 7, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 10 10]${OWN_SPOT}`, '/CS1 cs 1 sc') },
+      ],
+      owner: 7,
+    },
+  ])('converts a Separation alternate in the own Resources of $carrier', ({ page, objects, owner }) => {
+    // ISO 32000-1:2008, 7.8.3: a pattern, a Type 3 font, an appearance stream and a form each name colour spaces in their own resource dictionary.
+    const document = loadDocument(carrierPdf(page, objects));
+    expect(convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).separations).toBe(1);
+    expectConverted(document, owner);
+  });
+
+  it('converts a tiling pattern Separation alternate when the whole document is converted', () => {
+    const document = loadDocument(
+      carrierPdf(
+        '/Resources<</Pattern<</P 5 0 R>>>>',
+        [{ number: 5, body: streamBody(`${PATTERN}${OWN_SPOT}`, '/CS1 cs 1 sc 0 0 10 10 re f') }],
+        '/Pattern cs /P scn 0 0 100 100 re f',
+      ),
+    );
+    const report = convertToCmyk(document, {
+      sourceRgbProfile: source.bytes,
+      outputProfile: destination.bytes,
+      outputIntent: { outputConditionIdentifier: 'FOGRA28' },
+    });
+    expect(report.spots.separations).toBe(1);
+    expectConverted(document, 5);
   });
 });
 
