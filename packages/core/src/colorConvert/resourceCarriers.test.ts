@@ -23,6 +23,7 @@ import { convertIndexedSpaces } from './convertIndexed.ts';
 import { convertShadings } from './convertShadings.ts';
 import { convertSpotSpaces } from './convertSpots.ts';
 import { convertToCmyk } from './convertToCmyk.ts';
+import { carrierSeen, resourceCarriers } from './resourceCarriers.ts';
 
 const source = parseIccProfile(srgbBytes);
 const destination = parseIccProfile(fograBytes);
@@ -513,17 +514,6 @@ const sharedFonts = (category: string, value: string) => {
       ],
     },
     {
-      shape: 'sits in a Font category it names',
-      page: `/Resources<</${category}<</X0 ${value}>>/Font 7 0 R>>`,
-      objects: [GLYPH, { number: 7, body: `<</F <<${TYPE3}/Resources<</${category}<</X1 ${value}>>/Font 7 0 R>>>>>>` }],
-      count: 2,
-      paths: [
-        [3, ['Resources', category, 'X0']],
-        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
-        [3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'F', 'Resources', category, 'X1']],
-      ],
-    },
-    {
       shape: `shares Resources over ${String(depth)} levels`,
       page: '/Resources 7 0 R',
       objects: [GLYPH, ...fanOut],
@@ -595,6 +585,19 @@ describe('direct Type 3 fonts reached again through an indirect object', () => {
       }
     },
   );
+
+  it('lists a direct Type 3 font once when it sits in the indirect Font category its own Resources names', () => {
+    const document = carrierPdf(`/Resources<</Font 7 0 R>>`, [
+      GLYPH,
+      { number: 7, body: `<</F <<${TYPE3}/Resources<</ColorSpace<</X1 ${INDEXED}>>/Font 7 0 R>>>>>>` },
+    ]);
+    const internals = internalsOf(document);
+    if (internals === undefined) {
+      throw new Error('document internals are missing');
+    }
+    const listed = resourceCarriers(internals, { index: 0, reference: pdfReference(3, 0), resources: document.page(0).resources() }, carrierSeen());
+    expect(listed.map(carrier => carrier.owner)).toStrictEqual([{ kind: 'category', reference: pdfReference(7, 0), name: pdfName('F').bytes }]);
+  });
 
   it('samples a shared direct shading with the intent a glyph of the second font selects', () => {
     expect(sharedShadingSample('perceptual')).not.toStrictEqual(sharedShadingSample('relativeColorimetric'));
