@@ -747,3 +747,33 @@ describe('rendering intents of direct shadings in carriers that an earlier page 
     expect(convert).toThrow(/different rendering intents/u);
   });
 });
+
+/** Form 7 holds a direct shading and selects Perceptual before painting it; it is named as a page form and is also annotation 10's appearance. */
+const formAppearances = [
+  {
+    shape: 'on one page',
+    pages: [{ page: '/Resources<</XObject<</F 7 0 R>>>>/Annots[10 0 R]', content: '0 0 1 1 re f' }],
+  },
+  {
+    shape: 'on a later page',
+    pages: [
+      { page: '/Resources<</XObject<</F 7 0 R>>>>', content: '0 0 1 1 re f' },
+      { page: '/Resources<<>>/Annots[10 0 R]', content: '0 0 1 1 re f' },
+    ],
+  },
+];
+
+describe('rendering intents of direct shadings in a form that is also an appearance', () => {
+  it.each(formAppearances)('samples the shading with the intent the appearance content selects when the appearance is $shape', ({ pages }) => {
+    const sample = (intent: Intent): ReadonlyArray<number> => {
+      const document = pagesPdf(pages, [
+        { number: 7, body: streamBody(`${FORM}${OWN_SHADING}`, '/Perceptual ri /Sh1 sh') },
+        { number: 10, body: '<</Type/Annot/Subtype/Square/Rect[0 0 10 10]/AP<</N 7 0 R>>>>' },
+      ]);
+      convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+      return sampled(document, 7, ['Resources', 'Shading', 'Sh1']);
+    };
+    expect(sample('perceptual')).not.toStrictEqual(sample('relativeColorimetric'));
+    expect(sample('document')).toStrictEqual(sample('perceptual'));
+  });
+});
