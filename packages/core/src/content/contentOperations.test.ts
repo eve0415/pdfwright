@@ -152,6 +152,20 @@ describe('content operations', () => {
       expect(() => operations([`[${'0 '.repeat(8000)}`, `${'0 '.repeat(8384)}] TJ`])).toThrow(ResourceLimitError);
     });
 
+    // Booleans, because an integer reads ahead for a reference and reaches the string before it is counted.
+    const values = (count: number): string => `[${'true '.repeat(count - 2)}true`;
+    it.each([
+      ['16,384 values', [values(16_384), '(a'], ParseError],
+      ['16,385 values', [values(16_385), '(a'], ResourceLimitError],
+      ['nesting of 32', ['[', `${'['.repeat(31)}(a`], ParseError],
+      ['nesting of 33', ['[', `${'['.repeat(32)}(a`], ResourceLimitError],
+      ['nesting of 32 reached in a middle stream', ['[', '['.repeat(31), '(a'], ParseError],
+      ['nesting of 33 reached in a middle stream', ['[', '['.repeat(32), '(a'], ResourceLimitError],
+    ])('reads %s before an unterminated string in a later stream as the same bytes in one stream', (_, streams, error) => {
+      expect(() => operations(streams.join('\n'))).toThrow(error);
+      expect(() => operations(streams)).toThrow(error);
+    });
+
     it.each([
       ['a string divided inside the array', ['[(a', 'b)] TJ']],
       ['an array still open after the last stream', ['[1', '2']],
