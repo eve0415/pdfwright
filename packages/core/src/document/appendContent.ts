@@ -159,8 +159,9 @@ const existingName = (context: ContentContext, page: PageEntry, resource: Regist
   if (value === undefined) {
     return undefined;
   }
+  // ISO 32000-1:2008, 7.3.3, NOTE 2 lets an integer stand for a real, and a save writes a whole real such as 0.0 as 0, so numbers compare by value; the values compared here hold no strings.
   for (const [key, existing] of takenNames(context, page, category).entries()) {
-    if (deepEqual(existing, value, 'strict')) {
+    if (deepEqual(existing, value, 'lenient')) {
       return latin1(key);
     }
   }
