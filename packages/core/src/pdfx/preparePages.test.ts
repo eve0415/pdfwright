@@ -147,6 +147,12 @@ const chained = (levels: number) =>
     '/Annots[<</Type/Annot/Subtype/Stamp/Rect[0 0 1 1]/AP<</N 10 0 R>>>>]',
   );
 
+/** A form, numbered from 10, that paints opaquely unless it is the transparency group drawn last. */
+const siblingForm = (index: number, count: number): TestObject => ({
+  number: 10 + index,
+  body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]${index === count - 1 ? '/Group<</S/Transparency>>' : ''}`, '0 0 1 1 re f'),
+});
+
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
 
@@ -375,6 +381,51 @@ describe('pdfx page preparation', () => {
       ]).bytes,
     );
     expect(preparePdfX4Pages(document).addedPageGroups).toStrictEqual([0]);
+  });
+
+  it('counts only the forms and appearance subdictionaries still open, for 257 drawn one after another', () => {
+    const count = 257;
+    const forms = Array.from({ length: count }, (_, index) => siblingForm(index, count));
+    const drawn = single(
+      `<</XObject<<${forms.map(form => `/X${String(form.number)} ${String(form.number)} 0 R`).join('')}>>>>`,
+      streamBody('', forms.map(form => `/X${String(form.number)} Do`).join(' ')),
+      forms,
+    );
+    expect(addedGroups(drawn)).toStrictEqual([0]);
+    const annotated = single(
+      '<<>>',
+      streamBody('', ''),
+      forms,
+      `/Annots[${forms.map(form => `<</Type/Annot/Subtype/Stamp/Rect[0 0 1 1]/AP<</N<</On ${String(form.number)} 0 R>>>>>>`).join('')}]`,
+    );
+    expect(addedGroups(annotated)).toStrictEqual([0]);
+  });
+
+  it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
+    [
+      'a tiling pattern that paints with itself',
+      '<</Pattern<</P 5 0 R>>>>',
+      '/Pattern cs /P scn 0 0 1 1 re f',
+      [
+        {
+          number: 5,
+          body: streamBody(
+            '/Type/Pattern/PatternType 1/PaintType 1/TilingType 1/BBox[0 0 1 1]/XStep 1/YStep 1/Resources<</Pattern<</P 5 0 R>>>>',
+            '/Pattern cs /P scn 0 0 1 1 re f',
+          ),
+        },
+      ],
+      '',
+    ],
+    [
+      'an appearance subdictionary that contains itself',
+      '<<>>',
+      '',
+      [{ number: 5, body: '<</On 5 0 R>>' }],
+      '/Annots[<</Type/Annot/Subtype/Stamp/Rect[0 0 1 1]/AP<</N 5 0 R>>>>]',
+    ],
+  ])('stops at %s', (_, resources, content, extra, page) => {
+    expect(addedGroups(single(resources, streamBody('', content), extra, page))).toStrictEqual([]);
   });
 
   it('reads annotation appearance subdictionaries as deep as maxNesting and refuses one more', () => {
