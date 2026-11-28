@@ -1,9 +1,14 @@
 import type { Runtime } from './providedContext.ts';
 
+import { readConfigureGlobal } from 'fast-check';
 import { describe, expect, inject, it } from 'vitest';
 
-import { PdfwrightError } from '../packages/core/src/index.ts';
-import { writeIllustratorPdf } from '../packages/illustrator/src/index.ts';
+// Vite expands both globs when it transforms this file, so a package added later is loaded here too.
+const manifests = import.meta.glob('../packages/*/package.json', { eager: true });
+const entries = import.meta.glob('../packages/*/src/index.ts', { eager: true });
+
+/** `../packages/<name>` for a path inside a package. */
+const packageDirectory = (file: string): string => file.split('/').slice(0, 3).join('/');
 
 /** The runtime this module is evaluated in, read from globals only that runtime defines. */
 const detectRuntime = (): Runtime => {
@@ -28,7 +33,14 @@ describe('runtime', () => {
     expect(detectRuntime()).toBe(inject('runtime'));
   });
 
-  it('loads every package entry', () => {
-    expect([typeof PdfwrightError, typeof writeIllustratorPdf]).toStrictEqual(['function', 'function']);
+  it('loads the property-test setup, which sets a seed and a run count', () => {
+    // fast-check draws a fresh seed and runs 100 times unless the setup file configured it.
+    const { seed, numRuns } = readConfigureGlobal();
+    expect([typeof seed, typeof numRuns]).toStrictEqual(['number', 'number']);
+  });
+
+  it('loads the entry of every package, each with exports', () => {
+    const loaded = Object.fromEntries(Object.entries(entries).map(([file, entry]) => [packageDirectory(file), Object.keys(entry).length > 0]));
+    expect(loaded).toStrictEqual(Object.fromEntries(Object.keys(manifests).map(file => [packageDirectory(file), true])));
   });
 });

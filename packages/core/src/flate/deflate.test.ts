@@ -1,5 +1,6 @@
 import type { Runtime } from '../../../../tests/providedContext.ts';
 
+import fc from 'fast-check';
 import { unzlibSync as inflateFflate } from 'fflate';
 import { deflate as deflatePako, inflate as inflatePako } from 'pako';
 import { describe, expect, inject, it } from 'vitest';
@@ -165,4 +166,18 @@ describe('incremental deflate output', () => {
       expect(Math.max(...parts.map(part => part.length))).toBeLessThanOrEqual(1024 * 1024 + 64);
     }
   }, 60_000);
+});
+
+describe('properties', () => {
+  // Bytes drawn from four values repeat often enough to produce matches and dynamic Huffman blocks; unrestricted bytes mostly do not.
+  const input = fc.oneof(fc.uint8Array({ maxLength: 2048 }), fc.uint8Array({ max: 3, maxLength: 4096 }));
+  const level = fc.constantFrom(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+
+  it('inflates what it deflates at every level', () => {
+    fc.assert(
+      fc.property(input, level, (data, chosen) => {
+        expect(inflateZlib(deflateZlib(data, { level: chosen }))).toStrictEqual({ data, warnings: [] });
+      }),
+    );
+  });
 });

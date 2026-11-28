@@ -8,9 +8,10 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 const include = ['packages/*/src/**/*.test.ts', 'tests/**/*.test.ts'];
-const oracleInclude = ['packages/*/src/**/*.oracle.test.ts'];
+const oracleInclude = ['packages/*/src/**/*.oracle.test.ts', 'tests/**/*.oracle.test.ts'];
+const nodeInclude = ['packages/*/src/**/*.node.test.ts', 'tests/**/*.node.test.ts', 'scripts/**/*.node.test.ts'];
 
-const project = (runtime: Runtime) => ({ name: runtime, include, exclude: oracleInclude, provide: { runtime } });
+const project = (runtime: Runtime) => ({ name: runtime, include, exclude: [...oracleInclude, ...nodeInclude], provide: { runtime } });
 
 // Bun and Deno each run this config in their own process, and there the suite runs once, in that runtime.
 // Everywhere else the config runs in Node, which hosts the Node, browser, workerd and oracle projects.
@@ -22,10 +23,10 @@ const projects = (): Array<TestProjectInlineConfiguration> => {
     return [{ test: project('deno') }];
   }
   return [
-    { test: { ...project('node'), include: [...include, 'scripts/**/*.node.test.ts'] } },
+    { test: { ...project('node'), include: [...include, ...nodeInclude], exclude: oracleInclude } },
     { test: { name: 'oracle', include: oracleInclude, provide: { runtime: 'node' } } },
     {
-      optimizeDeps: { include: ['fflate', 'fzstd', 'pako'] },
+      optimizeDeps: { include: ['fast-check', 'fflate', 'fzstd', 'pako'] },
       test: {
         ...project('browser'),
         browser: { enabled: true, headless: true, provider: playwright(), instances: [{ browser: 'chromium' }] },
@@ -58,6 +59,8 @@ export default defineConfig({
     unstubGlobals: true,
     expect: { requireAssertions: true },
     sequence: { shuffle: true },
+    setupFiles: ['tests/setupFastCheck.ts'],
+    coverage: { include: ['packages/*/src/**/*.ts'], exclude: ['packages/*/src/**/testing/**'], reportOnFailure: true },
     projects: projects(),
   },
 });

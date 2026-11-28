@@ -59,6 +59,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Check the packed packages under Node, Bun and Deno
+        run: pnpm run check:packages
+
   test:
     name: Test (${{ matrix.runtime }})
     runs-on: ubuntu-24.04-arm
