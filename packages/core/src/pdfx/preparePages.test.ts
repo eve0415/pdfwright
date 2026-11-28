@@ -3,8 +3,9 @@ import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
@@ -89,6 +90,10 @@ const addedGroups = (document: LoadedDocument) => preparePdfX4Pages(document).ad
 /** A Type 3 font whose glyph a, object 6, names GS for the given graphics state. */
 const type3 = (state: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS ${state}>>>>>>`;
+
+/** A Type 3 font without Resources whose CharProcs entry is the given value. */
+const shownType3 = (procedures: string) =>
+  `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${procedures}/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`;
 
 const grow = ([left, bottom, right, top]: readonly [number, number, number, number], [dl, db, dr, dt]: readonly [number, number, number, number]) =>
   [left - dl, bottom - db, right + dr, top + dt] as const;
@@ -394,6 +399,29 @@ describe('pdfx page preparation', () => {
       { number: 6, body: streamBody('', '0 0 d0 BT /T3 12 Tf (a) Tj ET 0 0 1 1 re f') },
     ]);
     expect(addedGroups(document)).toStrictEqual([]);
+  });
+
+  it.each<[string, string, Array<number>]>([
+    ['the same font each time', '', []],
+    ['another direct font after it whose glyph is transparent', '/B 12 Tf (a) Tj', [0]],
+  ])('reads a direct Type 3 font once however often Tf selects it, then %s', (_, last, groups) => {
+    const document = single(
+      `<</Font<</A ${shownType3('7 0 R')}/B ${shownType3('<</a 8 0 R>>')}>>/ExtGState<</GS 9 0 R>>>>`,
+      streamBody('', `BT /A 12 Tf (a) Tj /A 12 Tf (a) Tj /A 12 Tf (a) Tj ${last} ET`),
+      [
+        { number: 6, body: streamBody('', '0 0 d0 0 0 1 1 re f') },
+        { number: 7, body: '<</a 6 0 R>>' },
+        { number: 8, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 9, body: '<</ca 0.5>>' },
+      ],
+    );
+    const parts = internalsOf(document);
+    if (parts === undefined) {
+      throw new Error('document internals are unavailable');
+    }
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    expect(addedGroups(document)).toStrictEqual(groups);
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 7)).toHaveLength(1);
   });
 
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
