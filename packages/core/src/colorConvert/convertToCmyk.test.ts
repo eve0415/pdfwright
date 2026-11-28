@@ -507,6 +507,74 @@ describe('forms drawn from converted pages', () => {
     });
     expect(drawn).toStrictEqual([pdfName('Form'), pdfName('Form'), pdfName('Image')]);
   });
+
+  const formSpaces = '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]/CR2[/CalRGB<</WhitePoint[0.9642 1 0.8249]>>]>>';
+  const formStream = { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') };
+  const grayImage = {
+    number: 7,
+    body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray', String.fromCodePoint(10)),
+  };
+
+  // The names a converted page draws, with the content each one resolves to and the page's XObject dictionary.
+  const drawnForms = (document: LoadedDocument) => {
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const names = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => match[1] ?? '');
+    const text = (name: string): string => {
+      const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(name).bytes) : undefined;
+      return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${name}`;
+    };
+    return { names, text, xobjects: xobjects?.kind === 'dictionary' ? xobjects.entries : undefined };
+  };
+
+  it.each([
+    { name: 'gray and RGB', states: ['0.5 g', '0.2 0.4 0.6 rg'], xobjects: '/XObject<</Fm 5 0 R>>', objects: [formStream], others: 0, image: undefined },
+    {
+      name: 'two RGB spaces',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg'],
+      xobjects: '/XObject<</Fm 5 0 R>>',
+      objects: [formStream],
+      others: 0,
+      image: undefined,
+    },
+    {
+      name: 'three RGB spaces',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
+      xobjects: '/XObject<</Fm 5 0 R>>',
+      objects: [formStream],
+      others: 0,
+      image: undefined,
+    },
+    {
+      name: 'three RGB spaces beside an image named like a form copy',
+      states: ['/CR cs 0.1 0.2 0.3 sc', '0.2 0.4 0.6 rg', '/CR2 cs 0.1 0.2 0.3 sc'],
+      xobjects: '/XObject<</Fm 5 0 R/PWFORM1 7 0 R>>',
+      objects: [formStream, grayImage],
+      others: 1,
+      image: pdfReference(7, 0),
+    },
+  ])('names one copy of a form for each state when the page draws it under $name many times', ({ states, xobjects, objects, others, image }) => {
+    // Each state alone shows the content its copy of the form must have.
+    const expected = states.map(state => {
+      const single = loadDocument(documentBytes([{ resources: `${formSpaces}${xobjects}`, content: `${state} /Fm Do` }], objects));
+      convertToCmyk(single, cmykOptions);
+      const { names, text } = drawnForms(single);
+      return text(names[0] ?? '');
+    });
+    const draws = Array.from({ length: 24 }, (_, index) => `${states[index % states.length] ?? ''} /Fm Do`);
+    const document = loadDocument(documentBytes([{ resources: `${formSpaces}${xobjects}`, content: draws.join(' ') }], objects));
+    const report = convertToCmyk(document, cmykOptions);
+    const { names, text, xobjects: dictionary } = drawnForms(document);
+    const copies = names.slice(0, states.length);
+    expect(report.forms).toStrictEqual({ forms: states.length, clones: states.length - 1 });
+    expect(new Set(copies).size).toBe(states.length);
+    expect(names).toStrictEqual(draws.map((_, index) => copies[index % states.length]));
+    expect(copies.map(name => text(name))).toStrictEqual(expected);
+    expect(dictionary?.size).toBe(states.length + others);
+    expect(dictionary?.get(pdfName('PWFORM1').bytes)).toStrictEqual(image);
+  });
 });
 
 // The page paints through a luminosity soft mask whose DeviceRGB group is object 6.
