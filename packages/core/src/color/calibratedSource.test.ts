@@ -24,7 +24,7 @@ const convert = (source: CalRgbSource | CalGraySource, input: ReadonlyArray<numb
   return [...output];
 };
 
-// ICC.1:2022, Annex E.3, Equation E.4 gives the Bradford cone-response matrix, read by rows.
+// ICC.1:2022, Annex E.3, Equations E.1–E.4: the Bradford cone-response matrix, read by rows.
 const BRADFORD = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296] as const;
 
 const cone = (xyz: ReadonlyArray<number>): Array<number> =>

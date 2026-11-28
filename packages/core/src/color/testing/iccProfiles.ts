@@ -55,7 +55,7 @@ export const byteRamp = (): Curve => ({ kind: 'table', values: Uint8Array.from({
 
 /**
  * A lut8 tag with identity matrix, identity input and output tables and a 2-point grid on every input, whose CLUT corner values `corner` returns.
- * ICC.1:2022, 10.11: the last input varies fastest in the CLUT, so `corner` receives the corner bits in input order.
+ * ICC.1:2022, 10.10 and 10.11: the last input varies fastest in the CLUT, so `corner` receives the corner bits in input order.
  */
 export const lut8 = (inputs: number, outputs: number, corner: (bits: ReadonlyArray<0 | 1>) => ReadonlyArray<number>): TableLut => {
   const values: Array<number> = [];

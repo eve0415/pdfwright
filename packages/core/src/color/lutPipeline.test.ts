@@ -15,7 +15,7 @@ const root: Curve = { kind: 'gamma', gamma: 0.5 };
 const affineClut = lut8(3, 3, bits => bits.map(bit => 64 + 128 * bit)).clut;
 const clutValue = (value: number): number => (64 + 128 * value) / 255;
 
-// ICC.1:2022, 10.12.4 and 10.13.4: the matrix holds e1–e9 by rows, then the offsets e10–e12.
+// ICC.1:2022, 10.12 and 10.13: the matrix holds e1–e9 by rows, then the offsets e10–e12.
 const MATRIX = [0.5, 0.1, 0, 0, 0.5, 0.1, 0.1, 0, 0.5] as const;
 const OFFSET = [0.05, 0, 0] as const;
 const clip = (value: number): number => Math.min(1, Math.max(0, value));
