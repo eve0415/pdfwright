@@ -134,17 +134,18 @@ describe('Illustrator container reader', () => {
     expect(error).toMatchObject({ offset: 24 });
   });
 
-  it('passes a Zstandard frame of five bytes to the decoder', () => {
+  // RFC 8878, 3.1.1.1.1: descriptor 0x20 sets the Single_Segment_flag, so the five bytes hold a whole frame header with no Window_Descriptor.
+  it('passes a single-segment Zstandard frame of five bytes to the decoder', () => {
     const frames: Array<Uint8Array> = [];
-    const pdf = illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zstandardWrapped(Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0)) }] });
+    const pdf = illustratorShapedPdf({ streams: [{ key: 'AIPDFPrivateData1', stored: zstandardWrapped(Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0x20)) }] });
     const facts = readIllustratorContainer(pdf, frame => {
       frames.push(frame);
       return Uint8Array.of(1);
     });
     expect([frames, facts.native, facts.compression]).toStrictEqual([
-      [Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0)],
+      [Uint8Array.of(0x28, 0xb5, 0x2f, 0xfd, 0x20)],
       Uint8Array.of(1),
-      { kind: 'zstandard', frameHeaderDescriptor: 0, windowDescriptor: undefined },
+      { kind: 'zstandard', frameHeaderDescriptor: 0x20, windowDescriptor: undefined },
     ]);
   });
 });
