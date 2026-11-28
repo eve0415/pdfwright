@@ -117,6 +117,23 @@ describe('content operations', () => {
       expect(image?.inlineImage?.parameters.slice(-2)).toStrictEqual([name('D'), array(0, 1)]);
     });
 
+    it.each([
+      ['a stream division falls between parameters', ['q BI /W 1 /H 1 /BPC 8 /CS /G', '/D [0 1] ID A EI'], 16],
+      ['a stream division falls inside an array parameter', ['q BI /W 1 /H 1 /BPC 8 /CS /G /D [0', '1] ID A EI'], 10],
+    ])('ends the span of an inline image in the stream of EI when %s', (_, streams, end) => {
+      const spans = [...readContentSpans(streams.map(text => latin1Bytes(text)), 32)].map(operation => [
+        operation.operator,
+        operation.stream,
+        operation.start,
+        operation.endStream,
+        operation.end,
+      ]);
+      expect(spans).toStrictEqual([
+        ['q', 0, 0, 0, 1],
+        ['BI', 0, 2, 1, end],
+      ]);
+    });
+
     it('places the operation in the stream of its operator, starting the span at the operator', () => {
       const spans = [...readContentSpans([latin1Bytes('[1'), latin1Bytes('2] 0 d')], 32)].map(operation => [
         operation.stream,
