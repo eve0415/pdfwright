@@ -252,9 +252,13 @@ interface LadderStep {
   readonly nonPrinting: number;
   readonly registration: boolean;
   readonly textDocument: boolean;
+  readonly sourceDocumentData: boolean;
   readonly creator: string;
   readonly illustratorPieceKind: string | undefined;
 }
+
+const documentData = (native: string): string => /%AI9_BeginDocumentData\r[\s\S]*?%AI9_EndDocumentData\r/u.exec(native)?.[0] ?? '';
+const generatedDocumentData = documentData(latin1.decode(writeNative(manualCheckModel()).bytes));
 
 // Facts that hold for any export the ladder starts from, read back from each written file.
 const ladderStep = (pdf: Uint8Array): LadderStep => {
@@ -267,6 +271,7 @@ const ladderStep = (pdf: Uint8Array): LadderStep => {
     nonPrinting: occurrences(native, '%AI5_Begin_NonPrinting\r'),
     registration: native.includes('%%CMYKProcessColor:'),
     textDocument: native.includes('%AI11_BeginTextDocument\r'),
+    sourceDocumentData: documentData(native) !== generatedDocumentData,
     creator: /%%Creator:[^\r]*\r/u.exec(native)?.[0] ?? '',
     illustratorPieceKind: pieceInfo?.kind === 'dictionary' ? pieceInfo.entries.get(pdfName('Illustrator').bytes)?.kind : undefined,
   };
@@ -278,6 +283,7 @@ const expectedSteps = (sourceCreator: string): Array<LadderStep> => {
     nonPrinting: Math.min(step, 4),
     registration: step >= 5,
     textDocument: step >= 6,
+    sourceDocumentData: step >= 7,
     creator: step >= 8 ? sourceCreator : generated,
     illustratorPieceKind: step === 9 ? 'reference' : 'dictionary',
   }));
