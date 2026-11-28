@@ -72,15 +72,13 @@ const hexDigits = (value: number, width: number): string => value.toString(16).t
 
 describe('properties', () => {
   const scalar = fc.oneof(fc.integer({ min: 0, max: 0xd7_ff }), fc.integer({ min: 0xe0_00, max: 0x10_ff_ff }));
+  const bmpScalar = fc.oneof(fc.integer({ min: 0, max: 0xd7_ff }), fc.integer({ min: 0xe0_00, max: 0xff_ff }));
 
   it('reads uni followed by four digits as the scalar value they give, for every value in the Basic Multilingual Plane', () => {
     fc.assert(
-      fc.property(
-        scalar.filter(value => value <= 0xff_ff),
-        value => {
-          expect(glyphNameText(`uni${hexDigits(value, 4)}`)).toBe(String.fromCodePoint(value));
-        },
-      ),
+      fc.property(bmpScalar, value => {
+        expect(glyphNameText(`uni${hexDigits(value, 4)}`)).toBe(String.fromCodePoint(value));
+      }),
     );
   });
 
