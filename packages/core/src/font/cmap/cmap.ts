@@ -63,8 +63,8 @@ export class CMap {
   readonly writingMode: 0 | 1;
   readonly cidSystemInfo: CidSystemInfo | undefined;
   private readonly codespaceChain: ReadonlyArray<ReadonlyArray<CodespaceRange>>;
-  // The ranges of the chain by code length, 1 to 4 bytes, in chain order.
-  private readonly codespacesByLength: ReadonlyArray<ReadonlyArray<CodespaceRange>>;
+  // The chain with each CMap's ranges grouped by code length, 1 to 4 bytes, so a child shares its parent's groups.
+  private readonly codespaceChainByLength: ReadonlyArray<ReadonlyArray<ReadonlyArray<CodespaceRange>>>;
   private readonly codespaceKeys: ReadonlySet<string>;
   private readonly codespaceCount: number;
   private readonly entryCount: number;
@@ -91,7 +91,8 @@ export class CMap {
     });
     this.codespaceKeys = keys;
     this.codespaceChain = [local, ...(parent?.codespaceChain ?? [])];
-    this.codespacesByLength = [1, 2, 3, 4].map(length => this.codespaceChain.flat().filter(range => range.low.length === length));
+    const inherited = parent?.codespaceChainByLength ?? [];
+    this.codespaceChainByLength = local.length === 0 ? inherited : [[1, 2, 3, 4].map(length => local.filter(range => range.low.length === length)), ...inherited];
     this.codespaceCount = local.length + (parent?.codespaceCount ?? 0);
     this.entryCount =
       parsed.codespaces.length +
@@ -143,9 +144,11 @@ export class CMap {
   read(bytes: Uint8Array, offset: number, budget: CodespaceBudget): CodeRead {
     const remaining = bytes.length - offset;
     for (let length = 1; length <= 4 && length <= remaining; length++) {
-      for (const range of this.codespacesByLength[length - 1] ?? []) {
-        if (this.match(range, bytes, offset, budget) === length) {
-          return { code: { value: readValue(bytes, offset, length), length }, valid: true };
+      for (const byLength of this.codespaceChainByLength) {
+        for (const range of byLength[length - 1] ?? []) {
+          if (this.match(range, bytes, offset, budget) === length) {
+            return { code: { value: readValue(bytes, offset, length), length }, valid: true };
+          }
         }
       }
     }
