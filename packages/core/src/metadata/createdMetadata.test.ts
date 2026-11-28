@@ -36,9 +36,9 @@ const firstId = (data: Uint8Array): Uint8Array => {
   return first?.kind === 'string' ? first.bytes : new Uint8Array();
 };
 
-// The InstanceID of a created document with one page of the given width.
+// The InstanceID of a created document with one page of the given width; the file identifier is fixed, so that the DocumentID is the same for every document.
 const instanceId = (info: DocumentInfo, width: number): string | undefined => {
-  const document = createDocument({ info });
+  const document = createDocument({ info, fileIdentifier: [new Uint8Array(16).fill(0xab), new Uint8Array(16).fill(0xcd)] });
   document.addPage({ mediaBox: rect(pt(0), pt(0), pt(width), pt(100)) });
   return packetText(document.save().toBytes(), 'InstanceID');
 };
