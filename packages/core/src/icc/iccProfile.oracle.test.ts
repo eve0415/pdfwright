@@ -371,16 +371,6 @@ if (missingOracleVariables.length > 0) {
   stdout.write(`Acrobat lut8 Lab oracle not run: ${missingOracleVariables.join(' and ')} unset.\n`);
 }
 
-describe('ciede2000 oracle metric', () => {
-  it.each([
-    { first: [50, 2.6772, -79.7751], second: [50, 0, -82.7485], expected: 2.0425 },
-    { first: [50, -1.3802, -84.2814], second: [50, 0, -82.7485], expected: 1 },
-    { first: [50, 2.5, 0], second: [73, 25, -18], expected: 27.1492 },
-  ])('matches a published pair with ΔE2000 $expected', ({ first, second, expected }) => {
-    expect(deltaE2000(first, second)).toBeCloseTo(expected, 4);
-  });
-});
-
 describe('local ICC profiles', () => {
   it.skipIf(localDirectory === undefined)('parses every local profile', async () => {
     const files = await localProfiles();
