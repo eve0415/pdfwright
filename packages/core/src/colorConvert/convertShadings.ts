@@ -222,7 +222,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
     return usage;
   }
   for (const carrier of carriers) {
-    for (const bytes of carrierContent(internals, carrier)) {
+    for (const bytes of carrierContent(internals, carrier, seenCarriers)) {
       scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
     }
   }

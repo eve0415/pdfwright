@@ -28,7 +28,7 @@ export type CarrierOwner =
 /** An object reached from a page that names colour spaces and shadings in a resource dictionary of its own. */
 export interface ResourceCarrier {
   readonly kind: 'carrier';
-  /** How the carrier was reached; an object reached both as a form and as an appearance has the role it was first reached by. */
+  /** How the carrier was reached; an object reached both as a form and as an appearance has the role it was first reached by, and `CarrierSeen.appearances` records that it is also an appearance. */
   readonly role: 'form' | 'tiling-pattern' | 'type3' | 'appearance';
   /** The carrier's stream or font dictionary as it was listed; for a `resources` owner, every directly stored Type 3 font that names the dictionary, including fonts that later walks with the same `CarrierSeen` reach. */
   readonly objects: ReadonlySet<PdfObject>;
@@ -54,9 +54,11 @@ export interface CarrierSeen {
   readonly fonts: Map<number, { readonly places: Array<FontPlace>; readonly objects: Set<PdfObject> }>;
   /** The holders whose Font entry names each walked indirect Font category, by its object number. */
   readonly categories: Map<number, Array<CarrierHolder>>;
+  /** Object numbers of the streams an annotation's appearance names, whatever role they were listed by. */
+  readonly appearances: Set<number>;
 }
 
-export const carrierSeen = (): CarrierSeen => ({ objects: new Set(), fonts: new Map(), categories: new Map() });
+export const carrierSeen = (): CarrierSeen => ({ objects: new Set(), fonts: new Map(), categories: new Map(), appearances: new Set() });
 
 /** The key of an indirect object, shared by carrier keys and by callers that key pages and forms. */
 export const referenceKey = (reference: PdfReference): string => `${String(reference.objectNumber)} ${String(reference.generation)} R`;
@@ -116,7 +118,13 @@ class CarrierWalk {
   }
 
   private owner(value: PdfDirectObject | undefined, appearance: boolean): void {
-    if (value?.kind !== 'reference' || this.seen.objects.has(value.objectNumber)) {
+    if (value?.kind !== 'reference') {
+      return;
+    }
+    if (appearance) {
+      this.seen.appearances.add(value.objectNumber);
+    }
+    if (this.seen.objects.has(value.objectNumber)) {
       return;
     }
     const object = this.internals.objects.deref(value);
@@ -283,10 +291,13 @@ const CHAR_PROCS = pdfName('CharProcs').bytes;
 /**
  * The decoded content streams of a carrier that set colours of their own: an appearance stream, a coloured tiling pattern and the d0 glyphs of a Type 3 font.
  * A glyph starts in the graphics state of the text that shows it, so a scan from its own start knows only what the glyph itself selects.
- * A form is not listed, because it starts in the graphics state at the place that paints it.
+ * A form is not listed, because it starts in the graphics state at the place that paints it, unless `seen` records that an annotation also names it as an appearance, which starts in the default graphics state.
  */
-export const carrierContent = (internals: DocumentInternals, carrier: ResourceCarrier): ReadonlyArray<Uint8Array> =>
-  [...carrier.objects].flatMap(object => objectContent(internals, carrier.role, object));
+export const carrierContent = (internals: DocumentInternals, carrier: ResourceCarrier, seen: CarrierSeen): ReadonlyArray<Uint8Array> => {
+  const { owner } = carrier;
+  const role = owner.kind === 'object' && seen.appearances.has(owner.reference.objectNumber) ? 'appearance' : carrier.role;
+  return [...carrier.objects].flatMap(object => objectContent(internals, role, object));
+};
 
 const objectContent = (internals: DocumentInternals, role: ResourceCarrier['role'], object: PdfObject): ReadonlyArray<Uint8Array> => {
   const decoded = (stream: Extract<PdfObject, { kind: 'stream' }>, what: string): Uint8Array => {
