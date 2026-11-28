@@ -347,7 +347,7 @@ describe('appending built content', () => {
     ]);
   });
 
-  // Names are reused only for a strictly equal value, so the source writes every colour component as a real, as the library's own Separation does.
+  // The source writes every colour component as a real, the number kind the Separation built for this document holds.
   it('reuses a name the page resources already give the same separation', () => {
     const spot = '[/Separation /Spot /DeviceCMYK <</FunctionType 2/Domain[0 1]/C0[0.0 0.0 0.0 0.0]/C1[0.0 0.5 0.0 0.0]/N 1>>]';
     const document = load(page(`/Contents 4 0 R/Resources<</ColorSpace<</CS7 ${spot}>>>>`));
