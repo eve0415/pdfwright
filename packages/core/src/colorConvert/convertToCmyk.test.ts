@@ -422,6 +422,34 @@ describe('forms drawn from converted pages', () => {
     expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
     expect(forms[0]).not.toBe(forms[1]);
   });
+
+  it('names the second copy of a form apart from an image in an indirect XObject dictionary', () => {
+    const document = loadDocument(
+      documentBytes(
+        [
+          {
+            resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject 9 0 R',
+            content: '/CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do /PWFORM0 Do',
+          },
+        ],
+        [
+          { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') },
+          { number: 7, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceGray', String.fromCodePoint(10)) },
+          { number: 9, body: '<</Fm 5 0 R/PWFORM0 7 0 R>>' },
+        ],
+      ),
+    );
+    convertToCmyk(document, cmykOptions);
+    const page = document.get(document.page(0).reference);
+    const contents = page.kind === 'dictionary' ? page.entries.get(pdfName('Contents').bytes) : undefined;
+    const xobjects = resolved(document, document.page(0).resources().get(pdfName('XObject').bytes));
+    const pageText = contents?.kind === 'reference' ? streamText(document, contents.objectNumber) : 'no content stream';
+    const drawn = [...pageText.matchAll(/\/(\w+) Do/gu)].map(match => {
+      const value = xobjects?.kind === 'dictionary' ? resolved(document, xobjects.entries.get(pdfName(match[1] ?? '').bytes)) : undefined;
+      return value?.kind === 'stream' ? value.dictionary.get(pdfName('Subtype').bytes) : undefined;
+    });
+    expect(drawn).toStrictEqual([pdfName('Form'), pdfName('Form'), pdfName('Image')]);
+  });
 });
 
 // The page paints through a luminosity soft mask whose DeviceRGB group is object 6.
