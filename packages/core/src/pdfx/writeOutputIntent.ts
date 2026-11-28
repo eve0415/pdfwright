@@ -7,6 +7,7 @@ import type { PrintingCondition } from './printingConditions.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { versionNumber } from '../document/readStructure.ts';
+import { InvalidArgumentError } from '../error/invalidArgumentError.ts';
 import { ParseError } from '../error/parseError.ts';
 import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ValidationError } from '../error/validationError.ts';
@@ -224,9 +225,17 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   }
   document.set(root, pdfDictionary(catalog));
   // Intents may list one intent twice or share a profile, and a reference to a free object or another generation names no object (ISO 32000-1:2008, 7.3.10), so only an object still in use at the referenced generation is deleted.
+  // Past that check, delete refuses only an object stream that holds objects in use (ISO 32000-1:2008, 7.5.7), which those objects still need, so it is kept.
   const remove = (reference: PdfReference): void => {
-    if (internals.objects.generationOf(reference.objectNumber) === reference.generation) {
+    if (internals.objects.generationOf(reference.objectNumber) !== reference.generation) {
+      return;
+    }
+    try {
       document.delete(reference);
+    } catch (error: unknown) {
+      if (!(error instanceof InvalidArgumentError)) {
+        throw error;
+      }
     }
   };
   for (const intent of existing) {
@@ -243,7 +252,7 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   return catalogLowered;
 };
 
-/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict`, and one whose profile cannot be read throws, unless `existing` is `replace`, which removes both. */
+/** Writes a GTS_PDFX output intent (ISO 32000-1:2008, 14.11.5, Table 365) whose DestOutputProfile is the caller's output-class CMYK profile; an existing intent with a different profile throws ValidationError `output-intent-conflict`, and one whose profile cannot be read throws, unless `existing` is `replace`, which removes both, keeping a profile object that other content uses or that is an object stream holding objects in use. */
 export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: OutputIntentOptions): OutputIntentChange => {
   const prepared = prepare(document, options);
   const { existing, internals } = prepared;
