@@ -72,17 +72,25 @@ const countingResolver = (objects: ReadonlyMap<number, PdfDirectObject>) => {
 };
 
 describe('pdf functions', () => {
-  it('interpolates packed samples and clips domain and range', () => {
+  it('interpolates packed samples with the first input varying fastest and clips domain and range', () => {
     const sampled = streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]) }, Uint8Array.of(0, 255));
     const evaluate = createPdfFunction(sampled);
     expect(evaluate([0.5])).toStrictEqual([0.5]);
     expect(evaluate([-1])).toStrictEqual([0]);
-    const bilinear = streamFunction(
-      0,
-      { Domain: numbers([0, 1, 0, 1]), Size: numbers([2, 2]), BitsPerSample: pdfInteger(4), Range: numbers([0, 1]) },
-      Uint8Array.of(0x0f, 0xf0),
+    // ISO 32000-1:2008, 7.10.2: the first input varies fastest, so the 4-bit samples 0, 1, 2 and 3 sit at (0, 0), (1, 0), (0, 1) and (1, 1).
+    const bilinear = createPdfFunction(
+      streamFunction(
+        0,
+        { Domain: numbers([0, 1, 0, 1]), Size: numbers([2, 2]), BitsPerSample: pdfInteger(4), Range: numbers([0, 1]) },
+        Uint8Array.of(0x01, 0x23),
+      ),
     );
-    expect(createPdfFunction(bilinear)([0.25, 0.75])).toStrictEqual([0.625]);
+    expect([bilinear([1, 0]), bilinear([0, 1]), bilinear([0.5, 0.5])]).toStrictEqual([[1 / 15], [2 / 15], [1.5 / 15]]);
+    // ISO 32000-1:2008, 7.10.2: Decode maps samples to [0 2], and Range then clips the output to [0 1].
+    const decoded = createPdfFunction(
+      streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]), Decode: numbers([0, 2]) }, Uint8Array.of(0, 255)),
+    );
+    expect([decoded([0.25]), decoded([1])]).toStrictEqual([[0.5], [1]]);
   });
 
   it('evaluates exponential and stitched functions', () => {
@@ -193,13 +201,14 @@ describe('pdf functions', () => {
     expect(() => createPdfFunction(evenStitching(children))).toThrow(ResourceLimitError);
   });
 
-  it('rejects a function that refers to itself', () => {
+  it('rejects a function that refers to itself before building it again', () => {
     const objects = new Map<number, PdfDirectObject>([[1, evenStitching([pdfReference(1, 0)])]]);
-    const resolve = (value: PdfDirectObject): PdfObject => resolveObject(objects, value);
-    expect(() => createPdfFunction(resolve(pdfReference(1, 0)), resolve)).toThrow(ResourceLimitError);
+    const { resolved, resolve } = countingResolver(objects);
+    expect(() => createPdfFunction(resolveObject(objects, pdfReference(1, 0)), resolve)).toThrow(ResourceLimitError);
+    expect(resolved).toStrictEqual([1]);
   });
 
-  it('executes calculator branches with a bounded operand stack', () => {
+  it('executes calculator branches', () => {
     const calculator = streamFunction(4, { Range: numbers([0, 1]) }, new TextEncoder().encode('{ dup 0.5 lt { dup mul } { 1 exch sub } ifelse }'));
     const evaluate = createPdfFunction(calculator);
     expect(evaluate([0.25])).toStrictEqual([0.0625]);
