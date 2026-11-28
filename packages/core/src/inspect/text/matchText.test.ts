@@ -760,9 +760,9 @@ describe('text matching', () => {
     it.each([
       // Ａ is code 2 and Ｂ code 4, neither in the cmap; Ａ is half-width within 0.1 em of 500 thousandths, and Ｂ makes the font proportional more than 0.02 em away from 1000.
       ['Ａ 600 wide is half-width', '/W[2[600]]', 'mismatch'],
-      ['Ａ 610 wide is not', '/W[2[610]]', 'match'],
+      ['Ａ 601 wide is not', '/W[2[601]]', 'match'],
       ['Ａ 400 wide is half-width', '/W[2[400]]', 'mismatch'],
-      ['Ａ 390 wide is not', '/W[2[390]]', 'match'],
+      ['Ａ 399 wide is not', '/W[2[399]]', 'match'],
       ['Ｂ 981 wide keeps the font from being proportional', '/W[2[500]4[981]]', 'mismatch'],
       ['Ｂ 979 wide makes it proportional', '/W[2[500]4[979]]', 'match'],
       ['Ｂ 1019 wide keeps the font from being proportional', '/W[2[500]4[1019]]', 'mismatch'],
