@@ -97,6 +97,10 @@ const type3 = (state: string) =>
 const type3States = (states: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<<${states}>>>>>>`;
 
+/** A Type 3 font with the given CharProcs and Resources. */
+const type3Font = (charProcs: string, resources: string) =>
+  `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${charProcs}/Encoding<</Differences[97/a 98/b]>>/FirstChar 97/LastChar 98/Widths[1 1]/Resources${resources}>>`;
+
 /** A Type 3 font without Resources whose CharProcs entry is the given value. */
 const shownType3 = (procedures: string) =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs ${procedures}/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>`;
@@ -610,6 +614,44 @@ describe('pdfx page preparation', () => {
       expect(prepare).toThrow(new RegExp(`glyph procedures .*maxDecodedBytes \\(${String(steps - 1)}\\)`, 'u'));
     },
   );
+
+  it.each<[string, string]>([
+    ['A, then B', 'BT /A 12 Tf (a) Tj /B 12 Tf (b) Tj ET'],
+    ['B, then A', 'BT /B 12 Tf (b) Tj /A 12 Tf (a) Tj ET'],
+  ])('reads a glyph procedure that two different CharProcs dictionaries share with the Resources of each font, selecting %s', (_, content) => {
+    // B names a transparent GS and A an opaque one; B's CharProcs also holds glyph b, object 8.
+    const document = single(
+      `<</Font<</A ${type3Font('<</a 6 0 R>>', '<</ExtGState<</GS 9 0 R>>>>')}/B ${type3Font('<</a 6 0 R/b 8 0 R>>', '<</ExtGState<</GS 7 0 R>>>>')}>>>>`,
+      streamBody('', content),
+      [
+        { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+        { number: 7, body: '<</ca 0.5>>' },
+        { number: 8, body: streamBody('', '0 0 d0 0 0 1 1 re f') },
+        { number: 9, body: '<</ca 1>>' },
+      ],
+    );
+    const parts = internalsOf(document);
+    if (parts === undefined) {
+      throw new Error('document internals are unavailable');
+    }
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    expect(addedGroups(document)).toStrictEqual([0]);
+    expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 6)).toHaveLength(1);
+  });
+
+  it('reads a CharProcs dictionary again for a font that a glyph selects after another font whose walk of it ended early', () => {
+    // The glyph selects N, font 11, and then M, font 12, from the Resources of font 10; only font 12 names GS for a transparent state.
+    const document = single('<</Font<</F 10 0 R>>>>', streamBody('', 'BT /F 1 Tf ET'), [
+      { number: 5, body: '<</a 6 0 R>>' },
+      { number: 6, body: streamBody('', '0 0 d0 /GS gs BT /N 1 Tf /M 1 Tf ET') },
+      { number: 7, body: '<</ca 0.5>>' },
+      { number: 9, body: '<</ca 1>>' },
+      { number: 10, body: type3Font('5 0 R', '<</ExtGState<</GS 9 0 R>>/Font<</N 11 0 R/M 12 0 R>>>>') },
+      { number: 11, body: type3Font('5 0 R', '<</ExtGState<</GS 9 0 R>>>>') },
+      { number: 12, body: type3Font('5 0 R', '<</ExtGState<</GS 7 0 R>>>>') },
+    ]);
+    expect(addedGroups(document)).toStrictEqual([0]);
+  });
 
   it('reads a shared glyph procedure again, for as many steps as maxDecodedBytes, in each font that it selects before its first read ends', () => {
     // Font 10 + i names GS opaque, except the last, and names N font 11 + i; the glyph selects N, so each read of it opens the next font before it ends.
