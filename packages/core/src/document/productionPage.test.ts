@@ -16,23 +16,37 @@ const subtype = (value: PdfObject): string | undefined => {
   return name?.kind === 'name' ? ascii(name.bytes) : undefined;
 };
 
-const sharedSpotMask = (bytes: Uint8Array): readonly [number, number, boolean] => {
+interface MaskSharing {
+  readonly spotImages: number;
+  /** The distinct soft masks the Separation images name. */
+  readonly spotMasks: ReadonlyArray<number>;
+  /** The soft masks the other images name. */
+  readonly otherMasks: ReadonlyArray<number>;
+  /** The distinct soft masks every image names. */
+  readonly allMasks: number;
+  readonly imageMasks: number;
+}
+
+const maskSharing = (bytes: Uint8Array): MaskSharing => {
   const document = loadDocument(bytes);
-  const objects = Array.from({ length: 30 }, (_, index) => ({ number: index + 1, value: document.get(pdfReference(index + 1, 0)) }));
-  const spotImages = objects.filter(({ value }) => {
-    if (value.kind !== 'stream' || subtype(value) !== 'Image') {
-      return false;
-    }
-    const space = value.dictionary.get(pdfName('ColorSpace').bytes);
+  const objects = Array.from({ length: 30 }, (_, index) => document.get(pdfReference(index + 1, 0)));
+  const images = objects.flatMap(value => (value.kind === 'stream' && subtype(value) === 'Image' ? [value] : []));
+  const isSeparation = (image: (typeof images)[number]): boolean => {
+    const space = image.dictionary.get(pdfName('ColorSpace').bytes);
     return space?.kind === 'array' && space.items[0]?.kind === 'name' && ascii(space.items[0].bytes) === 'Separation';
-  });
-  const masks = spotImages.map(({ value }) => (value.kind === 'stream' ? value.dictionary.get(pdfName('SMask').bytes) : undefined));
-  const numbers = masks.flatMap(mask => (mask?.kind === 'reference' ? [mask.objectNumber] : []));
-  return [
-    spotImages.length,
-    new Set(numbers).size,
-    !objects.some(({ value }) => value.kind === 'stream' && value.dictionary.get(pdfName('ImageMask').bytes) !== undefined),
-  ];
+  };
+  const maskOf = (image: (typeof images)[number]): Array<number> => {
+    const mask = image.dictionary.get(pdfName('SMask').bytes);
+    return mask?.kind === 'reference' ? [mask.objectNumber] : [];
+  };
+  const spot = images.filter(image => isSeparation(image));
+  return {
+    spotImages: spot.length,
+    spotMasks: [...new Set(spot.flatMap(image => maskOf(image)))],
+    otherMasks: images.filter(image => !isSeparation(image)).flatMap(image => maskOf(image)),
+    allMasks: new Set(images.flatMap(image => maskOf(image))).size,
+    imageMasks: images.filter(image => image.dictionary.get(pdfName('ImageMask').bytes) !== undefined).length,
+  };
 };
 
 describe('production page structure', () => {
@@ -65,8 +79,11 @@ describe('production page structure', () => {
   });
 
   it('uses two Separation images with one shared soft mask', () => {
-    const bytes = createProductionPage().saved.toBytes();
-    expect(sharedSpotMask(bytes)).toStrictEqual([2, 1, true]);
+    const sharing = maskSharing(createProductionPage().saved.toBytes());
+    const [shared] = sharing.spotMasks;
+    // The DeviceRGB artwork has a mask of its own, with other samples, so exactly two soft masks are written.
+    expect([sharing.spotImages, sharing.spotMasks.length, sharing.otherMasks.length, sharing.allMasks, sharing.imageMasks]).toStrictEqual([2, 1, 1, 2, 0]);
+    expect(sharing.otherMasks).not.toContain(shared);
   });
 
   it('clips each painted object to the die line separately', () => {
