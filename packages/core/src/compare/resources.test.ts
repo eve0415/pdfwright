@@ -238,7 +238,7 @@ describe('resource and font comparison', () => {
     expectReplacedFont(compareDocuments(embedded('AAAA'), embedded('BBBB'), { include: ['fonts'] }).differences, 'program');
   });
 
-  // ISO 32000-1:2008, 9.7.1 and 9.7.5: a Type 0 font's program is in its descendant font, and an embedded CMap compares by its decoded bytes.
+  // ISO 32000-1:2008, 9.7.5 and 9.9: an embedded CMap compares by its decoded bytes, and a Type 0 font's program is embedded through the font descriptor of its descendant font.
   it('identifies a Type 0 font by its descendant program and its embedded CMap', () => {
     const compressedCMap = streamBody('/Type/CMap/Filter/FlateDecode', latin1Text(deflateZlib(latin1Bytes('cmapdata'))));
     expect(compareDocuments(composite('AAAA'), composite('AAAA', compressedCMap), { include: ['fonts'] }).differences).toStrictEqual([]);
