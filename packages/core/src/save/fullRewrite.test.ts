@@ -67,14 +67,27 @@ const editMember = (document: LoadedDocument): void => {
   document.set(pdfReference(5, 0), pdfName('Changed'));
 };
 
+// A hint stream whose dictionary has S, which the rewrite checks for only in a file read with a shift.
+const hintStream = { number: 10, body: streamBody('/S 0', 'hints') };
+
 // A linearized file whose H entry gives the offset of object 10, its hint stream, in ten digits so that the offsets do not depend on its value.
-const linearizedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
+const linearizedObjects = (hintOffset: number, hints: TestObject = { number: 10, body: streamBody('', 'hints') }): ReadonlyArray<TestObject> => [
   { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
   catalog,
   pages,
   page,
   content,
-  { number: 10, body: streamBody('', 'hints') },
+  hints,
+];
+
+// The same file with the hint stream between the content stream and the page, so that a prefix of the right length puts one of them where the other reading of H falls.
+const interleavedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
+  { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
+  catalog,
+  pages,
+  content,
+  hintStream,
+  page,
 ];
 
 // A classic PDF 1.4 file whose update adds one object far above the others, so that no section lists the numbers between.
@@ -218,6 +231,66 @@ describe('full rewrite', () => {
     ]);
   });
 
+  it('copies an unchanged object whole when another unchanged object starts inside it, and continues the run after it', () => {
+    // Object 7's data holds a header for object 8, which the entry for object 8 names; object 9 follows object 7 and the source's own copy of 8 comes last.
+    const data = 'aaa\n8 0 obj\n(inner)\nendobj\nbbb';
+    const built = buildPdf([
+      {
+        xref: 'classic',
+        objects: [catalog, pages, page, content, { number: 7, body: streamBody('', data) }, { number: 9, body: '(nine)' }, { number: 8, body: '(outer)' }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const seven = built.offsets.get(7) ?? 0;
+    const inner = seven + built.text.slice(seven).indexOf('8 0 obj');
+    const entry = `${String(built.offsets.get(8) ?? 0).padStart(10, '0')} 00000 n \n`;
+    const source = latin1Bytes(built.text.replace(entry, `${String(inner).padStart(10, '0')} 00000 n \n`));
+    const document = loadDocument(source);
+    const innerString = { kind: 'string', bytes: latin1Bytes('inner'), encoding: 'literal' } as const;
+    const before = [document.structure.status, document.get(pdfReference(8, 0))];
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    const seventh = reloaded.get(pdfReference(7, 0));
+    expect([
+      before,
+      saved.chunks.filter(chunk => chunk.buffer === source.buffer).length,
+      reloaded.structure.status,
+      reloaded.warnings.map(warning => warning.code),
+      seventh.kind === 'stream' ? latin1Text(seventh.data) : seventh.kind,
+      reloaded.get(pdfReference(8, 0)),
+      reloaded.get(pdfReference(9, 0)),
+    ]).toStrictEqual([['intact', innerString], 1, 'intact', [], data, innerString, { kind: 'string', bytes: latin1Bytes('nine'), encoding: 'literal' }]);
+  });
+
+  it('copies an unchanged object whole when it starts inside another unchanged object and ends after it', () => {
+    // Object 8 starts in object 7's data and its string runs past object 7's endobj.
+    const data = 'aaa\n8 0 obj\n(';
+    const built = buildPdf([
+      {
+        xref: 'classic',
+        objects: [catalog, pages, page, content, { number: 7, body: `${streamBody('', data)}\nendobj\nx)` }, { number: 8, body: '(outer)' }],
+        trailer: '/Root 1 0 R',
+      },
+    ]);
+    const seven = built.offsets.get(7) ?? 0;
+    const inner = seven + built.text.slice(seven).indexOf('8 0 obj');
+    const entry = `${String(built.offsets.get(8) ?? 0).padStart(10, '0')} 00000 n \n`;
+    const source = latin1Bytes(built.text.replace(entry, `${String(inner).padStart(10, '0')} 00000 n \n`));
+    const document = loadDocument(source);
+    const spanning = { kind: 'string', bytes: latin1Bytes('\nendstream\nendobj\nx'), encoding: 'literal' } as const;
+    const before = [document.structure.status, document.get(pdfReference(8, 0))];
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    const seventh = reloaded.get(pdfReference(7, 0));
+    expect([
+      before,
+      reloaded.structure.status,
+      reloaded.warnings.map(warning => warning.code),
+      seventh.kind === 'stream' ? latin1Text(seventh.data) : seventh.kind,
+      reloaded.get(pdfReference(8, 0)),
+    ]).toStrictEqual([['intact', spanning], 'intact', [], data, spanning]);
+  });
+
   it('writes changed and repaired objects after the runs and frees deleted ones', () => {
     const source = classic([catalog, pages, page, { number: 4, body: '<</Length 99>>\nstream\n0 0 m 10 10 l S\nendstream' }, { number: 7, body: '(seven)' }]);
     const document = loadDocument(source);
@@ -308,6 +381,58 @@ describe('full rewrite', () => {
       reloaded.pageCount,
       reloaded.structure.status,
     ]).toStrictEqual([true, 'stream', ['linearization-removed'], { kind: 'null' }, { kind: 'null' }, 1, 'intact']);
+  });
+
+  // The loader reads offsets relative to a header that bytes precede, or else as absolute offsets; the hint stream is found under either reading of H.
+  it.each([
+    ['relative to the header', 'relative', 4],
+    ['from the start of the file', 'absolute', 0],
+  ] as const)('drops the hint stream of a linearized file with bytes before its header, with offsets %s', (_, offsets, shift) => {
+    const prefix = offsets === 'absolute' ? 'JUNK' : '';
+    const hints = offsets === 'absolute' ? undefined : hintStream;
+    const draft = buildPdf([{ xref: 'classic', objects: linearizedObjects(0, hints), trailer: '/Root 1 0 R' }], { prefix });
+    const linearized = buildPdf([{ xref: 'classic', objects: linearizedObjects(draft.offsets.get(10) ?? 0, hints), trailer: '/Root 1 0 R' }], { prefix });
+    const document = loadDocument(latin1Bytes(offsets === 'absolute' ? linearized.text : `JUNK${linearized.text}`));
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      document.structure.headerOffset,
+      internalsOf(document)?.base?.shift,
+      document.structure.linearized,
+      document.get(pdfReference(10, 0)).kind,
+      saved.warnings.map(warning => warning.code),
+      reloaded.get(pdfReference(9, 0)),
+      reloaded.get(pdfReference(10, 0)),
+      reloaded.structure.status,
+    ]).toStrictEqual([4, shift, true, 'stream', ['linearization-removed', 'junk-dropped'], { kind: 'null' }, { kind: 'null' }, 'intact']);
+  });
+
+  // When bytes precede the header, H may count from the start of the file or, like the sections, from the header; a live object that the other reading names is kept.
+  it.each([
+    ['from the start of the file, with the page where the header-relative reading falls', 'absolute', 3],
+    ['from the header, with the content stream where the absolute reading falls', 'relative', 4],
+  ] as const)('keeps a live object at the other reading of H in a linearized file with bytes before its header, with H counted %s', (_, reading, victim) => {
+    const draft = buildPdf([{ xref: 'classic', objects: interleavedObjects(0), trailer: '/Root 1 0 R' }]);
+    const hint = draft.offsets.get(10) ?? 0;
+    const prefixLength = reading === 'absolute' ? (draft.offsets.get(3) ?? 0) - hint : hint - (draft.offsets.get(4) ?? 0);
+    const linearized = buildPdf([
+      { xref: 'classic', objects: interleavedObjects(reading === 'absolute' ? hint + prefixLength : hint), trailer: '/Root 1 0 R' },
+    ]);
+    const document = loadDocument(latin1Bytes(`${'J'.repeat(prefixLength)}${linearized.text}`));
+    const saved = document.save({ mode: 'full' });
+    const reloaded = loadDocument(saved.chunks);
+    expect([
+      prefixLength > 0,
+      document.structure.headerOffset,
+      internalsOf(document)?.base?.shift,
+      document.structure.linearized,
+      document.get(pdfReference(10, 0)).kind,
+      saved.warnings.map(warning => warning.code),
+      deepEqual(reloaded.get(pdfReference(victim, 0)), document.get(pdfReference(victim, 0)), 'strict'),
+      reloaded.get(pdfReference(10, 0)),
+      reloaded.pageCount,
+      reloaded.structure.status,
+    ]).toStrictEqual([true, prefixLength, prefixLength, true, 'stream', ['linearization-removed', 'junk-dropped'], true, { kind: 'null' }, 1, 'intact']);
   });
 
   it.each([

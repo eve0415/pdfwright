@@ -27,6 +27,7 @@ import { coveringStreamData, fieldWidths, idArray, writeCoveringTable } from './
 const TYPE = pdfName('Type').bytes;
 const LINEARIZED = pdfName('Linearized').bytes;
 const H = pdfName('H').bytes;
+const S = pdfName('S').bytes;
 const N = pdfName('N').bytes;
 const FILTER = pdfName('Filter').bytes;
 // The longest gap between two unchanged objects that is checked for white space and comments, so that they can be copied as one run.
@@ -89,6 +90,11 @@ class FullRewriter {
     this.warnings.push(warning);
   }
 
+  private isHintStream(number: number): boolean {
+    const value = this.input.store.load(number)?.value;
+    return value?.kind === 'stream' && value.dictionary.has(S);
+  }
+
   // Annex F: the linearization dictionary is the first object and its H entry gives the offsets of the hint streams; the rewrite does not keep the layout they describe.
   private dropLinearization(): void {
     const { store } = this.input;
@@ -110,9 +116,14 @@ class FullRewriter {
     const offsets = new Set(
       hints?.kind === 'array' ? hints.items.filter((_, index) => index % 2 === 0).map(item => (item.kind === 'integer' ? item.value : -1)) : [],
     );
+    // When bytes precede the header, H may count from the start of the file or, like the sections the index was read from, from the header. An object found under either reading is then dropped only if it is a stream whose dictionary has S, which a hint stream carries, so that the other reading never drops a live object.
+    const shift = this.input.base?.shift ?? 0;
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);
-      if (entry.type === IN_FILE && offsets.has(entry.location)) {
+      if (entry.type !== IN_FILE) {
+        continue;
+      }
+      if (shift === 0 ? offsets.has(entry.location) : (offsets.has(entry.location) || offsets.has(entry.location - shift)) && this.isHintStream(number)) {
         this.dropped.add(number);
       }
     }
@@ -248,10 +259,14 @@ class FullRewriter {
       if (first === undefined) {
         break;
       }
-      let last = first;
+      // An object that starts before the run's end lies inside an object already in the run, as when a stream's data holds an object the index names, so it joins the run without extending it unless it ends later.
+      let end = first.end;
       let next = index + 1;
-      while (next < objects.length && this.gapIsBlank(last.end, objects[next]?.start ?? 0)) {
-        last = objects[next++] ?? last;
+      for (let following = objects[next]; following !== undefined; following = objects[++next]) {
+        if (following.start >= end && !this.gapIsBlank(end, following.start)) {
+          break;
+        }
+        end = Math.max(end, following.end);
       }
       const runOffset = emitter.offset;
       for (let member = index; member < next; member++) {
@@ -265,7 +280,7 @@ class FullRewriter {
           });
         }
       }
-      for (const view of source.views(first.start, last.end)) {
+      for (const view of source.views(first.start, end)) {
         emitter.view(view);
       }
       emitter.writer.writeByte(0x0a);
