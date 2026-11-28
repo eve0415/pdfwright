@@ -425,14 +425,15 @@ describe('appending to malformed pages', () => {
 });
 
 describe('properties', () => {
-  // How the page holds its one existing stream, object 4.
+  // How the page holds its existing streams: object 4 alone, or object 4 followed by object 10, whose operators differ.
+  const second = { number: 10, body: streamBody('', '\n2 w') };
   const shapes = {
     absent: { extra: '', objects: [] },
     stream: { extra: '/Contents 4 0 R', objects: [] },
-    array: { extra: '/Contents[4 0 R]', objects: [] },
-    indirect: { extra: '/Contents 9 0 R', objects: [{ number: 9, body: '[4 0 R]' }] },
+    array: { extra: '/Contents[4 0 R 10 0 R]', objects: [second] },
+    indirect: { extra: '/Contents 9 0 R', objects: [{ number: 9, body: '[4 0 R 10 0 R]' }, second] },
   } as const;
-  const original = '0 0 m 10 10 l S';
+  const original = { absent: '', stream: '0 0 m 10 10 l S', array: '0 0 m 10 10 l S\n2 w', indirect: '0 0 m 10 10 l S\n2 w' } as const;
 
   it('adds content after the existing streams, leaving them and an indirect Contents array unchanged', () => {
     fc.assert(
@@ -443,19 +444,17 @@ describe('properties', () => {
         (shape, isolate, raw) => {
           const { extra, objects } = shapes[shape];
           const document = load([...page(`${extra}/Resources<<>>`), ...objects]);
-          const before = [object(document, 4), content(document, 4), ...objects.map(item => object(document, item.number))];
+          const written = (): Array<string> =>
+            [4, ...objects.map(item => item.number)].flatMap(number => [object(document, number), content(document, number)]);
+          const before = written();
           document.page(0).appendContent(latin1Bytes(raw), { isolate });
           const contents = entry(document, document.get(pdfReference(3, 0)), 'Contents');
           const streams = contents.kind === 'array' ? contents.items : [contents];
           const decoded = streams.map(stream => latin1Text(streamBytes(resolved(document, stream)))).join('');
-          const existing = shape === 'absent' ? '' : original;
+          const existing = original[shape];
           const expected = existing === '' ? raw : isolate ? `q\n${existing}\nQ\n${raw}` : `${existing}\n${raw}`;
           const depth = [...decoded.matchAll(/\b[qQ]\b/gu)].reduce((level, [operator]) => level + (operator === 'q' ? 1 : -1), 0);
-          expect([decoded, depth, [object(document, 4), content(document, 4), ...objects.map(item => object(document, item.number))]]).toStrictEqual([
-            expected,
-            0,
-            before,
-          ]);
+          expect([decoded, depth, written()]).toStrictEqual([expected, 0, before]);
         },
       ),
     );
