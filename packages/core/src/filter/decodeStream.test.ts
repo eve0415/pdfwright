@@ -7,7 +7,7 @@ import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
-import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
+import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfName, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
 import { decodeStream } from './decodeStream.ts';
 
@@ -23,8 +23,26 @@ const ignore = (): void => {
   // Warnings are not under test here.
 };
 
-// Resolves every reference to the name ASCIIHexDecode.
-const deref = (value: PdfDirectObject | undefined): PdfObject | undefined => (value?.kind === 'reference' ? pdfName('ASCIIHexDecode') : value);
+const dictionary = (entries: Array<[string, PdfDirectObject]>): PdfDirectObject =>
+  pdfDictionary(new PdfDictionaryEntries(entries.map(([key, value]) => [pdfName(key).bytes, value])));
+
+const NULL: PdfDirectObject = { kind: 'null' };
+
+// PNG Up rows of four columns (a tag byte, then the difference from the row above) and the rows they decode to.
+const upRows = Uint8Array.of(2, 1, 0, 16, 0, 2, 0, 0, 58, 0);
+const upDecoded = Uint8Array.of(1, 0, 16, 0, 1, 0, 74, 0);
+const pngColumns4 = dictionary([
+  ['Predictor', pdfInteger(12)],
+  ['Columns', pdfInteger(4)],
+]);
+
+// Resolves 9 0 R to the name ASCIIHexDecode and 10 0 R to the Predictor 12, Columns 4 dictionary; any other reference names no object.
+const objects = new Map<string, PdfObject>([
+  ['9 0', pdfName('ASCIIHexDecode')],
+  ['10 0', pngColumns4],
+]);
+const deref = (value: PdfDirectObject | undefined): PdfObject | undefined =>
+  value?.kind === 'reference' ? objects.get(`${String(value.objectNumber)} ${String(value.generation)}`) : value;
 
 interface Decoded {
   data: Uint8Array;
@@ -44,15 +62,39 @@ const decode = (input: PdfStream, maxDecodedBytes = 1_048_576): Decoded => {
 
 const text = new TextEncoder().encode('BT /F1 12 Tf (Hello) Tj ET\n'.repeat(20));
 
+const hexText = (bytes: Uint8Array): Uint8Array => new TextEncoder().encode([...bytes].map(byte => byte.toString(16).padStart(2, '0')).join(''));
+
+// Packs codes high-order bit first into bytes, as ISO 32000-1:2008, 7.4.4.2 describes.
+const packCodes = (codes: ReadonlyArray<readonly [number, number]>): Uint8Array => {
+  let bits = '';
+  for (const [code, width] of codes) {
+    bits += code.toString(2).padStart(width, '0');
+  }
+  bits = bits.padEnd(Math.ceil(bits.length / 8) * 8, '0');
+  const bytes: Array<number> = [];
+  for (let offset = 0; offset < bits.length; offset += 8) {
+    bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
+  }
+  return Uint8Array.from(bytes);
+};
+
+// LZW data of one literal code per byte after a clear, all at 9 bits, ended by EOD.
+const lzwLiterals = (bytes: Uint8Array): Uint8Array => packCodes([[256, 9], ...[...bytes].map(byte => [byte, 9] as const), [257, 9]]);
+
 describe('stream decoding', () => {
   it('returns unfiltered data unchanged', () => {
     const input = stream(text, []);
-    expect(decode(input).data).toBe(text);
+    expect(decode(input).data).toStrictEqual(text);
   });
 
   it('limits unfiltered streams and empty filter arrays', () => {
     expect(() => decode(stream(text, []), 100)).toThrow(ResourceLimitError);
     expect(() => decode(stream(text, [['Filter', pdfArray([])]]), 100)).toThrow(ResourceLimitError);
+  });
+
+  it('accepts an unfiltered stream of exactly maxDecodedBytes and refuses one byte more', () => {
+    expect(decode(stream(text, []), text.length).data).toStrictEqual(text);
+    expect(() => decode(stream(text, []), text.length - 1)).toThrow(ResourceLimitError);
   });
 
   it('inflates FlateDecode data given as a name or a one-element array', () => {
@@ -65,18 +107,51 @@ describe('stream decoding', () => {
   });
 
   it('applies a PNG predictor from DecodeParms', () => {
-    const rows = Uint8Array.of(2, 1, 0, 16, 0, 2, 0, 0, 58, 0);
-    const parameters = pdfDictionary(
-      new PdfDictionaryEntries([
-        [pdfName('Predictor').bytes, pdfInteger(12)],
-        [pdfName('Columns').bytes, pdfInteger(4)],
-      ]),
-    );
-    const input = stream(deflateZlib(rows), [
+    const input = stream(deflateZlib(upRows), [
       ['Filter', pdfName('FlateDecode')],
-      ['DecodeParms', parameters],
+      ['DecodeParms', pngColumns4],
     ]);
-    expect(decode(input).data).toStrictEqual(Uint8Array.of(1, 0, 16, 0, 1, 0, 74, 0));
+    expect(decode(input).data).toStrictEqual(upDecoded);
+  });
+
+  // ISO 32000-1:2008, 7.3.8.2, Table 5: with several filters, DecodeParms is an array with one entry per filter, null where a filter takes the defaults.
+  it('applies each entry of a DecodeParms array to the filter at the same position', () => {
+    const input = stream(hexText(deflateZlib(upRows)), [
+      ['Filter', pdfArray([pdfName('ASCIIHexDecode'), pdfName('FlateDecode')])],
+      ['DecodeParms', pdfArray([NULL, pngColumns4])],
+    ]);
+    expect(decode(input).data).toStrictEqual(upDecoded);
+  });
+
+  it('applies a single DecodeParms dictionary to the first of two filters only', () => {
+    // The outer layer stores the inner zlib stream as PNG rows of four bytes tagged None, and the inner one holds the Up rows themselves, which the predictor would change if it reached them.
+    const inner = deflateZlib(upRows);
+    const rows: Array<number> = [];
+    for (let offset = 0; offset < inner.length; offset += 4) {
+      rows.push(0, ...inner.subarray(offset, offset + 4));
+    }
+    const input = stream(deflateZlib(Uint8Array.from(rows)), [
+      ['Filter', pdfArray([pdfName('FlateDecode'), pdfName('FlateDecode')])],
+      ['DecodeParms', pngColumns4],
+    ]);
+    expect(decode(input).data).toStrictEqual(upRows);
+  });
+
+  it.each([
+    ['a real', pdfReal(4)],
+    ['a name', pdfName('Four')],
+  ])('refuses a decode parameter given as %s', (_, columns) => {
+    const input = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      [
+        'DecodeParms',
+        dictionary([
+          ['Predictor', pdfInteger(12)],
+          ['Columns', columns],
+        ]),
+      ],
+    ]);
+    expect(() => decode(input)).toThrow(ParseError);
   });
 
   it('reports flate warnings as load warnings', () => {
@@ -89,6 +164,12 @@ describe('stream decoding', () => {
     expect(decode(input).warnings.map(warning => warning.code)).toStrictEqual(['flate-checksum-mismatch', 'flate-trailing-data']);
   });
 
+  it('reports a truncated flate trailer as a load warning', () => {
+    const input = stream(deflateZlib(text).subarray(0, -2), [['Filter', pdfName('FlateDecode')]]);
+    const decoded = decode(input);
+    expect([decoded.data, decoded.warnings.map(warning => warning.code)]).toStrictEqual([text, ['flate-truncated-trailer']]);
+  });
+
   it('refuses filters it does not implement and output above maxDecodedBytes', () => {
     const jbig2 = stream(text, [['Filter', pdfName('JBIG2Decode')]]);
     const numeric = stream(text, [['Filter', pdfInteger(1)]]);
@@ -99,7 +180,7 @@ describe('stream decoding', () => {
   });
 
   it('applies filters in order, accepts abbreviations and follows indirect filters when given a resolver', () => {
-    const hex = new TextEncoder().encode([...deflateZlib(text)].map(byte => byte.toString(16).padStart(2, '0')).join(''));
+    const hex = hexText(deflateZlib(text));
     const chained = stream(hex, [['Filter', pdfArray([pdfName('AHx'), pdfName('FlateDecode')])]]);
     expect(decode(chained).data).toStrictEqual(text);
     const indirect = stream(hex, [['Filter', pdfReference(9, 0)]]);
@@ -107,8 +188,83 @@ describe('stream decoding', () => {
     expect(() => decode(indirect)).toThrow(ParseError);
   });
 
-  it('refuses Crypt-filtered data', () => {
-    const crypt = stream(text, [['Filter', pdfName('Crypt')]]);
+  it('resolves references inside a Filter array and a DecodeParms reference through the resolver', () => {
+    const input = stream(hexText(deflateZlib(upRows)), [
+      ['Filter', pdfArray([pdfReference(9, 0), pdfName('FlateDecode')])],
+      ['DecodeParms', pdfArray([NULL, pdfReference(10, 0)])],
+    ]);
+    expect(decodeStream(input, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upDecoded);
+    const direct = stream(deflateZlib(upRows), [
+      ['Filter', pdfName('FlateDecode')],
+      ['DecodeParms', pdfReference(10, 0)],
+    ]);
+    expect(decodeStream(direct, { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(upDecoded);
+  });
+
+  // ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
+  it('reads a null Filter, given directly or as a reference to no object, as no filter', () => {
+    expect(decode(stream(text, [['Filter', NULL]])).data).toStrictEqual(text);
+    expect(decodeStream(stream(text, [['Filter', pdfReference(8, 0)]]), { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(text);
+  });
+
+  // ISO 32000-1:2008, 7.4.10: a Crypt filter other than Identity needs the document's security handler.
+  it('refuses data through a Crypt filter that needs decryption', () => {
+    const crypt = stream(text, [
+      ['Filter', pdfName('Crypt')],
+      ['DecodeParms', dictionary([['Name', pdfName('StdCF')]])],
+    ]);
     expect(() => decode(crypt)).toThrow(UnsupportedFeatureError);
+    // An unknown filter is refused too; the message is what says decryption is the reason.
+    expect(() => decode(crypt)).toThrow(/decryption/u);
+  });
+});
+
+describe('filter names', () => {
+  const payload = new TextEncoder().encode('Man is distinguished');
+
+  // ISO 32000-1:2008, Table 94 gives the abbreviated filter names, which decode as the full names do.
+  it.each([
+    ['A85', 'ASCII85Decode', new TextEncoder().encode('9jqo^BlbD-BleB1DJ+*+F(f,q~>')],
+    ['LZW', 'LZWDecode', lzwLiterals(payload)],
+    ['Fl', 'FlateDecode', deflateZlib(payload)],
+    ['RL', 'RunLengthDecode', Uint8Array.of(payload.length - 1, ...payload, 128)],
+    ['AHx', 'ASCIIHexDecode', hexText(payload)],
+  ])('decodes %s as %s', (abbreviation, name, data) => {
+    expect([decode(stream(data, [['Filter', pdfName(abbreviation)]])).data, decode(stream(data, [['Filter', pdfName(name)]])).data]).toStrictEqual([
+      payload,
+      payload,
+    ]);
+  });
+
+  it.each([
+    ['CCF', /CCITTFaxDecode/u],
+    ['DCT', /DCTDecode/u],
+  ])('refuses %s and names the filter it abbreviates', (abbreviation, name) => {
+    const input = stream(text, [['Filter', pdfName(abbreviation)]]);
+    expect(() => decode(input)).toThrow(UnsupportedFeatureError);
+    expect(() => decode(input)).toThrow(name);
+  });
+});
+
+describe('LZWDecode parameters', () => {
+  it('reads EarlyChange from DecodeParms', () => {
+    // 254 literal codes after a clear fill the table to 511 entries, so EOD is written with 9 bits, as EarlyChange 0 reads it; EarlyChange 1 reads 10 bits there, which with the byte after it name no table entry.
+    const literals = Uint8Array.from({ length: 254 }, (_, index) => index % 200);
+    const data = packCodes([[256, 9], ...[...literals].map(byte => [byte, 9] as const), [257, 9], [0xff, 8]]);
+    const late = stream(data, [
+      ['Filter', pdfName('LZWDecode')],
+      ['DecodeParms', dictionary([['EarlyChange', pdfInteger(0)]])],
+    ]);
+    const early = stream(data, [['Filter', pdfName('LZWDecode')]]);
+    expect(decode(late).data).toStrictEqual(literals);
+    expect(() => decode(early)).toThrow(ParseError);
+  });
+
+  it('applies a PNG predictor from DecodeParms', () => {
+    const input = stream(lzwLiterals(upRows), [
+      ['Filter', pdfName('LZWDecode')],
+      ['DecodeParms', pngColumns4],
+    ]);
+    expect(decode(input).data).toStrictEqual(upDecoded);
   });
 });
