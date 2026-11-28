@@ -89,6 +89,14 @@ const fewestSteps = (internals: DocumentInternals, describe: (texts: ResolvedTex
   return high;
 };
 
+// The steps that describing a second value takes after a first, when the two lead into a cycle of `size` objects at different objects.
+const extraSteps = (size: number): number => {
+  const ring = Array.from({ length: size }, (_, index) => `[${String(22 + ((index + 1) % size))} 0 R ${String(index)}]`);
+  const internals = internalsOrThrow(['<</X 22 0 R>>', '<</Y 23 0 R>>', ...ring]);
+  const [first, second] = [FIRST, 21].map(number => internals.objects.deref(pdfReference(number, 0)));
+  return fewestSteps(internals, texts => [texts.text(first), texts.text(second)]) - fewestSteps(internals, texts => [texts.text(first)]);
+};
+
 const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
   items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
 
@@ -211,12 +219,6 @@ describe('reference cycles', () => {
 
   // A cycle that many values lead into, such as a page tree that encoding dictionaries reach through their pages, is described once, so each further value costs only what it holds itself.
   it('describes a second value that leads into a cycle in steps that do not grow with the cycle', () => {
-    const extraSteps = (size: number): number => {
-      const ring = Array.from({ length: size }, (_, index) => `[${String(22 + ((index + 1) % size))} 0 R ${String(index)}]`);
-      const internals = internalsOrThrow(['<</X 22 0 R>>', '<</Y 23 0 R>>', ...ring]);
-      const [first, second] = [FIRST, 21].map(number => internals.objects.deref(pdfReference(number, 0)));
-      return fewestSteps(internals, texts => [texts.text(first), texts.text(second)]) - fewestSteps(internals, texts => [texts.text(first)]);
-    };
     expect(extraSteps(40)).toBe(extraSteps(2));
   });
 
@@ -373,10 +375,11 @@ describe('properties', () => {
         const shared = new ResolvedTexts(internals);
         const texts = order.map(index => shared.text(asked(index)));
         expect(texts).toStrictEqual(order.map(index => new ResolvedTexts(internals).text(asked(index))));
-        const leadingIntoCycles = order.filter((_, at) => texts[at]?.startsWith('~') === true);
-        expect(sameness(leadingIntoCycles.map(index => texts[order.indexOf(index)]))).toStrictEqual(
-          sameness(leadingIntoCycles.map(index => unfolded(bodies, index, bodies.length + 1))),
-        );
+        const leadingIntoCycles = order.flatMap((index, at) => {
+          const text = texts[at];
+          return text?.startsWith('~') === true ? [{ text, unfolds: unfolded(bodies, index, bodies.length + 1) }] : [];
+        });
+        expect(sameness(leadingIntoCycles.map(({ text }) => text))).toStrictEqual(sameness(leadingIntoCycles.map(({ unfolds }) => unfolds)));
       }),
     );
   });
