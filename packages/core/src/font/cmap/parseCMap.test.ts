@@ -30,6 +30,23 @@ const split = (cmap: CMap, hex: string): Array<string> => {
 
 const code = (hex: string): CMapCode => ({ value: Number.parseInt(hex, 16), length: hex.length / 2 });
 
+// Entries written as blocks of at most 100, the most a CMap file block holds (9.7.5.4).
+const blocks = (operator: string, entries: ReadonlyArray<string>): string => {
+  const written: Array<string> = [];
+  for (let start = 0; start < entries.length; start += 100) {
+    const block = entries.slice(start, start + 100);
+    written.push(`${String(block.length)} begin${operator} ${block.join(' ')} end${operator}`);
+  }
+  return written.join('\n');
+};
+
+// One-code 2-byte codespace ranges for the codes 0 to count − 1 and then for `extra`, which a CMap checks in that order.
+const codespaces = (count: number, extra: ReadonlyArray<string> = []): string =>
+  blocks(
+    'codespacerange',
+    [...Array.from({ length: count }, (_, index) => index.toString(16).padStart(4, '0')), ...extra].map(hex => `<${hex}> <${hex}>`),
+  );
+
 // ISO 32000-1:2008, 9.7.5.4, the EXAMPLE's CMap, with the ranges it shows.
 const SHIFT_JIS = `%!PS-Adobe-3.0 Resource-CMap
 /CIDInit /ProcSet findresource begin
@@ -189,30 +206,31 @@ describe('embedded and ToUnicode CMaps', () => {
   });
 
   describe('the codespace check budget of 1,000,000', () => {
-    // 2000 one-code ranges <0000> to <07CF>: the miss FFFF costs 4000 checks (2000 to read, 2000 to consume it as invalid), 07CF costs 2000 and 0000 costs 1.
-    const WIDE_RANGES = `2000 begincodespacerange ${Array.from({ length: 2000 }, (_, index) => {
-      const hex = index.toString(16).padStart(4, '0');
-      return `<${hex}> <${hex}>`;
-    }).join(' ')} endcodespacerange`;
+    const MISSES = Array.from({ length: 249 }, () => 'ffff!');
+    // Over 2000 ranges the miss FFFF costs 4000 checks (2000 to read, 2000 to consume it as invalid), 07CF costs 2000 and 0000 costs 1.
+    const WIDE_RANGES = codespaces(2000);
     const AT_LIMIT = `${'ffff'.repeat(249)}07cf07cf`;
     const PAST_LIMIT = `${AT_LIMIT}0000`;
+    const PARENT_RANGES = codespaces(1998, ['07ce']);
+    const CHILD_RANGES = `/Parent usecmap ${codespaces(1998, ['07cf'])}`;
 
     it('splits a string that takes exactly the budget and refuses one that takes one check more', () => {
-      expect(split(cmapOf(WIDE_RANGES), AT_LIMIT)).toHaveLength(251);
+      expect(split(cmapOf(WIDE_RANGES), AT_LIMIT)).toStrictEqual([...MISSES, '07cf', '07cf']);
       expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(ResourceLimitError);
       expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(/codespace checks/u);
     });
 
     it('gives each string a CMap splits a budget of its own', () => {
       const cmap = cmapOf(WIDE_RANGES);
-      const codes = [...Array.from({ length: 249 }, () => 'ffff!'), '07cf', '07cf'];
+      const codes = [...MISSES, '07cf', '07cf'];
       expect([split(cmap, AT_LIMIT), split(cmap, AT_LIMIT)]).toStrictEqual([codes, codes]);
     });
 
-    it('checks a codespace range a usecmap child repeats from its parent once', () => {
-      const child = cmapOf(`/Parent usecmap ${WIDE_RANGES}`, cmapOf(WIDE_RANGES));
-      expect(split(child, AT_LIMIT)).toHaveLength(251);
-      expect(() => split(child, PAST_LIMIT)).toThrow(ResourceLimitError);
+    it('checks the union of a usecmap child and its parent, each range once', () => {
+      // Both define 0000 to 07CD; the parent adds 07CE and the child 07CF. The child checks its own 07CF first and then the 1999 ranges of its parent, so the miss FFFF costs 4000 checks, 07CE costs 2000, 07CD costs 1999 and 07CF costs 1.
+      const atLimit = `${'ffff'.repeat(249)}07ce07cf07cd`;
+      expect(split(cmapOf(CHILD_RANGES, cmapOf(PARENT_RANGES)), atLimit)).toStrictEqual([...MISSES, '07ce', '07cf', '07cd']);
+      expect(() => split(cmapOf(CHILD_RANGES, cmapOf(PARENT_RANGES)), `${atLimit}07cf`)).toThrow(ResourceLimitError);
     });
   });
 
@@ -353,16 +371,6 @@ describe('damaged CMap entries', () => {
 const hex4 = (value: number): string => value.toString(16).padStart(4, '0');
 
 const utf16Hex = (text: string): string => Array.from({ length: text.length }, (_, index) => hex4(text.charCodeAt(index))).join('');
-
-// Entries written as blocks of at most 100, the most a CMap file block holds (9.7.5.4).
-const blocks = (operator: string, entries: ReadonlyArray<string>): string => {
-  const written: Array<string> = [];
-  for (let start = 0; start < entries.length; start += 100) {
-    const block = entries.slice(start, start + 100);
-    written.push(`${String(block.length)} begin${operator} ${block.join(' ')} end${operator}`);
-  }
-  return written.join('\n');
-};
 
 describe('properties', () => {
   // Disjoint 2-byte code segments, each written as one cidrange or as one cidchar per code, with the CID of its first code.
