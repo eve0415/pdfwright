@@ -27,8 +27,14 @@ export const fontDocument = (objects: ReadonlyArray<TestObject> = [], options: L
   return parts;
 };
 
+/** An object read from a test document, with the document it was read from. */
+export interface ObjectInDocument {
+  readonly document: DocumentInternals;
+  readonly object: PdfObject;
+}
+
 /** Object 10 of a document holding `body` as object 10 and `objects` beside it, with the document it was read from. */
-export const objectIn = (body: string, objects: ReadonlyArray<TestObject> = []): { readonly document: DocumentInternals; readonly object: PdfObject } => {
+export const objectIn = (body: string, objects: ReadonlyArray<TestObject> = []): ObjectInDocument => {
   const document = fontDocument([{ number: 10, body }, ...objects]);
   const object = document.objects.deref(pdfReference(10, 0));
   if (object === undefined) {

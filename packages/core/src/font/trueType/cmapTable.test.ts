@@ -333,6 +333,45 @@ describe('embedded TrueType cmap tables', () => {
   });
 });
 
+// A program with a format 4 subtable and the given format 14 subtable.
+const withVariations = (variations: ReadonlyArray<number>): Uint8Array =>
+  programWith([
+    [3, 1, format4([{ start: 0x41, end: 0x41, delta: 1 }])],
+    [0, 5, variations],
+  ]);
+
+// Format 14 with `count` selector records that list no sequences.
+const emptySelectors = (count: number): Array<number> => [
+  ...u16(14),
+  ...u32(10 + 11 * count, count),
+  ...Array.from({ length: count }, (_, index) => [...u24(0xfe_00 + index), ...u32(0, 0)]).flat(),
+];
+
+// `count` non-default variation mappings, each to glyph 1.
+const variationMappings = (count: number): Array<readonly [number, number]> => Array.from({ length: count }, (_, index) => [0x10_00 + index, 1] as const);
+
+// What breaks the inverse of a cmap over some code points: mapped code points missing from their glyph's characters, characters that map to another glyph, and how many characters the mapped glyphs list against how many code points map.
+interface InverseFaults {
+  readonly missing: Array<number>;
+  readonly stray: Array<number>;
+  readonly listed: number;
+  readonly mapped: number;
+}
+
+const inverseFaults = (cmap: TrueTypeCmap, codePoints: ReadonlyArray<number>): InverseFaults => {
+  const mapped = codePoints.flatMap(codePoint => {
+    const glyph = cmap.glyph(codePoint);
+    return glyph === undefined ? [] : [[codePoint, glyph] as const];
+  });
+  const glyphs = [...new Set(mapped.map(([, glyph]) => glyph))];
+  return {
+    missing: mapped.flatMap(([codePoint, glyph]) => (cmap.characters(glyph).includes(codePoint) ? [] : [codePoint])),
+    stray: glyphs.flatMap(glyph => cmap.characters(glyph).filter(codePoint => cmap.glyph(codePoint) !== glyph)),
+    listed: glyphs.flatMap(glyph => cmap.characters(glyph)).length,
+    mapped: mapped.length,
+  };
+};
+
 describe('embedded TrueType cmap tables, damaged or at their limits', () => {
   it.each([
     { label: 'a format 4 segment that starts after its end', subtable: (): Array<number> => format4([{ start: 0x50, end: 0x41, delta: 1 }]), encoding: 1 },
@@ -410,28 +449,14 @@ describe('embedded TrueType cmap tables, damaged or at their limits', () => {
     expect(readTrueTypeCmap(program([['cmap', table]])).kind).toBe('unreadable');
   });
 
-  const withVariations = (variations: ReadonlyArray<number>): Uint8Array =>
-    programWith([
-      [3, 1, format4([{ start: 0x41, end: 0x41, delta: 1 }])],
-      [0, 5, variations],
-    ]);
-
-  // Format 14 with `count` selector records that list no sequences.
-  const emptySelectors = (count: number): Array<number> => [
-    ...u16(14),
-    ...u32(10 + 11 * count, count),
-    ...Array.from({ length: count }, (_, index) => [...u24(0xfe_00 + index), ...u32(0, 0)]).flat(),
-  ];
-
   it('accepts 16,384 format 14 selector records and throws ResourceLimitError for one more', () => {
     expect(readTrueTypeCmap(withVariations(emptySelectors(16_384))).kind).toBe('cmap');
     expect(() => readTrueTypeCmap(withVariations(emptySelectors(16_385)))).toThrow(ResourceLimitError);
   });
 
   it('accepts 16,384 format 14 entries counting its record and throws ResourceLimitError for one more', () => {
-    const mappings = (count: number): Array<readonly [number, number]> => Array.from({ length: count }, (_, index) => [0x10_00 + index, 1] as const);
-    expect(readTrueTypeCmap(withVariations(format14(0xfe_0f, [], mappings(16_383)))).kind).toBe('cmap');
-    expect(() => readTrueTypeCmap(withVariations(format14(0xfe_0f, [], mappings(16_384))))).toThrow(ResourceLimitError);
+    expect(readTrueTypeCmap(withVariations(format14(0xfe_0f, [], variationMappings(16_383)))).kind).toBe('cmap');
+    expect(() => readTrueTypeCmap(withVariations(format14(0xfe_0f, [], variationMappings(16_384))))).toThrow(ResourceLimitError);
   });
 
   it('reports a default UVS table that runs past the subtable as unreadable', () => {
@@ -452,18 +477,6 @@ describe('properties', () => {
   });
   const group = fc.record({ gap: fc.integer({ min: 1, max: 30_000 }), span: fc.integer({ min: 0, max: 8 }), glyph: fc.integer({ min: 0, max: 60 }) });
 
-  // Every code point that maps to a glyph is among that glyph's characters, and every character of a glyph maps to it.
-  const checkInverse = (cmap: TrueTypeCmap, codePoints: ReadonlyArray<number>): void => {
-    const mapped = codePoints.flatMap(codePoint => {
-      const glyph = cmap.glyph(codePoint);
-      return glyph === undefined ? [] : [[codePoint, glyph] as const];
-    });
-    expect(mapped.filter(([codePoint, glyph]) => !cmap.characters(glyph).includes(codePoint))).toStrictEqual([]);
-    const glyphs = new Set(mapped.map(([, glyph]) => glyph));
-    expect([...glyphs].flatMap(glyph => cmap.characters(glyph).filter(codePoint => cmap.glyph(codePoint) !== glyph))).toStrictEqual([]);
-    expect([...glyphs].flatMap(glyph => cmap.characters(glyph)).length).toBe(mapped.length);
-  };
-
   it('inverts format 4 segments exactly', () => {
     fc.assert(
       fc.property(fc.array(segment, { minLength: 1, maxLength: 40 }), items => {
@@ -471,13 +484,14 @@ describe('properties', () => {
         const segments = items.map(({ gap, span, delta, glyphs }): TestSegment => {
           const start = next + gap;
           next = start + span;
-          return { start, end: start + span, delta, ...(glyphs === undefined ? {} : { glyphs: glyphs.slice(0, span + 1) }) };
+          return glyphs === undefined ? { start, end: start + span, delta } : { start, end: start + span, delta, glyphs: glyphs.slice(0, span + 1) };
         });
         const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 1, format4(segments)]])));
-        checkInverse(
+        const faults = inverseFaults(
           cmap,
           Array.from({ length: next + 2 }, (_, index) => index),
         );
+        expect(faults).toStrictEqual({ missing: [], stray: [], listed: faults.mapped, mapped: faults.mapped });
       }),
     );
   });
@@ -492,7 +506,10 @@ describe('properties', () => {
           return [start, start + span, glyph] as const;
         });
         const cmap = cmapOf(readTrueTypeCmap(programWith([[3, 10, format12(groups)]])));
-        checkInverse(cmap, [...new Set(groups.flatMap(([start, end]) => Array.from({ length: end - start + 3 }, (_, index) => start - 1 + index)))]);
+        const faults = inverseFaults(cmap, [
+          ...new Set(groups.flatMap(([start, end]) => Array.from({ length: end - start + 3 }, (_, index) => start - 1 + index))),
+        ]);
+        expect(faults).toStrictEqual({ missing: [], stray: [], listed: faults.mapped, mapped: faults.mapped });
       }),
     );
   });

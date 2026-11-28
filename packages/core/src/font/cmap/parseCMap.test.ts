@@ -97,6 +97,17 @@ const CODESPACE = '1 begincodespacerange <0000> <FFFF> endcodespacerange';
 
 const toUnicode = (body: string): string => `begincmap\n1 begincodespacerange <00> <FF> endcodespacerange\n${body}\nendcmap`;
 
+// cidchar blocks of at most 8,000 entries, so that no block passes the content operand budget before the entry count is reached.
+const cidChars = (count: number): string => {
+  const blocks: Array<string> = [];
+  for (let start = 0; start < count; start += 8000) {
+    const size = Math.min(8000, count - start);
+    const entries = Array.from({ length: size }, (_, index) => `<${(start + index).toString(16).padStart(6, '0')}> 1`);
+    blocks.push(`${String(size)} begincidchar\n${entries.join('\n')}\nendcidchar`);
+  }
+  return blocks.join('\n');
+};
+
 describe('embedded and ToUnicode CMaps', () => {
   it('reads the name, writing mode and character collection of the specification example', () => {
     const parsed = parse(SHIFT_JIS);
@@ -252,17 +263,6 @@ describe('embedded and ToUnicode CMaps', () => {
     expect(cmapOf('/WMode 0 def /Parent usecmap', parent).writingMode).toBe(0);
     expect(cmapOf('').writingMode).toBe(0);
   });
-
-  // cidchar blocks of at most 8,000 entries, so that no block passes the content operand budget before the entry count is reached.
-  const cidChars = (count: number): string => {
-    const blocks: Array<string> = [];
-    for (let start = 0; start < count; start += 8000) {
-      const size = Math.min(8000, count - start);
-      const entries = Array.from({ length: size }, (_, index) => `<${(start + index).toString(16).padStart(6, '0')}> 1`);
-      blocks.push(`${String(size)} begincidchar\n${entries.join('\n')}\nendcidchar`);
-    }
-    return blocks.join('\n');
-  };
 
   it('accepts 65,536 entries and throws ResourceLimitError at the next one', () => {
     expect(parse(cidChars(65_536)).cids).toHaveLength(65_536);

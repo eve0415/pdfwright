@@ -286,6 +286,10 @@ const PROCEDURES: ReadonlyArray<TestObject> = [
   { number: 13, body: streamBody('', '100 0 d0 0 0 m') },
 ];
 
+// Chromium's Type 3 shape with the given Differences names after code 0 and the given extra entries.
+const chromiumShape = (names: string, extra: string): string =>
+  `<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.001 0 0 -0.001 0 0]/CharProcs<</g0 12 0 R/g1A 12 0 R/g1a 12 0 R>>/Encoding<</Differences[0${names}]>>/FirstChar 0/LastChar 1/Widths[1000 500]${extra}>>`;
+
 describe('fonts of subtype Type3', () => {
   it('scales Widths by FontMatrix and uses the font matrix as glyph space', () => {
     const font = fontOf(type3Font(''), PROCEDURES);
@@ -315,10 +319,8 @@ describe('fonts of subtype Type3', () => {
 
   it("needs both a FontDescriptor and uppercase hexadecimal names to take a font for Chromium's", () => {
     const procedures: ReadonlyArray<TestObject> = [...PROCEDURES, { number: 14, body: '<</Type/FontDescriptor/FontName/AAAAAA+Test/Flags 4>>' }];
-    const shape = (names: string, descriptor: string): string =>
-      `<</Type/Font/Subtype/Type3/FontBBox[0 0 750 750]/FontMatrix[0.001 0 0 -0.001 0 0]/CharProcs<</g0 12 0 R/g1A 12 0 R/g1a 12 0 R>>/Encoding<</Differences[0${names}]>>/FirstChar 0/LastChar 1/Widths[1000 500]${descriptor}>>`;
-    const withoutDescriptor = fontOf(shape('/g0/g1A', ''), procedures);
-    const lowercase = fontOf(shape('/g0/g1a', '/FontDescriptor 14 0 R'), procedures);
+    const withoutDescriptor = fontOf(chromiumShape('/g0/g1A', ''), procedures);
+    const lowercase = fontOf(chromiumShape('/g0/g1a', '/FontDescriptor 14 0 R'), procedures);
     expect([withoutDescriptor, lowercase].map(font => [font.type3?.chromium, ...pick(glyphsOf(font, '\u0000\u0001'), 'notdef')])).toStrictEqual([
       [false, false, false],
       [false, false, false],
@@ -550,13 +552,13 @@ describe('composite fonts, damaged', () => {
   ])('reads the CIDs of a Type 0 font with $label and leaves its metrics unknown', ({ entry }) => {
     const font = fontOf(`<</Type/Font/Subtype/Type0/BaseFont/Test/Encoding/Identity-V${entry}>>`);
     const glyphs = glyphsOf(font, Uint8Array.of(0, 0x41));
-    expect([font.descendant, font.warnings, pick(glyphs, 'cid'), pick(glyphs, 'width'), pick(glyphs, 'vertical')]).toStrictEqual([
-      undefined,
-      [{ code: 'font-unreadable', detail: expect.stringMatching(/descendant/u) }],
-      [0x41],
-      [undefined],
-      [undefined],
-    ]);
+    expect([
+      font.descendant,
+      font.warnings.map(warning => [warning.code, /descendant/u.test(warning.detail)]),
+      pick(glyphs, 'cid'),
+      pick(glyphs, 'width'),
+      pick(glyphs, 'vertical'),
+    ]).toStrictEqual([undefined, [['font-unreadable', true]], [0x41], [undefined], [undefined]]);
   });
 
   it('records the subtype and reference of a descendant CIDFont', () => {
@@ -711,12 +713,18 @@ describe('composite fonts, damaged', () => {
     const font = fontOf(type0Font('12 0 R', CID_FONT_TYPE2), [{ number: 12, body: cmap }]);
     // A trailing single byte is an invalid code, which may lie in the other CMap's codespace.
     const glyphs = glyphsOf(font, Uint8Array.of(0, 0x41, 0, 0x42, 0, 0x43, 0x44));
-    expect([pick(glyphs, 'cid'), pick(glyphs, 'cmapUnavailable'), pick(glyphs, 'width'), font.encoding, font.warnings]).toStrictEqual([
+    expect([
+      pick(glyphs, 'cid'),
+      pick(glyphs, 'cmapUnavailable'),
+      pick(glyphs, 'width'),
+      font.encoding,
+      font.warnings.map(warning => [warning.code, warning.detail.includes('UniJIS-UTF16-H')]),
+    ]).toStrictEqual([
       [7, undefined, 9, undefined],
       [undefined, 'UniJIS-UTF16-H', undefined, 'UniJIS-UTF16-H'],
       [0.9, undefined, 0.9, undefined],
       { kind: 'cmap', name: new Uint8Array(), predefined: false, embedded: true, writingMode: 0, available: false },
-      [{ code: 'cmap-unavailable', detail: expect.stringContaining('UniJIS-UTF16-H') }],
+      [['cmap-unavailable', true]],
     ]);
   });
 });

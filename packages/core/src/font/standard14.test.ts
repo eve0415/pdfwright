@@ -1,3 +1,5 @@
+import type { Core14Font } from './core14Metrics.ts';
+
 import { describe, expect, it } from 'vitest';
 
 import { CORE14_FONTS, CORE14_LATIN_NAMES } from './core14Metrics.ts';
@@ -32,10 +34,8 @@ describe('standard 14 font metrics', () => {
   });
 
   it('gives each bundled font as many widths as glyph names', () => {
-    const counts = Object.entries(CORE14_FONTS).map(([name, font]) => [
-      name,
-      (font.names ?? CORE14_LATIN_NAMES).split(' ').length - font.widths.split(' ').length,
-    ]);
+    const fonts = new Map<string, Core14Font>(Object.entries(CORE14_FONTS));
+    const counts = [...fonts].map(([name, font]) => [name, (font.names ?? CORE14_LATIN_NAMES).split(' ').length - font.widths.split(' ').length]);
     expect(counts.filter(([, difference]) => difference !== 0)).toStrictEqual([]);
     expect(counts).toHaveLength(14);
   });

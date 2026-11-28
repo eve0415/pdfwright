@@ -105,11 +105,13 @@ const chain = (length: number): CMapProvider => {
   return provider(files);
 };
 
+// The first CMap of a chain of `length`, resolved in a document whose maxNesting is 8.
+const resolveChain = (length: number): CMapResult => new CMapResolver(fontDocument([], { maxNesting: 8 }), chain(length)).named('C0');
+
 describe('resolved CMaps, at their limits', () => {
   it('resolves a usecmap chain as deep as maxNesting and throws ResourceLimitError for one CMap more', () => {
-    const resolve = (length: number): CMapResult => new CMapResolver(fontDocument([], { maxNesting: 8 }), chain(length)).named('C0');
-    expect(cmapOf(resolve(8)).cid({ value: 0x41, length: 2 })).toBe(165);
-    expect(() => resolve(9)).toThrow(ResourceLimitError);
+    expect(cmapOf(resolveChain(8)).cid({ value: 0x41, length: 2 })).toBe(165);
+    expect(() => resolveChain(9)).toThrow(ResourceLimitError);
   });
 
   it('reads an embedded CMap stream once', () => {

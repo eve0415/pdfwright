@@ -12,7 +12,12 @@ import { objectIn } from './testing/fontDocument.ts';
 const FONT_BBOX = pdfName('FontBBox').bytes;
 
 // The entries of a dictionary written as object 10, with the document that holds it.
-const entriesIn = (body: string): { readonly document: FontSource; readonly entries: PdfDictionaryEntries } => {
+interface EntriesInDocument {
+  readonly document: FontSource;
+  readonly entries: PdfDictionaryEntries;
+}
+
+const entriesIn = (body: string): EntriesInDocument => {
   const { document, object } = objectIn(body);
   if (object.kind !== 'dictionary') {
     throw new Error('object 10 is not a dictionary');
