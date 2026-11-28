@@ -153,10 +153,10 @@ describe('the destination black of a LUT profile', () => {
 
   // LittleCMS 2.16 cmssamp.c, cmsDetectDestinationBlackPoint, "No suitable points": fewer than 3 round-trip values between 10 % and 50 % of the range give a zero black.
   it('gives a zero destination black when the round trip jumps over its shadow range', () => {
-    // Below L* 60 the BToA1 table gives gray 0, which the AToB1 table returns as L* 25; from L* 60 the round trip is the identity, which starts at 50 % of the range 25–100.
+    // Below sample 160 (L* 62.7) the BToA1 table gives gray 0, which the AToB1 table returns as L* 25; from there the round trip is the identity, already above 50 % of the range 25–100 (L* 62.5).
     const jump: Curve = {
       kind: 'table',
-      values: Uint16Array.from({ length: 256 }, (_, sample) => (sample < 153 ? 0 : Math.round((((sample / 255) * 100 - 25) / 75) * 65_535))),
+      values: Uint16Array.from({ length: 256 }, (_, sample) => (sample < 160 ? 0 : Math.round((((sample / 255) * 100 - 25) / 75) * 65_535))),
     };
     const jumping = { ...grayOutput, pcsToDevice: { 1: { ...toGray, output: [jump] } } };
     const output = converted(liftedSource(), jumping, options('relativeColorimetric', true), [0.5, 0.5, 0.5]);
