@@ -47,7 +47,15 @@ interface Entry {
   readonly third: number;
 }
 
-export const latin1Bytes = (text: string): Uint8Array => Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
+/** One byte per character; a character above U+00FF has no single byte and would wrap, so it is refused. */
+export const latin1Bytes = (text: string): Uint8Array =>
+  Uint8Array.from(text, character => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint > 0xff) {
+      throw new RangeError(`U+${codePoint.toString(16).toUpperCase()} is not a Latin-1 character`);
+    }
+    return codePoint;
+  });
 
 export const latin1Text = (bytes: Uint8Array): string => {
   let text = '';
