@@ -237,6 +237,11 @@ const grayImage = (
   image: PdfStream,
   rgbToGray: (values: ReadonlyArray<number>) => number,
 ): { readonly stream: PdfStream; readonly stencil: PdfStream | undefined } => {
+  const softMask = scan.internals.objects.deref(image.dictionary.get(MASK));
+  // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space and the samples are preblended with it.
+  if (softMask?.kind === 'stream' && softMask.dictionary.get(pdfName('Matte').bytes) !== undefined) {
+    throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
+  }
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
   const bits = imageInteger(scan, image, BITS);
