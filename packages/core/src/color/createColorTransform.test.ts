@@ -2,6 +2,7 @@ import type { IccProfile } from '../icc/iccProfile.ts';
 import type { Xyz } from '../icc/iccStructure.ts';
 import type { ColorSource, ColorTransform, ColorTransformOptions } from './createColorTransform.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
@@ -69,6 +70,12 @@ const scaled = ([x = 0, y = 0, z = 0]: ReadonlyArray<number>, from: Xyz, to: Xyz
   (y * from.y) / to.y,
   (z * from.z) / to.z,
 ];
+
+// A Lab CMYK destination whose four channels are a, b, L* and a mix of L* and a, so the channels of a non-neutral colour differ.
+const rowDestination = (): IccProfile => ({
+  ...destination(),
+  pcsToDevice: { 1: lut8(3, 4, ([l = 0, a = 0, b = 0]) => [a * 255, b * 255, l * 255, l * 170 + a * 85]) },
+});
 
 const scalarRow8 = (transform: ColorTransform, pixels: ReadonlyArray<ReadonlyArray<number>>): Array<number> =>
   pixels.flatMap(pixel => {
@@ -361,12 +368,6 @@ describe('converted values', () => {
 });
 
 describe('row conversion', () => {
-  // A Lab CMYK destination whose four channels are a, b, L* and a mix of L* and a, so the channels of a non-neutral colour differ.
-  const rowDestination = (): IccProfile => ({
-    ...destination(),
-    pcsToDevice: { 1: lut8(3, 4, ([l = 0, a = 0, b = 0]) => [a * 255, b * 255, l * 255, l * 170 + a * 85]) },
-  });
-
   it('converts 8-bit RGB rows like scalar calls through cache hits, slot collisions, re-misses and a second call', () => {
     const transform = createColorTransform(calRgb, rowDestination(), relative);
     // The cache slot is (251 r + 17 g + b) mod 65536, and 251 · 1 + 17 · -15 + 4 = 0, so these two pixels share a slot.
@@ -480,5 +481,28 @@ describe('row conversion', () => {
     expect(() => {
       transform.convertRow16(new Uint16Array(2), new Uint16Array(4), 1);
     }).toThrow(InvalidArgumentError);
+  });
+});
+
+describe('properties', () => {
+  // Pixels drawn from a small palette, so rows repeat pixels; each pair below differs by (+1, -15, +4) and so shares a cache slot.
+  const palette = [
+    [100, 120, 80],
+    [101, 105, 84],
+    [30, 200, 10],
+    [31, 185, 14],
+    [0, 0, 0],
+    [255, 255, 255],
+  ];
+  const row = fc.array(fc.constantFrom(...palette), { maxLength: 40 });
+
+  it('converts any 8-bit RGB row like scalar calls, over many calls on one transform', () => {
+    const transform = createColorTransform(calRgb, rowDestination(), relative);
+    fc.assert(
+      fc.property(row, row, (first, second) => {
+        expect(row8(transform, first)).toStrictEqual(scalarRow8(transform, first));
+        expect(row8(transform, second)).toStrictEqual(scalarRow8(transform, second));
+      }),
+    );
   });
 });
