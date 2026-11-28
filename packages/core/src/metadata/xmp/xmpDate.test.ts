@@ -1,10 +1,11 @@
 import type { ParsedPdfDate } from '../../date/pdfDate.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { parsePdfDate, pdfDate, pdfDateString } from '../../date/pdfDate.ts';
 
-import { compareDates, instant, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmpDate.ts';
+import { compareDates, finerThan, instant, parseXmpDate, pdfDateText, xmpDateString, xmpDateText } from './xmpDate.ts';
 
 const described = (text: string): ReadonlyArray<unknown> | undefined => {
   const parsed = parseXmpDate(text);
@@ -48,6 +49,9 @@ describe('dates in XMP', () => {
       '2024-02-29 12:34:56Z',
       '2024-02-29T24:00:00Z',
       '2024-02-29T12:34:56.Z',
+      '2024-02-29T12:34:56+24:00',
+      '2024-02-29T12:34:56+09:60',
+      '2024-12-31T23:59:60Z',
     ];
     expect(rejected.filter(text => parseXmpDate(text) !== undefined)).toStrictEqual([]);
   });
@@ -112,9 +116,78 @@ describe('dates in XMP', () => {
     expect(instant(pdfDate({ year: 99, month: 1, day: 1, hour: 0, minute: 0, second: 0, offset: 'Z' }))).toBe(-59_042_995_200_000);
   });
 
+  // The coarser value decides how many fields are compared, so a year names every month and day of that year.
+  it.each([
+    ['D:2003', '2003-08', 'equal'],
+    ['D:2004', '2003-08', 'different'],
+    ['D:200308', '2003-08-26T10:00Z', 'equal'],
+    ['D:200309', '2003-08-26T10:00Z', 'different'],
+    ['D:20030826', '2003-08', 'equal'],
+    ['D:20030926', '2003-08', 'different'],
+  ])('compares %s with %s at the coarser precision as %s', (pdf, xmp, expected) => {
+    expect(agreement(pdf, xmp)).toBe(expected);
+  });
+
+  it('orders precisions from year to second', () => {
+    const pairs = [
+      [parsePdfDate('D:20240229123456Z'), parsePdfDate('D:202402291234Z')],
+      [parsePdfDate('D:202402291234Z'), parsePdfDate('D:202402291234Z')],
+      [parsePdfDate('D:2024'), parsePdfDate('D:202402')],
+    ];
+    expect(pairs.map(([left, right]) => (left === undefined || right === undefined ? 'unparsed' : finerThan(left, right)))).toStrictEqual([true, false, false]);
+  });
+
   it('cannot compare a time without a time zone designator', () => {
     expect([agreement('D:20030826163921Z', '2003-08-26T16:39:21'), agreement('D:20030826', '2003-08-26'), agreement('D:20030827', '2003-08-26')]).toStrictEqual(
       ['indeterminate', 'equal', 'different'],
+    );
+  });
+});
+
+describe('properties', () => {
+  const offset = fc.oneof(
+    fc.constant('Z' as const),
+    fc
+      .tuple(fc.constantFrom('+' as const, '-' as const), fc.integer({ min: 0, max: 23 }), fc.integer({ min: 0, max: 59 }))
+      .map(([sign, hours, minutes]) => ({ sign, hours, minutes })),
+  );
+  // Days stop at 28 so that every generated month has the day.
+  const date = fc
+    .record({
+      year: fc.integer({ min: 0, max: 9999 }),
+      month: fc.integer({ min: 1, max: 12 }),
+      day: fc.integer({ min: 1, max: 28 }),
+      hour: fc.integer({ min: 0, max: 23 }),
+      minute: fc.integer({ min: 0, max: 59 }),
+      second: fc.integer({ min: 0, max: 59 }),
+      offset,
+    })
+    .map(pdfDate);
+
+  it('reads back every PDF date it writes as an XMP date', () => {
+    fc.assert(
+      fc.property(date, value => {
+        expect(parseXmpDate(xmpDateString(value))).toStrictEqual({ date: value, precision: 'second', zone: 'explicit' });
+      }),
+    );
+  });
+
+  it('writes a time with a time zone as a PDF date and an XMP date that compare equal at its precision', () => {
+    fc.assert(
+      fc.property(date, fc.constantFrom('hour' as const, 'minute' as const, 'second' as const), (value, precision) => {
+        // A coarser precision leaves the finer fields at their defaults, as parsePdfDate reads them.
+        const parsed: ParsedPdfDate = {
+          date: pdfDate({ ...value, minute: precision === 'hour' ? 0 : value.minute, second: precision === 'second' ? value.second : 0 }),
+          precision,
+          zone: 'explicit',
+        };
+        const pdf = parsePdfDate(pdfDateText(parsed));
+        const xmp = parseXmpDate(xmpDateText(parsed));
+        expect([pdf === undefined || xmp === undefined ? 'unparsed' : compareDates(pdf, xmp), xmp?.precision]).toStrictEqual([
+          'equal',
+          precision === 'hour' ? 'minute' : precision,
+        ]);
+      }),
     );
   });
 });
