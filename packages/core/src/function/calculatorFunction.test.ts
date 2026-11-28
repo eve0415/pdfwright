@@ -145,6 +145,8 @@ describe('calculator programs', () => {
     ['2 neg', [-2]],
     ['-1.5 ceiling', [-1]],
     ['1.5 ceiling', [2]],
+    ['1.2 ceiling', [2]],
+    ['-1.7 ceiling', [-1]],
     ['-1.5 floor', [-2]],
     ['-1.5 truncate', [-1]],
     ['1.5 truncate', [1]],
