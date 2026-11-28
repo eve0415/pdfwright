@@ -633,10 +633,11 @@ export class ResolvedTexts {
       return;
     }
     if (value.kind === 'array') {
-      tasks.push(
-        { kind: 'array', count: value.items.length },
-        ...value.items.map((item): Task => ({ kind: 'visit', value: item, producer: undefined })).toReversed(),
-      );
+      // Pushed one at a time, in reverse, since a call takes only so many arguments.
+      tasks.push({ kind: 'array', count: value.items.length });
+      for (let index = value.items.length - 1; index >= 0; index -= 1) {
+        tasks.push({ kind: 'visit', value: value.items[index], producer: undefined });
+      }
       return;
     }
     if (value.kind === 'dictionary' || value.kind === 'stream') {
@@ -646,8 +647,10 @@ export class ResolvedTexts {
         value.kind === 'stream'
           ? { kind: 'dictionary', keys, dataDigest: producer === undefined ? md5(value.data) : producedDigest(producer) }
           : { kind: 'dictionary', keys },
-        ...entries.map(([, item]): Task => ({ kind: 'visit', value: item, producer: undefined })).toReversed(),
       );
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        tasks.push({ kind: 'visit', value: entries[index]?.[1], producer: undefined });
+      }
       return;
     }
     results.push(scalarText(value));
