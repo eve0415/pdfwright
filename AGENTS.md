@@ -6,7 +6,7 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 
 - `packages/core` is `@pdfwright/core`, the core package.
 - `packages/illustrator` is `@pdfwright/illustrator`, which writes Illustrator-layered PDFs from a print-production artwork model.
-- `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names, with the fixed property-test seed, and that every package entry loads there. `publicApi.test.ts` imports each package by name, pins the names of its value exports and runs one round trip through each. `setupFastCheck.ts` is the setup file every project loads.
+- `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names, with the property-test setup loaded, and that every package entry loads there. `publicApi.test.ts` imports each package by name, pins the names of its value exports and runs one round trip through each. `setupFastCheck.ts` is the setup file every project loads.
 - `scripts/` holds repository scripts, which run on Node.
 
 ## Setup
@@ -78,7 +78,7 @@ Every new or changed test follows these rules.
 - **An error assertion names the error class and the field that distinguishes the failure**, such as `reason` or `offset`, never the whole message: `toThrow(XError)` for the class, and `toThrow(expect.objectContaining({ reason: 'image-truncated' }))` for the field. `toThrow(new XError(message))` compares the message and the error's own properties, including `name`, but not its class.
 - **Assert the whole output against inputs whose results differ.** A length, a prefix or a "not empty" check passes when most of the output is lost.
 - **No double of this repository's own code.** Run the real modules; double only what the repository does not own.
-- **No new wall-clock budget in the five runtime projects.** A time limit flakes on a loaded runner and can be vacuous where a clock does not advance; bound work by counting it instead.
+- **No new assertion on elapsed time in the five runtime projects.** A time limit flakes on a loaded runner and can be vacuous where a clock does not advance; bound work by counting it instead. A longer per-test timeout for a slow test is not such an assertion.
 - **A property asserts with `expect` inside its predicate**, because `expect.requireAssertions` fails a test that makes no assertion, and states an equality (a round trip, an invariant, agreement with an independent implementation) rather than a range. `setupFastCheck.ts` fixes the seed and the number of runs in every project, and a failure prints the seed and path that replay it.
 - **An oracle test that cannot find its tool or a committed corpus fails.** A test that reads a local-only reference file through an environment variable is skipped when the variable is unset, and says so.
 - **A test asserts the behaviour the specification or the documentation states.** When the library disagrees, fix the library in the same change or leave the test out; never pin the wrong behaviour.

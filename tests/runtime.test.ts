@@ -33,7 +33,7 @@ describe('runtime', () => {
     expect(detectRuntime()).toBe(inject('runtime'));
   });
 
-  it('runs properties with a fixed seed and a bounded number of runs', () => {
+  it('loads the property-test setup, which sets a seed and a run count', () => {
     // fast-check draws a fresh seed and runs 100 times unless the setup file configured it.
     const { seed, numRuns } = readConfigureGlobal();
     expect([typeof seed, typeof numRuns]).toStrictEqual(['number', 'number']);
