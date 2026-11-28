@@ -423,13 +423,17 @@ describe('forms drawn from converted pages', () => {
     expect(forms[0]).not.toBe(forms[1]);
   });
 
-  it('renames the Do of a form copy that follows an inline image', () => {
+  // ISO 32000-1:2008, 8.9.7: BI takes no operands, so whatever is left on the stack before it is discarded with the image.
+  it.each([
+    { name: 'an inline image', before: '' },
+    { name: 'an inline image with stray operands before BI', before: '1 2 ' },
+  ] as const)('renames the Do of a form copy that follows $name', ({ before }) => {
     const document = loadDocument(
       documentBytes(
         [
           {
             resources: '/ColorSpace<</CR[/CalRGB<</WhitePoint[0.9505 1 1.089]>>]>>/XObject<</Fm 5 0 R>>',
-            content: `BI /W 1 /H 1 /BPC 8 /CS /RGB ID ${String.fromCodePoint(255, 0, 0)} EI /CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do`,
+            content: `${before}BI /W 1 /H 1 /BPC 8 /CS /RGB ID ${String.fromCodePoint(255, 0, 0)} EI /CR cs 0.1 0.2 0.3 sc /Fm Do 0.2 0.4 0.6 rg /Fm Do`,
           },
         ],
         [{ number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') }],
@@ -444,7 +448,8 @@ describe('forms drawn from converted pages', () => {
       const form = xobjects?.kind === 'dictionary' ? xobjects.entries.get(pdfName(match[1] ?? '').bytes) : undefined;
       return form?.kind === 'reference' ? streamText(document, form.objectNumber) : `no form ${match[1] ?? ''}`;
     });
-    expect(pageText).toMatch(/^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
+    expect(pageText.slice(0, before.length)).toBe(before);
+    expect(pageText.slice(before.length)).toMatch(/^BI \/W 1 \/H 1 \/BPC 8 \/CS \/CMYK [^]*EI \/DeviceCMYK cs (?:[\d.]+ ){4}sc \/\w+ Do (?:[\d.]+ ){4}k \/\w+ Do$/u);
     expect(forms).toStrictEqual([expect.stringMatching(/^(?:[\d.]+ ){4}sc 0 0 10 10 re f$/u), `${pageCmyk('rg', '0.9 0.5 0.1')}sc 0 0 10 10 re f`]);
     expect(forms[0]).not.toBe(forms[1]);
   });
