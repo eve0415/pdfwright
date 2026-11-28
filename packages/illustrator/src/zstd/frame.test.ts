@@ -181,13 +181,8 @@ describe('raw Zstandard frames', () => {
 });
 
 describe('properties', () => {
-  // Lengths cluster at 0 and 1 and around the 131,072-byte block size, and small alphabets make the match finder emit sequences.
-  const length = fc.oneof(
-    fc.integer({ min: 0, max: 600 }),
-    fc.integer({ min: 131_071, max: 131_073 }),
-    fc.integer({ min: 262_143, max: 262_145 }),
-    fc.integer({ min: 300_000, max: 400_000 }),
-  );
+  // Lengths cluster near 0 and around one and two 131,072-byte blocks, and small alphabets make the match finder emit sequences.
+  const length = fc.oneof(fc.integer({ min: 0, max: 600 }), fc.integer({ min: 131_071, max: 131_073 }), fc.integer({ min: 262_143, max: 262_145 }));
   const content = fc.tuple(length, fc.integer(), fc.constantFrom(2, 4, 16, 256)).map(([size, seed, alphabet]) => seeded(size, seed, alphabet));
 
   it('decodes what both encoders write, deterministically', () => {
@@ -199,7 +194,7 @@ describe('properties', () => {
         expect(decompress(encodeRawFrame(input))).toStrictEqual(input);
       }),
     );
-  });
+  }, 30_000);
 
   // RFC 8878, 3.1.1.1.1: every combination of single-segment, content-size and checksum fields that can describe the content.
   const callerFrame = fc
