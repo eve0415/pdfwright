@@ -125,6 +125,13 @@ describe('reference cycles', () => {
     expect(() => pastLimit.text(pdfReference(21, 0))).toThrow(/reference cycles/);
   });
 
+  // The value asked for is described once, in eighteen steps: entering each of the three objects, its array and the array's one link; each array and the links into it while the three are sorted into one class; and writing the first array, the link back to it and the array's end.
+  it('describes only the value asked for, not each object it passes on the way into a cycle', () => {
+    const internals = internalsOrThrow(['[21 0 R]', '[22 0 R]', '[22 0 R]']);
+    expect(new ResolvedTexts(internals, 18).text(pdfReference(20, 0))).toBe(new ResolvedTexts(internals).text(pdfReference(22, 0)));
+    expect(() => new ResolvedTexts(internals, 17).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
+  });
+
   it('describes a cycle the same whether a dictionary in it is direct or indirect', () => {
     const direct = textOf(['<</D<</Y 20 0 R/V 1>>/W 2>>']);
     const indirect = textOf(['<</D 21 0 R/W 2>>', '<</Y 20 0 R/V 1>>']);
