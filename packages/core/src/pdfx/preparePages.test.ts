@@ -346,6 +346,19 @@ describe('pdfx page preparation', () => {
     expect(addedGroups(document)).toStrictEqual(groups);
   });
 
+  it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
+    const document = single('<</Font<</T3 5 0 R>>>>', streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
+      {
+        number: 5,
+        body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>',
+      },
+      { number: 6, body: streamBody('/Filter/FlateDecode', 'garbage') },
+    ]);
+    const prepare = () => preparePdfX4Pages(document);
+    expect(prepare).toThrow(ValidationError);
+    expect(prepare).toThrow(expect.objectContaining({ reason: 'unreadable-resource' }));
+  });
+
   it.each<[string, string, string, ReadonlyArray<TestObject>, Array<number>]>([
     ['shown in the page content', '<</Font<</T3 5 0 R>>/ExtGState<</GS 7 0 R>>>>', 'BT /T3 12 Tf (a) Tj ET', [], [0]],
     [
