@@ -1,7 +1,9 @@
 import type { LoadWarning } from '../parse/loadWarning.ts';
-import type { TestPdf } from '../testing/pdfBuilder.ts';
+import type { TestPdf, TestSection } from '../testing/pdfBuilder.ts';
 import type { SectionChain } from './sectionChain.ts';
+import type { XrefEntry, XrefSection } from './xrefSection.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
@@ -121,6 +123,7 @@ describe('cross-reference section chains', () => {
     expect(parseErrorOffset(() => chainOf(latin1Bytes(text)))).toStrictEqual({ offset: oldest + 2 });
   });
 
+  // ISO 32000-1:2008, 7.5.5, Table 15 gives Prev, and 7.5.8.4, Table 19 gives XRefStm, as byte offsets.
   it.each([
     ['a negative Prev', (pdf: TestPdf): string => pdf.text.replace(/\/Prev \d+/u, '/Prev -1'), (): TestPdf => updated(['classic', 'classic'])],
     ['an XRefStm that is a reference', (pdf: TestPdf): string => pdf.text.replace(/\/XRefStm \d+/u, '/XRefStm 4 0 R'), hybridPdf],
@@ -129,6 +132,7 @@ describe('cross-reference section chains', () => {
     expect(parseErrorOffset(() => chainOf(latin1Bytes(text)))).toStrictEqual({ offset: newestTrailerStart(text) });
   });
 
+  // ISO 32000-1:2008, 7.5.8.4, Table 19: XRefStm gives the byte offset of a cross-reference stream.
   it('rejects an XRefStm entry that points at an object other than a cross-reference stream', () => {
     const pdf = hybridPdf();
     const text = pdf.text.replace(/\/XRefStm \d+/u, `/XRefStm ${String(pdf.offsets.get(1) ?? 0)}`);
@@ -154,5 +158,47 @@ describe('cross-reference section chains', () => {
       [`classic@${String(newest + 4)}`, `stream@${String(stream + 4)}`, `classic@${String(middle + 4)}`, `classic@${String(oldest + 4)}`],
       [],
     ]);
+  });
+});
+
+interface ChainView {
+  readonly sections: Array<readonly [XrefSection['kind'], number, ReadonlyArray<XrefEntry>, number, number]>;
+  readonly mixed: boolean;
+  readonly codes: Array<LoadWarning['code']>;
+}
+
+// Each section with its offset, entries and trailer span, and the chain's warnings, so that two reads can be compared whole.
+const viewOf = (bytes: Uint8Array | ReadonlyArray<Uint8Array>, startxref: number): ChainView => {
+  const warnings: Array<LoadWarning> = [];
+  const warn = (warning: LoadWarning): void => {
+    warnings.push(warning);
+  };
+  const chain = readSectionChain(new ByteSource(bytes), { startxref, shift: 0 }, { warn, names: new Map(), maxNesting: 256, maxDecodedBytes: 1_048_576 });
+  return {
+    sections: searchOrder(chain).map(section => [section.kind, section.offset, section.entries, section.trailerStart, section.trailerEnd] as const),
+    mixed: chain.mixed,
+    codes: warnings.map(warning => warning.code),
+  };
+};
+
+describe('properties', () => {
+  const formats = fc.array(fc.constantFrom<'classic' | 'stream' | 'hybrid'>('classic', 'stream', 'hybrid'), { minLength: 1, maxLength: 3 });
+
+  it('reads the same chain whatever the segment sizes', () => {
+    fc.assert(
+      fc.property(formats, fc.integer({ min: 1, max: 64 }), (drawn, size) => {
+        const pdf = buildPdf(
+          drawn.map((xref, index): TestSection => ({
+            xref,
+            objects: index === 0 ? [catalog, pages] : [{ number: 3, body: String(index) }],
+            objectStreams: xref === 'classic' ? [] : [{ number: 10 + index, members: [{ number: 20 + index, body: `(member ${String(index)})` }] }],
+            trailer: '/Root 1 0 R',
+          })),
+        );
+        const chunks = Array.from({ length: Math.ceil(pdf.bytes.length / size) }, (_, index) => pdf.bytes.subarray(index * size, index * size + size));
+        const startxref = pdf.sections.at(-1) ?? 0;
+        expect(viewOf(chunks, startxref)).toStrictEqual(viewOf(pdf.bytes, startxref));
+      }),
+    );
   });
 });
