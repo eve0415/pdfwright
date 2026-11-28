@@ -63,6 +63,8 @@ export class CMap {
   readonly writingMode: 0 | 1;
   readonly cidSystemInfo: CidSystemInfo | undefined;
   private readonly codespaceChain: ReadonlyArray<ReadonlyArray<CodespaceRange>>;
+  // The ranges of the chain by code length, 1 to 4 bytes, in chain order.
+  private readonly codespacesByLength: ReadonlyArray<ReadonlyArray<CodespaceRange>>;
   private readonly codespaceKeys: ReadonlySet<string>;
   private readonly codespaceCount: number;
   private readonly entryCount: number;
@@ -89,6 +91,7 @@ export class CMap {
     });
     this.codespaceKeys = keys;
     this.codespaceChain = [local, ...(parent?.codespaceChain ?? [])];
+    this.codespacesByLength = [1, 2, 3, 4].map(length => this.codespaceChain.flat().filter(range => range.low.length === length));
     this.codespaceCount = local.length + (parent?.codespaceCount ?? 0);
     this.entryCount =
       parsed.codespaces.length +
@@ -135,17 +138,14 @@ export class CMap {
   /**
    * Reads the code at `offset`. ISO 32000-1:2008, 9.7.6.2: "the first byte shall be matched against 1-byte codespace ranges; if no match is found, a second byte shall be extracted, and the 2-byte code shall be matched against 2-byte codespace ranges", up to 4 bytes.
    * A code that matches no range is consumed by the rules of 9.7.6.3 and is `valid: false`; a code cut short by the end of the string is shorter than its range.
-   * The codespace checks the read makes are counted in `budget`, the count of the string being split.
+   * Each codespace range the read compares the code with is counted in `budget`, the count of the string being split.
    */
   read(bytes: Uint8Array, offset: number, budget: CodespaceBudget): CodeRead {
     const remaining = bytes.length - offset;
     for (let length = 1; length <= 4 && length <= remaining; length++) {
-      for (const ranges of this.codespaceChain) {
-        for (const range of ranges) {
-          const valid = range.low.length === length && this.match(range, bytes, offset, budget) === length;
-          if (valid) {
-            return { code: { value: readValue(bytes, offset, length), length }, valid };
-          }
+      for (const range of this.codespacesByLength[length - 1] ?? []) {
+        if (this.match(range, bytes, offset, budget) === length) {
+          return { code: { value: readValue(bytes, offset, length), length }, valid: true };
         }
       }
     }
