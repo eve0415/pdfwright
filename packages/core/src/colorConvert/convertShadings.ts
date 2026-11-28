@@ -198,7 +198,7 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
     return invalid('document internals are unavailable');
   }
   const seenCarriers = carrierSeen();
-  const carriers: Array<ResourceCarrier> = [];
+  const pageCarriers: Array<ReadonlyArray<ResourceCarrier>> = [];
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) {
@@ -215,15 +215,17 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
       usage,
       glyph: false,
     });
-    carriers.push(...resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers));
+    pageCarriers.push(resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers));
   }
-  // Carrier content is scanned only when some carrier names a shading, so documents without one do not pay for parsing every glyph; it is scanned after every page is walked, because a later page can add a font to a carrier an earlier page listed.
-  if (!carriers.some(carrier => carrier.resources.has(SHADING))) {
-    return usage;
-  }
-  for (const carrier of carriers) {
-    for (const bytes of carrierContent(internals, carrier)) {
-      scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
+  // A page's carrier content is scanned only when one of its carriers names a shading, so pages without one do not pay for parsing every glyph; it is scanned after every page is walked, because a later page can add a font to a carrier an earlier page listed.
+  for (const carriers of pageCarriers) {
+    if (!carriers.some(carrier => carrier.resources.has(SHADING))) {
+      continue;
+    }
+    for (const carrier of carriers) {
+      for (const bytes of carrierContent(internals, carrier)) {
+        scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
+      }
     }
   }
   return usage;
