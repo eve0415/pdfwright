@@ -175,6 +175,13 @@ describe('reference cycles', () => {
     expect(() => new ResolvedTexts(internals, 18).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
   });
 
+  // 20 is matched to 21, which it leads into and unfolds like, in twenty-six steps: entering each of the two objects, its array and the array's two links; following the four links while the arrays are sorted into strongly connected components; for 21, its array and the links into it while it is put into a class, the class and its links while it is numbered, writing the class and keeping its text with its two links; and for 20, trying 21 and matching its array and two links.
+  it('matches a cycle to one it leads into within the number of steps it may take, and refuses to go past it', () => {
+    const internals = internalsOrThrow(['[20 0 R 21 0 R]', '[21 0 R 21 0 R]']);
+    expect(new ResolvedTexts(internals, 26).text(pdfReference(20, 0))).toBe(new ResolvedTexts(internals).text(pdfReference(21, 0)));
+    expect(() => new ResolvedTexts(internals, 25).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
+  });
+
   it('describes a cycle the same whether a dictionary in it is direct or indirect', () => {
     const direct = textOf(['<</D<</Y 20 0 R/V 1>>/W 2>>']);
     const indirect = textOf(['<</D 21 0 R/W 2>>', '<</Y 20 0 R/V 1>>']);
