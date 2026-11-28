@@ -157,6 +157,14 @@ describe('native model reader', () => {
     expect(readNative(native, date).document.layers[1]?.items[0]).toMatchObject({ fill: { paint: { kind: 'spot', spot: { name: expected } } } });
   });
 
+  // A backslash before a CR in a comment continues nothing, so the header still ends at %%EndComments.
+  it('ends the header at %%EndComments after a comment whose last character is a backslash', () => {
+    const native = edited(nativeBytes, '%%EndComments\r', '%%For: (x\\\r%%EndComments\r');
+    const header = readNative(native, date).header;
+    expect(header.get('%%For')).toBe('(x\\');
+    expect([...header.keys()]).toStrictEqual([...readNative(nativeBytes, date).header.keys()]);
+  });
+
   it('reads an artboard name with octal escapes of a paragraph separator', () => {
     const native = edited(nativeBytes, '%_(Board) /UnicodeString', String.raw`%_(Bo\342\200\251ard) /UnicodeString`);
     expect(readNative(native, date).document.artboard).toMatchObject({ name: 'Bo\u2029ard' });

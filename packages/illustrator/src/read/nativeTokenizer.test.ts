@@ -87,6 +87,51 @@ describe('native tokenizer', () => {
     expect(lines(tokenizeNative(encoder.encode(native)))).toStrictEqual(expected);
   });
 
+  // A % outside a literal string starts a PostScript comment that runs to the end of the line, so a parenthesis in it opens no string and a backslash before its CR continues nothing.
+  it.each([
+    {
+      case: 'a header comment',
+      native: '%%For: (x\\\r%%EndComments\r',
+      expected: [
+        { kind: 'line', text: '%%For: (x\\', offset: 0 },
+        { kind: 'line', text: '%%EndComments', offset: 11 },
+      ],
+    },
+    {
+      case: 'a comment after other tokens',
+      native: 'a %(x\\\rb\r',
+      expected: [
+        { kind: 'line', text: 'a %(x\\', offset: 0 },
+        { kind: 'line', text: 'b', offset: 7 },
+      ],
+    },
+    {
+      case: 'a commented dictionary entry',
+      native: '%_(x\\\r%_/Document\r',
+      expected: [
+        { kind: 'line', text: '%_(x\\', offset: 0 },
+        { kind: 'line', text: '%_/Document', offset: 6 },
+      ],
+    },
+    {
+      case: 'a comment on a continued line',
+      native: '(a\\\rb) %(c\\\rd\r',
+      expected: [
+        { kind: 'line', text: '(ab) %(c\\', offset: 0 },
+        { kind: 'line', text: 'd', offset: 12 },
+      ],
+    },
+  ])('ends a record at a CR after a backslash in $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
+  it.each([
+    { case: 'a literal string', native: '(50%\\\r) Ln\r', expected: [{ kind: 'line', text: '(50%) Ln', offset: 0 }] },
+    { case: 'an earlier literal string on the line', native: '(a%) (b\\\rc) x\r', expected: [{ kind: 'line', text: '(a%) (bc) x', offset: 0 }] },
+  ])('joins a record whose literal string continues after a % inside $case', ({ native, expected }) => {
+    expect(tokenizeNative(encoder.encode(native))).toStrictEqual(expected);
+  });
+
   it('reads escaped PostScript literal strings', () => {
     expect(parseNativeLiteral(String.raw`(Die \(outer\) \\ White)`, 0)).toBe(String.raw`Die (outer) \ White`);
     expect(parseNativeLiteral('(非表示)', 0)).toBe('非表示');
@@ -151,6 +196,14 @@ describe('malformed native bytes', () => {
   it('reports a literal string continued past the end of the data at the line start', () => {
     const error = thrown(() => {
       tokenizeNative(encoder.encode('%!PS\r(a\\\r\n'));
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 5 });
+  });
+
+  it('reports a comment on a continued line that has no closing CR at the line start', () => {
+    const error = thrown(() => {
+      tokenizeNative(encoder.encode('%!PS\r(a\\\rb) %c'));
     });
     expect(error).toBeInstanceOf(ParseError);
     expect(error).toMatchObject({ offset: 5 });
