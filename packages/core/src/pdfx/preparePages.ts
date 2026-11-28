@@ -7,6 +7,7 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { internalsOf } from '../document/documentInternals.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { decodedData } from '../font/fontValues.ts';
 import { pt } from '../length/length.ts';
@@ -67,10 +68,22 @@ class TransparencyScan {
   private readonly seen = new Set<number>();
   private readonly procedures = new Set<string>();
   private readonly fonts = new Set<PdfDictionaryEntries>();
+  private depth = 0;
 
   constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
     this.internals = internals;
     this.page = page;
+  }
+
+  // Each form, pattern or glyph procedure is read inside the content that uses it, so a chain of distinct objects is bounded by maxNesting rather than by the call stack.
+  private nested(bytes: Uint8Array | ReadonlyArray<Uint8Array>, resources: PdfDictionaryEntries): boolean {
+    if (this.depth >= this.internals.maxNesting) {
+      throw new ResourceLimitError(`content streams nest deeper than maxNesting (${String(this.internals.maxNesting)})`);
+    }
+    this.depth++;
+    const found = this.operations(bytes, resources);
+    this.depth--;
+    return found;
   }
 
   private xobject(value: PdfDirectObject | undefined, inherited: PdfDictionaryEntries): boolean {
@@ -100,7 +113,7 @@ class TransparencyScan {
     if (typeof bytes === 'string') {
       throw new ValidationError(`form content cannot be read: ${bytes}`, 'unreadable-resource');
     }
-    return this.operations(bytes, resources);
+    return this.nested(bytes, resources);
   }
 
   private pattern(value: PdfDirectObject | undefined, inherited: PdfDictionaryEntries): boolean {
@@ -127,7 +140,7 @@ class TransparencyScan {
     if (typeof bytes === 'string') {
       throw new ValidationError(`pattern content cannot be read: ${bytes}`, 'unreadable-resource');
     }
-    return this.operations(bytes, resources);
+    return this.nested(bytes, resources);
   }
 
   private font(value: PdfDirectObject | undefined): boolean {
@@ -176,7 +189,7 @@ class TransparencyScan {
       if (typeof bytes === 'string') {
         throw new ValidationError(`glyph procedure cannot be read: ${bytes}`, 'unreadable-resource');
       }
-      if (this.operations(bytes, resources)) {
+      if (this.nested(bytes, resources)) {
         return true;
       }
     }
@@ -312,7 +325,7 @@ const defaultTrim = (boxes: EffectiveBoxes, index: number): readonly [number, nu
   return [left, bottom, right, top];
 };
 
-/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. A Type 3 font that the content selects, with Tf or a graphics state Font entry, uses transparency when any of its glyph procedures does, whichever glyphs are shown, and one that cannot be decoded throws ValidationError `unreadable-resource`. */
+/** Adds a TrimBox equal to the CropBox, reduced to the MediaBox and to an explicit BleedBox, to each page that sets neither TrimBox nor ArtBox (ISO 32000-1:2008, Table 30), and an isolated DeviceCMYK transparency group (11.4.7; 11.6.6, Table 147) to each page without a Group entry whose content uses transparency. A Type 3 font that the content selects, with Tf or a graphics state Font entry, uses transparency when any of its glyph procedures does, whichever glyphs are shown, and one that cannot be decoded throws ValidationError `unreadable-resource`. Forms, patterns and glyph procedures nested more than the document's maxNesting levels below the page content throw ResourceLimitError. */
 export const preparePdfX4Pages = (document: LoadedDocument, options: PdfX4PageOptions = {}): PdfX4PageChange => {
   const internals = internalsOf(document);
   if (internals === undefined) {
