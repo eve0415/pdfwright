@@ -293,8 +293,9 @@ class TransparencyScan {
     const own = entriesOf(this.internals, ownValue);
     const resources = own ?? this.page;
     // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources or CharProcs dictionary is known by its entries, so that one parsed again, as when a glyph selects its own font, is not read again.
+    // A reference that names no dictionary, such as one to another generation read as null, leaves the page's Resources in use, so it is keyed as the page.
     let scope = 'page';
-    if (ownValue?.kind === 'reference') {
+    if (own !== undefined && ownValue?.kind === 'reference') {
       scope = `resources ${String(ownValue.objectNumber)}`;
     } else if (ownValue?.kind === 'dictionary') {
       scope = `direct ${String(this.directScope(ownValue))}`;
