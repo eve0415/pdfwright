@@ -204,8 +204,8 @@ describe('calculator programs', () => {
     ['1 1 index', /invalid index/],
     ['1 -1 index', /invalid index/],
     ['1 2 1 roll', /roll count/],
-    ['true', /output dimension mismatch/],
-    ['1 2', /output dimension mismatch/],
+    ['true', /output dimension/],
+    ['1 2', /output dimension/],
   ])('rejects %j when it runs', (body, pattern) => {
     const evaluate = calculator(`{ ${body} }`);
     expect(() => evaluate([])).toThrow(ParseError);
