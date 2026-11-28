@@ -1,3 +1,5 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 import type { TestObject, TestSection } from '../testing/pdfBuilder.ts';
 
@@ -8,9 +10,8 @@ import { loadDocument } from '../document/loadDocument.ts';
 import { rect } from '../document/rect.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
-import { md5 } from '../hash/md5.ts';
 import { pt } from '../length/length.ts';
-import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -46,8 +47,34 @@ const headerAndWarnings = (sections: ReadonlyArray<TestSection>, header: string)
   return [text(saved.toBytes()).slice(0, 8), saved.warnings.map(warning => warning.code)];
 };
 
-const kind = (sections: ReadonlyArray<TestSection>, header: string): string | undefined =>
-  loadDocument(loadDocument(buildPdf(sections, { header }).bytes).save({ mode: 'full' }).chunks).structure.lastSectionKind;
+const kind = (sections: ReadonlyArray<TestSection>, header: string, edit?: (document: LoadedDocument) => void): string | undefined => {
+  const document = loadDocument(buildPdf(sections, { header }).bytes);
+  edit?.(document);
+  return loadDocument(document.save({ mode: 'full' }).chunks).structure.lastSectionKind;
+};
+
+// The file identifier pair of a saved file as lowercase hex, or undefined when its trailer has none.
+const identifierOf = (chunks: ReadonlyArray<Uint8Array>): ReadonlyArray<string> | undefined => {
+  const id = loadDocument(chunks).structure.trailer.get(pdfName('ID').bytes);
+  return id?.kind === 'array' ? id.items.map(item => (item.kind === 'string' ? hex(item.bytes) : '')) : undefined;
+};
+
+const keyNames = (entries: PdfDictionaryEntries): ReadonlyArray<string> => [...entries.entries()].map(([key]) => latin1Text(key));
+
+// Editing member 5 of the hybrid source unpacks object stream 6, so no kept stream forces the cross-reference format.
+const editMember = (document: LoadedDocument): void => {
+  document.set(pdfReference(5, 0), pdfName('Changed'));
+};
+
+// A linearized file whose H entry gives the offset of object 10, its hint stream, in ten digits so that the offsets do not depend on its value.
+const linearizedObjects = (hintOffset: number): ReadonlyArray<TestObject> => [
+  { number: 9, body: `<</Linearized 1/L 999/H[${String(hintOffset).padStart(10, '0')} 20]>>` },
+  catalog,
+  pages,
+  page,
+  content,
+  { number: 10, body: streamBody('', 'hints') },
+];
 
 // A classic PDF 1.4 file whose update adds one object far above the others, so that no section lists the numbers between.
 const sparse = (high: number): Uint8Array =>
@@ -91,13 +118,17 @@ describe('full rewrite', () => {
       ...classicSource,
       { xref: 'hybrid', objects: [], objectStreams: [{ number: 6, members: [{ number: 5, body: '(hidden)' }] }], trailer: '/Root 1 0 R' },
     ] as const;
+    // An older stream section under a newer classic one still makes the source a cross-reference stream user.
+    const olderStreamSource = [streamSource[0], { xref: 'classic', objects: [{ number: 5, body: '(added)' }], trailer: '/Root 1 0 R' }] as const;
     expect([
       kind(classicSource, '%PDF-1.4'),
       kind(classicSource, '%PDF-1.5'),
       kind(classicSource, '%PDF-1.7'),
       kind(streamSource, '%PDF-1.4'),
       kind(hybridSource, '%PDF-1.4'),
-    ]).toStrictEqual(['classic', 'stream', 'stream', 'stream', 'stream']);
+      kind(hybridSource, '%PDF-1.4', editMember),
+      kind(olderStreamSource, '%PDF-1.4'),
+    ]).toStrictEqual(['classic', 'stream', 'stream', 'stream', 'stream', 'stream', 'stream']);
   });
 
   it('raises a header below 1.5 when it writes a cross-reference stream, and reports it', () => {
@@ -113,22 +144,36 @@ describe('full rewrite', () => {
     ]);
   });
 
+  // sparse(high) uses the numbers 0 to 4 and high, so its table holds high - 5 entries for unused numbers.
   it('refuses a classic table that would hold more entries for unused numbers than the limit allows', () => {
-    expect(() => loadDocument(sparse(200_000)).save({ mode: 'full' })).toThrow(ResourceLimitError);
-    expect(() => loadDocument(sparse(1000)).save({ mode: 'full', maxTableGapEntries: 100 })).toThrow(
-      new ResourceLimitError('the cross-reference table would hold 995 entries for unused object numbers, more than maxTableGapEntries (100)'),
-    );
-    const raised = loadDocument(sparse(200_000)).save({ mode: 'full', maxTableGapEntries: 200_000 });
-    expect(loadDocument(raised.chunks).get(pdfReference(200_000, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' });
+    const highString = { kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' } as const;
+    const atLimit = loadDocument(sparse(1000)).save({ mode: 'full', maxTableGapEntries: 995 });
+    expect(loadDocument(atLimit.chunks).get(pdfReference(1000, 0))).toStrictEqual(highString);
+    const overLimit = (): void => {
+      loadDocument(sparse(1000)).save({ mode: 'full', maxTableGapEntries: 994 });
+    };
+    expect(overLimit).toThrow(ResourceLimitError);
+    expect(overLimit).toThrow(/ 995 entries .*maxTableGapEntries \(994\)/u);
+    // The documented default is 100,000.
+    const atDefault = loadDocument(sparse(100_005)).save({ mode: 'full' });
+    expect(loadDocument(atDefault.chunks).get(pdfReference(100_005, 0))).toStrictEqual(highString);
+    const overDefault = (): void => {
+      loadDocument(sparse(100_006)).save({ mode: 'full' });
+    };
+    expect(overDefault).toThrow(ResourceLimitError);
+    expect(overDefault).toThrow(/ 100001 entries .*maxTableGapEntries \(100000\)/u);
   });
 
   it('refuses a cross-reference stream that would hold more entries for unused numbers than the limit allows', () => {
     const start = performance.now();
     expect(() => loadDocument(highStream(2_147_483_647)).save({ mode: 'full' })).toThrow(ResourceLimitError);
     expect(performance.now() - start).toBeLessThan(1000);
-    expect(() => loadDocument(highStream(1000)).save({ mode: 'full', maxGeneratedXrefEntries: 100 })).toThrow(
-      new ResourceLimitError('the cross-reference stream would hold 995 entries for unused object numbers, more than maxGeneratedXrefEntries (100)'),
-    );
+    // highStream(1000) uses the numbers 0 to 4 and 1000, and the rewrite numbers its cross-reference stream 1001, so 995 numbers are unused.
+    const overLimit = (): void => {
+      loadDocument(highStream(1000)).save({ mode: 'full', maxGeneratedXrefEntries: 994 });
+    };
+    expect(overLimit).toThrow(ResourceLimitError);
+    expect(overLimit).toThrow(/ 995 entries .*maxGeneratedXrefEntries \(994\)/u);
     const raised = loadDocument(highStream(1000)).save({ mode: 'full', maxGeneratedXrefEntries: 995 });
     expect(loadDocument(raised.chunks).get(pdfReference(1000, 0))).toStrictEqual({ kind: 'string', bytes: latin1Bytes('high'), encoding: 'literal' });
   });
@@ -246,45 +291,83 @@ describe('full rewrite', () => {
     expect([output.includes('/Type/ObjStm'), output.includes('MediaBox[0 0 200'), output.includes('2 0 obj')]).toStrictEqual([false, false, true]);
   });
 
-  it('drops linearization data and bytes around the file with warnings', () => {
-    const linearized = buildPdf(
-      [{ xref: 'classic', objects: [{ number: 9, body: '<</Linearized 1/L 999/H[800 20]>>' }, catalog, pages, page, content], trailer: '/Root 1 0 R' }],
-      { prefix: 'JUNK' },
-    );
-    const saved = loadDocument(latin1Bytes(`${linearized.text}garbage`)).save({ mode: 'full' });
+  it('drops the linearization dictionary and the hint stream its H entry names, with a warning', () => {
+    // ISO 32000-1:2008, Annex F, Table F.1: the first element of H is the offset of the primary hint stream.
+    const draft = buildPdf([{ xref: 'classic', objects: linearizedObjects(0), trailer: '/Root 1 0 R' }]);
+    const linearized = buildPdf([{ xref: 'classic', objects: linearizedObjects(draft.offsets.get(10) ?? 0), trailer: '/Root 1 0 R' }]);
+    const document = loadDocument(linearized.bytes);
+    const saved = document.save({ mode: 'full' });
     const reloaded = loadDocument(saved.chunks);
+    expect([
+      document.structure.linearized,
+      document.get(pdfReference(10, 0)).kind,
+      saved.warnings.map(warning => warning.code),
+      reloaded.get(pdfReference(9, 0)),
+      reloaded.get(pdfReference(10, 0)),
+      reloaded.pageCount,
+      reloaded.structure.status,
+    ]).toStrictEqual([true, 'stream', ['linearization-removed'], { kind: 'null' }, { kind: 'null' }, 1, 'intact']);
+  });
+
+  it.each([
+    ['bytes before the header', 'JUNK', '', ['junk-dropped']],
+    ['bytes after the last %%EOF', '', 'garbage', ['junk-dropped']],
+    ['white space after the last %%EOF', '', '\n\n  ', []],
+    ['nothing around the file', '', '', []],
+  ] as const)('reports junk around the file only when it is not white space: %s', (_, prefix, suffix, codes) => {
+    const source = buildPdf([{ xref: 'classic', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R' }], { prefix });
+    const saved = loadDocument(latin1Bytes(`${source.text}${suffix}`)).save({ mode: 'full' });
     expect([
       saved.warnings.map(warning => warning.code),
       text(saved.toBytes()).startsWith('%PDF-1.7\n'),
-      reloaded.get(pdfReference(9, 0)),
-      reloaded.structure.status,
-    ]).toStrictEqual([['linearization-removed', 'junk-dropped'], true, { kind: 'null' }, 'intact']);
+      loadDocument(saved.chunks).structure.status,
+    ]).toStrictEqual([codes, true, 'intact']);
   });
 
-  it('keeps the first file identifier, derives the second, and adds none to a file without one', () => {
+  it('keeps the first file identifier, derives the second from the contents, and adds none to a file without one', () => {
     const withId = classic([catalog, pages, page, content], `/Root 1 0 R/ID[<${'aa'.repeat(16)}><${'bb'.repeat(16)}>]`);
-    const output = text(loadDocument(withId).save({ mode: 'full' }).toBytes());
-    const plain = loadDocument(classic([catalog, pages, page, content]));
-    const withoutId = text(plain.save({ mode: 'full' }).toBytes());
-    expect([/\/ID\[<A{32}> <[0-9A-F]{32}>\]/u.test(output), withoutId.includes('/ID')]).toStrictEqual([true, false]);
-    const again = loadDocument(withId).save({ mode: 'full' }).toBytes();
-    const first = hex(md5(latin1Bytes(output)));
-    expect(first).toBe(hex(md5(again)));
+    const unedited = identifierOf(loadDocument(withId).save({ mode: 'full' }).chunks);
+    const again = identifierOf(loadDocument(withId).save({ mode: 'full' }).chunks);
+    const editedDocument = loadDocument(withId);
+    editedDocument.set(pdfReference(4, 0), pdfInteger(4));
+    const edited = identifierOf(editedDocument.save({ mode: 'full' }).chunks);
+    const withoutId = loadDocument(classic([catalog, pages, page, content])).save({ mode: 'full' });
+    expect([unedited?.[0], edited?.[0], again, identifierOf(withoutId.chunks), text(withoutId.toBytes()).includes('/ID')]).toStrictEqual([
+      'aa'.repeat(16),
+      'aa'.repeat(16),
+      unedited,
+      undefined,
+      false,
+    ]);
+    // ISO 32000-1:2008, 14.4: the second identifier changes with the contents, so it is neither the source's nor shared by different contents.
+    expect(new Set([unedited?.[1], edited?.[1], 'bb'.repeat(16)]).size).toBe(3);
+    expect([unedited?.[1], edited?.[1]]).toStrictEqual([expect.stringMatching(/^[0-9a-f]{32}$/u), expect.stringMatching(/^[0-9a-f]{32}$/u)]);
   });
 
-  it('keeps trailer entries that begin with ID and leaves the stream keys of a reconstructed stream trailer out', () => {
+  it('keeps trailer entries that begin with ID', () => {
     const seeded = text(
       loadDocument(classic([catalog, pages, page, content], '/Root 1 0 R/IDSeed(keep)'))
         .save({ mode: 'full' })
         .toBytes(),
     );
+    expect(seeded).toMatch(/\ntrailer\n<<\/Size 5\/Root 1 0 R\/IDSeed\(keep\)>>/u);
+  });
+
+  it('leaves the stream keys out of a cross-reference stream dictionary that a reconstruction adopted as the trailer', () => {
     const stream = buildPdf([{ xref: 'stream', objects: [catalog, pages, page, content], trailer: '/Root 1 0 R' }]).text.replace(
       /startxref\n\d+/u,
       'startxref\n3',
     );
-    const rewritten = text(loadDocument(latin1Bytes(stream)).save({ mode: 'full' }).toBytes());
-    const streamKeys = /\/W|\/Index|\/XRef/u.test(rewritten.slice(rewritten.lastIndexOf('trailer')));
-    expect([seeded.includes('/IDSeed(keep)'), streamKeys]).toStrictEqual([true, false]);
+    const document = loadDocument(latin1Bytes(stream));
+    const reloaded = loadDocument(document.save({ mode: 'full' }).chunks);
+    // ISO 32000-1:2008, 7.5.8.2, Table 17: the new stream's own Type, W and Length describe it, and Index is left out for its default.
+    expect([
+      document.structure.status,
+      document.structure.lastSectionKind,
+      keyNames(reloaded.structure.trailer),
+      reloaded.structure.status,
+      reloaded.warnings,
+    ]).toStrictEqual(['reconstructed', undefined, ['Type', 'Size', 'Root', 'W', 'Filter', 'Length'], 'intact', []]);
   });
 
   it('rewrites a reconstructed file by default', () => {
