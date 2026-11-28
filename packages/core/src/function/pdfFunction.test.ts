@@ -456,13 +456,13 @@ describe('pdfFunctionReferences', () => {
       [11, functionObject(2, { C1: pdfReference(12, 0), N: pdfInteger(1) })],
       [12, numbers([1])],
     ]);
-    const resolve = (value: PdfDirectObject): PdfObject => resolveObject(objects, value);
+    const { resolved, resolve } = countingResolver(objects);
     const shared = functionObject(3, { Functions: pdfReference(10, 0), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0, 1]) });
     const numbersOf = (value: PdfDirectObject) =>
       pdfFunctionReferences(value, resolve)
         .map(reference => reference.objectNumber)
         .toSorted((a, b) => a - b);
-    expect([numbersOf(pdfReference(1, 0)), numbersOf(shared)]).toStrictEqual([[1], [10, 11, 12]]);
+    expect([numbersOf(pdfReference(1, 0)), numbersOf(shared), resolved.toSorted((a, b) => a - b)]).toStrictEqual([[1], [10, 11, 12], [1, 10, 11, 12]]);
   });
 
   it('lists references inside a function stream dictionary', () => {
