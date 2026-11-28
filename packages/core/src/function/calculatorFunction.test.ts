@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { md5 } from '../hash/md5.ts';
 
 import { createCalculatorFunction } from './calculatorFunction.ts';
@@ -31,6 +32,13 @@ describe('calculator operators', () => {
       ['-1 -32', 0],
     ];
     expect(cases.map(([operands]) => calculator(`{ ${operands} bitshift }`)([])[0])).toStrictEqual(cases.map(([, expected]) => expected));
+  });
+
+  it('limits the operand stack to 100 values', () => {
+    const atLimit = calculator(`{ ${'0 '.repeat(100)}${'pop '.repeat(99)}}`);
+    const pastLimit = calculator(`{ ${'0 '.repeat(101)}${'pop '.repeat(100)}}`);
+    expect(atLimit([])).toStrictEqual([0]);
+    expect(() => pastLimit([])).toThrow(ResourceLimitError);
   });
 
   it('keeps transcendental calculator outputs identical across runtimes', () => {
