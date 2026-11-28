@@ -131,7 +131,7 @@ const stitchedFunction = (context: SpotContext, space: SourceSpace & { kind: 'se
 
 const convertedTint = (context: SpotContext, space: SourceSpace & { kind: 'separation' | 'deviceN' }): ConvertedTint => {
   const { tint } = space;
-  let entries: PdfDictionaryEntries | undefined = undefined;
+  let entries: PdfDictionaryEntries | undefined;
   if (tint.kind === 'dictionary') ({ entries } = tint);
   else if (tint.kind === 'stream') ({ dictionary: entries } = tint);
   const type = entries?.get(pdfName('FunctionType').bytes);

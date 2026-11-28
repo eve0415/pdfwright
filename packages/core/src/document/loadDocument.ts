@@ -350,7 +350,7 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
   if (header !== undefined && header.offset > 0) {
     log.warn({ code: 'junk-before-header', detail: `${String(header.offset)} bytes precede the header`, offset: 0 });
   }
-  let read: ReadStructure | undefined = undefined;
+  let read: ReadStructure | undefined;
   let reason = 'no header';
   if (header !== undefined) {
     try {

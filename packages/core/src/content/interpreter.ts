@@ -983,7 +983,7 @@ class Interpreter {
   }
 
   private showArray(step: Step, array: PdfDirectObject | undefined): void {
-    let adjustment: number | undefined = undefined;
+    let adjustment: number | undefined;
     for (const item of array?.kind === 'array' ? array.items : []) {
       const value = numberOf(item);
       if (item.kind === 'string') {

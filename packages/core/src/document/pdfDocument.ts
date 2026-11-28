@@ -222,7 +222,7 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   if (metadata?.xmp === true) validateCreatedMetadata(options.info, metadata);
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
-  let documentPieceInfo: PieceInfoRecord | undefined = undefined;
+  let documentPieceInfo: PieceInfoRecord | undefined;
   const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
   const handles = createDocumentHandles({ fractionDigits, asciiOnlyColorants: options.colorantPolicy?.asciiOnly === true });
   const { records, images, groups } = handles;

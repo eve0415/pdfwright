@@ -62,7 +62,8 @@ const withAdobe = (jpeg: Uint8Array, transform: number): Uint8Array =>
 const gray = (): Uint8Array => Uint8Array.from(Array.from({ length: 32 * 32 }, (_, index) => (index * 31) % 256));
 
 const fullyDecode = (jpeg: Uint8Array): void => {
-  for (const row of decodeJpeg(jpeg).rows()) void row;
+  const rows = decodeJpeg(jpeg).rows();
+  while (rows.next().done !== true);
 };
 
 const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {

@@ -392,7 +392,7 @@ class FormPlanner {
   private writeForm(plan: FormPlan, data: Uint8Array): PdfReference | undefined {
     const dictionary = new PdfDictionaryEntries(plan.stream.dictionary.entries());
     const mapped = this.mappedResources(plan);
-    let discarded: PdfReference | undefined = undefined;
+    let discarded: PdfReference | undefined;
     if (mapped !== undefined || plan.overprintAdjustments > 0 || plan.newInlineImages.length > 0) {
       const old = dictionary.get(RESOURCES);
       if (old?.kind === 'reference') discarded = old;

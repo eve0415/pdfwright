@@ -256,7 +256,7 @@ const sampledShading = (config: {
 }): ConvertedCmykFunction => {
   const { context, value, transform, channels, dimensions, domain } = config;
   const sourceFunction = decodedFunction(context.document, value);
-  let entries: PdfDictionaryEntries | undefined = undefined;
+  let entries: PdfDictionaryEntries | undefined;
   if (sourceFunction.kind === 'dictionary') ({ entries } = sourceFunction);
   else if (sourceFunction.kind === 'stream') ({ dictionary: entries } = sourceFunction);
   const functionType = entries?.get(pdfName('FunctionType').bytes);

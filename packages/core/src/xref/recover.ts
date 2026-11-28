@@ -57,7 +57,7 @@ const quiet = (): LexContext => ({
 });
 
 const typeName = (value: PdfObject): string => {
-  let entries: PdfDictionaryEntries | undefined = undefined;
+  let entries: PdfDictionaryEntries | undefined;
   if (value.kind === 'dictionary') ({ entries } = value);
   else if (value.kind === 'stream') entries = value.dictionary;
   const type = entries?.get(TYPE);

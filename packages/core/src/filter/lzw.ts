@@ -18,7 +18,7 @@ export const decodeLzw = (data: Uint8Array, options: { readonly earlyChange: num
   let width = 9;
   let buffer = 0;
   let bits = 0;
-  let previous: Uint8Array | undefined = undefined;
+  let previous: Uint8Array | undefined;
   for (const [offset, byte] of data.entries()) {
     buffer = buffer * 256 + byte;
     bits += 8;

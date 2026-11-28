@@ -12,29 +12,29 @@
     "check:type-aware-coverage": "node scripts/assertTypeAwareCoverage.ts"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.6.0",
-    "@oxlint/plugins": "1.92.0",
-    "@types/node": "26.6.6",
-    "@vitest/browser": "5.1.0",
-    "@vitest/browser-playwright": "5.1.0",
-    "bun": "npm:bun@1.4.4",
+    "@cloudflare/vitest-plugin": "1.9.2",
+    "@oxlint/plugins": "1.95.0",
+    "@types/node": "26.6.11",
+    "@vitest/browser": "5.1.2",
+    "@vitest/browser-playwright": "5.1.2",
+    "bun": "npm:bun@1.4.5",
     "deno": "npm:deno@2.9.6",
     "fflate": "0.8.3",
     "fzstd": "0.1.1",
-    "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
-    "oxlint-tsgolint": "7.0.2006",
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0",
+    "oxlint-tsgolint": "7.0.2009",
     "pako": "3.0.3",
-    "playwright": "1.65.0",
+    "playwright": "1.65.1",
     "typescript": "7.0.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.2"
   },
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "26.13.0",
+      "version": "26.13.1",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.18.0"
+  "packageManager": "pnpm@12.23.0"
 }

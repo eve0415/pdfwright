@@ -52,7 +52,7 @@ const reverseCharacters = <T extends { readonly start: number; readonly end: num
   ranges: readonly T[],
   glyph: (range: T, codePoint: number) => number | undefined,
 ): TrueTypeCmap['characters'] => {
-  let reverse: ReadonlyMap<number, readonly number[]> | undefined = undefined;
+  let reverse: ReadonlyMap<number, readonly number[]> | undefined;
   return glyphIndex => {
     if (reverse === undefined) {
       const index = new Map<number, number[]>();

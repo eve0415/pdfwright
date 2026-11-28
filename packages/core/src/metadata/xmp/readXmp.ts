@@ -203,7 +203,7 @@ interface BuiltTree {
 const createTreeBuilder = (): BuiltTree => {
   const rdfs: XmlElement[] = [];
   const instructions: string[] = [];
-  let packetEnd: number | undefined = undefined;
+  let packetEnd: number | undefined;
   const stack: OpenElement[] = [];
   const accept = (token: XmlToken): void => {
     const parent = stack.at(-1);

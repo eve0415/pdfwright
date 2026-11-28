@@ -11,7 +11,7 @@ import { MeshBitReader } from './meshBits.ts';
 import { MeshBitWriter } from './meshBitWriter.ts';
 
 export const MAX_MESH_SUBDIVISION_DEPTH = 6;
-export const MAX_MESH_OUTPUT_BYTES = 4 * 1024 * 1024;
+export const MAX_MESH_OUTPUT_BYTES: number = 4 * 1024 * 1024;
 
 interface Vertex {
   readonly x: number;
@@ -114,7 +114,7 @@ const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions
 const freeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
   const triangles: Triangle[] = [];
   let pending: Vertex[] = [];
-  let previous: Triangle | undefined = undefined;
+  let previous: Triangle | undefined;
   while (reader.remainingBits > 0) {
     const { vertex, flag } = readVertex(reader, options);
     if (flag > 2) throw new ParseError('Type 4 mesh edge flag is invalid', 0);
@@ -294,7 +294,7 @@ const patchTriangles = (patch: Patch, type: 6 | 7, transform: ColorTransform): r
 
 const patches = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
   const triangles: Triangle[] = [];
-  let previous: Patch | undefined = undefined;
+  let previous: Patch | undefined;
   while (reader.remainingBits > 0) {
     const flag = reader.read(options.flagBits) % 4;
     if (previous === undefined && flag !== 0) throw new ParseError('the first mesh patch must start a new patch', 0);

@@ -392,7 +392,7 @@ const maskImage = (document: ReturnType<typeof loadDocument>) => {
 
 const groupSpace = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): string => {
   const owner = document.get(reference);
-  let group: PdfDirectObject | undefined = undefined;
+  let group: PdfDirectObject | undefined;
   if (owner.kind === 'stream') group = owner.dictionary.get(pdfName('Group').bytes);
   else if (owner.kind === 'dictionary') group = owner.entries.get(pdfName('Group').bytes);
   if (group?.kind !== 'dictionary') throw new Error('transparency group is missing');

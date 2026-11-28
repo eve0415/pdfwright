@@ -32,7 +32,7 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   if (!isKeyword(lexer.next(), 'xref')) throw new ParseError('expected the keyword xref', offset);
   const entries: XrefEntry[] = [];
   const lengths = new Set<number>();
-  let previousStart: number | undefined = undefined;
+  let previousStart: number | undefined;
   for (let token = lexer.next(); !isKeyword(token, 'trailer'); token = lexer.next()) {
     const count = lexer.next();
     if (token.kind !== 'integer' || count.kind !== 'integer' || token.value < 0 || count.value < 0 || token.value + count.value - 1 > MAX_OBJECT_NUMBER) {

@@ -559,7 +559,7 @@ const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] |
 // Each run of adjacent glyphs, in the order compared, whose core box is partly hidden.
 const partlyHidden = (selected: readonly PageGlyph[]): TextDifference[] => {
   const runs: number[][] = [];
-  let run: number[] | undefined = undefined;
+  let run: number[] | undefined;
   for (const glyph of selected) {
     if (glyph.coreHidden !== 'partly') run = undefined;
     else if (run === undefined) {

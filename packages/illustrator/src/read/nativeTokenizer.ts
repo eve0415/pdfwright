@@ -13,7 +13,7 @@ const BEGIN_DATA = /^%%BeginData: (\d+)$/u;
 export const tokenizeNative = (bytes: Uint8Array): NativeRecord[] => {
   const records: NativeRecord[] = [];
   let position = 0;
-  let rasterPixels: number | undefined = undefined;
+  let rasterPixels: number | undefined;
   while (position < bytes.length) {
     const start = position;
     while (position < bytes.length && bytes[position] !== 13) position++;

@@ -158,7 +158,8 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
   const { maxDecodedBytes } = internals;
   const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes, maxDecodedBytes } : { maxRowBytes, maxDecodedBytes, colorTransform });
   if (jpeg.components !== 3 || jpeg.width !== width || jpeg.height !== height) return invalid('inline JPEG frame geometry differs from its dictionary');
-  for (const row of jpeg.rows()) void row;
+  const rows = jpeg.rows();
+  while (rows.next().done !== true);
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
   if (space.kind !== 'rgb') return invalid('DefaultRGB is not RGB');
   const intent = options.intent === undefined || options.intent === 'document' ? config.intent : options.intent;

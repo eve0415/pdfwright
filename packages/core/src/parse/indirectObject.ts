@@ -177,7 +177,7 @@ const startsNextStructure = (lexer: Lexer, token: Token): boolean => {
 
 /** Parses the indirect object whose header starts at `local` in `window`. */
 export const parseIndirectObject = (window: LexWindow, local: number, context: IndirectObjectContext): ParsedIndirectObject => {
-  let objectNumber: number | undefined = undefined;
+  let objectNumber: number | undefined;
   let clean = true;
   const lexer = new Lexer(window, local, {
     names: context.names,
@@ -194,7 +194,7 @@ export const parseIndirectObject = (window: LexWindow, local: number, context: I
   const direct = parseObject(lexer, context.maxNesting);
   let value: PdfObject = direct;
   let valueEnd = lexer.position;
-  let stream: FileSource['stream'] = undefined;
+  let stream: FileSource['stream'];
   const afterValue = lexer.peek();
   if (isKeyword(afterValue, 'stream')) {
     if (direct.kind !== 'dictionary') throw new ParseError('a stream must follow a dictionary', lexer.base + afterValue.start);

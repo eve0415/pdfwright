@@ -58,7 +58,7 @@ const applyDifferences = (source: FontSource, value: PdfDictionaryEntries, names
   const listed: string[] = [];
   if (differences === undefined) return { listed, problems };
   if (differences.kind !== 'array') return { listed, problems: ['the Differences entry is not an array'] };
-  let code: number | undefined = undefined;
+  let code: number | undefined;
   for (const item of differences.items) {
     const resolved = source.objects.deref(item);
     if (resolved?.kind === 'integer') code = resolved.value;

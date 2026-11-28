@@ -40,7 +40,7 @@ interface CleanObject {
 }
 
 const typeOf = (value: PdfObject): string => {
-  let entries: PdfDictionaryEntries | undefined = undefined;
+  let entries: PdfDictionaryEntries | undefined;
   if (value.kind === 'stream') entries = value.dictionary;
   else if (value.kind === 'dictionary') ({ entries } = value);
   const type = entries?.get(TYPE);
@@ -87,7 +87,7 @@ class FullRewriter {
   // Annex F: the linearization dictionary is the first object and its H entry gives the offsets of the hint streams; the rewrite does not keep the layout they describe.
   private dropLinearization(): void {
     const { store } = this.input;
-    let first: number | undefined = undefined;
+    let first: number | undefined;
     let lowest = Number.POSITIVE_INFINITY;
     for (const number of store.index.inUse()) {
       const entry = store.index.get(number);

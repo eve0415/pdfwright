@@ -58,7 +58,6 @@ jobs:
         with:
           cache: true
 
-      # isolatedDeclarations errors (TS9xxx) surface here, when tsdown emits declarations, and not in the type-aware lint.
       - name: Build
         run: pnpm run build
 
@@ -108,7 +107,7 @@ jobs:
     name: Oracle
     runs-on: ubuntu-24.04-arm
     container:
-      image: mcr.microsoft.com/devcontainers/typescript-node:5.2.5-26-trixie
+      image: mcr.microsoft.com/devcontainers/typescript-node:5.2.7-26-trixie
     permissions:
       contents: read
 
@@ -170,7 +169,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh extension install github/gh-actions-lock --pin v0.4.0
+          gh extension install github/gh-actions-lock --pin v0.5.1
           gh actions-lock --verify
 
       # zizmor audits workflows for security, not validity: a `needs` edge to a missing job passes it, and GitHub then rejects the whole file.
