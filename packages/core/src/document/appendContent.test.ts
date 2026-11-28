@@ -73,6 +73,30 @@ describe('appending page content', () => {
     }).toThrow(expect.objectContaining({ constructor: ValidationError, reason: 'raw-content-unchecked' }));
   });
 
+  it('writes the raw bytes it checked when a proxy changes them after the check', () => {
+    const document = load(page('/Contents 4 0 R/Resources<<>>'));
+    const benign = latin1Bytes('n                     ');
+    const harmful = latin1Bytes('0 0 0 0 k 0 0 9 9 re f');
+    // The check's lexer reads one index past the end when it finishes, and every indexed read after that sees the harmful bytes.
+    let checked = false;
+    const proxied = new Proxy(benign, {
+      get: (target, key) => {
+        if (typeof key === 'string' && /^\d+$/u.test(key)) {
+          const index = Number(key);
+          const value = (checked ? harmful : target)[index];
+          checked ||= index >= target.length;
+          return value;
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    document.page(0).appendContent(proxied, { isolate: false });
+    const contents = entry(document, document.get(pdfReference(3, 0)), 'Contents');
+    const last = contents.kind === 'array' ? contents.items.at(-1) : contents;
+    expect(latin1Text(streamBytes(resolved(document, last)))).toBe('\nn                     ');
+  });
+
   it('separates appended operators from a stream without trailing whitespace', () => {
     const isolated = load(page('/Contents 4 0 R/Resources<<>>'));
     isolated.page(0).appendContent(latin1Bytes('n'));
