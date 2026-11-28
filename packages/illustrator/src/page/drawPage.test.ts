@@ -128,17 +128,45 @@ describe('visible Illustrator page', () => {
     expect(pageContent(loaded).startsWith('q\n1 0 0 1 4 3 cm\n')).toBe(true);
   });
 
+  // ISO 32000-1:2008, 14.11.2.1: an art box beyond the media box is reduced to its intersection with it, and a page without one falls back to the crop box.
+  // The artboard is 100 × 70 with a 3-point bleed, so the media box runs from (0, 0) to (106, 76) and art at (x, y) lands at (x + 3, y + 3).
   it.each([
     // A raster from (−500, 10) to (−490, 30) lies wholly left of the media box.
-    { case: 'leaves out the ArtBox of art outside the media box', x: -500, width: 10, art: { rect: [0, 0, 106, 76], explicit: false } },
+    {
+      case: 'leaves out the ArtBox of art outside the media box',
+      bounds: { x: -500, y: 10, width: 10, height: 20 },
+      art: { rect: [0, 0, 106, 76], explicit: false },
+    },
     // A raster from (−10, 10) to (20, 30) crosses the left bleed edge at −3.
-    { case: 'clamps the ArtBox of art that crosses the bleed edge', x: -10, width: 30, art: { rect: [0, 13, 23, 33], explicit: true } },
-  ])('$case', ({ x, width, art }) => {
+    {
+      case: 'clamps the ArtBox of art that crosses the left bleed edge',
+      bounds: { x: -10, y: 10, width: 30, height: 20 },
+      art: { rect: [0, 13, 23, 33], explicit: true },
+    },
+    // A raster from (10, −10) to (30, 20) crosses the bottom bleed edge at −3.
+    {
+      case: 'clamps the ArtBox of art that crosses the bottom bleed edge',
+      bounds: { x: 10, y: -10, width: 20, height: 30 },
+      art: { rect: [13, 0, 33, 23], explicit: true },
+    },
+    // A raster from (90, 60) to (120, 90) crosses the right bleed edge at 103 and the top one at 73.
+    {
+      case: 'clamps the ArtBox of art that crosses the right and top bleed edges',
+      bounds: { x: 90, y: 60, width: 30, height: 30 },
+      art: { rect: [93, 63, 106, 76], explicit: true },
+    },
+    // A raster from (−10, −10) to (120, 90) crosses all four bleed edges.
+    {
+      case: 'clamps the ArtBox of art that crosses every bleed edge',
+      bounds: { x: -10, y: -10, width: 130, height: 100 },
+      art: { rect: [0, 0, 106, 76], explicit: true },
+    },
+  ])('$case', ({ bounds, art }) => {
     const raster: Item = {
       kind: 'raster',
       width: 1,
       height: 1,
-      bounds: { x, y: 10, width, height: 20 },
+      bounds,
       color: { space: 'cmyk', samples: new Uint8Array(4) },
       alpha: Uint8Array.of(255),
     };
