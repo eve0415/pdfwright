@@ -1,5 +1,6 @@
 import type { Quad } from './clip.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { Clip, rectanglePath } from './clip.ts';
@@ -166,5 +167,140 @@ describe('clip classification', () => {
       clip.classifyQuad(quad([40, 10, 70, 20])),
       Clip.NONE.intersect(rectanglePath([0, 0, 50, 100], IDENTITY), 'nonzero').classifyQuad(quad([40, 10, 70, 20])),
     ]).toStrictEqual(['outside', 'partial']);
+  });
+
+  it('closes an open subpath with the edge from its last point back to its first', () => {
+    // ISO 32000-1:2008, 8.5.3.3.1: "Any subpaths that are open shall be implicitly closed before being filled"; here the implied edge x = 100 is the only one to the right of the point.
+    const open = new PathBuilder(IDENTITY);
+    open.moveTo(100, 0);
+    open.lineTo(0, 0);
+    open.lineTo(0, 100);
+    open.lineTo(100, 100);
+    expect(Clip.NONE.intersect(open, 'nonzero').classifyPoint(50, 50)).toBe('inside');
+  });
+
+  it('finds a slit that only the crossing of a clip edge with a side of the quad reveals', () => {
+    // Every sample of the quad 0…10 is inside one of the two rectangles, no clip vertex or edge midpoint is strictly inside it, and the slit 2…3 runs through it.
+    const slit = new PathBuilder(IDENTITY);
+    slit.rectangle([-100, -100, 102, 200]);
+    slit.rectangle([3, -100, 97, 200]);
+    expect(Clip.NONE.intersect(slit, 'nonzero').classifyQuad(quad([0, 0, 10, 10]))).toBe('partial');
+  });
+
+  it('classifies everything as unknown once intersected with a shape that is not known, whatever follows', () => {
+    const unknown = Clip.NONE.intersectUnknown();
+    const narrowed = unknown.intersect(rectanglePath([0, 0, 100, 100], IDENTITY), 'nonzero');
+    expect([
+      unknown.classifyPoint(0, 0),
+      unknown.classifyQuad(quad([0, 0, 1, 1])),
+      narrowed.classifyPoint(50, 50),
+      narrowed.classifyQuad(quad([10, 10, 20, 20])),
+    ]).toStrictEqual(['unknown', 'unknown', 'unknown', 'unknown']);
+  });
+
+  it('counts a point within 1e-6 of the clip boundary as on it', () => {
+    const clip = Clip.NONE.intersect(rectanglePath([0, 0, 100, 100], IDENTITY), 'nonzero');
+    expect([clip.classifyPoint(100 + 1e-7, 50), clip.classifyPoint(100 + 1e-5, 50)]).toStrictEqual(['inside', 'outside']);
+  });
+
+  it('finds a clip inside a quad whose corners are given clockwise', () => {
+    const small = Clip.NONE.intersect(rectanglePath([40, 40, 42, 42], IDENTITY), 'nonzero');
+    expect(small.classifyQuad([0, 0, 0, 100, 100, 100, 100, 0])).toBe('partial');
+  });
+
+  it('encloses nothing by a path of a single point or of no segments', () => {
+    const point = new PathBuilder(IDENTITY);
+    point.moveTo(5, 5);
+    expect([
+      Clip.NONE.intersect(point, 'nonzero').classifyPoint(5, 5),
+      Clip.NONE.intersect(new PathBuilder(IDENTITY), 'nonzero').classifyPoint(5, 5),
+    ]).toStrictEqual(['outside', 'outside']);
+  });
+
+  it('classifies a quad outside two clips whose intersection is a sliver between the points of its grid', () => {
+    // The clips overlap only on 50.1…50.6, which no point of the 9 by 9 grid over the quad 0…100, 12.5 apart, falls in.
+    const clip = Clip.NONE.intersect(rectanglePath([-10, -10, 50.6, 110], IDENTITY), 'nonzero').intersect(
+      rectanglePath([50.1, -10, 110, 110], IDENTITY),
+      'nonzero',
+    );
+    expect([clip.classifyPoint(50.3, 50), clip.classifyQuad(quad([0, 0, 100, 100]))]).toStrictEqual(['inside', 'outside']);
+  });
+});
+
+type Polygon = ReadonlyArray<readonly [number, number]>;
+
+const pathOf = (polygons: ReadonlyArray<Polygon>): PathBuilder => {
+  const path = new PathBuilder(IDENTITY);
+  for (const [[x, y] = [0, 0], ...rest] of polygons) {
+    path.moveTo(x, y);
+    for (const [nextX, nextY] of rest) {
+      path.lineTo(nextX, nextY);
+    }
+  }
+  return path;
+};
+
+const small = fc.integer({ min: -20, max: 20 });
+const polygons = fc.array(fc.array(fc.tuple(small, small), { minLength: 1, maxLength: 8 }), { minLength: 1, maxLength: 4 });
+const RULES = ['nonzero', 'even-odd'] as const;
+
+// A coordinate with a fraction no integer clip coordinate shares, so that a quad's corners and grid points lie on no clip edge.
+const offCoordinate = small.map(value => value + 0.3137);
+
+describe('properties', () => {
+  it('classifies points the same whichever way each subpath is drawn', () => {
+    fc.assert(
+      fc.property(polygons, fc.tuple(small, small), (shape, [x, y]) => {
+        const forward = pathOf(shape);
+        const backward = pathOf(shape.map(polygon => polygon.toReversed()));
+        expect(RULES.map(rule => Clip.NONE.intersect(backward, rule).classifyPoint(x / 2, y / 2))).toStrictEqual(
+          RULES.map(rule => Clip.NONE.intersect(forward, rule).classifyPoint(x / 2, y / 2)),
+        );
+      }),
+    );
+  });
+
+  it('classifies points and quads against a rectangle as the intervals they span relate', () => {
+    const span = fc.tuple(fc.integer({ min: -50, max: 50 }), fc.integer({ min: 1, max: 50 }));
+    // Points fall on quarters, so each is on the rectangle's boundary or at least 0.25 from it; quads fall on halves, so none touches it.
+    const point = fc.tuple(fc.integer({ min: -400, max: 400 }), fc.integer({ min: -400, max: 400 })).map(([x, y]) => [x / 4, y / 4] as const);
+    const halves = fc
+      .tuple(fc.integer({ min: -110, max: 110 }), fc.integer({ min: 1, max: 100 }))
+      .map(([start, length]) => [start + 0.5, start + 0.5 + length] as const);
+    fc.assert(
+      fc.property(span, span, point, halves, halves, ([left, width], [bottom, height], [x, y], [qLeft, qRight], [qBottom, qTop]) => {
+        const [right, top] = [left + width, bottom + height];
+        const clip = Clip.NONE.intersect(rectanglePath([left, bottom, right, top], IDENTITY), 'nonzero');
+        const pointInside = left <= x && x <= right && bottom <= y && y <= top;
+        const quadInside = left <= qLeft && qRight <= right && bottom <= qBottom && qTop <= top;
+        const quadOutside = qRight < left || right < qLeft || qTop < bottom || top < qBottom;
+        expect([clip.classifyPoint(x, y), clip.classifyQuad(quad([qLeft, qBottom, qRight, qTop]))]).toStrictEqual([
+          pointInside ? 'inside' : 'outside',
+          quadInside ? 'inside' : quadOutside ? 'outside' : 'partial',
+        ]);
+      }),
+    );
+  });
+
+  it('classifies a quad inside one clip path only when every point of a grid over it is inside, and outside only when none is', () => {
+    fc.assert(
+      fc.property(
+        polygons,
+        fc.constantFrom(...RULES),
+        offCoordinate,
+        offCoordinate,
+        fc.integer({ min: 1, max: 20 }),
+        fc.integer({ min: 1, max: 20 }),
+        (shape, rule, left, bottom, width, height) => {
+          const clip = Clip.NONE.intersect(pathOf(shape), rule);
+          const found = clip.classifyQuad(quad([left, bottom, left + width, bottom + height]));
+          const grid = Array.from({ length: 81 }, (_, index) =>
+            clip.classifyPoint(left + (width * (index % 9)) / 8, bottom + (height * Math.floor(index / 9)) / 8),
+          );
+          const disagreeing = found === 'partial' ? [] : grid.filter(point => point !== found);
+          expect(disagreeing).toStrictEqual([]);
+        },
+      ),
+    );
   });
 });
