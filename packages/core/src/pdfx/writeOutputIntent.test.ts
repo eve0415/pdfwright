@@ -100,6 +100,43 @@ const subtypesOf = (document: LoadedDocument): Array<string | undefined> => {
 
 const versionLowered = (document: LoadedDocument): boolean => document.save().warnings.some(warning => warning.code === 'version-lowered');
 
+const compressedIntent = (maxDecodedBytes: number) => {
+  const document = loadDocument(base().bytes, { maxDecodedBytes });
+  const profileReference = document.object({
+    kind: 'stream',
+    dictionary: new PdfDictionaryEntries([[pdfName('Filter').bytes, pdfName('FlateDecode')]]),
+    data: deflateZlib(profile),
+  });
+  const intentReference = document.object(
+    pdfDictionary(
+      new PdfDictionaryEntries([
+        [pdfName('S').bytes, pdfName('GTS_PDFA1')],
+        [pdfName('DestOutputProfile').bytes, profileReference],
+      ]),
+    ),
+  );
+  setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
+  return { document, intentReference, profileReference };
+};
+
+const withIntents = (intents: string, objects: ReadonlyArray<TestObject>) =>
+  loadDocument(
+    buildPdf([
+      {
+        xref: 'classic',
+        objects: [
+          { number: 1, body: `<</Type/Catalog/Pages 2 0 R/OutputIntents${intents}>>` },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+          ...objects,
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+  );
+
+const unreadable = { number: 5, body: streamBody('', 'x'.repeat(200)) };
+
 describe('gts pdfx output intent', () => {
   it('writes registry defaults', () => {
     const document = loadDocument(base().bytes);
@@ -280,25 +317,6 @@ describe('gts pdfx output intent', () => {
     expect(subtypesOf(document)).toStrictEqual(['GTS_PDFX', 'GTS_PDFA1']);
   });
 
-  const compressedIntent = (maxDecodedBytes: number) => {
-    const document = loadDocument(base().bytes, { maxDecodedBytes });
-    const profileReference = document.object({
-      kind: 'stream',
-      dictionary: new PdfDictionaryEntries([[pdfName('Filter').bytes, pdfName('FlateDecode')]]),
-      data: deflateZlib(profile),
-    });
-    const intentReference = document.object(
-      pdfDictionary(
-        new PdfDictionaryEntries([
-          [pdfName('S').bytes, pdfName('GTS_PDFA1')],
-          [pdfName('DestOutputProfile').bytes, profileReference],
-        ]),
-      ),
-    );
-    setCatalogEntry(document, 'OutputIntents', pdfArray([intentReference]));
-    return { document, intentReference, profileReference };
-  };
-
   it.each<[string, number, string, Array<string>, Array<string>]>([
     ['at the decode limit', 0, 'added', [], ['GTS_PDFX', 'GTS_PDFA1']],
     ['one byte past the decode limit', 1, 'replaced', ['GTS_PDFA1'], ['GTS_PDFX']],
@@ -308,23 +326,6 @@ describe('gts pdfx output intent', () => {
     expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual([action, removed, subtypes]);
   });
 
-  const withIntents = (intents: string, objects: ReadonlyArray<TestObject>) =>
-    loadDocument(
-      buildPdf([
-        {
-          xref: 'classic',
-          objects: [
-            { number: 1, body: `<</Type/Catalog/Pages 2 0 R/OutputIntents${intents}>>` },
-            { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
-            { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
-            ...objects,
-          ],
-          trailer: '/Root 1 0 R',
-        },
-      ]).bytes,
-    );
-  const unreadable = { number: 5, body: streamBody('', 'x'.repeat(200)) };
-
   it.each<[string, string, ReadonlyArray<TestObject>, Array<string>, Array<number>]>([
     [
       'two intents that share one unreadable profile',
@@ -333,7 +334,13 @@ describe('gts pdfx output intent', () => {
       ['GTS_PDFA1', 'ISO_PDFE1'],
       [4, 5, 6],
     ],
-    ['one intent listed twice', '[4 0 R 4 0 R]', [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable], ['GTS_PDFA1', 'GTS_PDFA1'], [4, 5]],
+    [
+      'one intent listed twice',
+      '[4 0 R 4 0 R]',
+      [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 5 0 R>>' }, unreadable],
+      ['GTS_PDFA1', 'GTS_PDFA1'],
+      [4, 5],
+    ],
     ['an intent whose profile reference names no object', '[4 0 R]', [{ number: 4, body: '<</S/GTS_PDFA1/DestOutputProfile 9 0 R>>' }], ['GTS_PDFA1'], [4]],
   ])('replaces %s, removing each object once', (_, intents, objects, removed, deleted) => {
     const document = withIntents(intents, objects);
