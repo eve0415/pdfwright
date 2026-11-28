@@ -220,7 +220,7 @@ describe('cross-reference reconstruction', () => {
     ['a stream that extends itself', '/Extends 4 0 R', '', ['objstm-extends-cycle']],
     ['a stream that extends one that was never decoded', '/Extends 9 0 R', '', []],
     ['a second stream that extends itself', '', '/Extends 5 0 R', ['objstm-extends-cycle']],
-  ])('reports Extends cycles only for %s', (_, first, second, codes) => {
+  ])('reports Extends cycles as expected for %s', (_, first, second, codes) => {
     const pdf = buildPdf([
       {
         xref: 'stream',
