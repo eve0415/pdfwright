@@ -10,7 +10,7 @@ const FONT = syntheticTrueType({
   name: 'PdfwrightTest',
   glyphs: [
     { advance: 500, box: [50, 0, 450, 700] },
-    { advance: 600, box: [0, -200, 600, 800], vertical: { advance: 1000, topSideBearing: 0 } },
+    { advance: 600, box: [0, -200, 600, 800], vertical: { advance: 900, topSideBearing: 50 } },
     { advance: 400, box: [100, 0, 300, 500] },
     { advance: 250 },
   ],
@@ -81,7 +81,12 @@ describe('synthetic TrueType programs', () => {
     const verticals = tableData(found, 'vmtx');
     expect(u16(tableData(found, 'maxp'), 4)).toBe(4);
     expect([0, 1, 2, 3].map(glyph => u16(advances, 4 * glyph))).toStrictEqual([500, 600, 400, 250]);
-    expect([0, 1].map(glyph => u16(verticals, 4 * glyph))).toStrictEqual([1000, 1000]);
+    expect([0, 1, 2, 3].map(glyph => [u16(verticals, 4 * glyph), u16(verticals, 4 * glyph + 2)])).toStrictEqual([
+      [1000, 0],
+      [900, 50],
+      [1000, 0],
+      [1000, 0],
+    ]);
   });
 
   it('maps characters and variation sequences through its cmap table', () => {
