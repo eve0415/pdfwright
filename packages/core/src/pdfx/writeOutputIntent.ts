@@ -1,6 +1,5 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
-import type { PdfStream } from '../font/fontValues.ts';
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
@@ -64,9 +63,13 @@ interface ReadExistingInput {
   readonly replacement: boolean;
 }
 
-// A profile that cannot be decoded within the limits or parsed differs from the destination, so under `replace` it is removed rather than read.
-const sameProfile = (internals: DocumentInternals, stream: PdfStream, destination: IccProfile, replacement: boolean): boolean => {
+// A profile whose object cannot be read, or that cannot be decoded within the limits or parsed, differs from the destination, so under `replace` it is removed rather than read.
+const sameProfile = (internals: DocumentInternals, value: PdfDirectObject | undefined, destination: IccProfile, replacement: boolean): boolean => {
   try {
+    const stream = internals.objects.deref(value);
+    if (stream?.kind !== 'stream') {
+      return false;
+    }
     const bytes = decodedData(internals, stream);
     if (typeof bytes === 'string') {
       throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
@@ -95,8 +98,7 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     const reference = item.kind === 'reference' ? item : undefined;
     const profileValue = value.entries.get(key('DestOutputProfile'));
     const profile = profileValue?.kind === 'reference' ? profileValue : undefined;
-    const stream = objects.deref(profileValue);
-    const matches = stream?.kind === 'stream' && sameProfile(internals, stream, destination, replacement);
+    const matches = sameProfile(internals, profileValue, destination, replacement);
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
