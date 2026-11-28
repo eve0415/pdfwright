@@ -287,15 +287,16 @@ describe('content builder', () => {
 
   // ISO 32000-1:2008, Annex C, Table C.1 allows 28 levels, and painting an image adds the q around its Do.
   it.each([
-    [27, 'drawn'],
+    [27, `${'q\n'.repeat(27)}q\n1 0 0 1 0 0 cm\n/Im1 Do\nQ\n${'Q\n'.repeat(27)}`],
     [28, 'ValidationError'],
-  ])('paints an image after %i saves: %s', (depth, expected) => {
-    const result = outcome(content => {
-      saves(content, depth);
-      content.image(image, [1, 0, 0, 1, 0, 0]);
-      restores(content, depth);
-    });
-    expect(result === 'ValidationError' ? result : 'drawn').toBe(expected);
+  ])('paints an image after %i saves', (depth, expected) => {
+    expect(
+      outcome(content => {
+        saves(content, depth);
+        content.image(image, [1, 0, 0, 1, 0, 0]);
+        restores(content, depth);
+      }),
+    ).toBe(expected);
   });
 
   it('refuses a retained path builder after finish', () => {
