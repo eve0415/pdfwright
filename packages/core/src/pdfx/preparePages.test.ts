@@ -208,7 +208,7 @@ describe('pdfx page preparation', () => {
     ['an image with SMask', '/SMask 6 0 R', [0]],
     ['an image with Mask', '/Mask[0 0]', [0]],
   ])('reads %s', (_, mask, groups) => {
-    // ISO 32000-1:2008, 11.6.5.3 and 8.9.6: soft masks and masked images composite through transparency.
+    // ISO 32000-1:2008, 11.6.5.3: an SMask entry gives an image a soft mask; preparePdfX4Pages also counts a Mask entry (8.9.6) as needing a page group.
     const document = single('<</XObject<</Im1 5 0 R>>>>', streamBody('', '/Im1 Do'), [
       { number: 5, body: streamBody(`/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8${mask}`, 'x') },
       { number: 6, body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8', 'x') },

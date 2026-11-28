@@ -92,7 +92,7 @@ const withIntents = (build: (document: LoadedDocument) => ReadonlyArray<Fields>,
 };
 
 const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
-// ICC.1:2022, 7.2.5 and 7.2.6: 'prtr' is the output device class and 'mntr' the display device class; 9.2.1 and 9.2.4 define the AToB1 and BToA0 tags.
+// ICC.1:2022, 7.2.5: 'prtr' is the output device class and 'mntr' the display device class; 9.2 defines the AToB1 and BToA0 tags.
 const rgbProfile = (profileClass: string, tags: ReadonlyArray<string>) =>
   iccProfileBytes({
     profileClass,
@@ -366,7 +366,7 @@ describe('pdfx structural checker', () => {
       ['/Trapped/Unknown', 'violation'],
       ['/Trapped(True)', 'violation'],
     ])('checks Info %s', (info, status) => {
-      // ISO 32000-1:2008, Table 317: Trapped is a name, and PDF/X needs True or False.
+      // ISO 32000-1:2008, Table 317 makes Trapped a name; CGATS Application Notes (2006), 2.17 asks for True or False.
       expect(statusOf(withMetadata(info, undefined), 'X4-TRAPPED')).toBe(status);
     });
 
@@ -399,7 +399,7 @@ describe('pdfx structural checker', () => {
       ['/CropBox[10 10 90 90]/TrimBox[10 10 90 90]', 'passed', /inside/],
       ['/CropBox[10 10 90 90]/TrimBox[10 9 90 90]', 'violation', /CropBox/],
     ])('checks a page with %s inside MediaBox [0 0 100 100]', (boxes, status, detail) => {
-      // ISO 32000-1:2008, 14.11.2: the trim or art box lies within the media, bleed and crop boxes.
+      // CGATS Application Notes (2006), 2.10 and ISO 32000-1:2008, 14.11.2: the trim or art box lies within the media, bleed and crop boxes.
       const entry = finding(raw({ page: `${boxes}/Resources<<>>` }), 'X4-BOXES');
       expect(entry?.status).toBe(status);
       expect(entry?.detail).toMatch(detail);

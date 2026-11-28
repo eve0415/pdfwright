@@ -106,7 +106,7 @@ describe('gts pdfx output intent', () => {
   });
 
   it('writes explicit descriptions in place of the registry defaults', () => {
-    // ISO 32000-1:2008, 14.11.5, Table 365: Info, OutputCondition and RegistryName describe the condition, and the caller's values win.
+    // ISO 32000-1:2008, 14.11.5, Table 365 defines Info, OutputCondition and RegistryName; the registry defaults apply only where the caller gives none.
     const document = loadDocument(base().bytes);
     writeGtsPdfxOutputIntent(document, {
       outputProfile: profile,
@@ -170,7 +170,7 @@ describe('gts pdfx output intent', () => {
     ['keeps a 1.7 header and catalog Version with pdfx false', '1.7', { pdfx: false }, '%PDF-1.7', '1.7', false],
     ['keeps a 1.6 header and catalog Version', '1.6', {}, '%PDF-1.6', '1.6', false],
   ])('%s', (_, version, options, header, catalogVersion, lowered) => {
-    // ISO 15930-7:2010, 6.1: PDF/X-4 files are PDF 1.6, so only a later version is lowered.
+    // ISO 15930-7:2010 preview, Introduction, Table 1: PDF/X-4 is based on PDF 1.6, so only a later version is lowered.
     const document = loadDocument(base(version).bytes);
     setCatalogEntry(document, 'Version', pdfName(version));
     writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', ...options });
@@ -198,7 +198,7 @@ describe('gts pdfx output intent', () => {
     ['an output-class RGB profile', iccProfileBytes({ profileClass: 'prtr', colorSpace: 'RGB ', pcs: 'Lab ', tags: [] })],
     ['a display-class CMYK profile', iccProfileBytes({ profileClass: 'mntr', colorSpace: 'CMYK', pcs: 'Lab ', tags: [] })],
   ])('refuses %s before editing', (_, bytes) => {
-    // ISO 15930-7:2010, 6.4 and ICC.1:2022, 7.2.5: the PDF/X output intent carries an output-class CMYK profile.
+    // ICC.1:2022, 7.2.5 and 7.2.6 define the profile class and colour space fields; OutputIntentOptions takes only an output-class CMYK profile.
     const document = loadDocument(base().bytes);
     const write = () => writeGtsPdfxOutputIntent(document, { outputProfile: bytes, outputConditionIdentifier: 'FOGRA39' });
     expect(write).toThrow(ValidationError);
