@@ -819,3 +819,33 @@ describe('the step limit of the carrier walk', () => {
     expect(() => walkPage(document, 1, seen)).toThrow(/more than 5 steps/u);
   });
 });
+
+const SHARERS = 100;
+const sharerForms = Array.from({ length: SHARERS }, (_, index) => `/F${String(index)} ${String(5 + index)} 0 R`).join('');
+
+/** Forms that each name every form through one shared indirect dictionary, so a walk that expands it once per form takes steps quadratic in the form count. */
+const sharedDictionaries = [
+  {
+    shared: 'Resources',
+    page: '/Resources 200 0 R',
+    form: '/Resources 200 0 R',
+    dictionary: `<</XObject<<${sharerForms}>>>>`,
+  },
+  {
+    shared: 'XObject category',
+    page: '/Resources<</XObject 200 0 R>>',
+    form: '/Resources<</XObject 200 0 R>>',
+    dictionary: `<<${sharerForms}>>`,
+  },
+];
+
+describe('carriers that share an indirect resource dictionary', () => {
+  it.each(sharedDictionaries)('lists $shared sharers once each in steps linear in their count', ({ page, form, dictionary }) => {
+    const document = carrierPdf(page, [
+      ...Array.from({ length: SHARERS }, (_, index) => ({ number: 5 + index, body: streamBody(`${FORM}${form}`, '') })),
+      { number: 200, body: dictionary },
+    ]);
+    const listed = walkPage(document, 0, carrierSeen(3 * SHARERS));
+    expect(listed.map(carrier => carrier.key)).toStrictEqual(Array.from({ length: SHARERS }, (_, index) => `${String(5 + index)} 0 R`));
+  });
+});
