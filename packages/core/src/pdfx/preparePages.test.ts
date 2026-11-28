@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { GenerationMismatchError } from '../error/generationMismatchError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { pt } from '../length/length.ts';
@@ -787,6 +788,47 @@ describe('pdfx page preparation', () => {
     const form = { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Group<</S/Transparency>>', '0 0 1 1 re f') };
     const objects = extra.some(object => object.number === 5) ? extra : [form, ...extra];
     expect(addedGroups(single(resources, streamBody('', content), objects, page))).toStrictEqual([0]);
+  });
+
+  it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
+    ['a font that Tf selects', '<</Font<</T 5 1 R>>>>', 'BT /T 12 Tf ET', [{ number: 5, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' }], '5 1 R'],
+    [
+      'a font that a graphics state Font entry selects',
+      '<</ExtGState<</G 7 0 R>>>>',
+      '/G gs',
+      [
+        { number: 5, body: '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>' },
+        { number: 7, body: '<</Font[5 1 R 12]>>' },
+      ],
+      '5 1 R',
+    ],
+    [
+      'the CharProcs of a selected Type 3 font',
+      '<</Font<</T 5 0 R>>>>',
+      'BT /T 12 Tf ET',
+      [
+        { number: 5, body: shownType3('8 1 R') },
+        { number: 8, body: '<</a 6 0 R>>' },
+      ],
+      '8 1 R',
+    ],
+    ['a glyph procedure of a selected Type 3 font', '<</Font<</T 5 0 R>>>>', 'BT /T 12 Tf ET', [{ number: 5, body: shownType3('<</a 6 1 R>>') }], '6 1 R'],
+    [
+      'the Resources of a selected Type 3 font',
+      '<</Font<</T 5 0 R>>>>',
+      'BT /T 12 Tf ET',
+      [
+        { number: 5, body: type3Font('<</a 6 0 R>>', ' 8 1 R') },
+        { number: 8, body: '<<>>' },
+      ],
+      '8 1 R',
+    ],
+  ])('refuses a reference to another generation of %s unless the document reads such references as null', (_, resources, content, extra, reference) => {
+    const objects = [...extra, { number: 6, body: streamBody('', '0 0 d0 0 0 1 1 re f') }];
+    const prepare = () => preparePdfX4Pages(single(resources, streamBody('', content), objects));
+    expect(prepare).toThrow(GenerationMismatchError);
+    expect(prepare).toThrow(new RegExp(`reference ${reference}`, 'u'));
+    expect(addedGroups(single(resources, streamBody('', content), objects, '', { generationMismatch: 'null' }))).toStrictEqual([]);
   });
 
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
