@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../../document/loadDocument.ts';
 import { InvalidArgumentError } from '../../error/invalidArgumentError.ts';
-import { latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
+import { latin1Bytes, latin1Text, streamBody } from '../../testing/pdfBuilder.ts';
 import { textPdfBytes } from '../../testing/textPdf.ts';
 
 import { listColorants } from './listColorants.ts';
@@ -32,14 +32,19 @@ interface Fixture {
   readonly entries?: string;
 }
 
-// Each colorant of the first page, as `name kind p=painted s=selected d=declared`.
-const colorants = (content: string, { resources = '', spaces = '', objects = [], entries = '' }: Fixture = {}): Array<string> => {
+// The first page, whose resources hold CS1 (Gold), CS2 (Silver) and F1 (Helvetica) beside what the fixture adds.
+const firstPage = (content: string, { resources = '', spaces = '', objects = [], entries = '' }: Fixture = {}): PageColorants | undefined => {
   const [page] = pagesOf(
     [{ content, resources: `/ColorSpace<</CS1 ${separation('Gold')}/CS2 ${separation('Silver')}${spaces}>>${FONT}${resources}`, entries }],
     objects,
   );
-  return page?.colorants.map(use => describeUse(use)) ?? [];
+  return page;
 };
+
+// Each colorant of the first page, as `name kind p=painted s=selected d=declared`.
+const colorants = (content: string, fixture: Fixture = {}): Array<string> => firstPage(content, fixture)?.colorants.map(use => describeUse(use)) ?? [];
+
+const SILVER_UNUSED = 'Silver spot p= s= d=resources';
 
 const type3Font = (procedures: string): string =>
   `<</Type/Font/Subtype/Type3/FontBBox[0 0 1000 1000]/FontMatrix[0.001 0 0 0.001 0 0]/CharProcs<</a 111 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1000]/Resources<<${procedures}>>>>`;
@@ -147,6 +152,25 @@ describe('painted colorants', () => {
       'Silver spot p= s= d=resources,annotation-not-printed',
     ]);
   });
+
+  // ISO 32000-1:2008, 8.6.5.6: a device colour operator paints in the Default space of its family when the current resources define one.
+  it.each([
+    ['g with DefaultGray', '0.5 g 0 0 10 10 re f', `/DefaultGray ${separation('G')}`, ['G spot p=fill s= d=', 'Gold spot p= s= d=resources', SILVER_UNUSED]],
+    [
+      'rg with DefaultRGB',
+      '1 0 0 rg 0 0 10 10 re f',
+      `/DefaultRGB[/DeviceN[/R/Gx/B]/DeviceRGB ${TINT}]`,
+      ['B spot p=fill s= d=', 'Gold spot p= s= d=resources', 'Gx spot p=fill s= d=', 'R spot p=fill s= d=', SILVER_UNUSED],
+    ],
+    [
+      'rg with only DefaultGray',
+      '1 0 0 rg 0 0 10 10 re f',
+      `/DefaultGray ${separation('G')}`,
+      ['G spot p= s= d=resources', 'Gold spot p= s= d=resources', SILVER_UNUSED],
+    ],
+  ])('paints %s in the Default space', (_, content, spaces, expected) => {
+    expect(colorants(content, { spaces })).toStrictEqual(expected);
+  });
 });
 
 describe('colorants in patterns', () => {
@@ -207,6 +231,33 @@ describe('selected colorants', () => {
       ['Gold spot p= s=clip-only d=resources', 'Silver spot p= s= d=resources'],
     ]);
   });
+
+  const group = streamBody(
+    `/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency>>/Resources<<${SPACES}${FONT}>>`,
+    'BT /F1 12 Tf /CS1 cs 1 scn (a) Tj ET',
+  );
+  const fixture: Fixture = {
+    resources: '/ExtGState<</Clear<</ca 0>>/NoStroke<</CA 0/ca 1>>>>/XObject<</G1 170 0 R>>',
+    objects: [{ number: 170, body: group }],
+  };
+
+  // ISO 32000-1:2008, 9.3.6, Table 106: modes 0, 2, 4 and 6 fill glyphs and modes 1, 2, 5 and 6 stroke them; 11.6.4.4: a group's results are painted at the fill alpha in force where it is drawn.
+  it.each([
+    ['a path filled at fill alpha 0', '/Clear gs /CS1 cs 1 scn 0 0 10 10 re f', ['Gold spot p=fill s= d=', SILVER_UNUSED]],
+    ['text stroked at stroke alpha 0', '/NoStroke gs BT /F1 12 Tf 1 Tr /CS1 CS 1 SCN (a) Tj ET', ['Gold spot p= s=invisible-text d=resources', SILVER_UNUSED]],
+    ['text filled at stroke alpha 0', '/NoStroke gs BT /F1 12 Tf /CS1 cs 1 scn (a) Tj ET', ['Gold spot p=text s= d=', SILVER_UNUSED]],
+    [
+      'text filled and stroked at stroke alpha 0',
+      '/NoStroke gs BT /F1 12 Tf 2 Tr /CS1 cs 1 scn /CS2 CS 1 SCN (a) Tj ET',
+      ['Gold spot p=text s= d=', 'Silver spot p= s=invisible-text d=resources'],
+    ],
+    ['text in a transparency group drawn at fill alpha 0', '/Clear gs /G1 Do', ['Gold spot p= s=invisible-text d=resources', SILVER_UNUSED]],
+    ['text in a transparency group drawn at fill alpha 1', '/G1 Do', ['Gold spot p=text s= d=', SILVER_UNUSED]],
+    ['text in render mode 7', 'BT /F1 12 Tf 7 Tr /CS1 cs 1 scn (a) Tj ET', ['Gold spot p= s=clip-only d=resources', SILVER_UNUSED]],
+    ['an empty string in render mode 3', 'BT /F1 12 Tf 3 Tr /CS1 cs 1 scn () Tj ET', ['Gold spot p= s=colour-space-only d=resources', SILVER_UNUSED]],
+  ])('tells painted from selected for %s', (_, content, expected) => {
+    expect(colorants(content, fixture)).toStrictEqual(expected);
+  });
 });
 
 describe('declared colorants', () => {
@@ -227,12 +278,14 @@ describe('declared colorants', () => {
 
   it('reports colorants an NChannel space lists without using them, and those a SeparationInfo names', () => {
     const nchannel = `[/DeviceN[/Gold]/DeviceCMYK ${TINT}<</Subtype/NChannel/Colorants<</Gold ${separation('Gold')}/Extra ${separation('Extra')}>>>>]`;
-    const info = `/SeparationInfo<</Pages[3 0 R]/DeviceColorant(Named)/ColorSpace ${separation('Named')}>>`;
+    // The device colorant and the colour space name different colorants, so that each entry is seen to be read.
+    const info = `/SeparationInfo<</Pages[3 0 R]/DeviceColorant(Device)/ColorSpace ${separation('Space')}>>`;
     expect(colorants('/N1 cs 1 scn 0 0 10 10 re f', { spaces: `/N1 ${nchannel}`, entries: info })).toStrictEqual([
+      'Device spot p= s= d=separation-info',
       'Extra spot p= s= d=nchannel-colorants',
       'Gold spot p=fill s= d=',
-      'Named spot p= s= d=separation-info',
       'Silver spot p= s= d=resources',
+      'Space spot p= s= d=separation-info',
     ]);
   });
 
@@ -245,6 +298,32 @@ describe('declared colorants', () => {
       'Gold spot p=fill,text,type3-glyph s= d=d1-glyph',
       'Silver spot p= s= d=resources',
     ]);
+  });
+
+  // ISO 32000-1:2008, 8.7.4.1: a shading pattern paints in its shading's colour space.
+  it('declares the space of a shading pattern chosen in a d1 glyph', () => {
+    const glyph: Array<TestObject> = [
+      { number: 110, body: type3Font(`${SPACES}/Pattern<</P 151 0 R>>`) },
+      { number: 111, body: streamBody('', '1000 0 0 0 750 750 d1 /Pattern cs /P scn 0 0 750 750 re f') },
+      { number: 151, body: `<</PatternType 2/Shading<</ShadingType 2/ColorSpace ${separation('Shade')}/Coords[0 0 1 0]/Function ${TINT}>>>>` },
+    ];
+    expect(colorants('BT /T3 12 Tf /CS1 cs 1 scn (a) Tj ET', { resources: '/Font<</T3 110 0 R>>', objects: glyph })).toStrictEqual([
+      'Gold spot p=fill,text,type3-glyph s= d=',
+      'Shade spot p= s= d=resources,d1-glyph',
+      SILVER_UNUSED,
+    ]);
+  });
+
+  // ISO 32000-1:2008, 8.6.6.4 reserves All and None, and the process names are those of 8.6.6.5.
+  it.each([
+    ['Cyan', 'process'],
+    ['Black', 'process'],
+    ['All', 'all'],
+    ['None', 'none'],
+    ['Spot', 'spot'],
+  ])('gives the SeparationInfo device colorant %s the kind %s', (name, kind) => {
+    const lines = colorants('', { entries: `/SeparationInfo<</Pages[3 0 R]/DeviceColorant/${name}>>` });
+    expect(lines.filter(line => line.startsWith(`${name} `))).toStrictEqual([`${name} ${kind} p= s= d=separation-info`]);
   });
 });
 
@@ -264,6 +343,12 @@ describe('colorant names and kinds', () => {
     const resources = `/ColorSpace<</A ${separation('Gold')}/B ${separation('Gold', '/DeviceRGB')}/C ${separation('Gold')}>>`;
     const [page] = pagesOf([{ content: '/A cs /B cs /C cs', resources }]);
     expect(page?.colorants.map(use => use.alternates.map(alternate => alternate.family))).toStrictEqual([['DeviceCMYK', 'DeviceRGB']]);
+  });
+
+  it('sorts names by their bytes, a name before the longer names it begins', () => {
+    const resources = `/ColorSpace<</A ${separation('GoldX')}/B ${separation('#E7')}/C ${separation('Gold')}>>`;
+    const [page] = pagesOf([{ content: '/A cs /B cs /C cs', resources }]);
+    expect(page?.colorants.map(use => [...use.name])).toStrictEqual([[...latin1Bytes('Gold')], [...latin1Bytes('GoldX')], [0xe7]]);
   });
 });
 
@@ -289,6 +374,36 @@ describe('damaged colour spaces', () => {
     expect(colorants('BT /T3 12 Tf /CS1 cs 1 scn (a) Tj ET', { resources: '/Font<</T3 110 0 R>>', objects: glyph })[0]).toBe(
       'Gold spot p=fill,text,type3-glyph s= d=',
     );
+  });
+
+  it.each([
+    [
+      'a tint transform that cannot be read',
+      '/T cs 1 scn 0 0 1 1 re f',
+      { spaces: '/T[/Separation/Tinted/DeviceCMYK 150 0 R]', objects: [DAMAGED] },
+      false,
+      ['colorspace-unreadable'],
+    ],
+    ['a DeviceN space that names All', '/D cs 1 1 scn 0 0 1 1 re f', { spaces: `/D[/DeviceN[/All/Gold]/DeviceCMYK ${TINT}]` }, true, ['devicen-all']],
+    ['a SeparationInfo that cannot be read', '', { entries: '/SeparationInfo 150 0 R', objects: [DAMAGED] }, false, ['content-unreadable']],
+    [
+      'a graphics state resource that cannot be read and is never used',
+      '',
+      { resources: '/ExtGState<</G9 150 0 R>>', objects: [DAMAGED] },
+      false,
+      ['content-unreadable'],
+    ],
+  ])('reports %s, and whether the page was read completely', (_, content, fixture: Fixture, complete, codes) => {
+    const page = firstPage(content, fixture);
+    expect([page?.complete, page?.warnings.map(warning => warning.code)]).toStrictEqual([complete, codes]);
+  });
+
+  it('reports one damaged object that two colour spaces refer to once', () => {
+    const page = firstPage('/T1 cs 1 scn 0 0 1 1 re f /T2 cs 1 scn 0 0 1 1 re f', {
+      spaces: '/T1[/Separation/One/DeviceCMYK 150 0 R]/T2[/Separation/Two/DeviceCMYK 150 0 R]',
+      objects: [DAMAGED],
+    });
+    expect(page?.warnings.map(warning => warning.code)).toStrictEqual(['colorspace-unreadable']);
   });
 });
 
@@ -323,6 +438,19 @@ describe('pages', () => {
 
   it('refuses a page index that is not a page', () => {
     expect(() => listColorants(loadDocument(textPdfBytes({ pages: [{}] })), { pages: [1] })).toThrow(InvalidArgumentError);
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('refuses the page index %d', index => {
+    expect(() => listColorants(loadDocument(textPdfBytes({ pages: [{}] })), { pages: [index] })).toThrow(InvalidArgumentError);
+  });
+
+  it('inspects no page for an empty list of pages', () => {
+    expect(listColorants(loadDocument(textPdfBytes({ pages: [{ content: '/CS1 cs', resources: SPACES }] })), { pages: [] })).toStrictEqual([]);
+  });
+
+  it('refuses a value that is not a loaded document', () => {
+    const source = loadDocument(textPdfBytes({ pages: [{}] }));
+    expect(() => listColorants({ ...source })).toThrow(InvalidArgumentError);
   });
 
   it('refuses pages that is not an array of page indexes', () => {
