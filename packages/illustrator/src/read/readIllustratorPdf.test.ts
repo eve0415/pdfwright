@@ -1,5 +1,5 @@
 import type { IllustratorDocument, PathItem, Subpath } from '../model/illustratorDocument.ts';
-import type { IllustratorPdfContents, ReadIllustratorPdfOptions } from './readIllustratorPdf.ts';
+import type { ReadIllustratorPdfOptions } from './readIllustratorPdf.ts';
 
 import {
   InvalidArgumentError,
@@ -81,11 +81,6 @@ const model: IllustratorDocument = {
 };
 const pathOnly: IllustratorDocument = { ...model, layers: [{ name: 'Die', items: [die] }] };
 const options: ReadIllustratorPdfOptions = { zstandard: decompress };
-// The reader's own options check is the subject, so the call goes through a signature that accepts any value.
-interface UncheckedReader {
-  read(pdf: Uint8Array, options: unknown): IllustratorPdfContents;
-}
-const unchecked: UncheckedReader = { read: readIllustratorPdf };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -187,7 +182,8 @@ describe('refusals', () => {
 
   it.each([null, undefined])('refuses options of %s', value => {
     const pdf = writeIllustratorPdf(pathOnly);
-    expect(() => unchecked.read(pdf, value)).toThrow(InvalidArgumentError);
+    // @ts-expect-error The reader's own check of untyped options is the subject, so the call passes a value the signature rejects.
+    expect(() => readIllustratorPdf(pdf, value)).toThrow(InvalidArgumentError);
   });
 
   it('refuses a page LastModified that is not a PDF date', () => {
