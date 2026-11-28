@@ -489,10 +489,17 @@ const KINDS = [
 ] as const;
 
 // Random images of every colour type and bit depth, with a random filter type for each written row; Adam7 writes at most 2 × height + 7 rows.
+// Some carry an ancillary gAMA chunk, which PNG Third Edition, 5.6 places before PLTE.
 const pngImages = (side: number): fc.Arbitrary<TestPng> =>
   fc
-    .record({ kind: fc.constantFrom(...KINDS), width: fc.integer({ min: 1, max: side }), height: fc.integer({ min: 1, max: side }), interlaced: fc.boolean() })
-    .chain(({ kind: [colorType, bitDepth], width, height, interlaced }) => {
+    .record({
+      kind: fc.constantFrom(...KINDS),
+      width: fc.integer({ min: 1, max: side }),
+      height: fc.integer({ min: 1, max: side }),
+      interlaced: fc.boolean(),
+      gamma: fc.boolean(),
+    })
+    .chain(({ kind: [colorType, bitDepth], width, height, interlaced, gamma }) => {
       const count = width * height * (CHANNELS.get(colorType) ?? 1);
       const levels = 2 ** bitDepth;
       const rows = 2 * height + 7;
@@ -509,7 +516,7 @@ const pngImages = (side: number): fc.Arbitrary<TestPng> =>
           interlaced,
           samples,
           filters,
-          before: colorType === 3 ? [pngChunk('PLTE', palette(levels))] : [],
+          before: [...(gamma ? [pngChunk('gAMA', uint32Bytes(45_455))] : []), ...(colorType === 3 ? [pngChunk('PLTE', palette(levels))] : [])],
         }));
     });
 
