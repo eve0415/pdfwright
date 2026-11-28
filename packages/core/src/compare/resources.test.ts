@@ -1,3 +1,4 @@
+import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { PdfDifference } from './pdfDifference.ts';
 
@@ -25,7 +26,7 @@ const pdfBytes = (resources: string, extra: ReadonlyArray<TestObject> = []): Uin
     },
   ]).bytes;
 
-const load = (resources: string, extra: ReadonlyArray<TestObject> = []): ReturnType<typeof loadDocument> => loadDocument(pdfBytes(resources, extra));
+const load = (resources: string, extra: ReadonlyArray<TestObject> = []): LoadedDocument => loadDocument(pdfBytes(resources, extra));
 
 const kinds = (differences: ReadonlyArray<PdfDifference>): Array<string> => differences.map(difference => difference.kind);
 
@@ -41,6 +42,41 @@ const filtered = (filter: string): ReturnType<typeof load> =>
 
 const encoded = (encoding: string, extra: ReadonlyArray<TestObject> = []): ReturnType<typeof load> =>
   load('<</Font<</F1 8 0 R>>>>', [{ number: 8, body: `<</Type/Font/Subtype/Type1/BaseFont/Custom/Encoding${encoding}>>` }, ...extra]);
+
+// A font-set difference on the page and in the document whose one added and one removed font differ only in the named part of their identity, which must be present on both sides.
+const expectReplacedFont = (differences: ReadonlyArray<PdfDifference>, part: 'encoding' | 'program'): void => {
+  const [first] = differences;
+  const added = first?.kind === 'font-set' ? first.added[0] : undefined;
+  const removed = first?.kind === 'font-set' ? first.removed[0] : undefined;
+  expect(differences).toStrictEqual([
+    { kind: 'font-set', page: 0, added: [added], removed: [removed] },
+    { kind: 'font-set', page: 'document', added: [added], removed: [removed] },
+  ]);
+  expect([added?.[part] === removed?.[part], added?.[part] === '', removed?.[part] === '', { ...added, [part]: '' }]).toStrictEqual([
+    false,
+    false,
+    false,
+    { ...removed, [part]: '' },
+  ]);
+};
+
+// A Type 1 font whose descriptor embeds the given program data.
+const embedded = (data: string, filter = ''): LoadedDocument =>
+  load('<</Font<</F1 6 0 R>>>>', [
+    { number: 6, body: '<</Type/Font/Subtype/Type1/BaseFont/Custom/FontDescriptor 7 0 R>>' },
+    { number: 7, body: '<</Type/FontDescriptor/FontName/Custom/FontFile 11 0 R>>' },
+    { number: 11, body: streamBody(filter, data) },
+  ]);
+
+// A Type 0 font with an embedded CMap and one TrueType descendant that embeds the given program data.
+const composite = (data: string, cmap = streamBody('/Type/CMap', 'cmapdata')): LoadedDocument =>
+  load('<</Font<</F1 6 0 R>>>>', [
+    { number: 6, body: '<</Type/Font/Subtype/Type0/BaseFont/Custom/Encoding 12 0 R/DescendantFonts[5 0 R]>>' },
+    { number: 5, body: '<</Type/Font/Subtype/CIDFontType2/BaseFont/Custom/FontDescriptor 7 0 R>>' },
+    { number: 7, body: '<</Type/FontDescriptor/FontName/Custom/FontFile2 11 0 R>>' },
+    { number: 11, body: streamBody('', data) },
+    { number: 12, body: cmap },
+  ]);
 
 describe('resource and font comparison', () => {
   it('compares resources as values, whether direct or indirect and however numbered', () => {
@@ -108,7 +144,9 @@ describe('resource and font comparison', () => {
   it('identifies a font encoding by value, however ordered or numbered', () => {
     const one = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/a#00b]>>');
     const two = encoded('<</Differences 12 0 R/BaseEncoding/WinAnsiEncoding/Type/Encoding>>', [{ number: 12, body: '[32/space/a#00b]' }]);
+    const other = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/b]>>');
     expect(compareDocuments(one, two, { include: ['fonts'] }).differences).toStrictEqual([]);
+    expectReplacedFont(compareDocuments(one, other, { include: ['fonts'] }).differences, 'encoding');
   });
 
   it('finds fonts through graphics states, soft masks and annotation appearances', () => {
@@ -119,8 +157,13 @@ describe('resource and font comparison', () => {
       loadDocument(pdfBytes('<<>>/Annots[<</Subtype/Square/Rect[0 0 1 1]/AP<</N<</On 13 0 R>>>>>>]', [courier, appearance])),
     ];
     const empty = load('<<>>');
-    const fonts = withFonts.map(document => compareDocuments(empty, document, { include: ['fonts'] }).differences.length);
-    expect(fonts).toStrictEqual([2, 2, 2]);
+    const fonts = withFonts.map(document => compareDocuments(empty, document, { include: ['fonts'] }).differences);
+    const added = [{ subtype: 'Type1', baseFont: 'Courier', encoding: '', program: '' }];
+    const found = [
+      { kind: 'font-set', page: 0, added, removed: [] },
+      { kind: 'font-set', page: 'document', added, removed: [] },
+    ];
+    expect(fonts).toStrictEqual([found, found, found]);
   });
 
   it('includes pages only one document has in the document font set', () => {
@@ -154,5 +197,55 @@ describe('resource and font comparison', () => {
     const unchanged = compareDocuments(first, same).differences;
     const changed = compareDocuments(first, other).differences;
     expect([kinds(recompressed), kinds(unchanged), kinds(changed)]).toStrictEqual([[], [], ['undecodable', 'undecodable']]);
+  });
+
+  it('reports fonts removed from a page and from the document', () => {
+    const two = load('<</Font<</F1 8 0 R/F2 9 0 R>>>>', [helvetica, courier]);
+    const one = load('<</Font<</F1 8 0 R>>>>', [helvetica]);
+    const removed = [{ subtype: 'Type1', baseFont: 'Courier', encoding: '', program: '' }];
+    expect(compareDocuments(two, one, { include: ['fonts'] }).differences).toStrictEqual([
+      { kind: 'font-set', page: 0, added: [], removed },
+      { kind: 'font-set', page: 'document', added: [], removed },
+    ]);
+  });
+
+  it('reports the fonts of a page only the first document has as removed from the document only', () => {
+    const twoPages = loadDocument(
+      buildPdf([
+        {
+          xref: 'classic',
+          objects: [
+            { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+            { number: 2, body: '<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2/MediaBox[0 0 100 100]>>' },
+            { number: 3, body: '<</Type/Page/Parent 2 0 R/Resources<</Font<</F1 8 0 R>>>>>>' },
+            { number: 4, body: '<</Type/Page/Parent 2 0 R/Resources<</Font<</F1 9 0 R>>>>>>' },
+            helvetica,
+            courier,
+          ],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect(compareDocuments(twoPages, load('<</Font<</F1 8 0 R>>>>', [helvetica]), { include: ['fonts'] }).differences).toStrictEqual([
+      { kind: 'font-set', page: 'document', added: [], removed: [{ subtype: 'Type1', baseFont: 'Courier', encoding: '', program: '' }] },
+    ]);
+  });
+
+  // ISO 32000-1:2008, 9.9, Table 126: FontFile holds the embedded program, which compares by its decoded bytes.
+  it('identifies a font by its embedded program, however the program is compressed', () => {
+    const deflated = latin1Text(deflateZlib(latin1Bytes('AAAA')));
+    expect(compareDocuments(embedded('AAAA'), embedded(deflated, '/Filter/FlateDecode'), { include: ['fonts'] }).differences).toStrictEqual([]);
+    expectReplacedFont(compareDocuments(embedded('AAAA'), embedded('BBBB'), { include: ['fonts'] }).differences, 'program');
+  });
+
+  // ISO 32000-1:2008, 9.7.5 and 9.9: an embedded CMap compares by its decoded bytes, and a Type 0 font's program is embedded through the font descriptor of its descendant font.
+  it('identifies a Type 0 font by its descendant program and its embedded CMap', () => {
+    const compressedCMap = streamBody('/Type/CMap/Filter/FlateDecode', latin1Text(deflateZlib(latin1Bytes('cmapdata'))));
+    expect(compareDocuments(composite('AAAA'), composite('AAAA', compressedCMap), { include: ['fonts'] }).differences).toStrictEqual([]);
+    expectReplacedFont(compareDocuments(composite('AAAA'), composite('BBBB'), { include: ['fonts'] }).differences, 'program');
+    expectReplacedFont(
+      compareDocuments(composite('AAAA'), composite('AAAA', streamBody('/Type/CMap', 'cmapdatX')), { include: ['fonts'] }).differences,
+      'encoding',
+    );
   });
 });
