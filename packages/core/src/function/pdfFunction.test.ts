@@ -80,6 +80,11 @@ describe('pdf functions', () => {
     const evaluate = createPdfFunction(sampled);
     expect(evaluate([0.5])).toStrictEqual([0.5]);
     expect(evaluate([-1])).toStrictEqual([0]);
+    // ISO 32000-1:2008, 7.10.2: the input is clipped to the Domain before Encode maps it, so an input of 2 reads sample index 0.5 rather than 1.
+    const halfEncoded = createPdfFunction(
+      streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]), Encode: numbers([0, 0.5]) }, Uint8Array.of(0, 255)),
+    );
+    expect(halfEncoded([2])).toStrictEqual([0.5]);
     // ISO 32000-1:2008, 7.10.2: the first input varies fastest, so the 4-bit samples 0, 1, 2 and 3 sit at (0, 0), (1, 0), (0, 1) and (1, 1).
     const bilinear = createPdfFunction(
       streamFunction(
@@ -94,6 +99,12 @@ describe('pdf functions', () => {
       streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]), Decode: numbers([0, 2]) }, Uint8Array.of(0, 255)),
     );
     expect([decoded([0.25]), decoded([1])]).toStrictEqual([[0.5], [1]]);
+  });
+
+  it('clips calculator inputs to the Domain before the program runs', () => {
+    // ISO 32000-1:2008, 7.10.1: an input outside the Domain is clipped to the nearest valid value, and the identity program then returns it within the wider Range.
+    const evaluate = createPdfFunction(streamFunction(4, { Range: numbers([-5, 5]) }, new TextEncoder().encode('{ }')));
+    expect([evaluate([2]), evaluate([-2]), evaluate([0.25])]).toStrictEqual([[1], [0], [0.25]]);
   });
 
   it('evaluates exponential and stitched functions', () => {
