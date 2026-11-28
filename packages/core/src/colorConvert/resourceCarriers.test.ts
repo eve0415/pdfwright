@@ -1,4 +1,4 @@
-import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { LoadedDocument, LoadOptions } from '../document/loadDocument.ts';
 import type { PdfFunction } from '../function/pdfFunction.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
@@ -40,7 +40,7 @@ const OWN_SHADING =
   '/Resources<</Shading<</Sh1<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>>>>>>>';
 const FULL_OPTIONS = { sourceRgbProfile: srgbBytes, outputProfile: fograBytes, outputIntent: { outputConditionIdentifier: 'FOGRA28' } } as const;
 
-const carrierPdf = (page: string, objects: ReadonlyArray<TestObject>, content = '0 0 1 1 re f'): LoadedDocument =>
+const carrierPdf = (page: string, objects: ReadonlyArray<TestObject>, content = '0 0 1 1 re f', options: LoadOptions = {}): LoadedDocument =>
   loadDocument(
     buildPdf([
       {
@@ -55,6 +55,7 @@ const carrierPdf = (page: string, objects: ReadonlyArray<TestObject>, content = 
         trailer: '/Root 1 0 R',
       },
     ]).bytes,
+    options,
   );
 
 const cmykOf = (...rgb: ReadonlyArray<number>): Float64Array => {
@@ -877,5 +878,43 @@ describe('cycles through direct Type 3 fonts', () => {
     const listed = walkPage(carrierPdf(page, [GLYPH, { number: 7, body: dictionary }]), 0, seen);
     expect(listed.map(carrier => carrier.owner)).toStrictEqual(owners);
     expect(seen.steps).toBe(steps);
+  });
+});
+
+/** A page reaching `depth` tiling patterns, each naming the next, where the innermost holds an Indexed space. */
+const nestedPatterns = (depth: number, options: LoadOptions): LoadedDocument =>
+  carrierPdf(
+    '/Resources<</Pattern<</P 5 0 R>>>>',
+    Array.from({ length: depth }, (_, index) => ({
+      number: 5 + index,
+      body: streamBody(`${PATTERN}${index === depth - 1 ? OWN_INDEXED : `/Resources<</Pattern<</P ${String(6 + index)} 0 R>>>>`}`, '/CS1 cs 0 sc'),
+    })),
+    '0 0 1 1 re f',
+    options,
+  );
+
+const convertNested = (depth: number): number =>
+  convertIndexedSpaces(nestedPatterns(depth, { maxNesting: 8 }), { sourceRgbProfile: source, outputProfile: destination }).indexed;
+
+describe('the nesting limit of the carrier walk', () => {
+  it('converts a lookup in carriers nested as deep as maxNesting', () => {
+    expect(convertNested(8)).toBe(1);
+  });
+
+  it('refuses carriers nested one level deeper than maxNesting', () => {
+    expect(() => convertNested(9)).toThrow(ResourceLimitError);
+    expect(() => convertNested(9)).toThrow(/maxNesting \(8\)/u);
+  });
+
+  it('counts the shortest nesting it knows of for forms whose own Resources each name every form', () => {
+    const count = 12;
+    const all = Array.from({ length: count }, (_, index) => `/F${String(index)} ${String(5 + index)} 0 R`).join('');
+    const document = carrierPdf(
+      `/Resources<</XObject<<${all}>>>>`,
+      Array.from({ length: count }, (_, index) => ({ number: 5 + index, body: streamBody(`${FORM}/Resources<</XObject<<${all}>>>>`, '') })),
+      '0 0 1 1 re f',
+      { maxNesting: 8 },
+    );
+    expect(walkPage(document, 0, carrierSeen())).toHaveLength(count);
   });
 });
