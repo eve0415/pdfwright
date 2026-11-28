@@ -643,6 +643,21 @@ describe('pdfx structural checker', () => {
       expect(statusOf(document, 'X4-EMBEDDED')).toBe(status);
     });
 
+    it.each<[string, TestObject, LoadOptions, 'passed' | 'not-checked']>([
+      ['an annotation whose Subtype', { number: 4, body: '<</Type/Annot/Subtype 9 1 R>>' }, {}, 'not-checked'],
+      ['a stream whose Type', { number: 4, body: streamBody('/Type 9 1 R', 'x') }, {}, 'not-checked'],
+      [
+        'an annotation whose Subtype, loaded to read it as null,',
+        { number: 4, body: '<</Type/Annot/Subtype 9 1 R>>' },
+        { generationMismatch: 'null' },
+        'passed',
+      ],
+    ])('checks a catalog that references %s names another generation of an object', (_, object, options, status) => {
+      const report = checkPdfX4(raw({ catalog: '/Extra 4 0 R', extra: [object, { number: 9, body: '/FileAttachment' }] }, options));
+      expect(report.findings.map(item => item.rule)).toStrictEqual(pdfX4Rules.map(rule => rule.id));
+      expect(report.findings.find(item => item.rule === 'X4-EMBEDDED')?.status).toBe(status);
+    });
+
     it.each<[string, (document: LoadedDocument) => PdfDirectObject, 'violation' | 'passed']>([
       ['a stream with Ref', document => stream(document, Uint8Array.of(1), [['Ref', pdfDictionary()]]), 'violation'],
       ['a stream with Alternates', document => stream(document, Uint8Array.of(1), [['Alternates', pdfArray([])]]), 'violation'],
