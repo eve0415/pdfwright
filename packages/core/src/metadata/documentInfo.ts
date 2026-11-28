@@ -7,7 +7,7 @@ import { pdfDocEncodingUnicode } from '../font/encoding/simpleEncodings.ts';
 import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { pdfName, pdfString } from '../object/pdfObject.ts';
 
-/** Optional trailer Info values for title, creators, dates, and Trapped; absent keys are omitted, text follows ISO 32000-1:2008, 7.9.2.2, and Trapped is a name from Table 317. */
+/** Optional trailer Info values for title, creators, dates, and Trapped; absent keys and empty strings are omitted (ISO 32000-1:2008, 14.3.3), text follows 7.9.2.2, and Trapped is a name from Table 317. */
 export interface DocumentInfo {
   title?: string;
   author?: string;
@@ -61,7 +61,7 @@ export const pdfTextString = (value: string): PdfDirectObject => {
   return pdfString(bytes, 'hex');
 };
 
-// ISO 32000-1:2008, 14.3.3, Table 317 defines document information keys and omits values that are not known.
+// ISO 32000-1:2008, 14.3.3, Table 317 defines document information keys, and a value that is not known "should be omitted from the dictionary rather than included with an empty string as its value".
 export const documentInfoDictionary = (info: DocumentInfo): PdfDictionaryEntries => {
   const entries = new PdfDictionaryEntries();
   for (const [key, value] of [
@@ -72,7 +72,7 @@ export const documentInfoDictionary = (info: DocumentInfo): PdfDictionaryEntries
     ['Creator', info.creator],
     ['Producer', info.producer],
   ] as const) {
-    if (value !== undefined) {
+    if (value !== undefined && value !== '') {
       entries.set(pdfName(key).bytes, pdfTextString(value));
     }
   }

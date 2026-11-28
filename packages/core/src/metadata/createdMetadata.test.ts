@@ -114,7 +114,7 @@ describe('metadata in created documents', () => {
     expect([packetText(data, 'CreateDate'), row?.agreement]).toStrictEqual(['2024-03-01T12:00:00Z', 'agree']);
   });
 
-  // ISO 32000-1:2008, 14.3.3: a value that is not known "should be omitted from the dictionary, rather than included with an empty string".
+  // ISO 32000-1:2008, 14.3.3: a value that is not known "should be omitted from the dictionary rather than included with an empty string as its value".
   const TEXT_KEYS = [
     ['title', 'Title', 'title'],
     ['author', 'Author', 'creator'],

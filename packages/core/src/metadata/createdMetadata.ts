@@ -35,13 +35,16 @@ interface Identifiers {
   readonly instanceId: string;
 }
 
+// An empty value is not known, which ISO 32000-1:2008, 14.3.3 has omitted rather than written empty, as the Info dictionary omits it.
+const known = (value: string | undefined): string | undefined => (value === '' ? undefined : value);
+
 const managedValues = (info: DocumentInfo, modified: string, { documentId, instanceId }: Identifiers): ManagedValues => ({
-  title: info.title,
-  author: info.author,
-  subject: info.subject,
-  keywords: info.keywords,
-  creator: info.creator,
-  producer: info.producer,
+  title: known(info.title),
+  author: known(info.author),
+  subject: known(info.subject),
+  keywords: known(info.keywords),
+  creator: known(info.creator),
+  producer: known(info.producer),
   trapped: info.trapped === 'Unknown' ? undefined : info.trapped,
   createDate: info.creationDate === undefined ? undefined : xmpDateString(info.creationDate),
   modifyDate: modified,
