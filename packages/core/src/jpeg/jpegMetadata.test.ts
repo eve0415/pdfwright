@@ -1,5 +1,6 @@
 import type { ExifOrientation, ParseReason } from '../index.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import fograBytes from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
@@ -76,6 +77,18 @@ const decodeReason = (jpeg: Uint8Array): ParseReason | undefined => {
   } catch (error: unknown) {
     if (error instanceof ParseError) {
       return error.reason;
+    }
+    throw error;
+  }
+  throw new Error('JPEG was accepted');
+};
+
+const parseOffset = (jpeg: Uint8Array): number => {
+  try {
+    decodeJpeg(jpeg);
+  } catch (error: unknown) {
+    if (error instanceof ParseError) {
+      return error.offset;
     }
     throw error;
   }
@@ -177,5 +190,82 @@ describe('decodeJpeg public surface', () => {
     const bytes = grayJpeg();
     expect(decodeReason(bytes.subarray(0, 20))).toBe('image-truncated');
     expect(decodeReason(Uint8Array.of(0x89, 0x50, 0x4e, 0x47))).toBe('image-invalid');
+  });
+
+  it.each([
+    ['no sequence number or count', []],
+    ['a sequence number and no count', [1]],
+  ])('refuses an ICC chunk header with %s at the header', (_, header) => {
+    const jpeg = grayJpeg(segment(0xe2, [...ascii('ICC_PROFILE'), 0, ...header]));
+    expect(decodeReason(jpeg)).toBe('image-invalid');
+    // The APP2 payload starts at byte 6, after SOI and the segment's marker and length, and its chunk header follows the 12-byte identifier.
+    expect(parseOffset(jpeg)).toBe(18);
+  });
+
+  it('ignores an APP2 segment that is not an ICC profile chunk', () => {
+    // Read as an ICC chunk, bytes 12 and 13 would declare chunk 1 of 1.
+    const flashPix = segment(0xe2, [...ascii('FPXR'), 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 1, 9, 9]);
+    expect(decodeJpeg(grayJpeg(flashPix)).iccProfile).toBeUndefined();
+  });
+
+  it('returns a single-chunk profile and accepts an empty chunk', () => {
+    expect(profileOf(grayJpeg(iccSegment(1, 1, Uint8Array.of(7, 8, 9))))).toStrictEqual(Uint8Array.of(7, 8, 9));
+    expect(profileOf(grayJpeg([...iccSegment(1, 2, Uint8Array.of(1, 2, 3)), ...iccSegment(2, 2, new Uint8Array())]))).toStrictEqual(Uint8Array.of(1, 2, 3));
+  });
+
+  it('finds Orientation after another IFD0 entry', () => {
+    const tiff = tiffHeader('MM', [
+      { tag: 0x01_10, type: 2, count: 4, value: 0x41_42 },
+      { tag: 0x01_12, type: 3, count: 1, value: 6 },
+    ]);
+    expect(orientationOf(exifPayload(tiff))).toBe(6);
+  });
+
+  it('stops at an IFD0 entry that does not fit in the segment', () => {
+    // IFD0 declares two entries, but only the first and four bytes of an Orientation entry follow it.
+    const whole = tiffHeader('MM', [{ tag: 0x01_10, type: 2, count: 4, value: 0x41_42 }]);
+    const tiff = [...whole.subarray(0, 8), 0, 2, ...whole.subarray(10, 22), 0x01, 0x12, 0, 3];
+    expect(orientationOf(exifPayload(tiff))).toBeUndefined();
+  });
+
+  it('reads Exif only under the identifier Exif followed by two null bytes', () => {
+    const tiff = tiffHeader('II', [{ tag: 0x01_12, type: 3, count: 1, value: 6 }]);
+    expect(orientationOf(segment(0xe1, [...ascii('Exif'), 0, ...ascii('x'), ...tiff]))).toBeUndefined();
+  });
+});
+
+const iccCases = fc.record({ profile: fc.uint8Array({ minLength: 1, maxLength: 300 }), size: fc.integer({ min: 2, max: 64 }) }).chain(({ profile, size }) => {
+  const chunks = iccChunks(profile, size);
+  const indices = chunks.map((_, index) => index);
+  return fc.shuffledSubarray(indices, { minLength: indices.length, maxLength: indices.length }).map(order => ({ profile, chunks, order }));
+});
+
+const exifCases = fc.record({
+  order: fc.constantFrom('II', 'MM'),
+  value: fc.integer({ min: 1, max: 8 }),
+  fillers: fc.array(fc.record({ tag: fc.integer({ min: 0, max: 0xff_ff }).filter(tag => tag !== 0x01_12), value: fc.integer({ min: 0, max: 0xff_ff }) }), {
+    maxLength: 6,
+  }),
+  position: fc.nat({ max: 6 }),
+});
+
+describe('properties', () => {
+  it('reassembles an ICC profile from chunks in any order', () => {
+    fc.assert(
+      fc.property(iccCases, ({ profile, chunks, order }) => {
+        const segments = order.flatMap(index => iccSegment(index + 1, chunks.length, chunks[index] ?? new Uint8Array()));
+        expect(profileOf(grayJpeg(segments))).toStrictEqual(profile);
+      }),
+    );
+  });
+
+  it('reads Orientation wherever it sits among the IFD0 entries', () => {
+    fc.assert(
+      fc.property(exifCases, ({ order, value, fillers, position }) => {
+        const entries = fillers.map(filler => ({ tag: filler.tag, type: 3, count: 1, value: filler.value }));
+        entries.splice(Math.min(position, entries.length), 0, { tag: 0x01_12, type: 3, count: 1, value });
+        expect(orientationOf(exifPayload(tiffHeader(order, entries)))).toBe(value);
+      }),
+    );
   });
 });
