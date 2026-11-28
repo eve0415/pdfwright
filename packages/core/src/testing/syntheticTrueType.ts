@@ -28,15 +28,34 @@ export interface SyntheticFontOptions {
   readonly descender?: number;
 }
 
+// A field of `width` bytes holds an integer that fits it as either a signed or an unsigned value; anything else would wrap silently.
 const bytesOf = (value: number, width: number): Array<number> => {
+  if (!Number.isInteger(value) || value < -(256 ** width / 2) || value >= 256 ** width) {
+    throw new RangeError(`${String(value)} does not fit a ${String(width)}-byte field`);
+  }
   const unsigned = value < 0 ? value + 256 ** width : value;
   return Array.from({ length: width }, (_, index) => Math.floor(unsigned / 256 ** (width - 1 - index)) % 256);
 };
 
 const u16 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => bytesOf(value, 2));
+const i16 = (...values: ReadonlyArray<number>): Array<number> =>
+  values.flatMap(value => {
+    if (value > 32_767) {
+      throw new RangeError(`${String(value)} does not fit an int16 field`);
+    }
+    return bytesOf(value, 2);
+  });
 const u24 = (value: number): Array<number> => bytesOf(value, 3);
 const u32 = (...values: ReadonlyArray<number>): Array<number> => values.flatMap(value => bytesOf(value, 4));
-const tag = (text: string): Array<number> => Array.from(text, character => character.codePointAt(0) ?? 0);
+// Table tags and Macintosh-platform names are written one byte per character, so only printable ASCII is accepted.
+const tag = (text: string): Array<number> =>
+  Array.from(text, character => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < 0x20 || codePoint > 0x7e) {
+      throw new RangeError(`${JSON.stringify(text)} is not printable ASCII`);
+    }
+    return codePoint;
+  });
 
 const padded = (data: ReadonlyArray<number>): Array<number> => [...data, ...Array.from({ length: (4 - (data.length % 4)) % 4 }, () => 0)];
 
@@ -58,7 +77,7 @@ const glyphData = (box: SyntheticGlyph['box']): Array<number> => {
   const [xMin, yMin, xMax, yMax] = box;
   const xs = [xMin, 0, xMax - xMin, 0];
   const ys = [yMin, yMax - yMin, 0, yMin - yMax];
-  return padded([...u16(1, xMin, yMin, xMax, yMax), ...u16(3, 0), 1, 1, 1, 1, ...u16(...xs), ...u16(...ys)]);
+  return padded([...u16(1), ...i16(xMin, yMin, xMax, yMax), ...u16(3, 0), 1, 1, 1, 1, ...i16(...xs), ...i16(...ys)]);
 };
 
 const extent = (glyphs: ReadonlyArray<SyntheticGlyph>, index: 0 | 1 | 2 | 3, pick: (...values: Array<number>) => number): number => {
@@ -153,8 +172,64 @@ const nameTable = (name: string): Array<number> => {
   return [...u16(0, count, 6 + 12 * count), ...records, ...strings];
 };
 
+const once = (seen: Set<number>, value: number, what: string): void => {
+  if (!Number.isInteger(value) || value < 0 || value > 0x10_ff_ff || seen.has(value)) {
+    throw new RangeError(`${what} ${value.toString(16)} is not a code point or is listed twice`);
+  }
+  seen.add(value);
+};
+
+// A metric outside its field, a mapping to a glyph the font lacks, or a character mapped twice would be written as asked and read back as something else.
+const checkOptions = (options: SyntheticFontOptions): void => {
+  const { unitsPerEm = 1000, ascender = 0, descender = 0 } = options;
+  // OpenType head: unitsPerEm is 16 to 16384; usWinDescent in OS/2 is the descender's magnitude as a uint16.
+  if (!Number.isInteger(unitsPerEm) || unitsPerEm < 16 || unitsPerEm > 16_384 || unitsPerEm % 2 !== 0) {
+    throw new RangeError(`unitsPerEm ${String(unitsPerEm)} is not an even integer from 16 to 16384`);
+  }
+  if (!Number.isInteger(ascender) || !Number.isInteger(descender) || ascender < 0 || ascender > 32_767 || descender > 0 || descender < -32_767) {
+    throw new RangeError('the ascender must be 0 to 32767 and the descender -32767 to 0');
+  }
+  const glyph = (index: number): void => {
+    if (!Number.isInteger(index) || index < 0 || index >= options.glyphs.length) {
+      throw new RangeError(`glyph ${String(index)} is not one of the ${String(options.glyphs.length)} glyphs`);
+    }
+  };
+  for (const [index, { advance, box, vertical }] of options.glyphs.entries()) {
+    const verticalAdvance = vertical?.advance ?? 0;
+    const topSideBearing = vertical?.topSideBearing ?? 0;
+    if (
+      ![advance, verticalAdvance, topSideBearing].every(Number.isInteger) ||
+      [advance, verticalAdvance].some(value => value < 0 || value > 0xff_ff) ||
+      Math.abs(topSideBearing) > 32_767
+    ) {
+      throw new RangeError(`glyph ${String(index)} has an advance outside uint16 or a side bearing outside int16`);
+    }
+    if (box !== undefined && (box[0] > box[2] || box[1] > box[3])) {
+      throw new RangeError(`glyph ${String(index)} has a box whose minimum exceeds its maximum`);
+    }
+  }
+  const characters = new Set<number>();
+  for (const [codePoint, index] of options.characters) {
+    once(characters, codePoint, 'character');
+    glyph(index);
+  }
+  const selectors = new Set<number>();
+  for (const { selector, defaults, glyphs } of options.variations ?? []) {
+    once(selectors, selector, 'variation selector');
+    const bases = new Set<number>();
+    for (const codePoint of defaults) {
+      once(bases, codePoint, 'base character');
+    }
+    for (const [codePoint, index] of glyphs) {
+      once(bases, codePoint, 'base character');
+      glyph(index);
+    }
+  }
+};
+
 /** A TrueType program with the tables head, hhea, maxp, loca, glyf, hmtx, cmap, post (version 3.0), name, OS/2, vhea and vmtx. */
 export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => {
+  checkOptions(options);
   const { glyphs } = options;
   const unitsPerEm = options.unitsPerEm ?? 1000;
   const ascender = options.ascender ?? 800;

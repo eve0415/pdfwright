@@ -201,4 +201,58 @@ describe('synthetic TrueType programs', () => {
     const read = cmapOf(readTrueTypeCmap(font));
     expect([read.variant(0x41, 0xfe_0f), read.variant(0x42, 0xe_01_00), read.variant(0x41, 0xe_01_00)]).toStrictEqual(['default', 1, undefined]);
   });
+
+  it.each([
+    ['an advance above uint16', { glyphs: [{ advance: 65_536 }] }],
+    ['a negative advance', { glyphs: [{ advance: -1 }] }],
+    ['a fractional advance', { glyphs: [{ advance: 500.5 }] }],
+    ['a box coordinate above int16', { glyphs: [{ advance: 500, box: [0, 0, 32_768, 10] }] }],
+    ['a box whose minimum exceeds its maximum', { glyphs: [{ advance: 500, box: [10, 0, 5, 10] }] }],
+    ['a box too wide for an int16 delta', { glyphs: [{ advance: 500, box: [-20_000, 0, 20_000, 10] }] }],
+    ['a vertical advance above uint16', { glyphs: [{ advance: 500, vertical: { advance: 70_000, topSideBearing: 0 } }] }],
+    ['a top side bearing above int16', { glyphs: [{ advance: 500, vertical: { advance: 1000, topSideBearing: 40_000 } }] }],
+    ['a character mapped to a missing glyph', { characters: [[0x41, 1]] }],
+    [
+      'a character listed twice',
+      {
+        glyphs: [{ advance: 500 }, { advance: 500 }],
+        characters: [
+          [0x41, 1],
+          [0x41, 0],
+        ],
+      },
+    ],
+    ['a code point above U+10FFFF', { characters: [[0x11_00_00, 0]] }],
+    [
+      'a variation selector listed twice',
+      {
+        variations: [
+          { selector: 0xfe_00, defaults: [0x41], glyphs: [] },
+          { selector: 0xfe_00, defaults: [0x42], glyphs: [] },
+        ],
+      },
+    ],
+    ['a variation mapped to a missing glyph', { variations: [{ selector: 0xfe_00, defaults: [], glyphs: [[0x41, 3]] }] }],
+    ['a base character listed twice under one selector', { variations: [{ selector: 0xfe_00, defaults: [0x41], glyphs: [[0x41, 0]] }] }],
+    ['an odd unitsPerEm', { unitsPerEm: 1001 }],
+    ['a unitsPerEm above 16384', { unitsPerEm: 16_386 }],
+    ['a positive descender', { descender: 10 }],
+    ['an ascender above int16', { ascender: 32_768 }],
+    ['a name outside printable ASCII', { name: 'Caf\u00E9' }],
+  ] as const)('refuses %s', (_, options) => {
+    expect(() => syntheticTrueType({ name: 'T', glyphs: [{ advance: 500 }], characters: [], ...options })).toThrow(RangeError);
+  });
+
+  it('accepts the extremes of each field', () => {
+    const font = syntheticTrueType({
+      name: 'T',
+      glyphs: [{ advance: 0 }, { advance: 65_535, box: [-16_383, -16_383, 16_383, 16_383], vertical: { advance: 0, topSideBearing: -32_767 } }],
+      characters: [[0x10_ff_ff, 1]],
+      unitsPerEm: 16_384,
+      ascender: 32_767,
+      descender: -32_767,
+    });
+    expect(cmapOf(readTrueTypeCmap(font)).glyph(0x10_ff_ff)).toBe(1);
+    expect([u16(tableData(tables(font), 'hmtx'), 4), i16(tableData(tables(font), 'vmtx'), 6)]).toStrictEqual([65_535, -32_767]);
+  });
 });
