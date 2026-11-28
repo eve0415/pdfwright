@@ -230,9 +230,11 @@ describe('document comparison: results and areas', () => {
   });
 
   // ISO 32000-1:2008, 7.7.3.3, Table 30: CropBox defaults to the MediaBox, so a CropBox equal to it differs only in being explicit.
-  it('reports a box that differs only in being explicit', () => {
-    expect(compareDocuments(loadDocument(onePage('/CropBox[0 0 600 800]')), loadDocument(onePage(''))).differences).toStrictEqual([
-      { kind: 'page-box', page: 0, box: 'CropBox', a: { value: [0, 0, 600, 800], explicit: true }, b: { value: [0, 0, 600, 800], explicit: false } },
+  it('reports a box that differs only in being explicit, whichever side sets it', () => {
+    const [explicit, inherited] = [loadDocument(onePage('/CropBox[0 0 600 800]')), loadDocument(onePage(''))];
+    expect([compareDocuments(explicit, inherited).differences, compareDocuments(inherited, explicit).differences]).toStrictEqual([
+      [{ kind: 'page-box', page: 0, box: 'CropBox', a: { value: [0, 0, 600, 800], explicit: true }, b: { value: [0, 0, 600, 800], explicit: false } }],
+      [{ kind: 'page-box', page: 0, box: 'CropBox', a: { value: [0, 0, 600, 800], explicit: false }, b: { value: [0, 0, 600, 800], explicit: true } }],
     ]);
   });
 
@@ -286,6 +288,8 @@ describe('document comparison: results and areas', () => {
 interface PageSpec {
   readonly rotate: number;
   readonly trim: number | null;
+  /** Whether the page sets a CropBox equal to the MediaBox it would inherit anyway. */
+  readonly crop: boolean;
   readonly operations: ReadonlyArray<string>;
   readonly fonts: ReadonlyArray<number>;
 }
@@ -302,6 +306,7 @@ const FONTS = ['Helvetica', 'Courier', 'Times-Roman'];
 const pageSpec: fc.Arbitrary<PageSpec> = fc.record({
   rotate: fc.constantFrom(0, 90, 180, 270),
   trim: fc.option(fc.integer({ min: 10, max: 100 })),
+  crop: fc.boolean(),
   operations: fc.array(fc.constantFrom('0 0 m', '10 10 l', 'S', 'q', 'Q', '1 g', '0.5 G'), { maxLength: 4 }),
   fonts: fc.subarray([0, 1, 2]),
 });
@@ -333,7 +338,7 @@ const writeSpec = (spec: DocumentSpec, number: (logical: number) => number = log
     ...spec.pages.flatMap((page, index): Array<TestObject> => [
       {
         number: number(10 + 2 * index),
-        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${page.fonts.map(font => `/F${String(font)} ${ref(3 + font)}`).join('')}>>>>>>`,
+        body: `<</Type/Page/Parent ${ref(2)}/Contents ${ref(11 + 2 * index)}/Rotate ${String(page.rotate)}${page.crop ? '/CropBox[0 0 200 300]' : ''}${page.trim === null ? '' : `/TrimBox[0 0 ${String(page.trim)} ${String(page.trim)}]`}/Resources<</Font<<${page.fonts.map(font => `/F${String(font)} ${ref(3 + font)}`).join('')}>>>>>>`,
       },
       { number: number(11 + 2 * index), body: streamBody('', page.operations.join(' ')) },
     ]),
