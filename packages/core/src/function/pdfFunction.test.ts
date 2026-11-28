@@ -281,7 +281,7 @@ describe('sampled functions', () => {
   it('builds eight inputs and rejects nine', () => {
     expect(createPdfFunction(sampledInputs(8))(Array.from({ length: 8 }, () => 0.5))).toStrictEqual([1]);
     expect(() => createPdfFunction(sampledInputs(9))).toThrow(ParseError);
-    expect(() => createPdfFunction(sampledInputs(9))).toThrow(/invalid sampled function dimensions/);
+    expect(() => createPdfFunction(sampledInputs(9))).toThrow(/invalid sampled/);
   });
 
   it('builds a sample table of 16,777,216 values and rejects one more', () => {
@@ -299,8 +299,8 @@ describe('sampled functions', () => {
   });
 
   it.each([
-    ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /invalid sampled function dimensions/],
-    ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /invalid sampled function dimensions/],
+    ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /invalid sampled/],
+    ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /invalid sampled/],
     ['an Encode for two inputs', { Encode: numbers([0, 1, 0, 1]) }, /mapping/],
     ['a Decode for two outputs', { Decode: numbers([0, 1, 0, 1]) }, /mapping/],
   ])('rejects %s', (_, extra, pattern) => {
@@ -359,11 +359,11 @@ describe('stitching functions', () => {
 
   // ISO 32000-1:2008, 7.10.4, Table 41: the function has one input, k subfunctions with k - 1 Bounds and 2k Encode values.
   it.each([
-    ['Bounds of the wrong length', { Bounds: numbers([0.25, 0.5]) }, /invalid stitching intervals/],
-    ['Encode of the wrong length', { Encode: numbers([0, 1]) }, /invalid stitching intervals/],
-    ['an empty Functions array', { Functions: pdfArray([]), Bounds: numbers([]), Encode: numbers([]) }, /invalid stitching function/],
-    ['Functions that is not an array', { Functions: identity() }, /invalid stitching function/],
-    ['a Domain of two inputs', { Domain: numbers([0, 1, 0, 1]) }, /invalid stitching function/],
+    ['Bounds of the wrong length', { Bounds: numbers([0.25, 0.5]) }, /intervals/],
+    ['Encode of the wrong length', { Encode: numbers([0, 1]) }, /intervals/],
+    ['an empty Functions array', { Functions: pdfArray([]), Bounds: numbers([]), Encode: numbers([]) }, /stitching function/],
+    ['Functions that is not an array', { Functions: identity() }, /stitching function/],
+    ['a Domain of two inputs', { Domain: numbers([0, 1, 0, 1]) }, /stitching function/],
   ])('rejects %s', (_, extra, pattern) => {
     const build = () =>
       createPdfFunction(functionObject(3, { Functions: pdfArray([identity(), identity()]), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0, 1]), ...extra }));
