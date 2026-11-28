@@ -132,7 +132,7 @@ const TOLERANCE = 1e-6;
 const inside = ([left, bottom, right, top]: CoverEvent['rectangle'], x: number, y: number): boolean =>
   x >= left - TOLERANCE && x <= right + TOLERANCE && y >= bottom - TOLERANCE && y <= top + TOLERANCE;
 
-// Integer coordinates, so that points often fall on edges and cell boundaries; small rectangles go to the grid's cells and large ones to its bands, and either may reach past the bounds or lie outside them.
+// Integer coordinates, so that points often fall on edges and cell boundaries; small rectangles go to the grid's cells and large ones to its row and column bands, and either may reach past the bounds or lie outside them. fast-check keeps an array to about ten items unless its size is raised.
 const rectangleOf = (size: number): fc.Arbitrary<CoverEvent['rectangle']> =>
   fc
     .tuple(fc.integer({ min: -20, max: 120 }), fc.integer({ min: -20, max: 120 }), fc.integer({ min: 0, max: size }), fc.integer({ min: 0, max: size }))
@@ -144,8 +144,12 @@ describe('properties', () => {
     width: fc.integer({ min: 0, max: 100 }),
     height: fc.integer({ min: 0, max: 100 }),
     count: fc.integer({ min: 1, max: 400 }),
-    rectangles: fc.array(rectangle, { maxLength: 30 }),
-    points: fc.array(fc.tuple(fc.double({ min: 0, max: 1, noNaN: true }), fc.double({ min: 0, max: 1, noNaN: true })), { minLength: 1, maxLength: 40 }),
+    rectangles: fc.array(rectangle, { maxLength: 30, size: 'max' }),
+    points: fc.array(fc.tuple(fc.double({ min: 0, max: 1, noNaN: true }), fc.double({ min: 0, max: 1, noNaN: true })), {
+      minLength: 1,
+      maxLength: 40,
+      size: 'max',
+    }),
   });
 
   it('hides a point inside the bounds exactly when some fill’s rectangle contains it', () => {
