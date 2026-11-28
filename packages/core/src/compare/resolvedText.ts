@@ -93,12 +93,13 @@ interface Shape {
   readonly root: Link;
 }
 
-/** An array, dictionary or stream being read into a shape: its segments and links so far, the text of the segment being read, and its whole text while it has no links. */
+/** An array, dictionary or stream being read into a shape: its segments and links so far, the text of the segment being read, and while it has no links its whole text and the texts read into it, each marked when it is a value. */
 interface Building {
   readonly segments: Array<string>;
   readonly links: Array<Link>;
   run: string;
   whole: string;
+  readonly unlinked: Array<{ readonly text: string; readonly item: boolean }>;
 }
 
 /** How much written text is gathered before it is passed to the hash. */
@@ -730,13 +731,17 @@ export class ResolvedTexts {
     const structures: Array<Structure> = [];
     const open: Array<Building> = [];
     let root: Link = { kind: 'local', index: 0 };
+    // A value read into a structure with no links yet is kept by digest only once a link makes it part of a segment, since a structure with no links is folded whole into the text around it, and hashing each value of a deep nest at every level would repeat the work for each level.
     const add = (text: string, item: boolean): void => {
       const parent = open.at(-1);
-      if (parent !== undefined) {
+      if (parent === undefined) {
+        return;
+      }
+      if (parent.links.length === 0) {
+        parent.whole += text;
+        parent.unlinked.push({ text, item });
+      } else {
         parent.run += item ? kept(text) : text;
-        if (parent.links.length === 0) {
-          parent.whole += text;
-        }
       }
     };
     const link = (to: Link): void => {
@@ -744,6 +749,12 @@ export class ResolvedTexts {
       if (parent === undefined) {
         root = to;
         return;
+      }
+      if (parent.links.length === 0) {
+        for (const read of parent.unlinked) {
+          parent.run += read.item ? kept(read.text) : read.text;
+        }
+        parent.unlinked.length = 0;
       }
       parent.segments.push(kept(parent.run));
       parent.links.push(to);
@@ -773,7 +784,7 @@ export class ResolvedTexts {
       if (item?.kind === 'reference' && this.endless.has(referenceKey(item))) {
         link({ kind: 'object', key: referenceKey(item) });
       } else if (item?.kind === 'array') {
-        open.push({ segments: [], links: [], run: '[', whole: '[' });
+        open.push({ segments: [], links: [], run: '[', whole: '[', unlinked: [] });
         // Pushed one at a time, in reverse, since a call takes only so many arguments.
         steps.push({ kind: 'close', text: ']' });
         for (let index = item.items.length - 1; index >= 0; index -= 1) {
@@ -783,7 +794,7 @@ export class ResolvedTexts {
           }
         }
       } else if (item?.kind === 'dictionary' || item?.kind === 'stream') {
-        open.push({ segments: [], links: [], run: '<<', whole: '<<' });
+        open.push({ segments: [], links: [], run: '<<', whole: '<<', unlinked: [] });
         steps.push({
           kind: 'close',
           text: item.kind === 'stream' ? `>>stream${hex(step.producer === undefined ? md5(item.data) : producedDigest(step.producer))}` : '>>',
