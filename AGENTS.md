@@ -48,7 +48,7 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 - **`check:packages` tests what a consumer installs.** It deletes each package's `dist`, builds, packs every package with `pnpm pack`, installs all the tarballs together with `npm install --offline` into a temporary project outside the repository, and imports each package there under Node, Bun and Deno. It fails when a file the published `exports` map names is missing from a tarball, when an import fails, or when the export names a runtime sees differ from the source entry's. It needs an `npm` on `PATH`, which no devDependency provides; the Node installation that ships it is enough.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
-The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS, Argyll, free ICC profiles and the Noto CJK fonts for external checks.
+The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS and its development headers, Argyll, free ICC profiles and the Noto CJK and IPAGothic fonts for external checks.
 
 ## Tests
 
