@@ -57,6 +57,8 @@ export interface CarrierSeen {
   readonly categories: Map<number, Array<CarrierHolder>>;
   /** Object numbers of the streams an annotation's appearance names, whatever role they were listed by. */
   readonly appearances: Set<number>;
+  /** Object numbers of indirect Resources dictionaries and XObject, Pattern and ExtGState categories whose entries a walk has queued. */
+  readonly expanded: Set<number>;
   /** The most steps the walks may take together, where a step is one resource entry or appearance a walk examines; every carrier costs one. */
   readonly maxSteps: number;
   steps: number;
@@ -70,6 +72,7 @@ export const carrierSeen = (maxSteps: number = MAX_CARRIER_STEPS): CarrierSeen =
   fonts: new Map(),
   categories: new Map(),
   appearances: new Set(),
+  expanded: new Set(),
   maxSteps,
   steps: 0,
 });
@@ -186,13 +189,26 @@ class CarrierWalk {
 
   private list(carrier: Omit<ResourceCarrier, 'resources'>, object: PdfObject): void {
     // A carrier without its own Resources uses its parent's, which the parent's walk already covers.
-    const own = this.internals.objects.deref(entriesOf(object)?.get(RESOURCES));
+    const value = entriesOf(object)?.get(RESOURCES);
+    const own = this.internals.objects.deref(value);
     if (own?.kind !== 'dictionary') {
       return;
     }
     const listed = { ...carrier, resources: own.entries };
     this.carriers.push(listed);
-    this.enqueue(own.entries, listed);
+    this.enqueue(own.entries, listed, value);
+  }
+
+  // The entries of an indirect dictionary reach the same carriers whichever holder names it, so they are queued once per pass; a dictionary shared by many holders then costs its size once rather than once per holder.
+  private expand(value: PdfDirectObject | undefined): boolean {
+    if (value?.kind !== 'reference') {
+      return true;
+    }
+    if (this.seen.expanded.has(value.objectNumber)) {
+      return false;
+    }
+    this.seen.expanded.add(value.objectNumber);
+    return true;
   }
 
   // An indirect Font category is walked once; every holder that names it is recorded, so that each can be pointed at its replacement.
@@ -213,10 +229,12 @@ class CarrierWalk {
     return { kind: 'category', reference: value };
   }
 
-  private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
+  // `reference` is how the holder names `resources`. When an earlier walk queued that dictionary, only the directly stored fonts of its direct Font category are queued again, because they are replaced through the holder.
+  private enqueue(resources: PdfDictionaryEntries, holder: CarrierHolder, reference: PdfDirectObject | undefined): void {
+    const fresh = this.expand(reference);
     const found: Array<PendingCarrier> = [];
-    for (const key of [XOBJECT, PATTERN]) {
-      const category = this.internals.objects.deref(resources.get(key));
+    for (const key of fresh ? [XOBJECT, PATTERN] : []) {
+      const category = this.expand(resources.get(key)) ? this.internals.objects.deref(resources.get(key)) : undefined;
       for (const [, value] of category?.kind === 'dictionary' ? category.entries.entries() : []) {
         found.push({ kind: 'owner', value, appearance: false });
       }
@@ -225,11 +243,15 @@ class CarrierWalk {
     if (slot !== undefined) {
       const fonts = this.internals.objects.deref(resources.get(FONT));
       for (const [name, value] of fonts?.kind === 'dictionary' ? fonts.entries.entries() : []) {
-        found.push(value.kind === 'dictionary' ? { kind: 'font', slot, name, font: value } : { kind: 'owner', value, appearance: false });
+        if (value.kind === 'dictionary') {
+          found.push({ kind: 'font', slot, name, font: value });
+        } else if (fresh) {
+          found.push({ kind: 'owner', value, appearance: false });
+        }
       }
     }
     // ISO 32000-1:2008, Table 58: a graphics state's Font entry is an array whose first element is an indirect reference to a font dictionary.
-    const states = this.internals.objects.deref(resources.get(EXT_G_STATE));
+    const states = fresh && this.expand(resources.get(EXT_G_STATE)) ? this.internals.objects.deref(resources.get(EXT_G_STATE)) : undefined;
     for (const [, value] of states?.kind === 'dictionary' ? states.entries.entries() : []) {
       const font = this.internals.objects.deref(entriesOf(this.internals.objects.deref(value))?.get(FONT));
       found.push({ kind: 'owner', value: font?.kind === 'array' ? font.items[0] : undefined, appearance: false });
@@ -256,7 +278,7 @@ class CarrierWalk {
   }
 
   resources(resources: PdfDictionaryEntries, holder: CarrierHolder): void {
-    this.enqueue(resources, holder);
+    this.enqueue(resources, holder, undefined);
     this.drain();
   }
 
