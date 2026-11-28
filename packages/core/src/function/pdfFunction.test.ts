@@ -2,7 +2,9 @@ import type { PdfDirectObject, PdfObject } from '../object/pdfObject.ts';
 
 import { describe, expect, it } from 'vitest';
 
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { md5 } from '../hash/md5.ts';
 import { PdfDictionaryEntries, pdfArray, pdfDictionary, pdfInteger, pdfReal, pdfReference } from '../object/pdfObject.ts';
 
@@ -213,5 +215,89 @@ describe('pdf functions', () => {
     const evaluate = createPdfFunction(calculator);
     expect(evaluate([0.25])).toStrictEqual([0.0625]);
     expect(evaluate([0.75])).toStrictEqual([0.25]);
+  });
+});
+
+// A sampled function over Domain [0 1] with two 8-bit samples and Range [0 1], with entries replaced or added by extra.
+const sampledFunction = (extra: Record<string, PdfDirectObject>, data: Uint8Array) =>
+  streamFunction(0, { Size: numbers([2]), BitsPerSample: pdfInteger(8), Range: numbers([0, 1]), ...extra }, data);
+
+// A sampled function with count inputs, each with one sample.
+const sampledInputs = (count: number) =>
+  streamFunction(
+    0,
+    {
+      Domain: numbers(Array.from({ length: count }, () => [0, 1]).flat()),
+      Size: numbers(Array.from({ length: count }, () => 1)),
+      BitsPerSample: pdfInteger(8),
+      Range: numbers([0, 1]),
+    },
+    Uint8Array.of(255),
+  );
+
+const oneBitSamples = new Uint8Array(2 ** 21).fill(0xff);
+// A one-input sampled function with size 1-bit samples for each output, every one set to 1.
+const oneBitTable = (size: number, range: Array<number>) =>
+  streamFunction(0, { Size: numbers([size]), BitsPerSample: pdfInteger(1), Range: numbers(range) }, oneBitSamples);
+
+const twelveBitTable = (length: number) => sampledFunction({ Size: numbers([3]), BitsPerSample: pdfInteger(12) }, new Uint8Array(length).fill(0xff));
+
+describe('sampled functions', () => {
+  // ISO 32000-1:2008, 7.10.2: samples are packed high bit first with no padding between them.
+  it.each([
+    [1, [0b1000_0000], [1, 0]],
+    [2, [0b1101_0000], [3, 1]],
+    [4, [0x1e], [0x1, 0xe]],
+    [8, [0x12, 0xfe], [0x12, 0xfe]],
+    [12, [0x12, 0x3a, 0xbc], [0x1_23, 0xa_bc]],
+    [16, [0x12, 0x34, 0xab, 0xcd], [0x12_34, 0xab_cd]],
+    [24, [0x12, 0x34, 0x56, 0xab, 0xcd, 0xef], [0x12_34_56, 0xab_cd_ef]],
+    [32, [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0], [0x12_34_56_78, 0x9a_bc_de_f0]],
+  ])('extracts %i-bit samples high bit first', (bits, bytes, samples) => {
+    const evaluate = createPdfFunction(sampledFunction({ BitsPerSample: pdfInteger(bits) }, Uint8Array.from(bytes)));
+    expect([evaluate([0]), evaluate([1])]).toStrictEqual(samples.map(sample => [sample / (2 ** bits - 1)]));
+  });
+
+  it('maps inputs through Encode and holds a single-sample axis', () => {
+    // ISO 32000-1:2008, 7.10.2 and Table 39: Encode maps the Domain onto sample indexes, and its default is [0 Size-1].
+    const reversed = createPdfFunction(sampledFunction({ Encode: numbers([1, 0]) }, Uint8Array.of(0, 255)));
+    const single = createPdfFunction(sampledFunction({ Size: numbers([1]) }, Uint8Array.of(0x80)));
+    const linear = createPdfFunction(sampledFunction({ Order: pdfInteger(1) }, Uint8Array.of(0, 255)));
+    expect([reversed([0]), reversed([0.25]), single([0]), single([1]), linear([0.25])]).toStrictEqual([[1], [0.75], [0x80 / 255], [0x80 / 255], [0.25]]);
+  });
+
+  it('builds eight inputs and rejects nine', () => {
+    expect(createPdfFunction(sampledInputs(8))(Array.from({ length: 8 }, () => 0.5))).toStrictEqual([1]);
+    expect(() => createPdfFunction(sampledInputs(9))).toThrow(ParseError);
+    expect(() => createPdfFunction(sampledInputs(9))).toThrow(/dimensions/);
+  });
+
+  it('builds a sample table of 16,777,216 values and rejects one more', () => {
+    expect(createPdfFunction(oneBitTable(16_777_216, [0, 1]))([1])).toStrictEqual([1]);
+    expect(createPdfFunction(oneBitTable(8_388_608, [0, 1, 0, 1]))([1])).toStrictEqual([1, 1]);
+    expect(() => createPdfFunction(oneBitTable(16_777_217, [0, 1]))).toThrow(ResourceLimitError);
+    expect(() => createPdfFunction(oneBitTable(8_388_609, [0, 1, 0, 1]))).toThrow(ResourceLimitError);
+  });
+
+  it('builds from exactly enough sample bytes and rejects one byte fewer', () => {
+    // Three 12-bit samples need 36 bits, which is five bytes.
+    expect(createPdfFunction(twelveBitTable(5))([0.5])).toStrictEqual([1]);
+    expect(() => createPdfFunction(twelveBitTable(4))).toThrow(ParseError);
+    expect(() => createPdfFunction(twelveBitTable(4))).toThrow(/truncated/);
+  });
+
+  it.each([
+    ['a bit width of 3', { BitsPerSample: pdfInteger(3) }, /dimensions/],
+    ['a Size for two inputs on a one-input Domain', { Size: numbers([2, 2]) }, /dimensions/],
+    ['an Encode for two inputs', { Encode: numbers([0, 1, 0, 1]) }, /mapping/],
+    ['a Decode for two outputs', { Decode: numbers([0, 1, 0, 1]) }, /mapping/],
+  ])('rejects %s', (_, extra, pattern) => {
+    const build = () => createPdfFunction(sampledFunction(extra, new Uint8Array(8)));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+
+  it('rejects cubic spline interpolation as unsupported', () => {
+    expect(() => createPdfFunction(sampledFunction({ Order: pdfInteger(3) }, Uint8Array.of(0, 255)))).toThrow(UnsupportedFeatureError);
   });
 });
