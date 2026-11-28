@@ -41,13 +41,14 @@ const stencil = (width: number, height: number, length: number): ImageOptions =>
 
 const box = rect(pt(0), pt(0), pt(20), pt(20));
 
-// The entries a reader decodes an 8-bit image by, and its decoded samples.
+// The entries a reader decodes an 8-bit image by, its Filter, and its decoded samples.
 const image8 = (document: ReturnType<typeof reload>, image: PdfObject): Array<PdfObject | Array<number>> => [
   entry(document, image, 'Subtype'),
   entry(document, image, 'ColorSpace'),
   entry(document, image, 'BitsPerComponent'),
   entry(document, image, 'Width'),
   entry(document, image, 'Height'),
+  entry(document, image, 'Filter'),
   [...streamBytes(image)],
 ];
 
@@ -107,10 +108,10 @@ describe('image XObjects', () => {
     });
     const saved = reload(document.save());
     const written = pageResource(saved, 0, 'XObject', 'Im1');
-    // ISO 32000-1:2008, 11.6.5.3, Table 145: a soft-mask image is a DeviceGray image XObject.
+    // ISO 32000-1:2008, 11.6.5.3, Table 145: a soft-mask image is a DeviceGray image XObject. 7.4.4: FlateDecode names zlib-compressed data.
     expect([image8(saved, written), image8(saved, entry(saved, written, 'SMask'))]).toStrictEqual([
-      [pdfName('Image'), pdfName('DeviceRGB'), pdfInteger(8), pdfInteger(1), pdfInteger(1), [255, 0, 0]],
-      [pdfName('Image'), pdfName('DeviceGray'), pdfInteger(8), pdfInteger(1), pdfInteger(1), [0x80]],
+      [pdfName('Image'), pdfName('DeviceRGB'), pdfInteger(8), pdfInteger(1), pdfInteger(1), pdfName('FlateDecode'), [255, 0, 0]],
+      [pdfName('Image'), pdfName('DeviceGray'), pdfInteger(8), pdfInteger(1), pdfInteger(1), pdfName('FlateDecode'), [0x80]],
     ]);
   });
 
