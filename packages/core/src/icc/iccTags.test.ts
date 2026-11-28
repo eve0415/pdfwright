@@ -93,6 +93,7 @@ describe('icc basic tags', () => {
     // ICC.1:2022, 10.31 and 10.22: an XYZType holds 20 bytes and a nine-value s15Fixed16ArrayType 44.
     expect(() => readXyz(xyz, 0, 19)).toThrow(InvalidProfileError);
     expect(() => readXyz(xyz, 0, 19)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
+    expect(() => readSf32(sf32, 0, 43)).toThrow(InvalidProfileError);
     expect(() => readSf32(sf32, 0, 43)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
   });
 
@@ -124,6 +125,7 @@ describe('icc basic tags', () => {
       curve: { kind: 'parametric', functionType, params: raw.map(value => value / 65_536) },
       consumed: 12 + count * 4,
     });
+    expect(() => readCurve(bytes, 0, bytes.length - 1)).toThrow(InvalidProfileError);
     expect(() => readCurve(bytes, 0, bytes.length - 1)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
   });
 
@@ -132,6 +134,7 @@ describe('icc basic tags', () => {
       5,
       Array.from({ length: 8 }, () => 0x1_00_00),
     );
+    expect(() => readCurve(typeFive, 0, typeFive.length)).toThrow(InvalidProfileError);
     expect(() => readCurve(typeFive, 0, typeFive.length)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
     // ICC.1:2022, 10.18 Table 67: the function type sits at bytes 8 and 9, so a tag that ends at byte 9 cannot hold it.
     const header = parametricTag(0, [0x1_00_00]).slice(0, 9);
@@ -156,8 +159,10 @@ describe('icc basic tags', () => {
     { name: 'a limit before the offset', offset: 8, limit: 4 },
   ])('rejects $name', ({ offset, limit }) => {
     const bytes = xyzTag([0.5, 0.25, 0.125]);
+    expect(() => readXyz(bytes, offset, limit)).toThrow(InvalidProfileError);
     expect(() => readXyz(bytes, offset, limit)).toThrow(expect.objectContaining({ reason: 'bad-tag-data' }));
     const curve = gammaCurveTag(2.2);
+    expect(() => readCurve(curve, offset, limit - 4)).toThrow(InvalidProfileError);
     expect(() => readCurve(curve, offset, limit - 4)).toThrow(expect.objectContaining({ reason: 'bad-tag-data' }));
   });
 
@@ -223,6 +228,7 @@ describe('icc basic tags', () => {
       fc.assert(
         fc.property(curveTags, fc.nat(), ({ bytes }, cut) => {
           const limit = cut % bytes.length;
+          expect(() => readCurve(bytes, 0, limit)).toThrow(InvalidProfileError);
           expect(() => readCurve(bytes, 0, limit)).toThrow(expect.objectContaining({ reason: 'bad-tag-data', offset: 0 }));
         }),
       );
