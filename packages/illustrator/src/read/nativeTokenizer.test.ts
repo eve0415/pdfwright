@@ -64,6 +64,22 @@ describe('native tokenizer', () => {
     expect(parseNativeLiteral(String.raw`(abc\\)`, 0)).toBe('abc\\');
   });
 
+  // PostScript Language Reference, 3.2.2: one to three octal digits code a byte with high-order overflow ignored, five letters code control characters, a backslash before a line feed continues the line, and a backslash before any other character is dropped.
+  it.each([
+    { case: 'a three-digit octal escape', literal: String.raw`(a\101)`, expected: 'aA' },
+    { case: 'a two-digit octal escape', literal: String.raw`(\12x)`, expected: '\nx' },
+    { case: 'a one-digit octal escape', literal: String.raw`(a\7b)`, expected: 'a\u0007b' },
+    { case: 'an octal escape that stops after three digits', literal: String.raw`(\0053)`, expected: '\u00053' },
+    { case: 'an octal escape that stops at a digit that is not octal', literal: String.raw`(\18)`, expected: '\u00018' },
+    { case: 'an octal escape beyond 255', literal: String.raw`(\501)`, expected: 'A' },
+    { case: 'octal escapes of UTF-8 bytes', literal: String.raw`(caf\303\251)`, expected: 'café' },
+    { case: 'the letter escapes', literal: String.raw`(\n\r\t\b\f)`, expected: '\n\r\t\b\f' },
+    { case: 'a backslash before a line feed', literal: '(ab\\\ncd)', expected: 'abcd' },
+    { case: 'a backslash before a character without an escape', literal: String.raw`(\q\8)`, expected: 'q8' },
+  ])('reads $case', ({ literal, expected }) => {
+    expect(parseNativeLiteral(literal, 0)).toBe(expected);
+  });
+
   it('reads an empty literal string', () => {
     expect(parseNativeLiteral('()', 0)).toBe('');
   });

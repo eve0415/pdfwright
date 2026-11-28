@@ -117,6 +117,12 @@ describe('native model reader', () => {
     expect(readNative(native, date).document.artboard).toStrictEqual({ width: 100, height: 70, bleed: { top: 3, right: 3, bottom: 3, left: 3 } });
   });
 
+  it('reads an octal escape in a layer name as the character it codes', () => {
+    // PostScript Language Reference, 3.2.2: \145 is the character with octal code 145, e.
+    const native = edited(nativeBytes, '(Design) Ln', String.raw`(D\145sign) Ln`);
+    expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Design']);
+  });
+
   it('reports only the setup blocks it does not know', () => {
     const native = edited(
       edited(nativeBytes, '%%BeginSetup\r', '%%BeginSetup\r%AI9_BeginFoo\r%AI9_EndFoo\r'),
