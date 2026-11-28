@@ -74,8 +74,8 @@ describe('properties', () => {
     fc.integer({ min: 0, max: 40 }).map(exponent => 2 ** exponent),
   );
   const alphabet = fc.oneof(
-    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 286 }), fc.constant(15)),
-    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 19 }), fc.constant(7)),
+    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 286, size: 'max' }), fc.constant(15)),
+    fc.tuple(fc.array(frequency, { minLength: 1, maxLength: 19, size: 'max' }), fc.constant(7)),
   );
 
   it('gives used symbols lengths within the limit that form a complete code, longer for rarer symbols', () => {
@@ -99,9 +99,9 @@ describe('properties', () => {
   });
 
   it('writes symbols that the decoder reads back through the same code lengths', () => {
-    const coded = fc.array(fc.nat({ max: 100_000 }), { minLength: 1, maxLength: 286 }).chain(frequencies => {
+    const coded = fc.array(fc.nat({ max: 100_000 }), { minLength: 1, maxLength: 286, size: 'max' }).chain(frequencies => {
       const used = frequencies.flatMap((frequency, symbol) => (frequency > 0 ? [symbol] : []));
-      return fc.tuple(fc.constant(frequencies), used.length === 0 ? fc.constant([]) : fc.array(fc.constantFrom(...used), { maxLength: 200 }));
+      return fc.tuple(fc.constant(frequencies), used.length === 0 ? fc.constant([]) : fc.array(fc.constantFrom(...used), { maxLength: 200, size: 'max' }));
     });
     fc.assert(
       fc.property(coded, ([frequencies, symbols]) => {

@@ -105,7 +105,7 @@ describe('properties', () => {
   });
 
   it('writes tokens that replay to the input at every level', () => {
-    const input = fc.oneof(fc.uint8Array({ maxLength: 2048 }), fc.uint8Array({ max: 3, maxLength: 4096 }));
+    const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
     fc.assert(
       fc.property(input, fc.integer({ min: 0, max: 9 }), (data, level) => {
         expect(replay(tokens(data, level))).toStrictEqual(data);

@@ -190,8 +190,8 @@ describe('properties', () => {
       const rowBytes = Math.ceil((parameters.colors * parameters.bitsPerComponent * parameters.columns) / 8);
       return fc.record({
         parameters: fc.constant(parameters),
-        rows: fc.array(fc.array(fc.nat({ max: 255 }), { minLength: rowBytes, maxLength: rowBytes }), { maxLength: 5 }),
-        tags: fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 5, maxLength: 5 }),
+        rows: fc.array(fc.array(fc.nat({ max: 255 }), { minLength: rowBytes, maxLength: rowBytes }), { maxLength: 5, size: 'max' }),
+        tags: fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 5, maxLength: 5, size: 'max' }),
       });
     });
 

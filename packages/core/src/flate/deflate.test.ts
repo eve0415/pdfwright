@@ -253,7 +253,7 @@ describe('incremental deflate output', () => {
 
 describe('properties', () => {
   // Bytes drawn from four values repeat often enough to produce matches and dynamic Huffman blocks; unrestricted bytes mostly do not.
-  const input = fc.oneof(fc.uint8Array({ maxLength: 2048 }), fc.uint8Array({ max: 3, maxLength: 4096 }));
+  const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
   const level = fc.constantFrom(...LEVELS);
 
   it('inflates what it deflates at every level', () => {
@@ -278,7 +278,7 @@ describe('properties', () => {
     const pieced = input.chain(data =>
       fc.tuple(
         fc.constant(data),
-        fc.uniqueArray(fc.integer({ min: 0, max: data.length }), { maxLength: 8 }).map(cuts => cuts.toSorted((left, right) => left - right)),
+        fc.uniqueArray(fc.integer({ min: 0, max: data.length }), { maxLength: 8, size: 'max' }).map(cuts => cuts.toSorted((left, right) => left - right)),
       ),
     );
     fc.assert(

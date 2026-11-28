@@ -539,13 +539,13 @@ describe('chunked zlib inflate', () => {
 
 describe('properties', () => {
   // Bytes drawn from four values repeat often enough to produce matches and dynamic Huffman blocks; unrestricted bytes mostly do not.
-  const input = fc.oneof(fc.uint8Array({ maxLength: 2048 }), fc.uint8Array({ max: 3, maxLength: 4096 }));
+  const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
   const level = fc.constantFrom(0, 1, 6, 9);
   const damage = fc.oneof(
     fc.constant({ kind: 'none' } as const),
     fc.record({ kind: fc.constant('cut' as const), bytes: fc.integer({ min: 1, max: 12 }) }),
     fc.record({ kind: fc.constant('flip' as const), back: fc.integer({ min: 1, max: 4 }) }),
-    fc.record({ kind: fc.constant('append' as const), bytes: fc.uint8Array({ minLength: 1, maxLength: 4 }) }),
+    fc.record({ kind: fc.constant('append' as const), bytes: fc.uint8Array({ minLength: 1, maxLength: 4, size: 'max' }) }),
   );
 
   type Damage =
@@ -592,9 +592,9 @@ describe('properties', () => {
 
   it('either decodes arbitrary bytes or refuses them with a library error', () => {
     const library = new Set(['ParseError', 'ResourceLimitError', 'UnsupportedFeatureError']);
-    const zlibLike = fc.uint8Array({ maxLength: 512 }).map(bytes => concat([Uint8Array.of(0x78, 0x9c), bytes]));
+    const zlibLike = fc.uint8Array({ maxLength: 512, size: 'max' }).map(bytes => concat([Uint8Array.of(0x78, 0x9c), bytes]));
     fc.assert(
-      fc.property(fc.oneof(fc.uint8Array({ maxLength: 512 }), zlibLike), data => {
+      fc.property(fc.oneof(fc.uint8Array({ maxLength: 512, size: 'max' }), zlibLike), data => {
         for (const decode of decoders(data, data)) {
           const result = outcome(decode);
           const refused = 'error' in result ? result.error : undefined;

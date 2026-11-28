@@ -38,7 +38,7 @@ describe('adler checksum', () => {
 describe('properties', () => {
   it('continues a checksum over any split as the reference does over the whole', () => {
     fc.assert(
-      fc.property(fc.uint8Array({ maxLength: 12_000 }), fc.uint8Array({ maxLength: 12_000 }), (first, rest) => {
+      fc.property(fc.uint8Array({ maxLength: 12_000, size: 'max' }), fc.uint8Array({ maxLength: 12_000, size: 'max' }), (first, rest) => {
         const joined = new Uint8Array([...first, ...rest]);
         expect(updateAdler32(adler32(first), rest)).toBe(reference(joined));
       }),

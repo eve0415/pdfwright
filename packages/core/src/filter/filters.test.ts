@@ -329,11 +329,11 @@ describe('LZWDecode', () => {
 });
 
 describe('properties', () => {
-  const insertions = fc.array(fc.tuple(fc.nat({ max: 4096 }), fc.constantFrom(...WHITE_SPACE)), { maxLength: 12 });
+  const insertions = fc.array(fc.tuple(fc.nat({ max: 4096 }), fc.constantFrom(...WHITE_SPACE)), { maxLength: 12, size: 'max' });
 
   it('decodes ASCIIHexDecode data written by a test-side encoder, wherever white space falls', () => {
     fc.assert(
-      fc.property(fc.uint8Array({ maxLength: 512 }), insertions, fc.boolean(), (data, spaces, upper) => {
+      fc.property(fc.uint8Array({ maxLength: 512, size: 'max' }), insertions, fc.boolean(), (data, spaces, upper) => {
         const text = hexEncode(data);
         expect(decodeAsciiHex(latin1Bytes(`${withWhiteSpace(upper ? text.toUpperCase() : text, spaces)}>`), LIMIT)).toStrictEqual(data);
       }),
@@ -341,7 +341,7 @@ describe('properties', () => {
   });
 
   it('decodes ASCII85Decode data written by a test-side encoder, wherever white space falls', () => {
-    const data = fc.oneof(fc.uint8Array({ maxLength: 512 }), fc.uint8Array({ max: 1, maxLength: 64 }));
+    const data = fc.oneof(fc.uint8Array({ maxLength: 512, size: 'max' }), fc.uint8Array({ max: 1, maxLength: 64, size: 'max' }));
     fc.assert(
       fc.property(data, insertions, (bytes, spaces) => {
         expect(decodeAscii85(latin1Bytes(`${withWhiteSpace(ascii85Encode(bytes), spaces)}~>`), LIMIT)).toStrictEqual(bytes);
@@ -351,13 +351,13 @@ describe('properties', () => {
 
   it('decodes RunLengthDecode data built from literal and repeated runs', () => {
     const run = fc.oneof(
-      fc.uint8Array({ minLength: 1, maxLength: 128 }).map(bytes => ({ encoded: [bytes.length - 1, ...bytes], decoded: [...bytes] })),
+      fc.uint8Array({ minLength: 1, maxLength: 128, size: 'max' }).map(bytes => ({ encoded: [bytes.length - 1, ...bytes], decoded: [...bytes] })),
       fc
         .tuple(fc.integer({ min: 2, max: 128 }), fc.nat({ max: 255 }))
         .map(([count, byte]) => ({ encoded: [257 - count, byte], decoded: Array.from({ length: count }, () => byte) })),
     );
     fc.assert(
-      fc.property(fc.array(run, { maxLength: 20 }), fc.boolean(), (runs, terminated) => {
+      fc.property(fc.array(run, { maxLength: 20, size: 'max' }), fc.boolean(), (runs, terminated) => {
         const encoded = [...runs.flatMap(({ encoded: bytes }) => bytes), ...(terminated ? [128] : [])];
         expect(decodeRunLength(Uint8Array.from(encoded), LIMIT)).toStrictEqual(Uint8Array.from(runs.flatMap(({ decoded }) => decoded)));
       }),
@@ -366,7 +366,7 @@ describe('properties', () => {
 
   it('decodes LZWDecode data written by a test-side encoder, through a full table and with either EarlyChange', () => {
     // Long unstructured inputs fill the 4,096-entry table; inputs from two byte values build long entries.
-    const data = fc.oneof(fc.uint8Array({ maxLength: 12_000 }), fc.uint8Array({ max: 1, maxLength: 2000 }));
+    const data = fc.oneof(fc.uint8Array({ maxLength: 12_000, size: 'max' }), fc.uint8Array({ max: 1, maxLength: 2000, size: 'max' }));
     fc.assert(
       fc.property(data, fc.constantFrom(0, 1), fc.boolean(), (bytes, earlyChange, clearWhenFull) => {
         expect(decodeLzw(packCodes(lzwEncode(bytes, earlyChange, clearWhenFull)), { earlyChange, maxOutputBytes: LIMIT })).toStrictEqual(bytes);
