@@ -51,6 +51,15 @@ describe('Ghostscript plates', () => {
     });
   });
 
+  it('returns only the plates of the latest render into a directory', async () => {
+    const names = await withDirectory(async directory => {
+      const plates = path.join(directory, 'plates');
+      await renderPlates(await written(directory, 'spot.pdf', spotPage), plates);
+      return (await renderPlates(await written(directory, 'cyan.pdf', cyanPage), plates, true)).map(plate => new TextDecoder().decode(plate.name)).toSorted();
+    });
+    expect(names).toStrictEqual(['Black', 'Cyan', 'Magenta', 'Yellow']);
+  });
+
   it('reads the CMYK of one pixel', async () => {
     const pixel = await withDirectory(async directory =>
       renderGsCmykPixel(await written(directory, 'cyan.pdf', cyanPage), path.join(directory, 'cmyk.tif'), 20, 780),

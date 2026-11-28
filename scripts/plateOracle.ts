@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { text } from 'node:stream/consumers';
 
@@ -42,9 +42,10 @@ const runGhostscript = async (args: ReadonlyArray<string>): Promise<void> => {
 
 const isPlateFile = (file: string): boolean => file.startsWith('o(') && file.endsWith(').tif');
 
-/** Renders every plate of page 1 with tiffsep at 72 dpi into `directory`. */
+/** Renders every plate of page 1 with tiffsep at 72 dpi into `directory`, after removing plates an earlier render left there. */
 export const renderPlates = async (pdfFile: string, directory: string, includeProcess = false): Promise<Array<PlateFile>> => {
   await mkdir(directory, { recursive: true });
+  await Promise.all((await readdir(directory)).filter(file => file === 'o.tif' || isPlateFile(file)).map(async file => rm(path.join(directory, file))));
   await runGhostscript([
     '-q',
     '-dNOPAUSE',
