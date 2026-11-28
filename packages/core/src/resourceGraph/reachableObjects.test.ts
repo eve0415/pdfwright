@@ -95,4 +95,47 @@ describe('objects reachable from the trailer', () => {
     internals(document).objects.setTrailerEntry(pdfName('Info').bytes, pdfReference(6, 0));
     expect(numbers(document)).toStrictEqual([1, 2, 3, 4, 5, 6]);
   });
+  it('does not follow reference syntax inside stream data', () => {
+    // ISO 32000-1:2008, 7.3.8.1: a stream's data is a sequence of bytes, so `6 0 R` in it references nothing.
+    const document = load('/Metadata 7 0 R', [
+      { number: 6, body: '<<>>' },
+      { number: 7, body: streamBody('/Type/Metadata/Subtype/XML', '6 0 R') },
+    ]);
+    expect(numbers(document)).toStrictEqual([1, 2, 3, 4, 5, 7]);
+  });
+
+  it('lists an object stored in an object stream with generation 0', () => {
+    // ISO 32000-1:2008, 7.5.7: "The generation number of an object stream and of any compressed object shall be zero."
+    const document = loadDocument(
+      buildPdf([
+        {
+          xref: 'stream',
+          objects: [{ number: 1, body: '<</Type/Catalog/Pages 2 0 R/A 6 0 R>>' }, ...PAGES],
+          objectStreams: [{ number: 9, members: [{ number: 6, body: '<</B 7 0 R>>' }] }],
+          trailer: '/Root 1 0 R',
+        },
+      ]).bytes,
+    );
+    expect([...reachableObjects(internals(document)).objects].toSorted(([left], [right]) => left - right)).toStrictEqual([
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+      [5, 0],
+      [6, 0],
+    ]);
+  });
+
+  it('lists the objects in the order it resolved them', () => {
+    const document = load('/A 6 0 R/B 7 0 R', [
+      { number: 6, body: '<</C 8 0 R>>' },
+      { number: 7, body: '<</D 9 0 R>>' },
+      { number: 8, body: '<<>>' },
+      { number: 9, body: '<<>>' },
+    ]);
+    const parts = internals(document);
+    const resolve = vi.spyOn(parts.objects, 'resolve');
+    const listed = [...reachableObjects(parts).objects.keys()];
+    expect(listed).toStrictEqual(resolve.mock.calls.map(([objectNumber]) => objectNumber));
+  });
 });
