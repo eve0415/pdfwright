@@ -379,9 +379,24 @@ describe('embedded TrueType cmap tables, damaged or at their limits', () => {
     {
       label: 'an odd segCountX2',
       subtable: (): Array<number> => {
-        const subtable = format4([{ start: 0x41, end: 0x43, delta: 1 }]);
-        // segCountX2 is the fourth 16-bit field of the format 4 header; 5 is odd, and its half rounded down is the true segment count, so only its oddness is wrong.
-        subtable.splice(6, 2, ...u16(5));
+        // OpenType 1.9.1, cmap, Format 4: segCountX2 is 2 × segCount, so 5 is no segment count.
+        // Read as 2.5 segments, the arrays start at half-integer offsets (startCode at 21, idDelta at 26, idRangeOffset at 31), and the values there form three ordered, disjoint segments, so only the oddness is wrong.
+        const subtable = Array.from({ length: 38 }, () => 0);
+        const fields = [
+          [0, 4],
+          [2, 38],
+          [6, 5],
+          [14, 0x41],
+          [16, 0x51],
+          [18, 0xff_ff],
+          [21, 0x41],
+          [23, 0x50],
+          [25, 0x60],
+          [28, 1],
+        ] as const;
+        for (const [offset, value] of fields) {
+          subtable.splice(offset, 2, ...u16(value));
+        }
         return subtable;
       },
       encoding: 1,
