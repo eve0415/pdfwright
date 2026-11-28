@@ -1,5 +1,6 @@
 import type { DocumentInternals } from '../document/documentInternals.ts';
 import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { PdfStream } from '../font/fontValues.ts';
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
@@ -7,6 +8,7 @@ import type { PrintingCondition } from './printingConditions.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { versionNumber } from '../document/readStructure.ts';
+import { PdfwrightError } from '../error/pdfwrightError.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { deflateZlib } from '../flate/deflate.ts';
 import { decodedData } from '../font/fontValues.ts';
@@ -29,7 +31,7 @@ export interface OutputIntentOptions {
   readonly outputCondition?: string;
   /** Registry URI for a registered condition. */
   readonly registryName?: string;
-  /** Whether to refuse or replace a conflicting intent; defaults to refuse. */
+  /** Whether to refuse or replace a conflicting intent, and `replace` also removes an intent whose profile cannot be read; defaults to refuse. */
   readonly existing?: 'refuse' | 'replace';
   /** Whether to write PDF version 1.6 in place of a higher catalog Version and header version, for PDF/X-4; defaults to true. */
   readonly pdfx?: boolean;
@@ -62,6 +64,25 @@ interface ReadExistingInput {
   readonly replacement: boolean;
 }
 
+// A profile that cannot be decoded or parsed differs from the destination, so under `replace` it is removed rather than read.
+const sameProfile = (internals: DocumentInternals, stream: PdfStream, destination: IccProfile, replacement: boolean): boolean => {
+  const bytes = decodedData(internals, stream);
+  if (typeof bytes === 'string') {
+    if (replacement) {
+      return false;
+    }
+    throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
+  }
+  try {
+    return sameIdentity(parseIccProfile(bytes), destination);
+  } catch (error: unknown) {
+    if (replacement && error instanceof PdfwrightError) {
+      return false;
+    }
+    throw error;
+  }
+};
+
 const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): Array<ExistingIntent> => {
   const { objects } = internals;
   const intents = objects.deref(catalog.get(key('OutputIntents')));
@@ -78,14 +99,7 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     const profileValue = value.entries.get(key('DestOutputProfile'));
     const profile = profileValue?.kind === 'reference' ? profileValue : undefined;
     const stream = objects.deref(profileValue);
-    let matches = false;
-    if (stream?.kind === 'stream') {
-      const bytes = decodedData(internals, stream);
-      if (typeof bytes === 'string') {
-        throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
-      }
-      matches = sameIdentity(parseIccProfile(bytes), destination);
-    }
+    const matches = stream?.kind === 'stream' && sameProfile(internals, stream, destination, replacement);
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
