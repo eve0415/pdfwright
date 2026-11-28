@@ -92,6 +92,9 @@ export default defineConfig({
   extends: [cloudflare],
   env: cloudflare.env,
   ignorePatterns: [...cloudflare.ignorePatterns, 'dist'],
+  categories: {
+    correctness: 'error',
+  },
   options: {
     typeAware: true,
     typeCheck: true,
