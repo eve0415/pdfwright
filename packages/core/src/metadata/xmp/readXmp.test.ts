@@ -220,6 +220,18 @@ describe('reading XMP packets', () => {
     expect(cases.map(value => refusal(value))).toStrictEqual(Array.from({ length: 7 }, () => 'not-well-formed'));
   });
 
+  // Namespaces in XML 1.0, 6.3: no element may have two attributes with the same expanded name, and 6.2 puts an unprefixed attribute in no namespace.
+  it('refuses two attributes with the same expanded name and accepts attributes whose expanded names differ', () => {
+    const cases = [
+      packet(`<rdf:Description xmlns:a="urn:x" xmlns:b="urn:x" a:p="1" b:p="2"/>`),
+      packet(`<rdf:Description xmlns:a="urn:x"><a:q xmlns:b="urn:x" a:p="1" b:p="2"/></rdf:Description>`),
+      packet(`<rdf:Description xmlns:a="urn:x" xmlns:b="urn:" a:p="1" b:xp="2"/>`),
+      packet(`<rdf:Description xmlns:a="urn:x" xmlns:b="urn:y" a:p="1" b:p="2"/>`),
+      packet(`<rdf:Description xmlns="urn:x" xmlns:a="urn:x" p="1" a:p="2"/>`),
+    ];
+    expect(cases.map(value => refusal(value))).toStrictEqual(['not-well-formed', 'not-well-formed', undefined, undefined, undefined]);
+  });
+
   it.each([
     ['UTF-16BE', [0xfe, 0xff], utf16be],
     ['UTF-32BE', [0x00, 0x00, 0xfe, 0xff], utf32be],
