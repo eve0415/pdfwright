@@ -28,8 +28,9 @@ export interface PdfX4PageChange {
   readonly addedPageGroups: ReadonlyArray<number>;
 }
 
+const latin1 = new TextDecoder('latin1');
 const key = (name: string): Uint8Array => pdfName(name).bytes;
-const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
+const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? latin1.decode(value.bytes) : undefined);
 const entriesOf = (internals: DocumentInternals, value: PdfDirectObject | undefined): PdfDictionaryEntries | undefined => {
   const resolved = internals.objects.deref(value);
   if (resolved?.kind === 'dictionary') {
@@ -42,6 +43,49 @@ const numeric = (value: PdfObject | undefined): number | undefined => {
     return value.value;
   }
   return value?.kind === 'real' && typeof value.value === 'number' ? value.value : undefined;
+};
+
+// Spells a direct object out with its references unresolved, so that two dictionaries with the same entries, such as one the object cache parsed again, give the same text.
+const directText = (value: PdfDirectObject, parts: Array<string>): void => {
+  switch (value.kind) {
+    case 'null':
+      parts.push('n');
+      return;
+    case 'boolean':
+      parts.push(value.value ? 't' : 'f');
+      return;
+    case 'integer':
+      parts.push(`i${String(value.value)}`);
+      return;
+    case 'real':
+      parts.push(typeof value.value === 'number' ? `r${String(value.value)}` : `r${String(value.value.numerator)}/${String(value.value.denominator)}`);
+      return;
+    case 'reference':
+      parts.push(`R${String(value.objectNumber)} ${String(value.generation)}`);
+      return;
+    case 'name':
+    case 'string':
+    case 'invalid': {
+      const text = latin1.decode(value.bytes);
+      parts.push(`${value.kind.charAt(0)}${String(text.length)}:${text}`);
+      return;
+    }
+    case 'array':
+      parts.push('[');
+      for (const item of value.items) {
+        directText(item, parts);
+      }
+      parts.push(']');
+      return;
+    case 'dictionary':
+      parts.push('<');
+      for (const [name, item] of value.entries.entries()) {
+        const text = latin1.decode(name);
+        parts.push(`${String(text.length)}:${text}`);
+        directText(item, parts);
+      }
+      parts.push('>');
+  }
 };
 
 const transparentState = (internals: DocumentInternals, state: PdfDictionaryEntries): boolean => {
@@ -70,6 +114,7 @@ class TransparencyScan {
   // Fonts are remembered apart from forms, patterns and appearances, so that an object a font selection names is still read when Do, scn or an annotation draws it.
   private readonly fontObjects = new Set<number>();
   private readonly fonts = new Set<PdfDictionaryEntries>();
+  private readonly directResources = new Map<string, number>();
   private depth = 0;
 
   constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
@@ -149,6 +194,19 @@ class TransparencyScan {
     return this.nested(bytes, resources);
   }
 
+  private directScope(value: PdfDirectObject): number {
+    const parts: Array<string> = [];
+    directText(value, parts);
+    const text = parts.join('');
+    const known = this.directResources.get(text);
+    if (known !== undefined) {
+      return known;
+    }
+    const scope = this.directResources.size;
+    this.directResources.set(text, scope);
+    return scope;
+  }
+
   private font(value: PdfDirectObject | undefined): boolean {
     if (value?.kind === 'reference') {
       if (this.fontObjects.has(value.objectNumber)) {
@@ -169,13 +227,12 @@ class TransparencyScan {
     const ownValue = font.get(key('Resources'));
     const own = entriesOf(this.internals, ownValue);
     const resources = own ?? this.page;
-    // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources dictionary is known by its font, or by one key for every direct font, so that a glyph selecting its own font ends.
+    // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources dictionary is known by its entries, so that one parsed again, as when a glyph selects its own font, is not read again.
     let scope = 'page';
-    if (own !== undefined) {
-      scope =
-        ownValue?.kind === 'reference'
-          ? `resources ${String(ownValue.objectNumber)}`
-          : `font ${value?.kind === 'reference' ? String(value.objectNumber) : 'direct'}`;
+    if (ownValue?.kind === 'reference') {
+      scope = `resources ${String(ownValue.objectNumber)}`;
+    } else if (ownValue?.kind === 'dictionary') {
+      scope = `direct ${String(this.directScope(ownValue))}`;
     }
     const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
     for (const [, procedure] of procedures?.entries() ?? []) {
