@@ -70,8 +70,7 @@ export class CMap {
   private readonly shortest: number;
   private codespaceChecks = 0;
 
-  constructor(parsed: ParsedCMap, used?: CMap | { readonly unavailable: string }) {
-    const parent = used === undefined || 'unavailable' in used ? undefined : used;
+  constructor(parsed: ParsedCMap, parent?: CMap, unavailable?: string) {
     this.name = parsed.name;
     this.writingMode = parsed.writingMode ?? parent?.writingMode ?? 0;
     this.cidSystemInfo = parsed.cidSystemInfo ?? parent?.cidSystemInfo;
@@ -96,7 +95,7 @@ export class CMap {
     if (this.entryCount > MAX_CMAP_ENTRIES) {
       throw new ResourceLimitError(`a usecmap chain defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
     }
-    this.unavailableParent = used === undefined || !('unavailable' in used) ? parent?.unavailableParent : used.unavailable;
+    this.unavailableParent = unavailable ?? parent?.unavailableParent;
     this.parent = parent;
     this.cids = new MappingTable(parsed.cids);
     this.notdefs = new MappingTable(parsed.notdefs);

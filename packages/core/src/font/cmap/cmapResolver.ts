@@ -27,7 +27,7 @@ const build = (parsed: ParsedCMap, used: CMapResult | undefined): CMapResult => 
     return used;
   }
   if (used.kind === 'unavailable') {
-    return { kind: 'cmap', cmap: new CMap(parsed, { unavailable: used.name }), problems: parsed.problems };
+    return { kind: 'cmap', cmap: new CMap(parsed, undefined, used.name), problems: parsed.problems };
   }
   return { kind: 'cmap', cmap: new CMap(parsed, used.cmap), problems: [...parsed.problems, ...used.problems] };
 };
