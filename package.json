@@ -23,10 +23,9 @@
     "fzstd": "0.1.1",
     "oxfmt": "0.80.0",
     "oxlint": "1.95.0",
-    "oxlint-tsgolint": "7.0.2009",
     "pako": "3.0.3",
     "playwright": "1.65.1",
-    "typescript": "7.0.2",
+    "tsrs": "7.1.0-beta.tsrs5",
     "vitest": "5.1.2"
   },
   "devEngines": {
