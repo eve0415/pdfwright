@@ -14,70 +14,25 @@ import { parseIccProfile } from '../icc/iccProfile.ts';
 
 import { createColorTransform } from './createColorTransform.ts';
 import { destinationEvaluator, sourceEvaluator } from './profilePipeline.ts';
+import { IDENTITY_CURVE, IDENTITY_MATRIX, iccProfile, lut8, PCS_D50 } from './testing/iccProfiles.ts';
 
-const D50 = { x: 0.9642, y: 1, z: 0.8249 };
-const identity = { kind: 'identity' } as const;
-const matrix = [1, 0, 0, 0, 1, 0, 0, 0, 1] as const;
+const D50 = PCS_D50;
+const identity = IDENTITY_CURVE;
+const matrix = IDENTITY_MATRIX;
 
-const source = (): IccProfile => ({
-  header: {
-    size: 132,
-    version: { major: 4, minor: 0, bugfix: 0 },
-    profileClass: 'display',
-    colorSpace: 'RGB',
-    pcs: 'XYZ',
-    renderingIntent: 'relativeColorimetric',
-    illuminant: D50,
-    profileId: new Uint8Array(16),
-  },
-  description: undefined,
-  copyright: undefined,
-  mediaWhitePoint: D50,
-  mediaBlackPoint: undefined,
-  chromaticAdaptation: undefined,
-  colorants: { red: D50, green: { x: 0, y: 0, z: 0 }, blue: { x: 0, y: 0, z: 0 } },
-  trc: { red: identity, green: identity, blue: identity },
-  deviceToPcs: {},
-  pcsToDevice: {},
-  identity: new Uint8Array(16),
-  bytes: new Uint8Array(132),
-  warnings: [],
-});
+// A singular source whose only non-zero colorant is red, at D50, so every colour it gives is neutral.
+const source = (): IccProfile => iccProfile({ colorants: { red: D50, green: { x: 0, y: 0, z: 0 }, blue: { x: 0, y: 0, z: 0 } } });
 
-const grayProfile = (pcs: 'XYZ' | 'Lab'): IccProfile => ({
-  ...source(),
-  header: { ...source().header, colorSpace: 'Gray', pcs },
-  colorants: undefined,
-  trc: { gray: identity },
-});
+const grayProfile = (pcs: 'XYZ' | 'Lab'): IccProfile => iccProfile({ header: { colorSpace: 'Gray', pcs }, colorants: undefined, trc: { gray: identity } });
 
-const destination = (): IccProfile => {
-  const values = new Uint8Array(32);
-  let index = 0;
-  for (let l = 0; l < 2; l++) {
-    for (let a = 0; a < 2; a++) {
-      for (let b = 0; b < 2; b++) {
-        values.set([a * 255, b * 255, l * 255, 0], index);
-        index += 4;
-      }
-    }
-  }
-  const table = { kind: 'table' as const, values: Uint8Array.from({ length: 256 }, (_, sample) => sample) };
-  const lut: TableLut = {
-    kind: 'lut8',
-    matrix,
-    input: [table, table, table],
-    clut: { gridPoints: [2, 2, 2], inputChannels: 3, outputChannels: 4, values },
-    output: [table, table, table, table],
-  };
-  return {
-    ...source(),
-    header: { ...source().header, profileClass: 'output', colorSpace: 'CMYK', pcs: 'Lab' },
+// A lut8 Lab CMYK destination whose CLUT writes a to channel 0, b to channel 1, L to channel 2 and 0 to channel 3; the CLUT is affine in every channel.
+const destination = (): IccProfile =>
+  iccProfile({
+    header: { profileClass: 'output', colorSpace: 'CMYK', pcs: 'Lab' },
     colorants: undefined,
     trc: undefined,
-    pcsToDevice: { 1: lut },
-  };
-};
+    pcsToDevice: { 1: lut8(3, 4, ([l = 0, a = 0, b = 0]) => [a * 255, b * 255, l * 255, 0]) },
+  });
 
 describe('icc colour transforms', () => {
   it('maps gray XYZ through D50 regardless of the media white point', () => {
