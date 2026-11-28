@@ -74,6 +74,17 @@ describe('header and startxref location', () => {
     expect(locatedEofEnd(source(`startxref\n99\n${' '.repeat(300)}%%EOF`), 0)).toBeUndefined();
   });
 
+  it('finds a %%EOF that ends 256 bytes after the keyword and not one that ends 257 bytes after it', () => {
+    // The keyword sits at 2, so a window measured from the start of the file would end 2 bytes early.
+    const head = 'xxstartxref\n99\n';
+    const atLimit = `${head}${' '.repeat(2 + 256 - '%%EOF'.length - head.length)}%%EOF\n`;
+    const beyond = `${head}${' '.repeat(2 + 257 - '%%EOF'.length - head.length)}%%EOF\n`;
+    expect(locatedEofEnd(source(atLimit), 2)).toBe(258);
+    expect(locatedEofEnd(source(atLimit, 7), 2)).toBe(258);
+    expect(locatedEofEnd(source(beyond), 2)).toBeUndefined();
+    expect(locatedEofEnd(source(beyond, 7), 2)).toBeUndefined();
+  });
+
   it('accepts a section start exactly or a few bytes off', () => {
     const text = `${' '.repeat(100)}xref\n0 1\n${' '.repeat(50)}7 0 obj\n<</Type/XRef>>\n8 0 obj\n<</Type/Page>>`;
     expect(sectionStartNear(source(text), 100)).toStrictEqual({ offset: 100, corrected: false });
