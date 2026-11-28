@@ -1,3 +1,4 @@
+// A manual benchmark that no test runs: `node scripts/measureStreamedImage.ts` converts a 10 000 × 10 000 RGB image and prints its time, peak heapUsed + external and output size.
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
