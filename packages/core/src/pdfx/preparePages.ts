@@ -65,6 +65,7 @@ class TransparencyScan {
   private readonly internals: DocumentInternals;
   private readonly page: PdfDictionaryEntries;
   private readonly seen = new Set<number>();
+  private readonly procedures = new Set<string>();
 
   constructor(internals: DocumentInternals, page: PdfDictionaryEntries) {
     this.internals = internals;
@@ -140,13 +141,24 @@ class TransparencyScan {
       return false;
     }
     // ISO 32000-1:2008, 9.6.5: each CharProcs entry is a glyph procedure, a content stream; Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
-    const resources = entriesOf(this.internals, font.get(key('Resources'))) ?? this.page;
+    const ownValue = font.get(key('Resources'));
+    const own = entriesOf(this.internals, ownValue);
+    const resources = own ?? this.page;
+    // A glyph procedure that fonts with different Resources share is read once with each; a direct Resources dictionary is known by its font, or by one key for every direct font, so that a glyph selecting its own font ends.
+    let scope = 'page';
+    if (own !== undefined) {
+      scope = ownValue?.kind === 'reference' ? `resources ${String(ownValue.objectNumber)}` : `font ${value?.kind === 'reference' ? String(value.objectNumber) : 'direct'}`;
+    }
     const procedures = entriesOf(this.internals, font.get(key('CharProcs')));
     for (const [, procedure] of procedures?.entries() ?? []) {
-      if (procedure.kind !== 'reference' || this.seen.has(procedure.objectNumber)) {
+      if (procedure.kind !== 'reference') {
         continue;
       }
-      this.seen.add(procedure.objectNumber);
+      const read = `${String(procedure.objectNumber)} ${scope}`;
+      if (this.procedures.has(read)) {
+        continue;
+      }
+      this.procedures.add(read);
       const stream = this.internals.objects.deref(procedure);
       if (stream?.kind !== 'stream') {
         continue;
