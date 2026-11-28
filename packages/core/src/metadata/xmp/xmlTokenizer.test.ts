@@ -1,5 +1,6 @@
 import type { XmlAttribute, XmlToken } from './xmlTokenizer.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { decodeXml, tokenizeXml, visitXml } from './xmlTokenizer.ts';
@@ -219,5 +220,75 @@ describe('decoding XML bytes', () => {
       decodedText(Uint8Array.of(0x00, 0x00, 0xfe, 0xff, 0x00, 0x00)),
       decodedText(Uint8Array.of(0xfe, 0xff, 0xd8, 0x00)),
     ]).toStrictEqual(['undecodable', 'undecodable', 'undecodable', 'undecodable', 'undecodable']);
+  });
+});
+
+describe('refusing truncated and misplaced markup', () => {
+  // XML 1.0, 2.5, 2.6, 2.7 and 3.1: a comment, processing instruction, CDATA section or attribute value must be closed, and only one root element, with nothing but white space, comments and processing instructions around it, makes a document.
+  it.each([
+    ['an unterminated comment', '<a><!-- x</a>'],
+    ['an unterminated processing instruction', '<a><?p x</a>'],
+    ['an unterminated CDATA section', '<a><![CDATA[x</a>'],
+    ['an unterminated attribute value', '<a b="1/>'],
+    ['an end tag before the root', '</a><a/>'],
+    ['CDATA outside the root', '<![CDATA[x]]><a/>'],
+    ['a markup declaration inside the root', '<a><!ELEMENT x></a>'],
+    ['a character reference without digits', '<a>&#;</a>'],
+    ['a hexadecimal character reference without digits', '<a>&#x;</a>'],
+    ['a character reference with a letter after its digits', '<a>&#65x;</a>'],
+  ])('refuses %s as not well-formed', (_name, text) => {
+    expect(refusal(text)).toBe('not-well-formed');
+  });
+
+  // XML 1.0, 2.2, production [2] Char: a reference must name a character no greater than U+10FFFF.
+  it('refuses a decimal character reference too large for any character', () => {
+    expect(refusal('<a>&#99999999999999999999;</a>')).toBe('invalid-character');
+  });
+});
+
+describe('detecting UTF-32 without a byte-order mark', () => {
+  // XML 1.0, Appendix F.1: without a byte-order mark, 00 00 00 3C and 3C 00 00 00 are the first "<" in UTF-32.
+  it.each([
+    ['big-endian', true, 'utf-32be'],
+    ['little-endian', false, 'utf-32le'],
+  ])('decodes %s UTF-32 as %s', (_name, bigEndian, encoding) => {
+    expect(decodedText(encodeUnits('<a>山</a>', bigEndian, 4).subarray(4))).toBe(`${encoding}:<a>山</a>`);
+  });
+});
+
+interface Tree {
+  readonly name: string;
+  readonly children: ReadonlyArray<Tree | string>;
+}
+
+const written = (tree: Tree): string =>
+  tree.children.length === 0
+    ? `<${tree.name}/>`
+    : `<${tree.name}>${tree.children.map(child => (typeof child === 'string' ? child : written(child))).join('')}</${tree.name}>`;
+
+describe('properties', () => {
+  const { tree } = fc.letrec<{ tree: Tree; node: Tree | string }>(arbitrary => ({
+    tree: fc.record({ name: fc.constantFrom('a', 'b', 'p:c'), children: fc.array(arbitrary('node'), { maxLength: 4 }) }),
+    node: fc.oneof({ depthSize: 'small', withCrossShrink: true }, fc.constantFrom('x', 'y z', '&amp;', '&#65;'), arbitrary('tree')),
+  }));
+
+  it('balances start and end tokens and covers a generated document with its spans', () => {
+    fc.assert(
+      fc.property(tree, value => {
+        const text = written(value);
+        const result = tokenizeXml(text);
+        const tokens = result.ok ? result.tokens : [];
+        const open: Array<string> = [];
+        let balanced = true;
+        for (const token of tokens) {
+          if (token.kind === 'start' && !token.selfClosing) {
+            open.push(token.name);
+          } else if (token.kind === 'end') {
+            balanced &&= open.pop() === token.name;
+          }
+        }
+        expect([result.ok, balanced, open, tokens.map(token => text.slice(token.span.start, token.span.end)).join('')]).toStrictEqual([true, true, [], text]);
+      }),
+    );
   });
 });
