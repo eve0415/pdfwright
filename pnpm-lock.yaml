@@ -197,6 +197,12 @@ importers:
       '@cloudflare/vitest-plugin':
         specifier: 1.9.2
         version: 1.9.2(@types/node@26.6.11)(vitest@5.1.2)
+      '@pdfwright/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@pdfwright/illustrator':
+        specifier: workspace:*
+        version: link:packages/illustrator
       '@types/node':
         specifier: 26.6.11
         version: 26.6.11
