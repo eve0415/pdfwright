@@ -75,6 +75,13 @@ describe('pdf dates', () => {
     expect([Object.isFrozen(date), date.kind]).toStrictEqual([true, 'pdfDate']);
   });
 
+  it('keeps the validated offset when the caller changes its offset object afterwards', () => {
+    const offset = { sign: '+' as const, hours: 1, minutes: 0 };
+    const date = pdfDate({ ...valid, offset });
+    offset.hours = 99;
+    expect([pdfDateString(date), date.offset !== 'Z' && Object.isFrozen(date.offset)]).toStrictEqual(["D:20240229235959+01'00", true]);
+  });
+
   it('wraps the serialized date in a literal string object', () => {
     const date = pdfDate({ ...valid, offset: { sign: '-', hours: 8, minutes: 30 } });
     expect(pdfDateObject(date)).toStrictEqual({ kind: 'string', bytes: new TextEncoder().encode("D:20240229235959-08'30"), encoding: 'literal' });
@@ -193,8 +200,7 @@ describe('properties', () => {
   // A signed zero offset is left out: whether it reads back signed or as Z is not settled.
   const signedOffset = fc
     .record({ sign: fc.constantFrom('+', '-'), hours: fc.integer({ min: 0, max: 23 }), minutes: fc.integer({ min: 0, max: 59 }) })
-    .filter(offset => offset.hours + offset.minutes > 0)
-    .map(({ sign, hours, minutes }) => ({ sign, hours, minutes }));
+    .filter(offset => offset.hours + offset.minutes > 0);
 
   const components = fc.record({ year: fc.integer({ min: 0, max: 9999 }), month: fc.integer({ min: 1, max: 12 }) }).chain(({ year, month }) =>
     fc.record({
