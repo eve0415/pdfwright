@@ -70,7 +70,14 @@ export const runQpdf = async (args: ReadonlyArray<string>): Promise<{ readonly s
 };
 
 /** Runs ImageMagick with `input` on standard input and returns what it writes to standard output. */
-export const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => (await runChecked('magick', args, input)).stdout;
+export const magick = async (args: ReadonlyArray<string>, input: Uint8Array): Promise<Uint8Array> => {
+  const { stdout, stderr } = await runChecked('magick', args, input);
+  // ImageMagick exits 0 and writes nothing for an output format it does not know.
+  if (stdout.length === 0) {
+    throw new Error(`magick wrote nothing: ${stderr}`);
+  }
+  return stdout;
+};
 
 const fourNumbers = (values: ReadonlyArray<unknown>, what: string): ReadonlyArray<number> => {
   const parsed = values.map(value => (typeof value === 'string' ? Number(value) : value));

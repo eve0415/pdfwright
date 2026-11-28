@@ -67,5 +67,6 @@ describe('checked tool runs', () => {
     const pgm = Uint8Array.from([...new TextEncoder().encode('P5\n2 1\n255\n'), 7, 200]);
     await expect(magick(['pgm:-', '-depth', '8', 'gray:-'], pgm)).resolves.toStrictEqual(Uint8Array.from([7, 200]));
     await expect(magick(['pgm:-', 'png:-'], pgm.subarray(0, 4))).rejects.toThrow(/magick exited [1-9]/u);
+    await expect(magick(['pgm:-', 'nosuchformat:-'], pgm)).rejects.toThrow(/magick wrote nothing/u);
   });
 });
