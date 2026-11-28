@@ -260,6 +260,8 @@ describe('raw content checks', () => {
     ['an unknown operator', '1 xyz', true, unchecked],
     ['an XObject paint', '/Im0 Do', true, unchecked],
     ['a shading paint', '/Sh0 sh', true, unchecked],
+    ['an XObject paint without isolation', '/Im0 Do', false, unchecked],
+    ['a shading paint without isolation', '/Sh0 sh', false, unchecked],
     ['a restore with no save', 'Q', true, unchecked],
     ['one restore too many', 'q Q Q', true, unchecked],
     ['a balanced save and restore', 'q Q', true, 'accepted'],
