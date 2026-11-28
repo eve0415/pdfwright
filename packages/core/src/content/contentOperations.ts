@@ -242,7 +242,15 @@ class OperationReader {
           continue;
         }
         // Without ID the parameters stay on the operand stack for the operator that follows them.
-        yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, endStream: image.stream, end: image.offset + 2 };
+        yield {
+          operator: 'BI',
+          operands: image.operands,
+          stream: image.stream,
+          offset: image.offset,
+          start: image.start,
+          endStream: image.stream,
+          end: image.offset + 2,
+        };
       }
       const start = this.firstOperand?.stream === stream ? this.firstOperand.offset : token.start;
       if (operator === 'BI') {
@@ -258,7 +266,15 @@ class OperationReader {
     const { image } = this;
     this.image = undefined;
     if (image !== undefined) {
-      yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, endStream: image.stream, end: image.offset + 2 };
+      yield {
+        operator: 'BI',
+        operands: image.operands,
+        stream: image.stream,
+        offset: image.offset,
+        start: image.start,
+        endStream: image.stream,
+        end: image.offset + 2,
+      };
     }
     return this.take();
   }

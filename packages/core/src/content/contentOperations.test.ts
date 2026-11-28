@@ -123,13 +123,12 @@ describe('content operations', () => {
       ['a stream division falls between parameters', ['q BI /W 1 /H 1 /BPC 8 /CS /G', '/D [0 1] ID A EI'], 16],
       ['a stream division falls inside an array parameter', ['q BI /W 1 /H 1 /BPC 8 /CS /G /D [0', '1] ID A EI'], 10],
     ])('ends the span of an inline image in the stream of EI when %s', (_, streams, end) => {
-      const spans = [...readContentSpans(streams.map(text => latin1Bytes(text)), 32)].map(operation => [
-        operation.operator,
-        operation.stream,
-        operation.start,
-        operation.endStream,
-        operation.end,
-      ]);
+      const spans = [
+        ...readContentSpans(
+          streams.map(text => latin1Bytes(text)),
+          32,
+        ),
+      ].map(operation => [operation.operator, operation.stream, operation.start, operation.endStream, operation.end]);
       expect(spans).toStrictEqual([
         ['q', 0, 0, 0, 1],
         ['BI', 0, 2, 1, end],
@@ -253,7 +252,10 @@ describe('content operations', () => {
   });
 
   it('reports a BI that the content ends before ID without an image, leaving its parameters over', () => {
-    expect(spansAndLeftOver('BI /W 1')).toStrictEqual([[{ operator: 'BI', operands: [], stream: 0, offset: 0, start: 0, endStream: 0, end: 2 }], [name('W'), integer(1)]]);
+    expect(spansAndLeftOver('BI /W 1')).toStrictEqual([
+      [{ operator: 'BI', operands: [], stream: 0, offset: 0, start: 0, endStream: 0, end: 2 }],
+      [name('W'), integer(1)],
+    ]);
   });
 
   it('reports a BI followed by another BI without an image, and gives the second the parameters after it', () => {
