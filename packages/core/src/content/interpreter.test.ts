@@ -236,6 +236,55 @@ describe('text state', () => {
     const { texts } = textRun('BT /U 10 Tf (AA) Tj 10 10 Td (A) Tj ET', [{ number: 105, body: '<</Type/Font/Subtype/Type1/BaseFont/Unknown>>' }], '');
     expect(texts.flatMap(text => text.glyphs.map(glyph => glyph.positionKnown))).toStrictEqual([true, false, true]);
   });
+
+  it('adds up the TJ numbers between two strings and moves the first string by the numbers before it', () => {
+    const between = textRun('BT /F1 10 Tf [(A) -200 -300 (A)] TJ ET').texts;
+    const before = textRun('BT /F1 10 Tf [-1000 (A)] TJ ET').texts;
+    // 6.67 for the glyph and 500 thousandths of 10 for the numbers; 1000 thousandths of 10 before the first string.
+    expect([positions(between), between.map(text => text.adjustment), positions(before), before.map(text => text.adjustment)]).toStrictEqual([
+      [
+        [0, 0],
+        [11.67, 0],
+      ],
+      [undefined, -500],
+      [[10, 0]],
+      [-1000],
+    ]);
+  });
+
+  it('reports a TJ element that is neither a string nor a number and shows the strings around it', () => {
+    const { texts, result } = textRun('BT /F1 10 Tf [(A) /N (A)] TJ ET');
+    expect([texts.length, result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([2, false, ['bad-operands']]);
+  });
+
+  // ISO 32000-1:2008, 9.3.6, Table 106: modes 4 to 7 add the glyphs to the path for clipping, which ET applies; without the glyph outlines the clip's shape is not known.
+  it.each([
+    [0, '(A)', 'inside'],
+    [1, '(A)', 'inside'],
+    [2, '(A)', 'inside'],
+    [3, '(A)', 'inside'],
+    [4, '(A)', 'unknown'],
+    [5, '(A)', 'unknown'],
+    [6, '(A)', 'unknown'],
+    [7, '(A)', 'unknown'],
+    [7, '()', 'inside'],
+  ] as const)('after a text object in render mode %i showing %s, classifies the origin against the clip as %s', (mode, string, expected) => {
+    const { texts } = textRun(`BT /F1 10 Tf ${String(mode)} Tr ${string} Tj ET BT 0 Tr (A) Tj ET`);
+    expect([texts[0]?.state.clip.classifyPoint(0, 0), texts[1]?.state.clip.classifyPoint(0, 0)]).toStrictEqual(['inside', expected]);
+  });
+
+  it('stops past maxGlyphs glyphs shown on the page', () => {
+    const page = { resources: FONT_RESOURCES };
+    expect(run({ ...page, content: 'BT /F1 10 Tf (A) Tj (A) Tj ET' }, [], { maxGlyphs: 2 }).texts).toHaveLength(2);
+    expect(() => run({ ...page, content: 'BT /F1 10 Tf (A) Tj (A) Tj (A) Tj ET' }, [], { maxGlyphs: 2 })).toThrow(ResourceLimitError);
+  });
+
+  it('refuses a maxGlyphs that is not a non-negative safe integer', () => {
+    const document = textPdf({ pages: [{ content: '' }] });
+    expect(() => interpretPage(document, 0, { maxGlyphs: -1 })).toThrow(InvalidArgumentError);
+    expect(() => interpretPage(document, 0, { maxGlyphs: 1.5 })).toThrow(InvalidArgumentError);
+    expect(interpretPage(document, 0, { maxGlyphs: 0 }).complete).toBe(true);
+  });
 });
 
 describe('clipping', () => {
@@ -669,6 +718,28 @@ describe('glyph procedures of Type 3 fonts', () => {
   it('draws no glyph procedures for text that paints nothing', () => {
     const { paints } = run({ content: 'BT /T3 10 Tf 3 Tr (ab) Tj ET', resources: `/Font<</T3 110 0 R/F1 101 0 R>>/ColorSpace<</CS1/DeviceCMYK>>` }, TYPE3);
     expect(paints).toStrictEqual([]);
+  });
+
+  it('draws a glyph procedure under the horizontal scaling and the rise of the text space', () => {
+    const { paints } = run({ content: 'BT /T3 10 Tf 50 Tz 3 Ts (a) Tj ET', resources: '/Font<</T3 110 0 R>>' }, TYPE3);
+    // 9.4.4: text space is [Tfs × Th 0 0 Tfs 0 Trise] × Tm × CTM, here [5 0 0 10 0 3], and the glyph's CTM is the font matrix concatenated with it.
+    expect(paints.filter(paint => paint.kind === 'fill').map(paint => paint.state.ctm.map(value => round(value)))).toStrictEqual([[0.005, 0, 0, 0.01, 0, 3]]);
+  });
+
+  it('does not count text a glyph procedure shows against maxGlyphs', () => {
+    const page = { content: 'BT /T3 10 Tf (b) Tj ET', resources: `/Font<</T3 110 0 R/F1 101 0 R>>/ColorSpace<</CS1/DeviceCMYK>>` };
+    // The procedure of b shows A with F1, which is painting of the glyph, not text of the page.
+    expect(run(page, TYPE3, { maxGlyphs: 1 }).paints.map(paint => paint.kind)).toStrictEqual(['text', 'fill', 'text']);
+    expect(() => run(page, TYPE3, { maxGlyphs: 0 })).toThrow(ResourceLimitError);
+  });
+
+  it('does not enter a glyph procedure that shows its own glyph', () => {
+    const { result } = run({ content: 'BT /T3 10 Tf (a) Tj ET', resources: '/Font<</T3 110 0 R>>' }, [
+      { number: 110, body: TYPE3_FONT },
+      { number: 111, body: streamBody('', '1000 0 d0 BT /T3 1 Tf (a) Tj ET') },
+      { number: 112, body: streamBody('', '1000 0 d0') },
+    ]);
+    expect([result.complete, result.warnings.map(warning => warning.code)]).toStrictEqual([false, ['content-cycle']]);
   });
 });
 
