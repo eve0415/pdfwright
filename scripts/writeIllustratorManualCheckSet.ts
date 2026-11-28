@@ -92,11 +92,17 @@ const artboardSpan = (bytes: Buffer): Buffer => {
 };
 const nativeData = (bytes: Buffer): NativeData => ({ bytes, metaDataLength: requireIndex(bytes, '%%EndComments\r') + Buffer.byteLength('%%EndComments\r') });
 
+/** Whether the target is the root or a path below it, compared by path segment so that a sibling whose name starts with the root's name is outside. */
+export const isInsideDirectory = (root: string, target: string): boolean => {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+};
+
 /** Writes the Illustrator open-test candidates and their checklist to an external directory. */
 export const writeManualCheckSet = async (directory: string): Promise<ReadonlyArray<string>> => {
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
-  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) {
+  if (isInsideDirectory(repository, destination)) {
     throw new Error('manual-check output must be outside the repository');
   }
   await mkdir(destination, { recursive: true });
@@ -177,7 +183,7 @@ export const writeDiagnosticLadder = async (directory: string, relativeExport: s
   }
   const destination = path.resolve(directory);
   const repository = path.resolve(import.meta.dirname, '..');
-  if (destination === repository || destination.startsWith(`${repository}${path.sep}`)) {
+  if (isInsideDirectory(repository, destination)) {
     throw new Error('diagnostic output must be outside the repository');
   }
   await mkdir(destination, { recursive: true });
