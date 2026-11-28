@@ -59,7 +59,7 @@ const textsInOrder = (bodies: ReadonlyArray<string>, order: ReadonlyArray<number
 // The text of the object numbered FIRST + index, worked out by a fresh ResolvedTexts.
 const textOf = (bodies: ReadonlyArray<string>, index = 0): string => new ResolvedTexts(internalsOrThrow(bodies)).text(pdfReference(FIRST + index, 0));
 
-const permutations =(items: ReadonlyArray<number>): Array<Array<number>> =>
+const permutations = (items: ReadonlyArray<number>): Array<Array<number>> =>
   items.length === 0 ? [[]] : items.flatMap((item, index) => permutations(items.toSpliced(index, 1)).map(rest => [item, ...rest]));
 
 describe('reference cycles', () => {
