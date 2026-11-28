@@ -487,3 +487,115 @@ describe('rendering intents of direct shadings in resource carriers', () => {
     expect(converted('document')).toStrictEqual(converted('perceptual'));
   });
 });
+
+const glyphFont = (charProcs: number, rest: string): string =>
+  `<<${TYPE3.replace('/CharProcs<</A 6 0 R>>', `/CharProcs<</A ${String(charProcs)} 0 R>>`)}${rest}>>`;
+
+/** Direct Type 3 fonts whose resources are reached again through an indirect object, so a walk that expands each path separately never ends or repeats work. */
+const sharedFonts = (category: string, value: string) => {
+  const depth = 25;
+  const fanOut = Array.from({ length: depth }, (_, index) => {
+    const next = index === depth - 1 ? '' : `/Font<</F <<${TYPE3}/Resources ${String(8 + index)} 0 R>>/G <<${TYPE3}/Resources ${String(8 + index)} 0 R>>>>`;
+    return { number: 7 + index, body: `<</${category}<</X1 ${value}>>${next}>>` };
+  });
+  return [
+    {
+      shape: 'names its own Resources',
+      page: '/Resources 7 0 R',
+      objects: [GLYPH, { number: 7, body: `<</${category}<</X1 ${value}>>/Font<</F <<${TYPE3}/Resources 7 0 R>>>>>>` }],
+      count: 2,
+      paths: [
+        [3, ['Resources', category, 'X1']],
+        [7, [category, 'X1']],
+        [3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      shape: 'sits in a Font category it names',
+      page: `/Resources<</${category}<</X0 ${value}>>/Font 7 0 R>>`,
+      objects: [GLYPH, { number: 7, body: `<</F <<${TYPE3}/Resources<</${category}<</X1 ${value}>>/Font 7 0 R>>>>>>` }],
+      count: 2,
+      paths: [
+        [3, ['Resources', category, 'X0']],
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+        [3, ['Resources', 'Font', 'F', 'Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      shape: `shares Resources over ${String(depth)} levels`,
+      page: '/Resources 7 0 R',
+      objects: [GLYPH, ...fanOut],
+      count: depth,
+      paths: [[3, ['Resources', category, 'X1']] as const, ...fanOut.slice(1).map(({ number }) => [number, [category, 'X1']] as const)],
+    },
+  ] as const;
+};
+
+/** Holders that share the dictionary a direct Type 3 font lives in or names, where converting only the first holder leaves the others unconverted. */
+const sharingHolders = (category: string, value: string) =>
+  [
+    {
+      holder: 'two fonts share Resources',
+      page: `/Resources<</Font<</F <<${TYPE3}/Resources 7 0 R>>/G <<${TYPE3}/Resources 7 0 R>>>>>>`,
+      objects: [GLYPH, { number: 7, body: `<</${category}<</X1 ${value}>>>>` }],
+      paths: [
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+        [3, ['Resources', 'Font', 'G', 'Resources', category, 'X1']],
+      ],
+    },
+    {
+      holder: 'a page and form share a Font category',
+      page: '/Resources<</Font 7 0 R/XObject<</Fm 8 0 R>>>>',
+      objects: [
+        GLYPH,
+        { number: 7, body: `<</F ${directFont(category, value)}>>` },
+        { number: 8, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</Font 7 0 R>>', '') },
+      ],
+      paths: [
+        [3, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+        [8, ['Resources', 'Font', 'F', 'Resources', category, 'X1']],
+      ],
+    },
+  ] as const;
+
+type Intent = 'document' | 'perceptual' | 'relativeColorimetric';
+
+/** Converts the shading of two direct Type 3 fonts that share one indirect Resources, where only the second font's glyph paints it. */
+const sharedShadingSample = (intent: Intent): ReadonlyArray<number> => {
+  const document = carrierPdf(`/Resources<</Font<</F ${glyphFont(6, '/Resources 7 0 R')}/G ${glyphFont(8, '/Resources 7 0 R')}>>>>`, [
+    GLYPH,
+    { number: 7, body: `<</Shading<</Sh1 ${SHADING}>>>>` },
+    { number: 8, body: streamBody('', '1000 0 d0 /Perceptual ri /Sh1 sh') },
+  ]);
+  convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+  return sampled(document, 3, ['Resources', 'Font', 'G', 'Resources', 'Shading', 'Sh1']);
+};
+
+describe('direct Type 3 fonts reached again through an indirect object', () => {
+  it.each(passes.flatMap(pass => sharedFonts(pass.category, pass.value).map(shape => ({ ...pass, ...shape }))))(
+    'converts the $pass entries of a direct Type 3 font that $shape once each',
+    ({ convert, check, page, objects, count, paths }) => {
+      const document = carrierPdf(page, objects);
+      expect(convert(document)).toBe(count);
+      for (const [owner, keys] of paths) {
+        check(document, at(document, owner, keys));
+      }
+    },
+  );
+
+  it.each(passes.flatMap(pass => sharingHolders(pass.category, pass.value).map(holder => ({ ...pass, ...holder }))))(
+    'converts the shared $pass entry once for every holder when $holder',
+    ({ convert, check, page, objects, paths }) => {
+      const document = carrierPdf(page, objects);
+      expect(convert(document)).toBe(1);
+      for (const [owner, keys] of paths) {
+        check(document, at(document, owner, keys));
+      }
+    },
+  );
+
+  it('samples a shared direct shading with the intent a glyph of the second font selects', () => {
+    expect(sharedShadingSample('perceptual')).not.toStrictEqual(sharedShadingSample('relativeColorimetric'));
+    expect(sharedShadingSample('document')).toStrictEqual(sharedShadingSample('perceptual'));
+  });
+});
