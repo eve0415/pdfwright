@@ -401,6 +401,7 @@ describe('manual-check command line', () => {
 
   it.each([
     { case: 'an unknown flag', rest: ['--transplant'] },
+    { case: 'an unknown flag with a path', rest: ['--transplant', 'source.pdf'] },
     { case: 'the transplant flag without a path', rest: ['--transplant-from'] },
   ])('refuses $case', async ({ rest }) => {
     await inTemporaryDirectory('pdfwright-illustrator-manual-', directory => {
