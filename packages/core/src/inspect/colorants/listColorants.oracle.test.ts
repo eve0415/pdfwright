@@ -293,6 +293,10 @@ const caseRelation = async (pdf: TextPdf): Promise<Relation | undefined> => {
     await writeFile(file, bytes);
     return renderPagePlates(file, path.join(directory, 'plates'), 72);
   });
+  // A page Ghostscript could not draw would read as a page without plates.
+  if (plates.failed.has(1)) {
+    throw new Error('Ghostscript could not draw the page of the case');
+  }
   return colorants === undefined ? undefined : relation(colorants, plates.plates.get(1) ?? []);
 };
 
@@ -330,6 +334,24 @@ const corpusDifferences = async (set: string, directory = path.join(CORPUS, set)
   return next(0);
 };
 
+// Each loadable file of a committed set whose colorants are not reported for each of its pages in order; a set without loadable files is refused, so that a missing set cannot pass.
+const unreadPages = async (set: string): Promise<Array<string>> => {
+  const failing = await failingFiles();
+  const names = (await readdir(path.join(CORPUS, set))).filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
+  if (names.length === 0) {
+    throw new Error(`the ${set} set has no loadable files`);
+  }
+  const unread = await Promise.all(
+    names.map(async name => {
+      const document = loadDocument(new Uint8Array(await readFile(path.join(CORPUS, set, name))));
+      const pages = listColorants(document).map(colorants => colorants.page);
+      const expected = Array.from({ length: document.pageCount }, (_, index) => index);
+      return pages.length === expected.length && pages.every((page, index) => page === expected[index]) ? [] : [`${name}: ${JSON.stringify(pages)}`];
+    }),
+  );
+  return unread.flat();
+};
+
 describe('colorants against Ghostscript separations', () => {
   it.each(CASES)(
     'agrees with the plates of the $name case, apart from recorded differences',
@@ -339,9 +361,14 @@ describe('colorants against Ghostscript separations', () => {
     },
   );
 
-  it.each(['qpdf', 'cabinet', 'safedocs'])('agrees with the plates of the %s set', { timeout: 120_000 }, async set => {
-    await expect(corpusDifferences(set)).resolves.toStrictEqual([]);
-  });
+  // No file of these committed sets has a Separation or DeviceN space, so the plate comparison finds nothing to compare in them; what they check is that each loadable file is read page by page.
+  it.each(['qpdf', 'cabinet', 'safedocs'])(
+    'reads every page of each loadable file of the %s set, and agrees with the plates of any spot colorant',
+    { timeout: 120_000 },
+    async set => {
+      await expect(Promise.all([unreadPages(set), corpusDifferences(set)])).resolves.toStrictEqual([[], []]);
+    },
+  );
 
   it('agrees with the plates of the fetched govdocs1 files', { timeout: 600_000 }, async () => {
     await expect(corpusDifferences('govdocs1', path.join(CORPUS, 'govdocs1/.cache/files'))).resolves.toStrictEqual([]);
