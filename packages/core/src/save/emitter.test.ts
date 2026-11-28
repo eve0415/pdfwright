@@ -21,6 +21,23 @@ describe('emitted parts', () => {
     expect(emitter.finish().map(chunk => [...chunk])).toStrictEqual([[1, 2]]);
   });
 
+  it('counts viewed, written and produced bytes in the offset, skips empty views and keeps viewed arrays by identity', () => {
+    const emitter = new PdfEmitter();
+    const viewed = Uint8Array.of(1, 2, 3);
+    emitter.view(viewed);
+    emitter.writer.writeAscii('ab');
+    emitter.view(new Uint8Array());
+    const afterWrite = emitter.offset;
+    emitter.produced(5, function* () {
+      yield Uint8Array.of(4, 5);
+      yield Uint8Array.of(6, 7, 8);
+    });
+    emitter.writer.writeAscii('z');
+    const parts = emitter.finishParts();
+    expect([afterWrite, emitter.offset, parts.length, parts[0] === viewed]).toStrictEqual([5, 11, 4, true]);
+    expect([...emittedChunks(parts)].map(chunk => [...chunk])).toStrictEqual([[1, 2, 3], [0x61, 0x62], [4, 5], [6, 7, 8], [0x7a]]);
+  });
+
   it('produces a reserved stream and refuses to finish it without streaming', () => {
     const emitter = new PdfEmitter();
     emitter.produced(1, function* () {
