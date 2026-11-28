@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, streamBody } from '../testing/pdfBuilder.ts';
 
@@ -108,6 +109,20 @@ describe('reference cycles', () => {
     const twoCycleAndSelfReference = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[20 0 R 22 0 R]'], 3);
     const renumbered = textOf(['[21 0 R]', '[20 0 R]', '[22 0 R]', '[21 0 R 22 0 R]'], 3);
     expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
+  });
+
+  // Each object of a two-object cycle is described in six steps: the start, reference and end of its own array and of the other object's array.
+  it('describes reference cycles within the number of steps it may take in all, and refuses to go past it', () => {
+    const internals = internalsOrThrow(['[21 0 R]', '[20 0 R]']);
+    const unlimited = new ResolvedTexts(internals);
+    const [atLimit, pastLimit] = [new ResolvedTexts(internals, 12), new ResolvedTexts(internals, 11)];
+    expect([atLimit.text(pdfReference(20, 0)), atLimit.text(pdfReference(21, 0))]).toStrictEqual([
+      unlimited.text(pdfReference(20, 0)),
+      unlimited.text(pdfReference(21, 0)),
+    ]);
+    pastLimit.text(pdfReference(20, 0));
+    expect(() => pastLimit.text(pdfReference(21, 0))).toThrow(ResourceLimitError);
+    expect(() => pastLimit.text(pdfReference(21, 0))).toThrow(/reference cycles/);
   });
 
   it('describes a cycle the same whether a dictionary in it is direct or indirect', () => {
