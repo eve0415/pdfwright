@@ -28,7 +28,7 @@ const SEPARATION_B = '[/Separation/B/DeviceCMYK<</FunctionType 2/Domain[0 1]/C0[
 const RGB_TINT = { number: 6, body: streamBody('/FunctionType 4/Domain[0 1 0 1]/Range[0 1 0 1 0 1]', '{ pop 1 exch sub dup dup }') };
 const CMYK_TINT = { number: 6, body: streamBody('/FunctionType 4/Domain[0 1 0 1]/Range[0 1 0 1 0 1 0 1]', '{ pop 0 0 0 }') };
 
-const deviceNDocument = (resources: string, objects: ReadonlyArray<TestObject>, content = '/CS2 cs 1 0 sc 0 0 10 10 re f'): LoadedDocument =>
+const deviceNDocument = (resources: string, objects: ReadonlyArray<TestObject>, content = '/CS2 cs 1 0 scn 0 0 10 10 re f'): LoadedDocument =>
   loadDocument(
     buildPdf([
       {
@@ -171,7 +171,7 @@ describe('DeviceN Colorants', () => {
     const document = deviceNDocument(
       `/ColorSpace<</CS2[/DeviceN[/A]/DeviceCMYK<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[1 0 0 0]/N 1>><</Colorants<</A ${SEPARATION_A}>>>>]>>`,
       [],
-      '/CS2 cs 1 sc 0 0 10 10 re f',
+      '/CS2 cs 1 scn 0 0 10 10 re f',
     );
     const report = convertToCmyk(document, { sourceRgbProfile: srgbBytes, outputProfile: fograBytes, outputIntent: { outputConditionIdentifier: 'FOGRA28' } });
     const reloaded = loadDocument(document.save().toBytes());

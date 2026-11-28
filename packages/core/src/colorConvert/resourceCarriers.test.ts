@@ -248,7 +248,7 @@ describe('Indexed spaces in resource carriers', () => {
 });
 
 describe('spot spaces in resource carriers', () => {
-  it.each(carriers(OWN_SPOT, '/CS1 cs 1 sc'))('converts a Separation alternate in the own Resources of $carrier', ({ page, objects, owner }) => {
+  it.each(carriers(OWN_SPOT, '/CS1 cs 1 scn'))('converts a Separation alternate in the own Resources of $carrier', ({ page, objects, owner }) => {
     const document = carrierPdf(page, objects);
     expect(convertSpotSpaces(document, { sourceRgbProfile: source, outputProfile: destination }).separations).toBe(1);
     expectSpot(document, ownResource(document, owner, 'ColorSpace', 'CS1'));
@@ -257,7 +257,7 @@ describe('spot spaces in resource carriers', () => {
   it('converts a tiling pattern Separation alternate when the whole document is converted', () => {
     const document = carrierPdf(
       '/Resources<</Pattern<</P 5 0 R>>>>',
-      [{ number: 5, body: streamBody(`${PATTERN}${OWN_SPOT}`, '/CS1 cs 1 sc 0 0 10 10 re f') }],
+      [{ number: 5, body: streamBody(`${PATTERN}${OWN_SPOT}`, '/CS1 cs 1 scn 0 0 10 10 re f') }],
       '/Pattern cs /P scn 0 0 100 100 re f',
     );
     expect(convertToCmyk(document, FULL_OPTIONS).spots.separations).toBe(1);
@@ -269,7 +269,7 @@ describe('spot spaces in resource carriers', () => {
       '/Resources<</Font<</F 5 0 R>>>>',
       [
         { number: 5, body: `<<${TYPE3}${OWN_SPOT}>>` },
-        { number: 6, body: streamBody('', '1000 0 d0 /CS1 cs 1 sc 0 0 500 500 re f') },
+        { number: 6, body: streamBody('', '1000 0 d0 /CS1 cs 1 scn 0 0 500 500 re f') },
       ],
       'BT /F 12 Tf 10 10 Td (A) Tj ET',
     );
