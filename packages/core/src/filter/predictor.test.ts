@@ -144,7 +144,8 @@ describe('predictors', () => {
     ['fractional Columns', { colors: 1, columns: 1.5 }],
     ['fractional Colors', { colors: 1.5, columns: 1 }],
   ])('refuses %s', (_, { colors, columns }) => {
-    expect(() => undoPredictor(Uint8Array.of(1, 5, 5), { predictor: 12, colors, bitsPerComponent: 8, columns })).toThrow(ParseError);
+    // Every byte is a valid PNG tag, so the refusal can only come from the parameters.
+    expect(() => undoPredictor(Uint8Array.of(1, 1, 1, 1), { predictor: 12, colors, bitsPerComponent: 8, columns })).toThrow(ParseError);
   });
 
   it('undoes TIFF predictor 2 for 8- and 16-bit components', () => {
