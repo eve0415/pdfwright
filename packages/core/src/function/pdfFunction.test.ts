@@ -301,3 +301,58 @@ describe('sampled functions', () => {
     expect(() => createPdfFunction(sampledFunction({ Order: pdfInteger(3) }, Uint8Array.of(0, 255)))).toThrow(UnsupportedFeatureError);
   });
 });
+
+const constant = (value: number): ReturnType<typeof pdfDictionary> => functionObject(2, { C0: numbers([value]), C1: numbers([value]), N: pdfInteger(1) });
+const identity = (): ReturnType<typeof pdfDictionary> => functionObject(2, { C0: numbers([0]), C1: numbers([1]), N: pdfInteger(1) });
+
+describe('exponential functions', () => {
+  it('interpolates every output between C0 and C1 and clips to Range', () => {
+    // ISO 32000-1:2008, 7.10.3: each output j is C0[j] + x^N * (C1[j] - C0[j]).
+    const pair = createPdfFunction(functionObject(2, { C0: numbers([0, 0]), C1: numbers([1, 2]), N: pdfInteger(1) }));
+    const clipped = createPdfFunction(functionObject(2, { Range: numbers([0, 0.5]), N: pdfInteger(1) }));
+    expect([pair([0.5]), clipped([0.25]), clipped([1])]).toStrictEqual([[0.5, 1], [0.25], [0.5]]);
+  });
+
+  it.each([
+    ['C0 and C1 of different lengths', { C0: numbers([0, 0]), N: pdfInteger(1) }, /differ/],
+    ['a Domain of two inputs', { Domain: numbers([0, 1, 0, 1]), N: pdfInteger(1) }, /one input/],
+    ['a missing N', {}, /N must be a number/],
+  ])('rejects %s', (_, extra, pattern) => {
+    const build = () => createPdfFunction(functionObject(2, extra));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+});
+
+describe('stitching functions', () => {
+  it('starts each subdomain at its bound and ends the last at the Domain maximum', () => {
+    // ISO 32000-1:2008, 7.10.4: the subdomains are half-open, Bounds[i-1] <= x < Bounds[i], except the last, which includes Domain[1].
+    const step = createPdfFunction(
+      functionObject(3, { Functions: pdfArray([constant(0), constant(1)]), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0, 1]) }),
+    );
+    const last = createPdfFunction(
+      functionObject(3, { Functions: pdfArray([identity(), identity()]), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0.2, 0.7]) }),
+    );
+    expect([step([0.499]), step([0.5]), last([1])]).toStrictEqual([[0], [1], [0.7]]);
+  });
+
+  it('maps each subdomain through its Encode pair', () => {
+    const reversed = createPdfFunction(
+      functionObject(3, { Functions: pdfArray([identity(), identity()]), Bounds: numbers([0.5]), Encode: numbers([1, 0, 0, 1]) }),
+    );
+    expect([reversed([0.125]), reversed([0.75])]).toStrictEqual([[0.75], [0.5]]);
+  });
+
+  it.each([
+    ['Bounds of the wrong length', { Bounds: numbers([0.25, 0.5]) }, /invalid stitching intervals/],
+    ['Encode of the wrong length', { Encode: numbers([0, 1]) }, /invalid stitching intervals/],
+    ['an empty Functions array', { Functions: pdfArray([]), Bounds: numbers([]), Encode: numbers([]) }, /invalid stitching function/],
+    ['Functions that is not an array', { Functions: identity() }, /invalid stitching function/],
+    ['a Domain of two inputs', { Domain: numbers([0, 1, 0, 1]) }, /invalid stitching function/],
+  ])('rejects %s', (_, extra, pattern) => {
+    const build = () =>
+      createPdfFunction(functionObject(3, { Functions: pdfArray([identity(), identity()]), Bounds: numbers([0.5]), Encode: numbers([0, 1, 0, 1]), ...extra }));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
+});
