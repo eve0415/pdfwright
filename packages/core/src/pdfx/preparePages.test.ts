@@ -329,6 +329,52 @@ describe('pdfx page preparation', () => {
     expect(preparePdfX4Pages(document).addedPageGroups).toStrictEqual([0]);
   });
 
+  it.each<[string, string, string, string, Array<number>]>([
+    ['a glyph that sets a transparent ExtGState', '<</Font<</T3 5 0 R>>>>', 'BT /T3 12 Tf (a) Tj ET', '/GS gs 0 0 1 1 re f', [0]],
+    ['an opaque glyph', '<</Font<</T3 5 0 R>>>>', 'BT /T3 12 Tf (a) Tj ET', '0 0 1 1 re f', []],
+    ['a transparent glyph of a font that no Tf selects', '<</Font<</T3 5 0 R>>>>', 'BT ET', '/GS gs 0 0 1 1 re f', []],
+  ])('reads Type 3 glyph procedures for %s', (_, resources, content, glyph, groups) => {
+    // ISO 32000-1:2008, 9.6.5: the glyph procedures in CharProcs are content streams, run with the font's Resources.
+    const document = single(resources, streamBody('', content), [
+      {
+        number: 5,
+        body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]/Resources<</ExtGState<</GS 7 0 R>>>>>>',
+      },
+      { number: 6, body: streamBody('', `0 0 d0 ${glyph}`) },
+      { number: 7, body: '<</ca 0.5>>' },
+    ]);
+    expect(addedGroups(document)).toStrictEqual(groups);
+  });
+
+  it.each<[string, string, string, ReadonlyArray<TestObject>, Array<number>]>([
+    ['shown in the page content', '<</Font<</T3 5 0 R>>/ExtGState<</GS 7 0 R>>>>', 'BT /T3 12 Tf (a) Tj ET', [], [0]],
+    [
+      'shown in a form whose resources name GS for a transparent state, on a page whose GS is opaque',
+      '<</XObject<</F 8 0 R>>/ExtGState<</GS 9 0 R>>>>',
+      '/F Do',
+      [
+        {
+          number: 8,
+          body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<</Font<</T3 5 0 R>>/ExtGState<</GS 7 0 R>>>>', 'BT /T3 12 Tf (a) Tj ET'),
+        },
+        { number: 9, body: '<</ca 1>>' },
+      ],
+      [],
+    ],
+  ])('looks up the names of a Type 3 glyph without font Resources in the page resources, %s', (_, resources, content, extra, groups) => {
+    // ISO 32000-1:2008, Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
+    const document = single(resources, streamBody('', content), [
+      {
+        number: 5,
+        body: '<</Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</a 6 0 R>>/Encoding<</Differences[97/a]>>/FirstChar 97/LastChar 97/Widths[1]>>',
+      },
+      { number: 6, body: streamBody('', '0 0 d0 /GS gs 0 0 1 1 re f') },
+      { number: 7, body: '<</ca 0.5>>' },
+      ...extra,
+    ]);
+    expect(addedGroups(document)).toStrictEqual(groups);
+  });
+
   it.each<[string, string, Array<number>]>([
     ['a normal appearance state', '/AS/On/AP<</N<</On 6 0 R/Off 7 0 R>>>>', [0]],
     ['only the rollover appearance', '/AP<</N 7 0 R/R 6 0 R>>', []],
