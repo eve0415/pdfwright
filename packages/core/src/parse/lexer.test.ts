@@ -194,6 +194,7 @@ describe('pdf lexer', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 7.3.4.3: a hexadecimal string is written as hexadecimal digits and white space only, so the byte next to each digit range is rejected.
   it.each([':', '@', 'G', '`', 'g'])('rejects %s, one past a hexadecimal digit range', character => {
     const source = `<0${character}>`;
     expect(() => lex(source)).toThrow(ParseError);
