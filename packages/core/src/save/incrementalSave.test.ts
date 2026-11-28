@@ -299,6 +299,24 @@ describe('incremental save', () => {
     ]);
   });
 
+  // The Length object of a produced stream is written after the stream, and its entry is header-relative like every other.
+  it.each(['classic', 'stream'] as const)('writes the header-relative offset of a produced Length object into a %s update', async xref => {
+    const document = loadDocument(latin1Bytes(`JUNK${basePdf({ xref }).text}`));
+    addProduced(document);
+    const parts: Array<Uint8Array> = [];
+    for await (const part of document.save({ mode: 'incremental' }).toStream()) {
+      parts.push(part);
+    }
+    const reloaded = loadDocument(parts);
+    const value = producedObject(reloaded.get(pdfReference(5, 0)));
+    const length = value.dictionary.get(pdfName('Length').bytes);
+    expect([length?.kind === 'reference' ? reloaded.get(length) : length, latin1Text(value.data), reloaded.warnings]).toStrictEqual([
+      pdfInteger(11),
+      'firstsecond',
+      document.warnings,
+    ]);
+  });
+
   it('writes the header-relative offset of a changed object into a classic update', () => {
     const document = loadDocument(latin1Bytes(`JUNK${basePdf().text}`));
     trimBox(document);
