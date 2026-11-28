@@ -174,7 +174,7 @@ const assign = (internals: DocumentInternals, scope: Scope, use: FormUse, plan: 
 };
 
 // Page discovery needs only the graphics state at each Do. An inline image paints without changing that state, so its bytes become spaces of the same length, which keeps every Do offset, and only the page pass converts it.
-// ISO 32000-1:2008, 8.9.7: BI takes no operands, so any left on the stack before it are discarded with the image; the blanked span starts where the previous operation ends so that they do not reach the next operator.
+// The content reader discards any operands left on the stack before BI, so the blanked span starts where the previous operation ends and those operands do not reach the next operator.
 const withoutInlineImages = (bytes: Uint8Array, maxNesting: number): Uint8Array => {
   let mayHoldImage = false;
   for (let index = bytes.indexOf(0x42); index !== -1 && !mayHoldImage; index = bytes.indexOf(0x42, index + 1)) {

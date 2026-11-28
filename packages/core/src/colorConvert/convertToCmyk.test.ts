@@ -423,7 +423,7 @@ describe('forms drawn from converted pages', () => {
     expect(forms[0]).not.toBe(forms[1]);
   });
 
-  // ISO 32000-1:2008, 8.9.7: BI takes no operands, so whatever is left on the stack before it is discarded with the image.
+  // Operands left on the stack before BI are discarded with the inline image.
   it.each([
     { name: 'an inline image', before: '' },
     { name: 'an inline image with stray operands before BI', before: '1 2 ' },
