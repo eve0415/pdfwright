@@ -1,10 +1,14 @@
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import type { PdfObject } from '../object/pdfObject.ts';
 
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { runChecked, runQpdf } from '../../../../scripts/readerOracle.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { pageContent } from '../content/pageContent.ts';
 import { pdfDate } from '../date/pdfDate.ts';
@@ -15,15 +19,18 @@ import { rect } from '../document/rect.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { UnsupportedFeatureError } from '../error/unsupportedFeatureError.ts';
 import { ValidationError } from '../error/validationError.ts';
+import { decodedData } from '../font/fontValues.ts';
 import { pt } from '../length/length.ts';
-import { pdfName } from '../object/pdfObject.ts';
+import { pdfName, pdfReference } from '../object/pdfObject.ts';
 import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertToCmyk } from './convertToCmyk.ts';
 
-const source = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url)));
-const output = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
+const sourcePath = fileURLToPath(new URL('../../../../tests/fixtures/icc/sRGB.icm', import.meta.url));
+const outputPath = fileURLToPath(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url));
+const source = Uint8Array.from(await readFile(sourcePath));
+const output = Uint8Array.from(await readFile(outputPath));
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
 const fixture = buildPdf([
   {
@@ -190,4 +197,127 @@ describe('convert to cmyk', () => {
       ResourceLimitError,
     );
   });
+});
+
+// A one-page file whose page has the given resources and content, with further objects numbered from 5.
+const pagePdf = (resources: string, content: string, objects: ReadonlyArray<{ number: number; body: string }>): Uint8Array =>
+  buildPdf([
+    {
+      xref: 'classic',
+      objects: [
+        { number: 1, body: '<</Type/Catalog/Pages 2 0 R>>' },
+        { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+        { number: 3, body: `<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Contents 4 0 R/Resources<<${resources}>>>>` },
+        { number: 4, body: streamBody('', content) },
+        ...objects,
+      ],
+      trailer: '/Root 1 0 R',
+    },
+  ]).bytes;
+
+const decodedStream = (document: ReturnType<typeof loadDocument>, value: PdfObject | undefined): Uint8Array => {
+  const stream = value?.kind === 'reference' ? document.get(value) : value;
+  const internals = internalsOf(document);
+  if (stream?.kind !== 'stream' || internals === undefined) {
+    throw new Error('expected a stream');
+  }
+  const data = decodedData(internals, stream);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
+  return data;
+};
+
+// The CMYK values LittleCMS gives for 8-bit sRGB values with the relative colorimetric intent and black point compensation.
+const transicc = async (rgb: ReadonlyArray<number>): Promise<ReadonlyArray<number>> => {
+  const run = await runChecked('transicc', ['-n', `-i${sourcePath}`, `-o${outputPath}`, '-t1', '-b', '-c0'], new TextEncoder().encode(`${rgb.join(' ')}\n`));
+  return new TextDecoder()
+    .decode(run.stdout)
+    .trim()
+    .split(/\s+/u)
+    .map(value => Number(value) / 100);
+};
+
+// The page paints through a luminosity soft mask whose DeviceRGB group, object 6, draws an RGB image or paints an RGB axial shading.
+const maskPdf = (kind: 'image' | 'axial'): Uint8Array =>
+  pagePdf(
+    '/ExtGState<</GS<</SMask<</S/Luminosity/G 6 0 R>>>>>>',
+    '/GS gs 1 0 0 rg 0 0 10 10 re f',
+    kind === 'image'
+      ? [
+          {
+            number: 6,
+            body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</XObject<</Im 9 0 R>>>>', '/Im Do'),
+          },
+          {
+            number: 9,
+            body: streamBody('/Type/XObject/Subtype/Image/Width 1/Height 1/BitsPerComponent 8/ColorSpace/DeviceRGB', String.fromCodePoint(255, 0, 0)),
+          },
+        ]
+      : [
+          {
+            number: 6,
+            body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources<</Shading<</Sh1 9 0 R>>>>', '/Sh1 sh'),
+          },
+          { number: 9, body: '<</ShadingType 2/ColorSpace/DeviceRGB/Coords[0 0 10 0]/Function 10 0 R>>' },
+          { number: 10, body: '<</FunctionType 2/Domain[0 1]/C0[1 0 0]/C1[0 0 1]/N 1>>' },
+        ],
+  );
+
+// The colour space of the image or shading the mask group's resources name.
+const maskPaintSpace = (document: ReturnType<typeof loadDocument>, kind: 'image' | 'axial'): PdfObject | undefined => {
+  const group = document.get(pdfReference(6, 0));
+  const resources = group.kind === 'stream' ? group.dictionary.get(pdfName('Resources').bytes) : undefined;
+  const category = resources?.kind === 'dictionary' ? resources.entries.get(pdfName(kind === 'image' ? 'XObject' : 'Shading').bytes) : undefined;
+  const reference = category?.kind === 'dictionary' ? category.entries.get(pdfName(kind === 'image' ? 'Im' : 'Sh1').bytes) : undefined;
+  const paint = reference?.kind === 'reference' ? document.get(reference) : undefined;
+  if (paint?.kind === 'stream') {
+    return paint.dictionary.get(pdfName('ColorSpace').bytes);
+  }
+  return paint?.kind === 'dictionary' ? paint.entries.get(pdfName('ColorSpace').bytes) : undefined;
+};
+
+describe('convert to cmyk in pass order', () => {
+  // ISO 32000-1:2008, 8.10.1: a form inherits the graphics state in effect at Do; 8.6.8: sc takes one operand per component of the current space, which the converted page makes DeviceCMYK.
+  it('writes the colour a form sets in its inherited RGB space as LittleCMS converts it', async () => {
+    const document = loadDocument(
+      pagePdf('/XObject<</Fm 5 0 R>>', '0.2 0.4 0.6 rg /Fm Do', [
+        { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Resources<<>>', '0.9 0.5 0.1 sc 0 0 10 10 re f') },
+      ]),
+    );
+    convertToCmyk(document, { sourceRgbProfile: source, outputProfile: output, outputIntent: { outputConditionIdentifier: 'FOGRA28' } });
+    const form = latin1Text(decodedStream(document, pdfReference(5, 0)));
+    const operands = /^((?:[\d.]+ ){4})sc 0 0 10 10 re f$/u.exec(form)?.[1]?.trim().split(' ').map(Number);
+    const expected = await transicc([229.5, 127.5, 25.5]);
+    expect(operands).toHaveLength(4);
+    expect(expected).toHaveLength(4);
+    for (const [index, value] of expected.entries()) {
+      expect(operands?.[index]).toBeCloseTo(value, 3);
+    }
+  });
+
+  // ISO 32000-1:2008, 11.6.5.2, Table 144: a Luminosity soft mask derives its values from its group, which the conversion makes DeviceGray.
+  it.each([
+    { kind: 'image', luminosityGroups: undefined },
+    { kind: 'image', luminosityGroups: 'gray' },
+    { kind: 'axial', luminosityGroups: undefined },
+    { kind: 'axial', luminosityGroups: 'gray' },
+  ] as const)(
+    'converts an RGB $kind in a luminosity soft mask to gray with luminosityGroups $luminosityGroups and writes a valid file',
+    async ({ kind, luminosityGroups }) => {
+      const document = loadDocument(maskPdf(kind));
+      const options = { sourceRgbProfile: source, outputProfile: output, outputIntent: { outputConditionIdentifier: 'FOGRA28' } };
+      convertToCmyk(document, luminosityGroups === undefined ? options : { ...options, luminosityGroups });
+      expect(maskPaintSpace(document, kind)).toStrictEqual(pdfName('DeviceGray'));
+      const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-mask-'));
+      try {
+        const file = path.join(directory, 'converted.pdf');
+        await writeFile(file, document.save().toBytes());
+        // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+        await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
