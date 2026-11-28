@@ -424,6 +424,33 @@ describe('setting document metadata', () => {
     ]);
   });
 
+  // ISO 32000-1:2008, 14.3.2: a metadata date later than Info ModDate makes the packet authoritative.
+  it('reconciles a left-out value from the packet when the packet is authoritative', () => {
+    const document = load(
+      '/Metadata 4 0 R',
+      [
+        {
+          number: 4,
+          body: streamBody(
+            '/Type/Metadata/Subtype/XML',
+            packet(
+              '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Packet title</rdf:li></rdf:Alt></dc:title><xmp:MetadataDate>2022-01-01T00:00:00Z</xmp:MetadataDate>',
+            ),
+          ),
+        },
+        { number: 5, body: '<</Title(Info title)/ModDate(D:20210101000000Z)>>' },
+      ],
+      `${ID}/Info 5 0 R`,
+    );
+    const change = setMetadata(document, { modificationDate: MODIFIED });
+    const reloaded = saved(document);
+    expect([change.reconciled, infoText(reloaded, 'Title'), agreements(reloaded)['Title']]).toStrictEqual([
+      [{ key: 'Title', from: 'xmp', discarded: 'Info title' }],
+      'Packet title',
+      'agree',
+    ]);
+  });
+
   it('replaces the packet in place, keeps its DocumentID and unmanaged properties, and removes legacy duplicates', () => {
     const existing = packet(
       '<pdf:Title>Legacy</pdf:Title><xmpMM:DocumentID>xmp.did:kept</xmpMM:DocumentID><xmpMM:InstanceID>uuid:old</xmpMM:InstanceID><xmp:Rating>3</xmp:Rating>',
@@ -447,17 +474,20 @@ describe('setting document metadata', () => {
   });
 
   it('deletes orphaned metadata streams and keeps component packets', () => {
-    const document = load('/Metadata 4 0 R', [
+    const document = load('/Metadata 4 0 R/Extra 8 0 R', [
       { number: 4, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
       { number: 5, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
       { number: 6, body: '<</Type/Metadata>>' },
+      { number: 7, body: streamBody('/Type/Metadata/Subtype/XML', packet('')) },
+      { number: 8, body: '<</Metadata 7 0 R>>' },
     ]);
     const change = setMetadata(document, INPUT);
-    const reloaded = saved(document);
-    expect([change.deletedOrphans, readMetadata(reloaded).packets.orphans, packetCount(document)]).toStrictEqual([
+    const reloaded = readMetadata(saved(document));
+    expect([change.deletedOrphans, reloaded.packets.orphans, reloaded.packets.components, packetCount(document)]).toStrictEqual([
       [pdfReference(5, 0), pdfReference(6, 0)],
       [],
-      1,
+      [{ owner: pdfReference(8, 0), reference: pdfReference(7, 0) }],
+      2,
     ]);
   });
 
@@ -517,7 +547,10 @@ describe('setting document metadata', () => {
     );
     const replaced = unreadable();
     setMetadata(replaced, INPUT, { unreadableXmp: 'replace' });
-    expect([refused.save().mode, codes(saved(replaced))]).toStrictEqual(['incremental', []]);
+    expect([refused.save().toBytes(), codes(saved(replaced))]).toStrictEqual([
+      source('/Metadata 4 0 R', [{ number: 4, body: streamBody('/Type/Metadata/Subtype/XML', '<!DOCTYPE x><x/>') }], ID),
+      [],
+    ]);
   });
 
   it('changes nothing when a step after the first edit it plans fails', () => {
