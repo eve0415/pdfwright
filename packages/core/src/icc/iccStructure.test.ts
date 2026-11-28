@@ -151,6 +151,7 @@ describe('icc structure', () => {
     expect(failure(header([0, u32(131)]))).toStrictEqual({ reason: 'size-mismatch', offset: 0, tag: undefined });
     expect(failure(header([0, u32(133)]))).toStrictEqual({ reason: 'size-mismatch', offset: 0, tag: undefined });
     expect(parseIccStructure(header()).header.size).toBe(132);
+    expect(() => parseIccStructure(new Uint8Array(131))).toThrow(InvalidProfileError);
     expect(() => parseIccStructure(new Uint8Array(131))).toThrow(expect.objectContaining({ reason: 'truncated', offset: 131 }));
   });
 
