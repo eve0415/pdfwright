@@ -193,6 +193,18 @@ const colorantNames = (longest: number): fc.Arbitrary<Uint8Array> =>
     .chain(length => fc.uint8Array({ min: 1, minLength: length, maxLength: length }))
     .filter(bytes => !isReserved(bytes));
 
+// Mostly printable ASCII, so a name that is printable except for the neighbours 0x20 or 0x7F comes up often.
+const asciiPolicyByte: fc.Arbitrary<number> = fc.oneof(
+  { arbitrary: fc.integer({ min: 0x21, max: 0x7e }), weight: 8 },
+  { arbitrary: fc.constantFrom(0x20, 0x7f), weight: 1 },
+  { arbitrary: fc.integer({ min: 1, max: 255 }), weight: 1 },
+);
+
+const asciiPolicyNames: fc.Arbitrary<Uint8Array> = fc
+  .array(asciiPolicyByte, { minLength: 1, maxLength: 16 })
+  .map(bytes => Uint8Array.from(bytes))
+  .filter(bytes => !isReserved(bytes));
+
 describe('properties', () => {
   it('keeps any colorant name of 1 to 127 non-null bytes through a save and reload', () => {
     fc.assert(
@@ -211,7 +223,7 @@ describe('properties', () => {
 
   it('accepts a name under the ASCII policy exactly when every byte is printable ASCII', () => {
     fc.assert(
-      fc.property(colorantNames(16), name => {
+      fc.property(asciiPolicyNames, name => {
         const document = createDocument({ colorantPolicy: { asciiOnly: true } });
         // ISO 32000-1:2008, 7.3.5 allows any byte but null in a name; the policy narrows that to 0x21 to 0x7E.
         const printable = name.every(byte => byte >= 0x21 && byte <= 0x7e);
