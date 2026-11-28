@@ -195,6 +195,7 @@ const unsupportedRows = [
 const parseRows = [
   { name: 'a layer without its end marker', needle: '%AI5_EndLayer--\r%%PageTrailer', replacement: '%%PageTrailer', at: `%AI5_BeginLayer\r${designLb}` },
   { name: 'a coordinate that is not a number', needle: '10 0 L', replacement: '1O 0 L', at: '1O 0 L' },
+  { name: 'a layer name whose closing parenthesis is escaped', needle: '(Design) Ln', replacement: String.raw`(Design\) Ln`, at: String.raw`(Design\) Ln` },
 ] as const;
 
 describe('native grammar refusals', () => {

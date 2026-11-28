@@ -60,6 +60,10 @@ describe('native tokenizer', () => {
     expect(parseNativeLiteral('(非表示)', 0)).toBe('非表示');
   });
 
+  it('reads a literal string that ends in an escaped backslash', () => {
+    expect(parseNativeLiteral(String.raw`(abc\\)`, 0)).toBe('abc\\');
+  });
+
   it('reads an empty literal string', () => {
     expect(parseNativeLiteral('()', 0)).toBe('');
   });
@@ -107,6 +111,17 @@ describe('malformed native bytes', () => {
   it('reports a literal string that is not closed', () => {
     const error = thrown(() => {
       parseNativeLiteral('(open', 12);
+    });
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toMatchObject({ offset: 12 });
+  });
+
+  it.each([
+    { case: 'an escaped closing parenthesis', literal: String.raw`(abc\)` },
+    { case: 'an escaped backslash and an escaped closing parenthesis', literal: String.raw`(abc\\\)` },
+  ])('reports a literal string whose last character is $case', ({ literal }) => {
+    const error = thrown(() => {
+      parseNativeLiteral(literal, 12);
     });
     expect(error).toBeInstanceOf(ParseError);
     expect(error).toMatchObject({ offset: 12 });
