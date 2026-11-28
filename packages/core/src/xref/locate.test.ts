@@ -58,7 +58,7 @@ describe('header and startxref location', () => {
     expect(locateStartxref(source('startxref\n-5\n%%EOF'))).toBeUndefined();
   });
 
-  it('searches the last 4,096 bytes first and the whole file after them', () => {
+  it('searches the last 4,096 bytes first and the rest of a single buffer after them', () => {
     // The keyword exactly 4,096 bytes from the end lies in the tail copy, even when the segment holding it is not the last one.
     const atLimit = `${'x'.repeat(100)}\nstartxref\n77\n%%EOF${' '.repeat(4096 - 'startxref\n77\n%%EOF'.length)}`;
     expect(locateStartxref(source(atLimit, 1024))).toStrictEqual({ keyword: 101, offset: 77 });
