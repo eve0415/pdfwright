@@ -3,7 +3,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { IccProfile } from '../icc/iccProfile.ts';
 import type { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
-import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
+import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
 import type { PrintingCondition } from './printingConditions.ts';
 
 import { internalsOf } from '../document/documentInternals.ts';
@@ -54,7 +54,7 @@ interface ExistingIntent {
 }
 
 const key = (name: string): Uint8Array => pdfName(name).bytes;
-const nameOf = (value: PdfDirectObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
+const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 const sameIdentity = (a: IccProfile, b: IccProfile): boolean => a.identity.every((byte, index) => byte === b.identity[index]);
 
 interface ReadExistingInput {
@@ -103,7 +103,8 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     if (!matches && !replacement) {
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
-    const subtype = nameOf(value.entries.get(key('S'))) ?? 'other';
+    // ISO 32000-1:2008, 7.3.10: S may be an indirect reference to the name.
+    const subtype = nameOf(objects.deref(value.entries.get(key('S')))) ?? 'other';
     const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
     existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
