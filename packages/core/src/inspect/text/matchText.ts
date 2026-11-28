@@ -733,21 +733,22 @@ const unitsOf = (page: PageText, selected: ReadonlyArray<PageGlyph>, actualText:
   return units;
 };
 
-// An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value; the first allowed value is the default.
-const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...Array<T>]): T => {
-  if (value === undefined) {
-    return allowed[0];
-  }
+// An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value.
+const member = <T extends string>(name: string, value: T, allowed: readonly [T, ...Array<T>]): T => {
   if (!allowed.includes(value)) {
     throw new InvalidArgumentError(`matchText: ${name} ${JSON.stringify(value)} is not one of ${allowed.join(', ')}`);
   }
   return value;
 };
 
+// An omitted option takes the first allowed value as its default.
+const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...Array<T>]): T =>
+  value === undefined ? allowed[0] : member(name, value, allowed);
+
 const settingsOf = (page: PageText, options: MatchTextOptions): Settings => ({
   actualText: choice('actualText', options.actualText, ['checked', 'ignore']),
   whitespace: choice('whitespace', options.whitespace, ['ignore', 'exact']),
-  folds: (options.folds ?? TEXT_FOLDS).map(fold => choice('folds', fold, ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'])),
+  folds: (options.folds ?? TEXT_FOLDS).map(fold => member('folds', fold, ['radicals', 'vertical-forms', 'ligatures', 'shared-glyphs'])),
   equivalents: new Map(options.equivalents),
   selectors: choice('variationSelectors', options.variationSelectors, ['require-glyph-evidence', 'ignore']),
   cmaps: new Map(page.fonts.flatMap(font => (font.cmap === undefined ? [] : [[font.key, font.cmap] as const]))),
