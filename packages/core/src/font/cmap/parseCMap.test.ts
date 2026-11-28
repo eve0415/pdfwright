@@ -187,19 +187,6 @@ describe('embedded and ToUnicode CMaps', () => {
     }).toThrow(ResourceLimitError);
   });
 
-  it('bounds work for many distinct codespace misses', () => {
-    const entries = Array.from({ length: 2000 }, (_, index) => {
-      const hex = index.toString(16).padStart(4, '0');
-      return `<${hex}> <${hex}>`;
-    });
-    const cmap = new CMap(parse(`2000 begincodespacerange ${entries.join(' ')} endcodespacerange`));
-    expect(() => {
-      for (let index = 0; index < 1000; index++) {
-        cmap.read(Uint8Array.of(0xff, 0xff), 0);
-      }
-    }).toThrow(ResourceLimitError);
-  });
-
   describe('the codespace check budget of 1,000,000', () => {
     // 2000 one-code ranges <0000> to <07CF>: the miss FFFF costs 4000 checks (2000 to read, 2000 to consume it as invalid), 07CF costs 2000 and 0000 costs 1.
     const WIDE_RANGES = `2000 begincodespacerange ${Array.from({ length: 2000 }, (_, index) => {
@@ -213,6 +200,12 @@ describe('embedded and ToUnicode CMaps', () => {
       expect(split(cmapOf(WIDE_RANGES), AT_LIMIT)).toHaveLength(251);
       expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(ResourceLimitError);
       expect(() => split(cmapOf(WIDE_RANGES), PAST_LIMIT)).toThrow(/codespace checks/u);
+    });
+
+    it('gives each string a CMap splits a budget of its own', () => {
+      const cmap = cmapOf(WIDE_RANGES);
+      const codes = [...Array.from({ length: 249 }, () => 'ffff!'), '07cf', '07cf'];
+      expect([split(cmap, AT_LIMIT), split(cmap, AT_LIMIT)]).toStrictEqual([codes, codes]);
     });
 
     it('checks a codespace range a usecmap child repeats from its parent once', () => {
