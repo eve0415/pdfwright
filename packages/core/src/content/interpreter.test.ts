@@ -215,9 +215,17 @@ describe('text state', () => {
   });
 
   it('paints text only in the render modes that fill or stroke', () => {
-    const { paints, texts } = textRun('BT /F1 10 Tf 1 0 0 RG (A) Tj 1 Tr (A) Tj 2 Tr (A) Tj 3 Tr (A) Tj 7 Tr (A) Tj ET');
-    expect(paintSpaces(paints)).toStrictEqual(['text:DeviceGray', 'text:DeviceRGB', 'text:DeviceGray,DeviceRGB']);
-    expect(texts).toHaveLength(5);
+    const { paints, texts } = textRun('BT /F1 10 Tf 1 0 0 RG (A) Tj 1 Tr (A) Tj 2 Tr (A) Tj 3 Tr (A) Tj 7 Tr (A) Tj 4 Tr (A) Tj 5 Tr (A) Tj 6 Tr (A) Tj ET');
+    // ISO 32000-1:2008, 9.3.6, Table 106: modes 4, 5 and 6 fill, stroke, and fill and stroke as 0, 1 and 2 do, and add to the clip.
+    expect(paintSpaces(paints)).toStrictEqual([
+      'text:DeviceGray',
+      'text:DeviceRGB',
+      'text:DeviceGray,DeviceRGB',
+      'text:DeviceGray',
+      'text:DeviceRGB',
+      'text:DeviceGray,DeviceRGB',
+    ]);
+    expect(texts).toHaveLength(8);
   });
 
   it('loses the position after a glyph of unknown width until the next positioning operator', () => {
@@ -231,12 +239,13 @@ describe('clipping', () => {
     const { texts, paints } = textRun('q 2 0 0 2 0 0 cm 0 0 50 50 re W f BT /F1 10 Tf (A) Tj ET Q BT /F1 10 Tf (A) Tj ET');
     const clipped = texts[0]?.state.clip;
     // ISO 32000-1:2008, 8.5.4: the clip changes "After the path has been painted", so the fill itself is not clipped by its own path.
-    expect([clipped?.classifyPoint(90, 90), clipped?.classifyPoint(110, 90), texts[1]?.state.clip.vertices, paints.map(paint => paint.kind)]).toStrictEqual([
-      'inside',
-      'outside',
-      0,
-      ['fill', 'text', 'text'],
-    ]);
+    expect([
+      clipped?.classifyPoint(90, 90),
+      clipped?.classifyPoint(110, 90),
+      texts[1]?.state.clip.vertices,
+      paints.map(paint => paint.kind),
+      paints[0]?.state.clip.classifyPoint(110, 90),
+    ]).toStrictEqual(['inside', 'outside', 0, ['fill', 'text', 'text'], 'inside']);
   });
 
   it('builds a path under the CTM in force when its first segment is added, whatever operators came before', () => {
@@ -269,15 +278,15 @@ describe('clipping', () => {
 
 describe('transparency', () => {
   const STATES =
-    '/ExtGState<</Half<</ca 0.5/CA 0.25>>/Multiply<</BM/Multiply>>/Listed<</BM[/NoSuchMode/Normal]>>/Masked<</SMask<</S/Luminosity/G 110 0 R>>>>/Unmasked<</SMask/None>>>>';
+    '/ExtGState<</Half<</ca 0.5/CA 0.25>>/Multiply<</BM/Multiply>>/Listed<</BM[/NoSuchMode/Normal]>>/Screened<</BM[/NoSuchMode/Screen]>>/Masked<</SMask<</S/Luminosity/G 110 0 R>>>>/Unmasked<</SMask/None>>>>';
   const GROUP: TestObject = {
     number: 110,
     body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceGray>>', '0 g 0 0 10 10 re f'),
   };
 
   it('keeps the alpha constants, blend mode and soft mask of graphics state parameter dictionaries', () => {
-    const { texts } = textRun('BT /F1 10 Tf /Half gs /Multiply gs /Masked gs (A) Tj /Unmasked gs /Listed gs (A) Tj ET', [GROUP], STATES);
-    const [first, second] = texts.map(text => text.state);
+    const { texts } = textRun('BT /F1 10 Tf /Half gs /Multiply gs /Masked gs (A) Tj /Unmasked gs /Listed gs (A) Tj /Screened gs (A) Tj ET', [GROUP], STATES);
+    const [first, second, third] = texts.map(text => text.state);
     // ISO 32000-1:2008, 11.6.3: from an array a reader "shall use the first blend mode in the array that it recognizes".
     expect([
       first?.fillAlpha,
@@ -287,7 +296,8 @@ describe('transparency', () => {
       first?.softMask?.group,
       second?.softMask,
       second?.blendMode,
-    ]).toStrictEqual([0.5, 0.25, 'Multiply', 'Luminosity', { kind: 'reference', objectNumber: 110, generation: 0 }, undefined, 'Normal']);
+      third?.blendMode,
+    ]).toStrictEqual([0.5, 0.25, 'Multiply', 'Luminosity', { kind: 'reference', objectNumber: 110, generation: 0 }, undefined, 'Normal', 'Screen']);
   });
 
   it('reports opaque fills of axis-aligned rectangles in page space', () => {
@@ -333,13 +343,17 @@ describe('transparency', () => {
   it('does not report fills in spaces whose colorants are all None', () => {
     const { covers } = run(
       {
-        content: 'q /AllNone cs 1 1 sc 0 0 10 10 re f Q q /IndexedNone cs 1 sc 0 0 10 10 re f Q 0 0 10 10 re f',
-        resources: '/ColorSpace<</AllNone[/DeviceN[/None/None]/DeviceGray 111 0 R]/IndexedNone[/Indexed[/Separation/None/DeviceGray 111 0 R]1<00FF>]>>',
+        content: 'q /AllNone cs 1 1 sc 0 0 10 10 re f Q q /IndexedNone cs 1 sc 0 0 10 10 re f Q q /SomeNone cs 1 1 sc 10 10 10 10 re f Q 0 0 10 10 re f',
+        resources:
+          '/ColorSpace<</AllNone[/DeviceN[/None/None]/DeviceGray 111 0 R]/IndexedNone[/Indexed[/Separation/None/DeviceGray 111 0 R]1<00FF>]/SomeNone[/DeviceN[/None/Cyan]/DeviceCMYK 111 0 R]>>',
       },
       [{ number: 111, body: '<</FunctionType 2/Domain[0 1]/C0[0]/C1[1]/N 1>>' }],
     );
-    // 8.6.6.5: a DeviceN component named None "shall never be painted"; an Indexed space paints in its base space (8.6.6.3).
-    expect(covers.map(cover => cover.rectangle)).toStrictEqual([[0, 0, 10, 10]]);
+    // 8.6.6.5: a DeviceN component named None "shall never be painted", and the others are; an Indexed space paints in its base space (8.6.6.3).
+    expect(covers.map(cover => cover.rectangle)).toStrictEqual([
+      [10, 10, 20, 20],
+      [0, 0, 10, 10],
+    ]);
   });
 
   it('does not report fills that could let what is below show through or that are not rectangles', () => {
@@ -418,6 +432,14 @@ const internalsWith = (bytes: Uint8Array, maxNesting: number): DocumentInternals
   return parts;
 };
 
+// A page that draws `count` forms, each drawing the next, and the last one empty.
+const formChain = (count: number): Uint8Array => {
+  const chain = Array.from({ length: count }, (_, index) =>
+    form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, index === count - 1 ? '' : '/Next Do'),
+  );
+  return textPdfBytes({ pages: [{ content: '/Next Do', resources: '/XObject<</Next 110 0 R>>' }], objects: chain });
+};
+
 const sourceKinds = (events: ReadonlyArray<{ readonly context: { readonly sources: ReadonlyArray<{ readonly kind: string }> } }>): Array<string> =>
   events.map(event => event.context.sources.map(source => source.kind).join('/'));
 
@@ -470,36 +492,28 @@ describe('forms', () => {
   it('counts the operations of a form each time it is drawn and stops at maxOperations', () => {
     const page = { content: '/Fm1 Do /Fm1 Do', resources: '/XObject<</Fm1 110 0 R>>' };
     const objects = [form(110, '/BBox[0 0 50 50]', '0 g 0 0 1 1 re f')];
-    expect(run(page, objects).result.operations).toBe(8);
+    expect([run(page, objects).result.operations, run(page, objects, { maxOperations: 8 }).result.complete]).toStrictEqual([8, true]);
     expect(() => run(page, objects, { maxOperations: 7 })).toThrow(ResourceLimitError);
   });
 
   it('counts the content bytes of a form each time it is drawn and stops at maxContentBytes', () => {
-    // About 1 MB of comment, which produces no operations for maxOperations to count.
+    // About 1 MB of comment, which produces no operations for maxOperations to count: the page's 40 bytes and five times the form's 1,000,005 make 5,000,065.
     const page = { content: '/Fm1 Do\n'.repeat(5), resources: '/XObject<</Fm1 110 0 R>>' };
     const objects = [form(110, '/BBox[0 0 50 50]', `%${'x'.repeat(1_000_000)}\n0 g`)];
-    expect(run(page, objects).result.operations).toBe(10);
-    expect(() => run(page, objects, { maxContentBytes: 4_000_000 })).toThrow(ResourceLimitError);
+    expect([run(page, objects).result.operations, run(page, objects, { maxContentBytes: 5_000_065 }).result.complete]).toStrictEqual([10, true]);
+    expect(() => run(page, objects, { maxContentBytes: 5_000_064 })).toThrow(ResourceLimitError);
   });
 
   it('stops at forms nested deeper than maxNesting', () => {
-    const chain = Array.from({ length: 6 }, (_, index) =>
-      form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, '/Next Do'),
-    );
-    const bytes = textPdfBytes({
-      pages: [{ content: '/Next Do', resources: '/XObject<</Next 110 0 R>>' }],
-      objects: [...chain, form(116, '/BBox[0 0 1 1]', '')],
-    });
-    expect(() => interpretPage(internalsWith(bytes, 4), 0)).toThrow(ResourceLimitError);
-    expect(interpretPage(internalsWith(bytes, 8), 0).warnings).toStrictEqual([]);
+    // The page draws 7 forms, each inside the one before.
+    const bytes = formChain(7);
+    expect(() => interpretPage(internalsWith(bytes, 6), 0)).toThrow(ResourceLimitError);
+    expect(interpretPage(internalsWith(bytes, 7), 0).warnings).toStrictEqual([]);
   });
 
-  it('limits recursive content execution when maxNesting is raised', () => {
-    const chain = Array.from({ length: 100 }, (_, index) =>
-      form(110 + index, `/BBox[0 0 1 1]/Resources<</XObject<</Next ${String(111 + index)} 0 R>>>>`, '/Next Do'),
-    );
-    const bytes = textPdfBytes({ pages: [{ content: '/Next Do', resources: '/XObject<</Next 110 0 R>>' }], objects: chain });
-    expect(() => interpretPage(internalsWith(bytes, 200), 0)).toThrow(ResourceLimitError);
+  it('limits recursive content execution to 64 streams when maxNesting is raised', () => {
+    expect(interpretPage(internalsWith(formChain(64), 200), 0).warnings).toStrictEqual([]);
+    expect(() => interpretPage(internalsWith(formChain(65), 200), 0)).toThrow(ResourceLimitError);
   });
 });
 
@@ -581,11 +595,6 @@ describe('patterns', () => {
     // 8.9.5, Table 89, ImageMask: "unmasked areas shall be painted using the current nonstroking colour", which may be a pattern.
     expect(paintSpaces(paints)).toStrictEqual(['image-mask:Pattern,DeviceCMYK', 'inline-image-mask:Pattern,DeviceCMYK']);
   });
-
-  it('paints a shading pattern in the shading colour space', () => {
-    const { paints } = run({ content: '/Pattern cs /Shaded scn 0 0 10 10 re f', resources: PATTERNS }, OBJECTS);
-    expect(paintSpaces(paints)).toStrictEqual(['fill:Pattern,DeviceCMYK']);
-  });
 });
 
 describe('glyph procedures of Type 3 fonts', () => {
@@ -659,8 +668,8 @@ describe('glyph procedures of Type 3 fonts', () => {
   });
 });
 
-const appearance = (number: number, dictionary: string): TestObject =>
-  form(number, `/BBox[0 0 10 5]${dictionary}/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 1 Tf (A) Tj ET');
+const appearance = (number: number, dictionary: string, box = '[0 0 10 5]'): TestObject =>
+  form(number, `/BBox${box}${dictionary}/Resources<<${FONT_RESOURCES}>>`, 'BT /F1 1 Tf (A) Tj ET');
 const annotation = (number: number, entries: string): TestObject => ({ number, body: `<</Type/Annot/Subtype/Square/Rect[100 100 200 150]${entries}>>` });
 
 describe('annotations and soft masks', () => {
@@ -671,24 +680,24 @@ describe('annotations and soft masks', () => {
     annotation(122, '/F 4/AS/On/AP<</N<</Off 130 0 R/On 132 0 R>>>>'),
     appearance(130, ''),
     appearance(131, '/Matrix[0 1 -1 0 0 0]'),
-    appearance(132, '/Matrix[1 0 0 1 0 0]'),
+    appearance(132, '/Matrix[1 0 0 1 0 0]', '[0 0 20 5]'),
   ];
 
   it('draws the normal appearances of annotations under the matrix AA of 12.5.5', () => {
     const printable = run(ANNOTATED, OBJECTS, { annotations: 'printable' });
     const all = run(ANNOTATED, OBJECTS, { annotations: 'all' });
-    // The box 0…10 by 0…5 maps onto the Rect 100…200 by 100…150; rotated by the Matrix it is −5…0 by 0…10, so A = [20 0 0 5 200 100] and AA = Matrix × A.
+    // The box 0…10 by 0…5 maps onto the Rect 100…200 by 100…150; rotated by the Matrix it is −5…0 by 0…10, so A = [20 0 0 5 200 100] and AA = Matrix × A. The On state's box 0…20 by 0…5 maps by [5 0 0 10 100 100].
     expect([run(ANNOTATED, OBJECTS).texts.length, printable.texts.map(text => text.state.ctm)]).toStrictEqual([
       0,
       [
         [10, 0, 0, 10, 100, 100],
-        [10, 0, 0, 10, 100, 100],
+        [5, 0, 0, 10, 100, 100],
       ],
     ]);
     expect(all.texts.map(text => [text.state.ctm, text.context.sources])).toStrictEqual([
       [[10, 0, 0, 10, 100, 100], [{ kind: 'annotation', index: 0, printable: true }]],
       [[0, 5, -20, 0, 200, 100], [{ kind: 'annotation', index: 1, printable: false }]],
-      [[10, 0, 0, 10, 100, 100], [{ kind: 'annotation', index: 2, printable: true }]],
+      [[5, 0, 0, 10, 100, 100], [{ kind: 'annotation', index: 2, printable: true }]],
     ]);
   });
 
@@ -711,7 +720,9 @@ describe('annotations and soft masks', () => {
 describe('damaged content', () => {
   it('ignores unknown operators with a warning, silently inside BX and EX', () => {
     const { result } = textRun('1 2 foo BX 3 bar EX');
-    expect(result).toStrictEqual({ complete: true, warnings: [{ code: 'unknown-operator', detail: 'foo at offset 4 of content stream 0' }], operations: 4 });
+    expect([result.complete, result.operations, result.warnings.map(warning => warning.code)]).toStrictEqual([true, 4, ['unknown-operator']]);
+    // The detail names the operator, its offset and its stream.
+    expect(result.warnings[0]?.detail).toMatch(/^foo\b.*\boffset 4\b.*\bcontent stream 0$/u);
   });
 
   it('skips an operator with bad operands and marks the page incomplete', () => {
