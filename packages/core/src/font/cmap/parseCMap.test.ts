@@ -19,8 +19,9 @@ const hexBytes = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../gu) 
 const split = (cmap: CMap, hex: string): Array<string> => {
   const bytes = hexBytes(hex);
   const codes: Array<string> = [];
+  const budget = { checks: 0 };
   for (let offset = 0; offset < bytes.length;) {
-    const { code, valid } = cmap.read(bytes, offset);
+    const { code, valid } = cmap.read(bytes, offset, budget);
     codes.push(`${code.value.toString(16).padStart(code.length * 2, '0')}${valid ? '' : '!'}`);
     offset += code.length;
   }
