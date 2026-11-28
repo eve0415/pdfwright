@@ -148,25 +148,24 @@ describe('reference cycles', () => {
     expect([twoCycleAndSelfReference === renumbered, threeCycle === twoCycleAndSelfReference]).toStrictEqual([true, false]);
   });
 
-  // Each object of a two-object cycle is described in thirteen steps: entering each of the two objects, its array and the array's one link; each array and the link into it while the two are sorted into one class; and writing the array, the link back to it and the array's end.
+  // A two-object cycle is described in seventeen steps: entering each of its two objects, its array and the array's link; following each of the two links while the arrays are sorted into strongly connected components; each array and the link into it while the two are merged into one class, and that class and its link while it is numbered; writing that class; and keeping its text with its link. The second object keeps its text from the first description, so asking for it takes no more steps.
   it('describes reference cycles within the number of steps it may take in all, and refuses to go past it', () => {
     const internals = internalsOrThrow(['[21 0 R]', '[20 0 R]']);
     const unlimited = new ResolvedTexts(internals);
-    const [atLimit, pastLimit] = [new ResolvedTexts(internals, 26), new ResolvedTexts(internals, 25)];
+    const atLimit = new ResolvedTexts(internals, 17);
     expect([atLimit.text(pdfReference(20, 0)), atLimit.text(pdfReference(21, 0))]).toStrictEqual([
       unlimited.text(pdfReference(20, 0)),
       unlimited.text(pdfReference(21, 0)),
     ]);
-    pastLimit.text(pdfReference(20, 0));
-    expect(() => pastLimit.text(pdfReference(21, 0))).toThrow(ResourceLimitError);
-    expect(() => pastLimit.text(pdfReference(21, 0))).toThrow(/reference cycles/);
+    expect(() => new ResolvedTexts(internals, 16).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
+    expect(() => new ResolvedTexts(internals, 16).text(pdfReference(20, 0))).toThrow(/reference cycles/);
   });
 
-  // The value asked for is described once, in eighteen steps: entering each of the three objects, its array and the array's one link; each array and the links into it while the three are sorted into one class; and writing the first array, the link back to it and the array's end.
+  // The value asked for is described in nineteen steps: entering each of the three objects, its array and the array's link; following the three links while the arrays are sorted into strongly connected components; for the self-referring array, the array and its link while it is put into a class, the class and its link while it is numbered, writing the class and keeping its text with its link. Each of the other two arrays then has the same label and leads to the same text, so it reads as that text, already kept.
   it('describes only the value asked for, not each object it passes on the way into a cycle', () => {
     const internals = internalsOrThrow(['[21 0 R]', '[22 0 R]', '[22 0 R]']);
-    expect(new ResolvedTexts(internals, 18).text(pdfReference(20, 0))).toBe(new ResolvedTexts(internals).text(pdfReference(22, 0)));
-    expect(() => new ResolvedTexts(internals, 17).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
+    expect(new ResolvedTexts(internals, 19).text(pdfReference(20, 0))).toBe(new ResolvedTexts(internals).text(pdfReference(22, 0)));
+    expect(() => new ResolvedTexts(internals, 18).text(pdfReference(20, 0))).toThrow(ResourceLimitError);
   });
 
   it('describes a cycle the same whether a dictionary in it is direct or indirect', () => {

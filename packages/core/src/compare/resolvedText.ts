@@ -78,12 +78,14 @@ type Step =
 /** Where an array, dictionary or stream that leads into a reference cycle leads: to another of them in the same value, by its index, or to an object that also leads into a cycle, by its key. */
 type Link = { readonly kind: 'local'; readonly index: number } | { readonly kind: 'object'; readonly key: string };
 
-/** An array, dictionary or stream that leads into a reference cycle: the texts around its links, one more than there are links, its links in order, and a label made of both that equal ones share. */
+/** An array, dictionary or stream that leads into a reference cycle: a label, the digest of the number of its links and the texts around them, which equal ones share, and its links in order. */
 interface Structure {
   readonly label: string;
-  readonly segments: ReadonlyArray<string>;
   readonly links: ReadonlyArray<Link>;
 }
+
+/** Where a link of a node being described leads: to another node, by its index, or to a value already described, by its text. */
+type Target = number | string;
 
 /** A value that leads into a reference cycle, read once: its arrays, dictionaries and streams that lead into a cycle, innermost first, and where the value is, which is another object when the value is a reference. */
 interface Shape {
@@ -111,11 +113,17 @@ const referenceKey = (value: Reference): string => `${String(value.objectNumber)
 
 const kept = (text: string): string => (text.length > DIGEST_ABOVE ? `#${hex(md5(latin1Bytes(text)))}` : text);
 
+const signatureOf = (label: string, out: ReadonlyArray<string>): string => hex(md5(latin1Bytes([label, ...out].join('\n'))));
+
+const linkKey = (to: string, at: number, label: string): string => `${to}\n${String(at)}\n${label}`;
+
 const isLength = (key: Uint8Array): boolean => key.length === LENGTH.length && key.every((byte, index) => byte === LENGTH[index]);
 
 /**
  * The classes of a graph's nodes under bisimulation: two nodes share a class exactly when they have the same label and their links, place by place, lead to nodes of the same class.
  * The nodes start in one class per label, and each class in turn splits every class whose nodes differ in whether their link at some place leads into it; only the smaller part of a split is queued again, unless the class split was still queued (Hopcroft's algorithm), so the work grows with the number of links times the logarithm of the number of nodes.
+ * The classes are numbered from labels in sorted order and from splits taken by place and by class number, never by node number, so that two graphs that differ only in how their nodes are numbered get the same numbers; in a graph with no two nodes in one class, that numbers its nodes.
+ * A link to a negative node leads to none.
  */
 const bisimilarClasses = (labels: ReadonlyArray<string>, links: ReadonlyArray<ReadonlyArray<number>>, step: (count: number) => void): Array<number> => {
   const byLabel = new Map<string, Array<number>>();
@@ -132,7 +140,8 @@ const bisimilarClasses = (labels: ReadonlyArray<string>, links: ReadonlyArray<Re
   const classOf = labels.map(() => 0);
   const starts: Array<number> = [];
   const ends: Array<number> = [];
-  for (const nodes of byLabel.values()) {
+  for (const label of [...byLabel.keys()].toSorted()) {
+    const nodes = byLabel.get(label) ?? [];
     const id = starts.length;
     starts.push(order.length);
     for (const node of nodes) {
@@ -173,7 +182,8 @@ const bisimilarClasses = (labels: ReadonlyArray<string>, links: ReadonlyArray<Re
         }
       }
     }
-    for (const nodes of leading.values()) {
+    for (const position of [...leading.keys()].toSorted((left, right) => left - right)) {
+      const nodes = leading.get(position) ?? [];
       // Each node is moved to the front of its class, behind the nodes of the class already moved.
       const touched: Array<number> = [];
       for (const node of nodes) {
@@ -191,7 +201,7 @@ const bisimilarClasses = (labels: ReadonlyArray<string>, links: ReadonlyArray<Re
         place[node] = front;
         marked[id] = count + 1;
       }
-      for (const id of touched) {
+      for (const id of touched.toSorted((left, right) => left - right)) {
         const start = starts[id] ?? 0;
         const count = marked[id] ?? 0;
         const end = ends[id] ?? 0;
@@ -283,8 +293,9 @@ const readable = (read: () => string): string | undefined => {
 
 /**
  * Canonical texts for values with their references followed, for comparing values that two documents may number, order or spell differently: numbers by value, strings and names by bytes, dictionaries by sorted keys, stream data by digest.
- * The text of each referenced object is worked out once and kept, and the walk keeps its own work list, so shared objects and deep nesting cost neither repeated work nor call stack.
- * Objects that lead back to each other through references are found as one cycle while the walk runs. A value that leads into a cycle unfolds without end, so it is described by a digest of the graph of its arrays, dictionaries and streams that lead into a cycle, direct or indirect: those that unfold to the same value are merged into one, and the merged graph is written out from the value, each merged one in full where it is first met, dictionary keys in sorted order, and at every later link as its position in that writing.
+ * The text of each referenced object is worked out once and kept, and so is the text of each direct value asked for that leads into a cycle; the walk keeps its own work list, so shared objects and deep nesting cost neither repeated work nor call stack.
+ * Objects that lead back to each other through references are found as one cycle while the walk runs. A value that leads into a cycle unfolds without end, so each of its arrays, dictionaries and streams that lead into a cycle, direct or indirect, is described by what it unfolds to, one strongly connected component of them at a time, after the components it leads into.
+ * One on no cycle reads as a digest of its own texts and of the texts its links lead to. Those of a cycle are merged into classes that unfold alike, and read as a digest of the merged component, written in a numbering of its classes that does not depend on how objects are numbered, and of the number of their own class. A node that unfolds like one already described, in this value or an earlier one, takes its text, so a cycle that many values lead into is described once.
  * Two such values therefore read the same exactly when they unfold to the same value, whichever object of a cycle a walk met first, whether a dictionary is direct or an indirect object, and however many objects hold the same value; each value in them that leads into no cycle compares by its text, by digest when long, whether it is direct or an indirect object.
  * A chain of references alone that comes back to where it started leads to no object, and reads as null like a reference to an undefined object.
  * ISO 32000-1:2008, 7.3.10: "An indirect reference to an undefined object shall not be considered an error by a conforming reader; it shall be treated as a reference to the null object."
@@ -296,6 +307,14 @@ export class ResolvedTexts {
   private readonly endless = new Map<string, Reference>();
   /** The shapes of those objects, each read once. */
   private readonly shapes = new Map<string, Shape>();
+  /** The texts of direct values that lead into a reference cycle, by the value asked for. */
+  private readonly directTexts = new WeakMap<PdfObject, string>();
+  /** Each text of an array, dictionary or stream that leads into a reference cycle, with its label and the texts its links lead to. */
+  private readonly classes = new Map<string, { readonly label: string; readonly links: ReadonlyArray<string> }>();
+  /** Those texts by the digest of their label and the texts their links lead to. */
+  private readonly bySignature = new Map<string, string>();
+  /** Those texts by a text one of their links leads to, the place of that link and their label. */
+  private readonly linkedFrom = new Map<string, Array<string>>();
   private readonly maxCycleSteps: number;
   private cycleSteps = 0;
 
@@ -322,10 +341,19 @@ export class ResolvedTexts {
     }
     // Only the value asked for is described, since a value that leads into a cycle is described from its own shape and not from the texts of the objects it leads to.
     const text = results.pop() ?? 'null';
-    if (!leadsIntoCycle(text)) {
+    if (!leadsIntoCycle(text) || value === undefined) {
       return text;
     }
-    return value?.kind === 'reference' ? this.objectText(referenceKey(value)) : this.described({ shape: this.shape(value, undefined) });
+    if (value.kind === 'reference') {
+      return this.objectText(referenceKey(value));
+    }
+    const known = this.directTexts.get(value);
+    if (known !== undefined) {
+      return known;
+    }
+    const described = this.described({ shape: this.shape(value, undefined) });
+    this.directTexts.set(value, described);
+    return described;
   }
 
   // The innermost referenced object is done: an object whose cycle is still open leads into a cycle, and the object that closes its cycle marks every object of it as leading into one.
@@ -384,11 +412,11 @@ export class ResolvedTexts {
     }
   }
 
-  // The digest of the graph a value that leads into a reference cycle unfolds to, written out from the value with each class of bisimilar nodes in full where it is first met and as its position later; the writing is hashed as it goes, so its length costs no memory.
+  // The text of a value that leads into a reference cycle. Its arrays, dictionaries and streams that lead into a cycle and are not yet described are gathered as nodes, while objects already described stand as their texts; the nodes are then described one strongly connected component at a time, and every object among them keeps its text, so that no cycle is described twice.
   private described(start: { readonly shape: Shape } | { readonly key: string }): string {
     const nodes: Array<Structure> = [];
-    const links: Array<ReadonlyArray<number>> = [];
-    const placed = new Map<string, number>();
+    const links: Array<ReadonlyArray<Target>> = [];
+    const placed = new Map<string, Target>();
     const unlinked: Array<{ readonly shape: Shape; readonly base: number }> = [];
     const place = (shape: Shape): number => {
       const base = nodes.length;
@@ -400,21 +428,23 @@ export class ResolvedTexts {
       unlinked.push({ shape, base });
       return base;
     };
-    // An object that is a reference to another stands for the object it leads to.
-    const objectNode = (key: string): number => {
-      const passed: Array<string> = [];
+    // An object that is a reference to another stands for the object it leads to, and an object already described stands as its text.
+    const objectNode = (key: string): Target => {
+      const passed = new Set<string>();
       let at = key;
-      let node = placed.get(at);
+      let node = placed.get(at) ?? this.known.get(at);
       while (node === undefined) {
         this.step(1);
         const shape = this.objectShape(at);
-        if (shape.root.kind === 'object') {
-          passed.push(at);
+        if (shape.root.kind === 'object' && !passed.has(at)) {
+          passed.add(at);
           at = shape.root.key;
-          node = placed.get(at);
-        } else {
+          node = placed.get(at) ?? this.known.get(at);
+        } else if (shape.root.kind === 'local' && shape.root.index < shape.structures.length) {
           node = place(shape) + shape.root.index;
           placed.set(at, node);
+        } else {
+          node = 'null';
         }
       }
       for (const alias of passed) {
@@ -422,7 +452,7 @@ export class ResolvedTexts {
       }
       return node;
     };
-    const linked = (link: Link, base: number): number => (link.kind === 'local' ? base + link.index : objectNode(link.key));
+    const linked = (link: Link, base: number): Target => (link.kind === 'local' ? base + link.index : objectNode(link.key));
     const first = 'key' in start ? objectNode(start.key) : linked(start.shape.root, place(start.shape));
     for (let item = unlinked.pop(); item !== undefined; item = unlinked.pop()) {
       const { shape, base } = item;
@@ -431,48 +461,225 @@ export class ResolvedTexts {
         links[base + index] = structure.links.map(link => linked(link, base));
       }
     }
-    const classes = bisimilarClasses(
-      nodes.map(node => node.label),
-      links,
-      count => {
-        this.step(count);
-      },
+    const texts = this.componentTexts(nodes, links);
+    const textOf = (target: Target): string => (typeof target === 'string' ? target : (texts[target] ?? 'null'));
+    for (const [key, node] of placed) {
+      this.known.set(key, textOf(node));
+    }
+    return textOf(first);
+  }
+
+  // The texts of a graph's nodes, worked out one strongly connected component at a time in the order Tarjan's algorithm closes them, which comes after every component they lead into; the walk keeps its own stack.
+  private componentTexts(nodes: ReadonlyArray<Structure>, links: ReadonlyArray<ReadonlyArray<Target>>): Array<string | undefined> {
+    const texts: Array<string | undefined> = nodes.map(() => undefined);
+    const entered = nodes.map(() => -1);
+    const lowest = nodes.map(() => -1);
+    const stacked = nodes.map(() => false);
+    const stack: Array<number> = [];
+    let count = 0;
+    const enter = (node: number): void => {
+      entered[node] = count;
+      lowest[node] = count;
+      count += 1;
+      stack.push(node);
+      stacked[node] = true;
+    };
+    for (const root of nodes.keys()) {
+      if (entered[root] !== -1) {
+        continue;
+      }
+      enter(root);
+      const calls: Array<{ readonly node: number; next: number }> = [{ node: root, next: 0 }];
+      for (let call = calls.at(-1); call !== undefined; call = calls.at(-1)) {
+        const out = links[call.node] ?? [];
+        const to = out[call.next];
+        if (call.next < out.length) {
+          call.next += 1;
+          this.step(1);
+          if (typeof to !== 'number') {
+            continue;
+          }
+          if (entered[to] === -1) {
+            enter(to);
+            calls.push({ node: to, next: 0 });
+          } else if (stacked[to] === true) {
+            lowest[call.node] = Math.min(lowest[call.node] ?? 0, entered[to] ?? 0);
+          }
+          continue;
+        }
+        calls.pop();
+        const parent = calls.at(-1);
+        if (parent !== undefined) {
+          lowest[parent.node] = Math.min(lowest[parent.node] ?? 0, lowest[call.node] ?? 0);
+        }
+        if (lowest[call.node] !== entered[call.node]) {
+          continue;
+        }
+        const members: Array<number> = [];
+        for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+          stacked[member] = false;
+          members.push(member);
+          if (member === call.node) {
+            break;
+          }
+        }
+        this.describeComponent(members, nodes, links, texts);
+      }
+    }
+    return texts;
+  }
+
+  // The texts of one strongly connected component, every component it leads into being described already. A node on no cycle reads as the node described with the same label and links, if there is one, and otherwise by a digest of both. The nodes of a cycle read as those of a cycle already described when they unfold like them, and otherwise by the place of their class in a numbering of the component's classes that does not depend on how its objects are numbered.
+  private describeComponent(
+    members: ReadonlyArray<number>,
+    nodes: ReadonlyArray<Structure>,
+    links: ReadonlyArray<ReadonlyArray<Target>>,
+    texts: Array<string | undefined>,
+  ): void {
+    const inside = new Set(members);
+    const textOf = (target: Target): string => (typeof target === 'string' ? target : (texts[target] ?? 'null'));
+    const only = members[0];
+    if (only === undefined) {
+      return;
+    }
+    if (members.length === 1 && !(links[only] ?? []).includes(only)) {
+      const label = nodes[only]?.label ?? '';
+      const out = (links[only] ?? []).map(textOf);
+      const signature = signatureOf(label, out);
+      const text = this.bySignature.get(signature) ?? `${INTO_CYCLE}${hex(md5(latin1Bytes(`t\n${signature}`)))}`;
+      this.register(text, label, out, signature);
+      texts[only] = text;
+      return;
+    }
+    if (this.matched(members, inside, nodes, links, texts)) {
+      return;
+    }
+    // The component's nodes with links that leave it written into their labels, merged into classes that unfold alike, and those classes numbered by a second run over the merged component, which has no two that unfold alike.
+    const local = new Map(members.map((member, index) => [member, index]));
+    const labels = members.map(member =>
+      [nodes[member]?.label ?? '', ...(links[member] ?? []).map(target => (typeof target === 'number' && inside.has(target) ? '@' : textOf(target)))].join(
+        '\n',
+      ),
     );
+    const within = members.map(member => (links[member] ?? []).map(target => (typeof target === 'number' ? (local.get(target) ?? -1) : -1)));
+    const step = (count: number): void => {
+      this.step(count);
+    };
+    const classes = bisimilarClasses(labels, within, step);
+    const firsts: Array<number> = [];
+    for (const [index, kind] of classes.entries()) {
+      if (firsts[kind] === undefined) {
+        firsts[kind] = index;
+      }
+    }
+    const mergedLabels = firsts.map(index => labels[index] ?? '');
+    const mergedLinks = firsts.map(index => (within[index] ?? []).map(to => (to < 0 ? -1 : (classes[to] ?? -1))));
+    const numbers = bisimilarClasses(mergedLabels, mergedLinks, step);
+    const numbered: Array<number> = [];
+    for (const [merged, number] of numbers.entries()) {
+      numbered[number] = merged;
+    }
     const hash = createMd5();
     let pending = '';
-    const write = (text: string): void => {
-      pending += `${text}\n`;
+    for (const merged of numbered) {
+      this.step(1);
+      pending += `${mergedLabels[merged] ?? ''}\n${(mergedLinks[merged] ?? []).map(to => (to < 0 ? '' : String(numbers[to] ?? -1))).join(' ')}\n`;
       if (pending.length >= HASH_CHUNK) {
         hash.update(latin1Bytes(pending));
         pending = '';
       }
-    };
-    // A node is written as the number of its links and then its texts and the nodes it links to in turn; a node of a class already written is written as that class's position.
-    const positions = new Map<number, number>();
-    const writing: Array<number | string> = [first];
-    for (let item = writing.pop(); item !== undefined; item = writing.pop()) {
-      this.step(1);
-      if (typeof item === 'string') {
-        write(`s${item}`);
-        continue;
-      }
-      const kind = classes[item] ?? -1;
-      const position = positions.get(kind);
-      if (position !== undefined) {
-        write(`@${String(position)}`);
-        continue;
-      }
-      positions.set(kind, positions.size);
-      const segments = nodes[item]?.segments ?? [];
-      const out = links[item] ?? [];
-      write(`+${String(out.length)}`);
-      write(`s${segments[0] ?? ''}`);
-      for (let index = out.length - 1; index >= 0; index -= 1) {
-        writing.push(segments[index + 1] ?? '', out[index] ?? -1);
-      }
     }
     hash.update(latin1Bytes(pending));
-    return `${INTO_CYCLE}${hex(hash.digest())}`;
+    const digest = hex(hash.digest());
+    const mergedTexts = numbers.map(number => `${INTO_CYCLE}${hex(md5(latin1Bytes(`c\n${digest}\n${String(number)}`)))}`);
+    for (const [index, member] of members.entries()) {
+      texts[member] = mergedTexts[classes[index] ?? -1];
+    }
+    for (const [merged, index] of firsts.entries()) {
+      const member = members[index] ?? -1;
+      const label = nodes[member]?.label ?? '';
+      const out = (links[member] ?? []).map(textOf);
+      this.register(mergedTexts[merged] ?? '', label, out, signatureOf(label, out));
+    }
+  }
+
+  // Whether a component's nodes unfold like nodes already described, whose texts they then take. Each of its nodes would match one, so a node with a link that leaves the component matches one described with its label and a link to the same text at the same place, and the match of each other node follows from its links.
+  private matched(
+    members: ReadonlyArray<number>,
+    inside: ReadonlySet<number>,
+    nodes: ReadonlyArray<Structure>,
+    links: ReadonlyArray<ReadonlyArray<Target>>,
+    texts: Array<string | undefined>,
+  ): boolean {
+    const textOf = (target: Target): string => (typeof target === 'string' ? target : (texts[target] ?? 'null'));
+    let exit: { readonly node: number; readonly key: string } | undefined;
+    for (const member of members) {
+      const at = (links[member] ?? []).findIndex(target => typeof target === 'string' || !inside.has(target));
+      const target = links[member]?.[at];
+      if (target !== undefined) {
+        exit = { node: member, key: linkKey(textOf(target), at, nodes[member]?.label ?? '') };
+        break;
+      }
+    }
+    if (exit === undefined) {
+      return false;
+    }
+    for (const candidate of this.linkedFrom.get(exit.key) ?? []) {
+      this.step(1);
+      const matching = new Map<number, string>();
+      const work: Array<{ readonly node: number; readonly text: string }> = [{ node: exit.node, text: candidate }];
+      let fits = true;
+      for (let pair = work.pop(); pair !== undefined && fits; pair = work.pop()) {
+        const { node, text } = pair;
+        const already = matching.get(node);
+        if (already !== undefined) {
+          fits = already === text;
+          continue;
+        }
+        const described = this.classes.get(text);
+        const out = links[node] ?? [];
+        if (described === undefined || described.label !== nodes[node]?.label || described.links.length !== out.length) {
+          fits = false;
+          continue;
+        }
+        matching.set(node, text);
+        this.step(1 + out.length);
+        for (const [at, target] of out.entries()) {
+          const to = described.links[at] ?? '';
+          if (typeof target === 'number' && inside.has(target)) {
+            work.push({ node: target, text: to });
+          } else if (textOf(target) !== to) {
+            fits = false;
+          }
+        }
+      }
+      if (fits && matching.size === members.length) {
+        for (const [node, text] of matching) {
+          texts[node] = text;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Keeps a described node's text with its label and the texts its links lead to, so that later nodes that unfold alike find it.
+  private register(text: string, label: string, out: ReadonlyArray<string>, signature: string): void {
+    if (this.classes.has(text)) {
+      return;
+    }
+    this.step(1 + out.length);
+    this.classes.set(text, { label, links: out });
+    this.bySignature.set(signature, text);
+    for (const [at, to] of out.entries()) {
+      const key = linkKey(to, at, label);
+      const from = this.linkedFrom.get(key);
+      if (from === undefined) {
+        this.linkedFrom.set(key, [text]);
+      } else {
+        from.push(text);
+      }
+    }
   }
 
   private objectShape(key: string): Shape {
@@ -540,7 +747,7 @@ export class ResolvedTexts {
           continue;
         }
         done.segments.push(kept(done.run + step.text));
-        structures.push({ label: `${String(done.links.length)}\n${done.segments.join('\n')}`, segments: done.segments, links: done.links });
+        structures.push({ label: hex(md5(latin1Bytes(`${String(done.links.length)}\n${done.segments.join('\n')}`))), links: done.links });
         link({ kind: 'local', index: structures.length - 1 });
         continue;
       }
