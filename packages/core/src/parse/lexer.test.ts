@@ -186,15 +186,17 @@ describe('pdf lexer', () => {
   });
 
   it.each([
-    ['an unterminated literal string', ' (abc', 1, /literal/],
-    ['a literal string ending in a backslash', '(a\\', 0, /literal/],
-    ['an unterminated hexadecimal string', '<12', 0, /hexadecimal/],
-    ['an invalid hexadecimal digit', '<12G4>', 3, /digit/],
-  ] as const)('rejects %s at its offset', (_, source, offset, word) => {
-    // ParseError carries no reason for PDF syntax, so the word that names the failing construct stands in for one.
+    ['an unterminated literal string', ' (abc', 1, [/unterminated/, /literal/]],
+    ['a literal string ending in a backslash', '(a\\', 0, [/unterminated/, /literal/]],
+    ['an unterminated hexadecimal string', '<12', 0, [/unterminated/, /hexadecimal/]],
+    ['an invalid hexadecimal digit', '<12G4>', 3, [/digit/]],
+  ] as const)('rejects %s at its offset', (_, source, offset, words) => {
+    // ParseError carries no reason for PDF syntax, so the words that name the kind of failure and the failing construct stand in for one.
     expect(() => lex(source)).toThrow(ParseError);
     expect(() => lex(source)).toThrow(expect.objectContaining({ offset }));
-    expect(() => lex(source)).toThrow(word);
+    for (const word of words) {
+      expect(() => lex(source)).toThrow(word);
+    }
   });
 
   it('skips comments as white space and reads delimiters', () => {
