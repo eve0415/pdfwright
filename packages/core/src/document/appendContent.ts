@@ -243,8 +243,9 @@ export const appendPageContent = (context: ContentContext, page: PageEntry, requ
   if (typeof request.content === 'function') {
     data = built(context, page, request.content);
   } else {
-    checkRawContent(request.content, request.isolate);
-    data = request.content;
+    // One copy, so the bytes written are the bytes checked.
+    data = new Uint8Array(request.content);
+    checkRawContent(data, request.isolate);
   }
   const existing = existingContents(context, page);
   const appended = existing.length > 0 && !request.isolate ? new Uint8Array(data.length + 1) : data;
