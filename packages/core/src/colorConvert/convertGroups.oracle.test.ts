@@ -776,19 +776,6 @@ describe('transparency group conversion', () => {
     expect(maskInline(document).samples).toStrictEqual(Uint8Array.of(77));
   });
 
-  it('writes a converted inline image whose zlib data ends in white space and EI so that it reads back whole', () => {
-    // 36 samples of 178 and 64 of 177 in this order give an Adler-32 trailer ending in newline, E and I, which a newline written before EI would complete as a false end of raw Flate inline data.
-    const gray = Uint8Array.from(
-      '0001001001111000000101001010110001001011100011001000000010001010100011111000000110001000001010000011',
-      digit => 177 + Number(digit),
-    );
-    expect([...deflateZlib(gray)].slice(-3)).toStrictEqual([0x0a, 0x45, 0x49]);
-    const rgb = latin1Text(Uint8Array.from([...gray].flatMap(value => [value, value, value])));
-    const document = loadDocument(maskPdf({ content: `BI /W 100 /H 1 /BPC 8 /CS /RGB ID\n${rgb}\nEI` }));
-    convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
-    expect(maskInline(loadDocument(document.save().toBytes()))).toStrictEqual({ operators: ['BI'], warnings: [], samples: gray });
-  });
-
   it('converts an axial RGB shading in a luminosity group to a gray function', () => {
     const document = loadDocument(axialMaskPdf.bytes);
     convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });

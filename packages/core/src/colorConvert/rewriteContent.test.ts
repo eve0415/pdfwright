@@ -5,6 +5,7 @@ import sourceBytes from '../../../../tests/fixtures/icc/sRGB.icm?icc-bytes';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { readContent } from '../content/contentOperations.ts';
 import { loadDocument } from '../document/loadDocument.ts';
+import { deflateZlib } from '../flate/deflate.ts';
 import { inflateZlib } from '../flate/inflate.ts';
 import { parseIccProfile } from '../icc/iccProfile.ts';
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
@@ -56,6 +57,14 @@ const noisyImage = (seed: number): Uint8Array => {
 };
 
 describe('inline image conversion', () => {
+  it('writes a converted inline image whose zlib data holds white space, EI and white space so that it reads back whole', () => {
+    // These pixels convert to samples whose zlib data holds that run, which ends filtered inline data early when written as raw bytes (inlineImageData.ts).
+    const pixels = Uint8Array.of(18, 128, 192, 0, 0, 64, 0, 0, 57, 0, 0, 0);
+    expect(latin1Text(deflateZlib(rgbRow(pixels)))).toMatch(/[\0\t\n\f\r ]EI[\0\t\n\f\r ]/u);
+    const result = rewrite(`BI /W 4 /H 1 /BPC 8 /CS /RGB ID\n${latin1Text(pixels)}\nEI`);
+    expect(readInlineImage(result.bytes)).toStrictEqual({ operators: ['BI'], warnings: [], samples: rgbRow(pixels) });
+  });
+
   it('keeps a converted inline image inline when it writes 4,096 bytes between ID and EI', () => {
     const pixels = noisyImage(15);
     const result = rewrite(`BI /W 32 /H 32 /BPC 8 /CS /RGB ID\n${latin1Text(pixels)}\nEI`);
