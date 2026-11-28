@@ -261,7 +261,7 @@ describe('cross-reference reconstruction', () => {
     ]);
   });
 
-  // A member above 2^31 - 1 is skipped as a top-level object above it is; 2^32 + 1 would otherwise wrap to object 1.
+  // A member above 2^31 - 1 is skipped whether or not its value parses; 2^32 + 1 would otherwise wrap to object 1.
   it.each([
     [2_147_483_647, [2_147_483_647]],
     [2_147_483_648, []],

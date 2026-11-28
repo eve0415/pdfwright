@@ -325,7 +325,7 @@ class Scanner {
       this.add(candidate);
       decoded.push(stream);
       for (const [index, member] of stream.members.entries()) {
-        // Members numbered above what the object model accepts are skipped, as top-level objects are.
+        // A member numbered above what the object model accepts can never be referenced, so it is skipped before it is parsed, as a readable top-level object with such a number is.
         if (member.objectNumber > MAX_OBJECT_NUMBER) {
           continue;
         }
