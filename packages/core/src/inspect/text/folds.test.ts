@@ -1,5 +1,6 @@
 import type { TextFold } from './folds.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { TEXT_FOLDS, foldOf, foldText } from './folds.ts';
@@ -93,5 +94,29 @@ describe('text folds', () => {
         { fold: 'ligatures', from: 'ﬁ', to: 'fi' },
       ],
     });
+  });
+
+  it('applies only the folds it is given', () => {
+    expect([foldText('⼭ﬁ', ['ligatures']), foldText('⼭', [])]).toStrictEqual([
+      { text: '⼭fi', uses: [{ fold: 'ligatures', from: 'ﬁ', to: 'fi' }] },
+      { text: '⼭', uses: [] },
+    ]);
+  });
+});
+
+describe('properties', () => {
+  // Texts mixing characters each fold changes with arbitrary ones.
+  const SOURCES = ['⼭', '⺁', '\u{31C6}', '︑', '﹈', 'ﬁ', 'ﬆ', '‧'];
+  const text = fc.array(fc.oneof(fc.constantFrom(...SOURCES), fc.string({ unit: 'binary', maxLength: 2 })), { maxLength: 12 }).map(parts => parts.join(''));
+  const folds = fc.subarray([...TEXT_FOLDS]);
+
+  it('folds a text once for good, and lists one use per character it changes', () => {
+    fc.assert(
+      fc.property(text, folds, (value, chosen) => {
+        const once = foldText(value, chosen);
+        const changed = Array.from(value).filter(character => chosen.some(fold => foldOf(fold, character.codePointAt(0) ?? 0) !== undefined));
+        expect([foldText(once.text, chosen), once.uses.map(use => use.from)]).toStrictEqual([{ text: once.text, uses: [] }, changed]);
+      }),
+    );
   });
 });
