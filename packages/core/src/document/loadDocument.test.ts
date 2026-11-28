@@ -316,17 +316,17 @@ const onePageTree = [
 
 const onePage = buildPdf([{ xref: 'classic', objects: [catalog, ...onePageTree], trailer: '/Root 1 0 R' }]);
 
-// 'accepted', 'documented' for an error loadDocument documents, or the class of any other error.
+// 'loaded or documented' when the load succeeds or throws an error loadDocument documents, or the class of any other error.
 const loadOutcome = (bytes: Uint8Array): string => {
   try {
     loadDocument(bytes);
   } catch (error: unknown) {
     if (error instanceof ParseError || error instanceof EncryptedDocumentError || error instanceof ResourceLimitError) {
-      return 'documented';
+      return 'loaded or documented';
     }
     return error instanceof Error ? error.constructor.name : String(error);
   }
-  return 'accepted';
+  return 'loaded or documented';
 };
 
 describe('options and arguments', () => {
@@ -506,7 +506,7 @@ describe('properties', () => {
         files.chain(bytes => fc.tuple(fc.constant(bytes), fc.integer({ min: 0, max: bytes.length }))),
         ([bytes, cut]) => {
           // Either loaded or refused with a documented error, never a TypeError or RangeError from inside the parser.
-          expect(['accepted', 'documented']).toContain(loadOutcome(bytes.slice(0, cut)));
+          expect(loadOutcome(bytes.slice(0, cut))).toBe('loaded or documented');
         },
       ),
     );
