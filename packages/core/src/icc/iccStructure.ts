@@ -92,11 +92,9 @@ const space = (text: string, offset: number): DataColorSpace => {
   if (known !== undefined) {
     return known;
   }
-  if (text.length === 4 && text.endsWith('CLR')) {
-    const channels = Number.parseInt(text.charAt(0), 16);
-    if (channels >= 2 && channels <= 15) {
-      return { colorants: channels };
-    }
+  // ICC.1:2022, 7.2.6 Table 19: 2CLR to 9CLR and ACLR to FCLR, an upper-case hexadecimal digit for 2 to 15 colourants.
+  if (/^[2-9A-F]CLR$/u.test(text)) {
+    return { colorants: Number.parseInt(text.charAt(0), 16) };
   }
   throw new InvalidProfileError(`unknown ICC colour space ${text}`, 'unknown-color-space', { offset });
 };
