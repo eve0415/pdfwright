@@ -599,6 +599,21 @@ describe('direct Type 3 fonts reached again through an indirect object', () => {
     expect(listed.map(carrier => carrier.owner)).toStrictEqual([{ kind: 'category', reference: pdfReference(7, 0), name: pdfName('F').bytes }]);
   });
 
+  it('converts the shading of a direct Type 3 font whose indirect Resources a luminosity soft-mask group also names', () => {
+    const document = carrierPdf(
+      `/Resources<</ExtGState<</GS1 9 0 R>>/Font<</F <<${TYPE3}/Resources 7 0 R>>>>>>`,
+      [
+        GLYPH,
+        { number: 7, body: `<</Shading<</Sh1 ${SHADING}>>>>` },
+        { number: 8, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Group<</S/Transparency/CS/DeviceRGB>>/Resources 7 0 R', '/Sh1 sh') },
+        { number: 9, body: '<</Type/ExtGState/SMask<</S/Luminosity/G 8 0 R>>>>' },
+      ],
+      '/GS1 gs 0 0 10 10 re f BT /F 12 Tf 10 10 Td (A) Tj ET',
+    );
+    expect(convertToCmyk(document, FULL_OPTIONS).groups.groups).toBe(1);
+    expectShading(document, at(document, 3, ['Resources', 'Font', 'F', 'Resources', 'Shading', 'Sh1']));
+  });
+
   it('samples a shared direct shading with the intent a glyph of the second font selects', () => {
     expect(sharedShadingSample('perceptual')).not.toStrictEqual(sharedShadingSample('relativeColorimetric'));
     expect(sharedShadingSample('document')).toStrictEqual(sharedShadingSample('perceptual'));
