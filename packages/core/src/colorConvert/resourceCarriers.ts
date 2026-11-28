@@ -273,7 +273,11 @@ class CarrierWalk {
   }
 
   // Adds every entry of the Font category in `resources` to `found`, and records its directly stored fonts for an indirect `reference`.
-  private fonts(resources: PdfDictionaryEntries, reference: PdfDirectObject | undefined, into: { slot: FontSlot; found: Array<PendingCarrier>; depth: number }): void {
+  private fonts(
+    resources: PdfDictionaryEntries,
+    reference: PdfDirectObject | undefined,
+    into: { slot: FontSlot; found: Array<PendingCarrier>; depth: number },
+  ): void {
     const { slot, found, depth } = into;
     const fonts = this.internals.objects.deref(resources.get(FONT));
     const direct: Array<readonly [Uint8Array, PdfObject]> = [];
