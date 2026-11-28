@@ -770,6 +770,12 @@ describe('luminosity soft masks', () => {
     { name: 'a preblended soft mask taller than the image', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 2/BitsPerComponent 8', maskData: 'A' },
     { name: 'a preblended soft mask of 3 bits per component', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 3', maskData: 'A' },
     { name: 'a preblended soft mask with a one-value Decode', matte: '/Matte[1 0 0]', mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[0]', maskData: 'A' },
+    {
+      name: 'a preblended soft mask with a non-numeric Decode',
+      matte: '/Matte[1 0 0]',
+      mask: '/Width 1/Height 1/BitsPerComponent 8/Decode[/A /B]',
+      maskData: 'A',
+    },
     { name: 'a preblended soft mask with no samples', matte: '/Matte[1 0 0]', mask: undefined, maskData: '' },
   ])('rejects $name in an RGB luminosity mask as invalid and leaves the document unchanged', ({ matte, mask, maskData }) => {
     const { error, before, after } = refusal(loadDocument(documentBytes([maskPage], softMasked(matte, mask, maskData))), cmykOptions);
