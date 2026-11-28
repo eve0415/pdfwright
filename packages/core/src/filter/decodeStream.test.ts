@@ -36,11 +36,13 @@ const pngColumns4 = dictionary([
   ['Columns', pdfInteger(4)],
 ]);
 
-// Resolves 9 0 R to the name ASCIIHexDecode, 10 0 R to the Predictor 12, Columns 4 dictionary and 11 0 R to the null object; any other reference names no object.
+// Resolves 9 0 R to the name ASCIIHexDecode, 10 0 R to the Predictor 12, Columns 4 dictionary, 11 0 R to the null object, 12 0 R to the name Identity and 13 0 R to the name StdCF; any other reference names no object.
 const objects = new Map<string, PdfObject>([
   ['9 0', pdfName('ASCIIHexDecode')],
   ['10 0', pngColumns4],
   ['11 0', NULL],
+  ['12 0', pdfName('Identity')],
+  ['13 0', pdfName('StdCF')],
 ]);
 const deref = (value: PdfDirectObject | undefined): PdfObject | undefined =>
   value?.kind === 'reference' ? objects.get(`${String(value.objectNumber)} ${String(value.generation)}`) : value;
@@ -283,6 +285,32 @@ describe('stream decoding', () => {
       ['DecodeParms', dictionary([['Name', pdfInteger(1)]])],
     ]);
     expect(() => decode(crypt)).toThrow(ParseError);
+  });
+
+  const cryptNamed = (name: PdfDirectObject): PdfStream =>
+    stream(text, [
+      ['Filter', pdfName('Crypt')],
+      ['DecodeParms', dictionary([['Name', name]])],
+    ]);
+
+  // ISO 32000-1:2008, 7.3.9: "Specifying the null object as the value of a dictionary entry (7.3.7, "Dictionary Objects") shall be equivalent to omitting the entry entirely", and a reference to a nonexistent object is treated as null, so Name takes its default, Identity.
+  it.each([
+    ['a reference to Identity', pdfReference(12, 0)],
+    ['a reference to the null object', pdfReference(11, 0)],
+    ['a reference to no object', pdfReference(8, 0)],
+    ['null', NULL],
+  ])('passes data through a crypt filter whose Name is %s', (_, name) => {
+    expect(decodeStream(cryptNamed(name), { maxDecodedBytes: 1_048_576, warn: ignore, deref })).toStrictEqual(text);
+  });
+
+  it('refuses a crypt filter whose Name refers to a crypt filter that needs decryption', () => {
+    const run = (): Uint8Array => decodeStream(cryptNamed(pdfReference(13, 0)), { maxDecodedBytes: 1_048_576, warn: ignore, deref });
+    expect(run).toThrow(UnsupportedFeatureError);
+    expect(run).toThrow(/decryption/u);
+  });
+
+  it('refuses a crypt filter Name given as a reference with no resolver', () => {
+    expect(() => decode(cryptNamed(pdfReference(12, 0)))).toThrow(ParseError);
   });
 });
 
