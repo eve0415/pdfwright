@@ -190,6 +190,9 @@ const gap = fc.constantFrom(' ', '  ', '\n', ' \r\n ');
 const leadingGap = fc.constantFrom('', ' ', '\n');
 const keys = fc.constantFrom('A', 'B', 'Cc', 'Type');
 
+// ISO 32000-1:2008, 7.2.2: a token that begins with a delimiter needs no white space before it, so the generated text leaves that gap out.
+const startsWithDelimiter = (text: string): boolean => /^[/([<]/u.test(text);
+
 const leaf: fc.Arbitrary<Spelled> = fc.oneof(
   fc.integer({ min: -999, max: 999 }).map(value => ({ value: pdfInteger(value), text: String(value) })),
   // Quarters print exactly in five fraction digits, so a rewritten real reads back as the same number; a whole number would be written as an integer.
@@ -212,13 +215,13 @@ const { spelled } = fc.letrec<{ spelled: Spelled; array: Spelled; dictionary: Sp
   spelled: fc.oneof({ depthSize: 'small' }, leaf, tie('array'), tie('dictionary')),
   array: fc.tuple(leadingGap, fc.array(fc.tuple(tie('spelled'), gap), { maxLength: 4 })).map(([lead, items]) => ({
     value: pdfArray(items.map(([item]) => item.value)),
-    text: `[${lead}${items.map(([item, after]) => `${item.text}${after}`).join('')}]`,
+    text: `[${lead}${items.map(([item, after], index) => `${item.text}${startsWithDelimiter(items[index + 1]?.[0].text ?? '') ? '' : after}`).join('')}]`,
   })),
   dictionary: fc
     .tuple(leadingGap, fc.uniqueArray(fc.tuple(keys, gap, tie('spelled'), leadingGap), { selector: ([key]) => key, maxLength: 4 }))
     .map(([lead, entries]) => ({
       value: { kind: 'dictionary', entries: new PdfDictionaryEntries(entries.map(([key, , value]) => [pdfName(key).bytes, value.value])) } as const,
-      text: `<<${lead}${entries.map(([key, between, value, after]) => `/${key}${between}${value.text}${after}`).join('')}>>`,
+      text: `<<${lead}${entries.map(([key, between, value, after]) => `/${key}${startsWithDelimiter(value.text) ? '' : between}${value.text}${after}`).join('')}>>`,
     })),
 }));
 
