@@ -1,6 +1,13 @@
-const angle = (b: number, a: number): number => {
-  const degrees = (Math.atan2(b, a) * 180) / Math.PI;
-  return degrees < 0 ? degrees + 360 : degrees;
+import { deterministicAtanDegrees, deterministicCosDegrees, deterministicSinDegrees } from '../function/deterministicMath.ts';
+
+import { deterministicPow } from './ieeeMath.ts';
+
+// Engines differ in the last bits of Math.atan2, Math.cos, Math.sin, Math.exp, Math.hypot and **, so ΔE00 uses only correctly rounded operations and the fdlibm kernels.
+const TWENTY_FIVE_TO_THE_SEVENTH = 6_103_515_625;
+
+const seventhPower = (value: number): number => {
+  const square = value * value;
+  return square * square * square * value;
 };
 
 const hueDifference = (first: number, second: number, chromaProduct: number): number => {
@@ -33,36 +40,38 @@ const meanHue = (first: number, second: number, chromaProduct: number): number =
 
 /** CIEDE2000 for two L*a*b* triples, with unit parametric factors. */
 export const deltaE2000 = (first: ReadonlyArray<number>, second: ReadonlyArray<number>): number => {
-  const [l1, a1, b1] = first;
-  const [l2, a2, b2] = second;
-  const c1 = Math.hypot(a1 ?? 0, b1 ?? 0);
-  const c2 = Math.hypot(a2 ?? 0, b2 ?? 0);
+  const [l1 = 0, a1 = 0, b1 = 0] = first;
+  const [l2 = 0, a2 = 0, b2 = 0] = second;
+  const c1 = Math.sqrt(a1 * a1 + b1 * b1);
+  const c2 = Math.sqrt(a2 * a2 + b2 * b2);
   const meanC = (c1 + c2) / 2;
-  const meanC7 = meanC ** 7;
-  const g = (1 - Math.sqrt(meanC7 / (meanC7 + 25 ** 7))) / 2;
-  const ap1 = (a1 ?? 0) * (1 + g);
-  const ap2 = (a2 ?? 0) * (1 + g);
-  const cp1 = Math.hypot(ap1, b1 ?? 0);
-  const cp2 = Math.hypot(ap2, b2 ?? 0);
-  const h1 = angle(b1 ?? 0, ap1);
-  const h2 = angle(b2 ?? 0, ap2);
+  const meanC7 = seventhPower(meanC);
+  const g = (1 - Math.sqrt(meanC7 / (meanC7 + TWENTY_FIVE_TO_THE_SEVENTH))) / 2;
+  const ap1 = a1 * (1 + g);
+  const ap2 = a2 * (1 + g);
+  const cp1 = Math.sqrt(ap1 * ap1 + b1 * b1);
+  const cp2 = Math.sqrt(ap2 * ap2 + b2 * b2);
+  const h1 = deterministicAtanDegrees(b1, ap1);
+  const h2 = deterministicAtanDegrees(b2, ap2);
   const deltaH = hueDifference(h1, h2, cp1 * cp2);
   const meanH = meanHue(h1, h2, cp1 * cp2);
   const meanCp = (cp1 + cp2) / 2;
   const t =
     1 -
-    0.17 * Math.cos(((meanH - 30) * Math.PI) / 180) +
-    0.24 * Math.cos((2 * meanH * Math.PI) / 180) +
-    0.32 * Math.cos(((3 * meanH + 6) * Math.PI) / 180) -
-    0.2 * Math.cos(((4 * meanH - 63) * Math.PI) / 180);
-  const deltaTheta = 30 * Math.exp(-(((meanH - 275) / 25) ** 2));
-  const meanCp7 = meanCp ** 7;
-  const rc = 2 * Math.sqrt(meanCp7 / (meanCp7 + 25 ** 7));
-  const sl = 1 + (0.015 * (((l1 ?? 0) + (l2 ?? 0)) / 2 - 50) ** 2) / Math.sqrt(20 + (((l1 ?? 0) + (l2 ?? 0)) / 2 - 50) ** 2);
+    0.17 * deterministicCosDegrees(meanH - 30) +
+    0.24 * deterministicCosDegrees(2 * meanH) +
+    0.32 * deterministicCosDegrees(3 * meanH + 6) -
+    0.2 * deterministicCosDegrees(4 * meanH - 63);
+  const hueOffset = (meanH - 275) / 25;
+  const deltaTheta = 30 * deterministicPow(Math.E, -(hueOffset * hueOffset));
+  const meanCp7 = seventhPower(meanCp);
+  const rc = 2 * Math.sqrt(meanCp7 / (meanCp7 + TWENTY_FIVE_TO_THE_SEVENTH));
+  const lightnessOffset = (l1 + l2) / 2 - 50;
+  const sl = 1 + (0.015 * lightnessOffset * lightnessOffset) / Math.sqrt(20 + lightnessOffset * lightnessOffset);
   const sc = 1 + 0.045 * meanCp;
   const sh = 1 + 0.015 * meanCp * t;
-  const dl = ((l2 ?? 0) - (l1 ?? 0)) / sl;
+  const dl = (l2 - l1) / sl;
   const dc = (cp2 - cp1) / sc;
-  const dh = (2 * Math.sqrt(cp1 * cp2) * Math.sin((deltaH * Math.PI) / 360)) / sh;
-  return Math.sqrt(dl * dl + dc * dc + dh * dh - rc * Math.sin((2 * deltaTheta * Math.PI) / 180) * dc * dh);
+  const dh = (2 * Math.sqrt(cp1 * cp2) * deterministicSinDegrees(deltaH / 2)) / sh;
+  return Math.sqrt(dl * dl + dc * dc + dh * dh - rc * deterministicSinDegrees(2 * deltaTheta) * dc * dh);
 };
