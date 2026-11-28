@@ -1,3 +1,4 @@
+import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { ContentOperand, ContentOperation, SpannedContentOperation } from './contentOperations.ts';
 
 import fc from 'fast-check';
@@ -5,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
+import { PdfDictionaryEntries } from '../object/pdfDictionaryEntries.ts';
 import { latin1Bytes } from '../testing/pdfBuilder.ts';
 
 import { readContent, readContentSpans } from './contentOperations.ts';
@@ -39,6 +41,10 @@ const nested = (depth: number): string => `${'['.repeat(depth)}${']'.repeat(dept
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });
 const integer = (value: number): ContentOperand => ({ kind: 'integer', value });
+const array = (...values: ReadonlyArray<number>): ContentOperand => ({
+  kind: 'array',
+  items: values.map((value): PdfDirectObject => ({ kind: 'integer', value })),
+});
 
 describe('content operations', () => {
   it('reads each operator with its parsed operands and offset', () => {
@@ -79,6 +85,67 @@ describe('content operations', () => {
       1,
       4,
     ]);
+  });
+
+  describe('an array or dictionary operand split between streams', () => {
+    // ISO 32000-1:2008, 7.7.3.3, Table 30, Contents: "The division between streams may occur only at the boundaries between lexical tokens", and these divisions fall between two tokens.
+    it('reads the array as one operand without joining the tokens on either side of the division', () => {
+      expect(operations(['[1', '2] TJ'])).toStrictEqual([{ operator: 'TJ', operands: [array(1, 2)], stream: 1, offset: 3 }]);
+    });
+
+    it('reads a dictionary divided between a key and its value', () => {
+      expect(operations(['/Span <</MCID', '7>> BDC'])).toStrictEqual([
+        {
+          operator: 'BDC',
+          operands: [name('Span'), { kind: 'dictionary', entries: new PdfDictionaryEntries([[latin1Bytes('MCID'), { kind: 'integer', value: 7 }]]) }],
+          stream: 1,
+          offset: 4,
+        },
+      ]);
+    });
+
+    it('reads an array divided over three streams, the middle one empty, and the operations after it', () => {
+      expect(operations(['q [1 %c', '', '2]', 'TJ Q'])).toStrictEqual([
+        { operator: 'q', operands: [], stream: 0, offset: 0 },
+        { operator: 'TJ', operands: [array(1, 2)], stream: 3, offset: 0 },
+        { operator: 'Q', operands: [], stream: 3, offset: 3 },
+      ]);
+    });
+
+    it('reads an array parameter of an inline image divided between streams', () => {
+      const [image] = operations(['BI /W 1 /H 1 /BPC 8 /CS /G /D [0', '1] ID A EI']);
+      expect(image?.inlineImage?.parameters.slice(-2)).toStrictEqual([name('D'), array(0, 1)]);
+    });
+
+    it('places the operation in the stream of its operator, starting the span at the operator', () => {
+      const spans = [...readContentSpans([latin1Bytes('[1'), latin1Bytes('2] 0 d')], 32)].map(operation => [
+        operation.stream,
+        operation.offset,
+        operation.start,
+        operation.end,
+      ]);
+      expect(spans).toStrictEqual([[1, 5, 5, 6]]);
+    });
+
+    it('reads nesting up to maxNesting and refuses it past maxNesting', () => {
+      expect(operations(['['.repeat(32), `${']'.repeat(32)} TJ`]).map(operation => operation.operator)).toStrictEqual(['TJ']);
+      expect(() => operations(['['.repeat(33), `${']'.repeat(33)} TJ`])).toThrow(ResourceLimitError);
+    });
+
+    it('reads an array of 16,384 values, the array included, and refuses one of 16,385', () => {
+      const [operation] = operations([`[${'0 '.repeat(8000)}`, `${'0 '.repeat(8383)}] TJ`]);
+      const [read] = operation?.operands ?? [];
+      expect(read?.kind === 'array' ? read.items.length : undefined).toBe(16_383);
+      expect(() => operations([`[${'0 '.repeat(8000)}`, `${'0 '.repeat(8384)}] TJ`])).toThrow(ResourceLimitError);
+    });
+
+    it.each([
+      ['a string divided inside the array', ['[(a', 'b)] TJ']],
+      ['an array still open after the last stream', ['[1', '2']],
+      ['an array closed by a dictionary delimiter', ['[1', '>> TJ']],
+    ])('throws ParseError for %s', (_, streams) => {
+      expect(() => operations(streams)).toThrow(ParseError);
+    });
   });
 
   it('reads an inline image as one BI operation with its parameters and data', () => {
