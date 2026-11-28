@@ -112,6 +112,7 @@ const RESOURCES = pdfName('Resources').bytes;
 const GROUP = pdfName('Group').bytes;
 const COLOR_SPACE = pdfName('CS').bytes;
 const MASK = pdfName('SMask').bytes;
+const MATTE = pdfName('Matte').bytes;
 const MASK_SUBTYPE = pdfName('S').bytes;
 const MASK_GROUP = pdfName('G').bytes;
 const BACKDROP = pdfName('BC').bytes;
@@ -237,14 +238,32 @@ interface GrayImage {
   readonly stencil: PdfStream | undefined;
 }
 
-const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): GrayImage => {
+// ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space, the samples are preblended with it, and the soft mask has the image's Width and Height.
+const checkPreblended = (scan: MaskScan, image: PdfStream, size: { width: number; height: number }): void => {
   const softMask = scan.internals.objects.deref(image.dictionary.get(MASK));
-  // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte gives one value per component of the image's colour space and the samples are preblended with it.
-  if (softMask?.kind === 'stream' && softMask.dictionary.get(pdfName('Matte').bytes) !== undefined) {
-    throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
+  const matte = softMask?.kind === 'stream' ? scan.internals.objects.deref(softMask.dictionary.get(MATTE)) : undefined;
+  if (softMask?.kind !== 'stream' || matte === undefined) {
+    return;
   }
+  if (matte.kind !== 'array' || matte.items.length !== 3) {
+    throw new ValidationError('luminosity image soft-mask Matte does not match the image colour space', 'color-space');
+  }
+  for (const item of matte.items) {
+    const component = scan.internals.objects.deref(item);
+    if ((component?.kind !== 'integer' && component?.kind !== 'real') || typeof component.value !== 'number') {
+      throw new ValidationError('luminosity image soft-mask Matte entry is not numeric', 'color-space');
+    }
+  }
+  if (imageInteger(scan, softMask, WIDTH) !== size.width || imageInteger(scan, softMask, HEIGHT) !== size.height) {
+    throw new ValidationError('luminosity image and its preblended soft mask differ in size', 'color-space');
+  }
+  throw new UnsupportedFeatureError('luminosity image soft mask is preblended with an RGB Matte');
+};
+
+const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: ReadonlyArray<number>) => number): GrayImage => {
   const width = imageInteger(scan, image, WIDTH);
   const height = imageInteger(scan, image, HEIGHT);
+  checkPreblended(scan, image, { width, height });
   const bits = imageInteger(scan, image, BITS);
   if (![1, 2, 4, 8, 16].includes(bits)) {
     throw new UnsupportedFeatureError('luminosity image bit depth is unsupported');
