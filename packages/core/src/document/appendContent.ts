@@ -63,6 +63,10 @@ const checkRawContent = (data: Uint8Array, isolate: boolean): void => {
         throw new ValidationError(`raw content paint ${operator} can inherit overprint settings`, 'raw-content-unchecked');
       }
     }
+    // ISO 32000-1:2008, 8.4.2: q and Q occur in balanced pairs; an open q would take the Q of a later isolated append as its own.
+    if (depth !== 0) {
+      throw new ValidationError('raw content leaves a graphics state save open', 'raw-content-unchecked');
+    }
   } catch (error: unknown) {
     if (error instanceof ParseError || error instanceof ResourceLimitError) {
       throw new ValidationError('raw content cannot be parsed for invisible overprint', 'raw-content-unchecked');
