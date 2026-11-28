@@ -417,3 +417,32 @@ describe('function dictionaries', () => {
     expect(() => outputs([0.5])).toThrow(/output dimension/);
   });
 });
+
+// Each function from f0, the identity, to f(levels) stitches the one below it, all as direct objects.
+const directChain = (levels: number): ReturnType<typeof pdfDictionary> => {
+  let fn = identity();
+  for (let level = 1; level <= levels; level++) {
+    fn = evenStitching([fn]);
+  }
+  return fn;
+};
+
+describe('function readers', () => {
+  it('builds 16 levels of nesting and rejects 17', () => {
+    expect(createPdfFunction(directChain(16))([0.3])).toStrictEqual([0.3]);
+    expect(() => createPdfFunction(directChain(17))).toThrow(ResourceLimitError);
+  });
+
+  it('forgets a reference whose build failed, so a second read fails the same way', () => {
+    const read = createPdfFunctionReader(value => resolveObject(new Map([[1, pdfInteger(5)]]), value));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(() => read(pdfReference(1, 0))).toThrow(ParseError);
+    }
+  });
+
+  it('counts one direct function object once however often a graph places it', () => {
+    const children = Array.from({ length: 65_535 }, (_, index) => functionObject(2, { C0: numbers([index]), N: pdfInteger(1) }));
+    const [first] = children;
+    expect(createPdfFunction(evenStitching([...children, first ?? identity()]))([1])).toStrictEqual([1]);
+  });
+});
