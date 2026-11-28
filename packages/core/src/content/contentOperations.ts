@@ -67,6 +67,7 @@ interface PendingImage {
   readonly operands: ReadonlyArray<ContentOperand>;
   readonly stream: number;
   readonly offset: number;
+  readonly start: number;
 }
 
 /** An array or dictionary operand that a stream ends inside: its bytes in each stream so far, and the arrays and dictionaries still open. */
@@ -216,18 +217,18 @@ class OperationReader {
             inlineImage: { parameters, data },
             stream: image.stream,
             offset: image.offset,
-            start: image.offset,
+            start: image.start,
             end: lexer.position,
           };
           continue;
         }
         // Without ID the parameters stay on the operand stack for the operator that follows them.
-        yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.offset, end: image.offset + 2 };
+        yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, end: image.offset + 2 };
       }
+      const start = this.firstOperand?.stream === stream ? this.firstOperand.offset : token.start;
       if (operator === 'BI') {
-        this.image = { operands: this.take(), stream, offset: token.start };
+        this.image = { operands: this.take(), stream, offset: token.start, start };
       } else {
-        const start = this.firstOperand?.stream === stream ? this.firstOperand.offset : token.start;
         yield { operator, operands: this.take(), stream, offset: token.start, start, end: token.end };
       }
     }
@@ -238,7 +239,7 @@ class OperationReader {
     const { image } = this;
     this.image = undefined;
     if (image !== undefined) {
-      yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.offset, end: image.offset + 2 };
+      yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.start, end: image.offset + 2 };
     }
     return this.take();
   }
