@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "oxlint && oxfmt --check && pnpm run check:type-aware-coverage && pnpm test && pnpm run test:bun && pnpm run test:deno && pnpm run build",
+    "check": "oxlint && oxfmt --check && pnpm run check:type-aware-coverage && pnpm test && pnpm run test:bun && pnpm run test:deno && pnpm run build && pnpm run check:packages",
     "lint": "status=0; oxlint --fix --fix-suggestions --fix-dangerously || status=1; oxfmt || status=1; pnpm run check:type-aware-coverage || status=1; exit \"$status\"",
     "test": "vitest run",
     "test:bun": "bun --bun node_modules/vitest/vitest.mjs run --project bun",
     "test:deno": "deno run -A node_modules/vitest/vitest.mjs run --project deno",
     "test:coverage": "vitest run --project node --coverage --testTimeout=30000",
     "build": "pnpm --recursive --filter=./packages/* run build",
-    "check:type-aware-coverage": "node scripts/assertTypeAwareCoverage.ts"
+    "check:type-aware-coverage": "node scripts/assertTypeAwareCoverage.ts",
+    "check:packages": "node scripts/checkPackages.ts"
   },
   "devDependencies": {
     "@cloudflare/oxlint-config": "0.2.0",
