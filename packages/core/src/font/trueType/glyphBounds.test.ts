@@ -73,16 +73,36 @@ describe('glyph bounds of TrueType programs', () => {
     expect(boundsOf(font, [0])).toStrictEqual([undefined]);
   });
 
-  it('gives no box for entries the tables do not hold, reversed boxes and boxes larger than 16 ems', () => {
-    const glyf = [...glyph(0, 0, 100, 100), ...glyph(100, 100, 0, 0), ...glyph(0, 0, 17_000, 100)];
+  it('gives no box for entries the tables do not hold, boxes reversed on either axis and boxes larger than 16 ems', () => {
+    const boxes = [
+      [0, 0, 100, 100],
+      [100, 0, 0, 100],
+      [0, 100, 100, 0],
+      [0, 0, 17_000, 100],
+      [0, 0, 100, 17_000],
+      [0, 0, 16_000, 100],
+      [0, 0, 100, 16_000],
+    ];
+    const glyf = boxes.flatMap(box => glyph(...box));
+    // Short offsets are halved, so each 10-byte glyf header takes 5; glyph 7 runs past the end of glyf, and glyph 8 starts past it.
+    const offsets = [...boxes.map((_, index) => 5 * index), 5 * boxes.length, 100, 50];
     const font = program([
       ['head', head(1000, 0)],
-      ['maxp', maxp(5)],
-      // Short offsets are halved: glyph 3 runs past glyf, and glyph 4 has its offsets reversed.
-      ['loca', u16(0, 5, 10, 15, 100, 50)],
+      ['maxp', maxp(offsets.length - 1)],
+      ['loca', u16(...offsets)],
       ['glyf', glyf],
     ]);
-    expect(boundsOf(font, [0, 1, 2, 3, 4])).toStrictEqual([[0, 0, 0.1, 0.1], undefined, undefined, undefined, undefined]);
+    expect(boundsOf(font, [0, 1, 2, 3, 4, 5, 6, 7, 8])).toStrictEqual([
+      [0, 0, 0.1, 0.1],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [0, 0, 16, 0.1],
+      [0, 0, 0.1, 16],
+      undefined,
+      undefined,
+    ]);
   });
 
   it('reports a program without glyf outlines as absent and damaged tables as unreadable', () => {
