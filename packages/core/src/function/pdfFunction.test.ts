@@ -345,6 +345,29 @@ describe('exponential functions', () => {
     expect(build).toThrow(ParseError);
     expect(build).toThrow(pattern);
   });
+
+  // ISO 32000-1:2008, 7.10.3: if N is not an integer, every x in the Domain is non-negative, and if N is negative, no x in the Domain is 0.
+  it('builds an exponent its Domain allows', () => {
+    const outputs = [
+      createPdfFunction(functionObject(2, { Domain: numbers([-1, 1]), N: pdfInteger(2) }))([-0.5]),
+      createPdfFunction(functionObject(2, { Domain: numbers([0, 1]), N: pdfReal(0.5) }))([0.25]),
+      createPdfFunction(functionObject(2, { Domain: numbers([0.5, 1]), N: pdfInteger(-1) }))([0.5]),
+      createPdfFunction(functionObject(2, { Domain: numbers([-1, -0.5]), N: pdfInteger(-1) }))([-0.5]),
+    ];
+    expect(outputs).toStrictEqual([[0.25], [0.5], [2], [-2]]);
+  });
+
+  it.each([
+    ['a fractional N on a Domain below 0', [-1, 1], pdfReal(0.5), /negative Domain/],
+    ['a fractional N on a Domain entirely below 0', [-1, -0.5], pdfReal(0.5), /negative Domain/],
+    ['a negative N on a Domain that starts at 0', [0, 1], pdfInteger(-1), /negative N/],
+    ['a negative N on a Domain that ends at 0', [-1, 0], pdfInteger(-1), /negative N/],
+    ['a negative N on a Domain of only 0', [0, 0], pdfInteger(-2), /negative N/],
+  ])('rejects %s', (_, domain, exponent, pattern) => {
+    const build = () => createPdfFunction(functionObject(2, { Domain: numbers(domain), N: exponent }));
+    expect(build).toThrow(ParseError);
+    expect(build).toThrow(pattern);
+  });
 });
 
 describe('stitching functions', () => {
