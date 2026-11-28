@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decodePcs, encodePcs, labToXyz, xyzToLab } from './pcs.ts';
 import { lut8, PCS_D50 } from './testing/iccProfiles.ts';
+import { largestDifference } from './testing/largestDifference.ts';
 
 const D50 = [PCS_D50.x, PCS_D50.y, PCS_D50.z] as const;
 
@@ -19,15 +20,6 @@ const f = (ratio: number): number => (ratio > EPSILON ? Math.cbrt(ratio) : (KAPP
 const cieLab = (xyz: ReadonlyArray<number>): Array<number> => {
   const [fx, fy, fz] = xyz.map((value, index) => f(value / (D50[index] ?? 1)));
   return [116 * (fy ?? 0) - 16, 500 * ((fx ?? 0) - (fy ?? 0)), 200 * ((fy ?? 0) - (fz ?? 0))];
-};
-
-// The largest componentwise difference, or Infinity when the lengths differ or a component is NaN.
-const largestDifference = (actual: ReadonlyArray<number>, expected: ReadonlyArray<number>): number => {
-  if (actual.length !== expected.length) {
-    return Infinity;
-  }
-  const differences = expected.map((value, index) => Math.abs((actual[index] ?? Number.NaN) - value));
-  return differences.some(difference => Number.isNaN(difference)) ? Infinity : Math.max(0, ...differences);
 };
 
 const component = (max: number): fc.Arbitrary<number> => fc.double({ min: 0, max, noNaN: true });
