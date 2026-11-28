@@ -47,7 +47,7 @@ export const runTool = async (command: string, args: ReadonlyArray<string>): Pro
 /** Runs a tool with optional standard input and rejects unless it exits 0, with its stderr in the message. */
 export const runChecked = async (command: string, args: ReadonlyArray<string>, input?: Uint8Array): Promise<CheckedRun> => {
   const child = spawn(command, args);
-  // A tool that exits before reading all of its input breaks the pipe; the exit code says more, so the write error is kept for a tool that then exits 0.
+  // Writing the input fails only when the tool exits before the pipe has taken all of it, so a tool that ignores input small enough to fit the pipe buffer is not caught. The exit code says more than the write error, so the write error is raised only for a tool that exits 0.
   let unread: unknown;
   child.stdin.on('error', (error: unknown) => {
     unread = error;
