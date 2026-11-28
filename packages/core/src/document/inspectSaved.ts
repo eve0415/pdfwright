@@ -41,12 +41,20 @@ export const keys = (value: PdfObject): Array<string> => {
 export const objectText = (value: PdfObject): string =>
   latin1Text(serializeObject(value.kind === 'stream' ? { kind: 'dictionary', entries: value.dictionary } : value, { fractionDigits: 5 }));
 
-/** A stream's data, inflated when its Filter is FlateDecode. */
+/** A stream's data, inflated when its Filter is FlateDecode; any other Filter is refused rather than returned encoded. */
 export const streamBytes = (value: PdfObject): Uint8Array => {
   if (value.kind !== 'stream') {
     throw new Error(`a ${value.kind} has no stream data`);
   }
-  return value.dictionary.has(pdfName('Filter').bytes) ? inflateZlib(value.data).data : value.data;
+  const filter = value.dictionary.get(pdfName('Filter').bytes);
+  if (filter === undefined) {
+    return value.data;
+  }
+  // ISO 32000-1:2008, 7.4.4: FlateDecode is the zlib/deflate filter.
+  if (filter.kind === 'name' && latin1Text(filter.bytes) === 'FlateDecode') {
+    return inflateZlib(value.data).data;
+  }
+  throw new Error(`a stream with Filter ${objectText(filter)} is not FlateDecode`);
 };
 
 /** The resource a page's content names, from the page's effective Resources. */
