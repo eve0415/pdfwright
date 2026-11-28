@@ -248,6 +248,8 @@ export interface InterpretHandlers {
   readonly cover?: (event: CoverEvent) => void;
   readonly text?: (event: TextShowEvent) => void;
   readonly select?: (event: ColorSelectEvent) => void;
+  /** Called with the font cache key of each font that a Tf operator or a graphics state parameter dictionary's Font entry selects, before the font is read. */
+  readonly fontKey?: (key: string) => void;
 }
 
 export interface InterpretOptions extends InterpretHandlers {
@@ -974,6 +976,7 @@ class Interpreter {
     }
     const { owner, name: resourceName } = fontResourceOwner(step.scope.resources?.get(FONT), step.scope.owner, name);
     const key = fontKey(value, owner, resourceName);
+    this.handlers.fontKey?.(key);
     return this.font(key, () => this.fonts.font(value, key));
   }
 
@@ -997,6 +1000,7 @@ class Interpreter {
       } else {
         const holder = graphicsStateFontOwner({ category: scope.resources?.get(EXT_G_STATE), state: value }, scope.owner, name);
         const key = fontKey(fontValue, holder.owner, holder.name);
+        this.handlers.fontKey?.(key);
         this.state = { ...this.state, font: this.font(key, () => this.fonts.font(fontValue, key)), fontSize };
       }
     }
