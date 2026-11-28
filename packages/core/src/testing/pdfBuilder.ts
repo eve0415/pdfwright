@@ -216,7 +216,15 @@ class TestPdfWriter {
       this.xrefStream(number, new Map([...entries].filter(([, entry]) => entry.type === 2)), '');
       const visible = new Map([...[...entries].filter(([, entry]) => entry.type !== 2), [number, { type: 1, second: streamOffset, third: 0 }] as const]);
       offset = this.text.length;
-      this.text += `${classicTable(visible, first)}trailer\n<</Size ${String(this.size)}${prev}/XRefStm ${String(streamOffset)}${trailer}>>\n`;
+      if (first) {
+        // A classic entry, even a free one, hides the stream entry from qpdf, MuPDF and this library, so the original table leaves the members out rather than covering every number.
+        for (let number = 0; number <= Math.max(...visible.keys()); number++) {
+          if (!entries.has(number) && !visible.has(number)) {
+            visible.set(number, { type: 0, second: 0, third: 65_535 });
+          }
+        }
+      }
+      this.text += `${classicTable(visible, false)}trailer\n<</Size ${String(this.size)}${prev}/XRefStm ${String(streamOffset)}${trailer}>>\n`;
     } else if (section.xref === 'classic') {
       this.text += `${classicTable(entries, first)}trailer\n<</Size ${String(this.size)}${prev}${trailer}>>\n`;
     } else {

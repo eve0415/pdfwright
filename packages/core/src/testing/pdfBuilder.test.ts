@@ -3,7 +3,7 @@ import type { TestSection } from './pdfBuilder.ts';
 import { describe, expect, it } from 'vitest';
 
 import { loadDocument } from '../document/loadDocument.ts';
-import { pdfReference } from '../object/pdfObject.ts';
+import { pdfReference, pdfString } from '../object/pdfObject.ts';
 
 import { buildPdf, latin1Bytes, latin1Text, streamBody } from './pdfBuilder.ts';
 
@@ -249,5 +249,21 @@ describe('free lists', () => {
 
   it('refuses a cross-reference stream numbered like a free object', () => {
     expect(() => buildPdf([{ xref: 'stream', objects, free: [{ number: 9, generation: 1 }], xrefStreamNumber: 9 }])).toThrow(RangeError);
+  });
+
+  it('leaves the members of an original hybrid section out of its classic table, so that its stream is consulted', () => {
+    const pdf = buildPdf([{ ...HYBRID_UPDATE, objects: [CATALOG, PAGES, { number: 7, body: '(seven)' }] }]);
+    expect(xrefLines(pdf.text, pdf.sections[0] ?? 0)).toStrictEqual([
+      'xref',
+      '0 9',
+      '0000000000 65535 f ',
+      ...[1, 2].map(number => `${String(pdf.offsets.get(number)).padStart(10, '0')} 00000 n `),
+      ...Array.from({ length: 4 }, () => '0000000000 65535 f '),
+      ...[7, 8].map(number => `${String(pdf.offsets.get(number)).padStart(10, '0')} 00000 n `),
+      '10 1',
+      `${String(pdf.text.indexOf('10 0 obj\n<</Type/XRef')).padStart(10, '0')} 00000 n `,
+    ]);
+    const document = loadDocument(pdf.bytes);
+    expect([document.structure.status, document.get(pdfReference(9, 0))]).toStrictEqual(['intact', pdfString(latin1Bytes('nine'))]);
   });
 });
