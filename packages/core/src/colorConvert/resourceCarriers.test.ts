@@ -460,3 +460,29 @@ describe('deeply nested carriers', () => {
     expectIndexed(ownResource(document, 4 + depth, 'ColorSpace', 'CS1'));
   });
 });
+
+describe('rendering intents of direct shadings in resource carriers', () => {
+  const sampled = (document: LoadedDocument, owner: number, keys: ReadonlyArray<string>): ReadonlyArray<number> => {
+    const shading = at(document, owner, keys);
+    return functionOf(document, shading?.kind === 'dictionary' ? shading.entries.get(pdfName('Function').bytes) : undefined)([0.5]);
+  };
+  const directCarrier = {
+    carrier: 'a direct Type 3 font',
+    page: `/Resources<</Font<</F <<${TYPE3}${OWN_SHADING}>>>>>>`,
+    objects: [{ number: 6, body: streamBody('', '1000 0 d0 /Perceptual ri /Sh1 sh') }],
+    owner: 3,
+    keys: ['Resources', 'Font', 'F', 'Resources', 'Shading', 'Sh1'],
+  };
+  const cases = [...carriers(OWN_SHADING, '/Perceptual ri /Sh1 sh').map(item => ({ ...item, keys: ['Resources', 'Shading', 'Sh1'] })), directCarrier];
+
+  it.each(cases)('samples a shading in $carrier with the intent its content selects', ({ page, objects, owner, keys }) => {
+    // ISO 32000-1:2008, 8.6.5.8: the ri operator sets the rendering intent that colour conversion of later painting uses.
+    const converted = (intent: 'document' | 'perceptual' | 'relativeColorimetric'): ReadonlyArray<number> => {
+      const document = carrierPdf(page, objects);
+      convertShadings(document, { sourceRgbProfile: source, outputProfile: destination, intent });
+      return sampled(document, owner, keys);
+    };
+    expect(converted('perceptual')).not.toStrictEqual(converted('relativeColorimetric'));
+    expect(converted('document')).toStrictEqual(converted('perceptual'));
+  });
+});
