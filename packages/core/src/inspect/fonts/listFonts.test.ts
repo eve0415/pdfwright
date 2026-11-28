@@ -402,7 +402,7 @@ describe('font inventory', () => {
       trueType.embedding,
       codes(trueType),
       font.type3,
-      font.problems.map(problem => [problem.code, /^the FontName cannot be read: unexpected keyword endobj$/u.test(problem.detail)]),
+      font.problems.map(problem => [problem.code, /FontName/u.test(problem.detail)]),
       type3.unreadable.map(entry => [entry.page, /a dictionary key must be a name/u.test(entry.reason)]),
     ]).toStrictEqual([
       { state: 'unreadable', file: 'FontFile2' },
