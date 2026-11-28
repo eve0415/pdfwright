@@ -176,4 +176,29 @@ describe('synthetic TrueType programs', () => {
     expect(String.fromCodePoint(...Array.from({ length: windows.length / 2 }, (_, index) => u16(windows, 2 * index)))).toBe('PdfwrightTest');
     expect(String.fromCodePoint(...nameRecord(name, 1, 0, 0, 6))).toBe('PdfwrightTest');
   });
+
+  it('writes variation selector records in ascending selector order, whatever order they are given in', () => {
+    const font = syntheticTrueType({
+      name: 'T',
+      glyphs: [{ advance: 500 }, { advance: 500 }],
+      characters: [
+        [0x41, 1],
+        [0x42, 1],
+      ],
+      variations: [
+        { selector: 0xe_01_00, defaults: [], glyphs: [[0x42, 1]] },
+        { selector: 0xfe_0f, defaults: [0x41], glyphs: [] },
+      ],
+    });
+    const cmap = tableData(tables(font), 'cmap');
+    const subtable = u32(cmap, 4 + 4);
+    // OpenType cmap format 14: each VariationSelector record is a uint24 selector followed by two Offset32 values.
+    const selectors = Array.from(
+      { length: u32(cmap, subtable + 6) },
+      (_, index) => u16(cmap, subtable + 10 + 11 * index) * 256 + (cmap[subtable + 12 + 11 * index] ?? 0),
+    );
+    expect(selectors).toStrictEqual([0xfe_0f, 0xe_01_00]);
+    const read = cmapOf(readTrueTypeCmap(font));
+    expect([read.variant(0x41, 0xfe_0f), read.variant(0x42, 0xe_01_00), read.variant(0x41, 0xe_01_00)]).toStrictEqual(['default', 1, undefined]);
+  });
 });

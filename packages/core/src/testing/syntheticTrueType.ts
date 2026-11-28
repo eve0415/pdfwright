@@ -91,7 +91,8 @@ const format14 = (variations: ReadonlyArray<SyntheticVariations>): Array<number>
   const header = 10 + 11 * variations.length;
   const records: Array<number> = [];
   const tables: Array<number> = [];
-  for (const { selector, defaults, glyphs } of variations) {
+  // OpenType cmap format 14 requires the VariationSelector records sorted by increasing varSelector.
+  for (const { selector, defaults, glyphs } of variations.toSorted((left, right) => left.selector - right.selector)) {
     const defaultOffset = header + tables.length;
     tables.push(...u32(defaults.length));
     for (const codePoint of defaults.toSorted((left, right) => left - right)) {
