@@ -40,6 +40,13 @@ interface Scope {
   readonly assignments: Map<string, Assignment>;
   readonly sourceBytes: Uint8Array;
   readonly nameEdits: Array<NameEdit>;
+  readonly generated: GeneratedNames;
+}
+
+// The names this scope gave to copies of forms, by plan, and the index its next name search starts at.
+interface GeneratedNames {
+  readonly names: Map<FormPlan, Uint8Array>;
+  next: number;
 }
 
 interface NameEdit {
@@ -157,14 +164,21 @@ const assign = (internals: DocumentInternals, scope: Scope, use: FormUse, plan: 
   const key = bytesKey(use.name);
   const existing = scope.assignments.get(key);
   if (existing !== undefined && existing.plan !== plan) {
+    const reused = scope.generated.names.get(plan);
+    if (reused !== undefined) {
+      scope.nameEdits.push({ start: use.start, end: use.end, text: `/${new TextDecoder('ascii').decode(reused)} Do` });
+      return;
+    }
     const category = internals.objects.deref(scope.resources.get(XOBJECT));
     const used = category?.kind === 'dictionary' ? category.entries : undefined;
-    for (let index = 0; ; index++) {
+    for (let index = scope.generated.next; ; index++) {
       const name = pdfName(`PWFORM${String(index)}`).bytes;
       const generatedKey = bytesKey(name);
       if (used?.has(name) === true || scope.assignments.has(generatedKey)) {
         continue;
       }
+      scope.generated.next = index + 1;
+      scope.generated.names.set(plan, name);
       scope.assignments.set(generatedKey, { name, plan });
       scope.nameEdits.push({ start: use.start, end: use.end, text: `/${new TextDecoder('ascii').decode(name)} Do` });
       return;
@@ -275,6 +289,7 @@ class FormPlanner {
       clone,
       assignments: new Map(),
       nameEdits: [],
+      generated: { names: new Map(), next: 0 },
     };
     const key = referenceKey(reference);
     this.active.add(key);
@@ -339,7 +354,14 @@ class FormPlanner {
         options: this.options,
         overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
       });
-      const scope: PageScope = { reference: entry.reference, resources, sourceBytes, assignments: new Map(), nameEdits: [] };
+      const scope: PageScope = {
+        reference: entry.reference,
+        resources,
+        sourceBytes,
+        assignments: new Map(),
+        nameEdits: [],
+        generated: { names: new Map(), next: 0 },
+      };
       this.scanUses(scope, rewritten.formUses);
       scopes.push(scope);
     }
@@ -366,7 +388,7 @@ class FormPlanner {
       options: this.options,
       overprintNames: { off: 'PWOPM0', on: 'PWOPM1' },
     });
-    const scope: CarrierScope = { reference, stream, resources, sourceBytes, assignments: new Map(), nameEdits: [] };
+    const scope: CarrierScope = { reference, stream, resources, sourceBytes, assignments: new Map(), nameEdits: [], generated: { names: new Map(), next: 0 } };
     this.scanUses(scope, rewritten.formUses);
     scopes.push(scope);
   }
