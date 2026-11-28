@@ -92,7 +92,11 @@ const evaluateSampled = (entries: FunctionEntries, data: Uint8Array, limits: { d
   const outputs = limits.range.length / 2;
   let count = outputs;
   for (const size of sizes) {
-    if (!Number.isSafeInteger(size) || size < 1 || count * size > 16_777_216) {
+    // ISO 32000-1:2008, 7.10.2, Table 39: each Size is a positive integer.
+    if (!Number.isInteger(size) || size < 1) {
+      throw new ParseError('sampled function Size must be a positive integer', 0);
+    }
+    if (count * size > 16_777_216) {
       throw new ResourceLimitError('sampled function table is too large');
     }
     count *= size;
