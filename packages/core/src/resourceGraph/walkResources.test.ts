@@ -118,24 +118,24 @@ const form = (number: number, resources: string): TestObject => ({
 
 interface AcroFormWalk {
   readonly visits: ReadonlyArray<readonly [number | undefined, ReadonlyArray<ResourceOrigin>]>;
-  readonly keys: ReadonlyArray<string>;
+  readonly fonts: ReadonlyArray<{ readonly name: string; readonly owner: string }>;
   readonly from: ReadonlyArray<string>;
 }
 
 const walkForm = (catalog: string, objects: ReadonlyArray<TestObject>): AcroFormWalk => {
   const document = internals('', objects, '', catalog);
   const visits: Array<readonly [number | undefined, ReadonlyArray<ResourceOrigin>]> = [];
-  const keys: Array<string> = [];
+  const fonts: Array<{ readonly name: string; readonly owner: string }> = [];
   const unreadable = walkAcroFormResources(document, {
     resources: undefined,
     visit: ({ reference: own, origins }) => {
       visits.push([own?.objectNumber, origins]);
     },
-    font: ({ value, owner, name }) => {
-      keys.push(fontKey(value, owner, name));
+    font: ({ owner, name }) => {
+      fonts.push({ name: latin1Text(name), owner });
     },
   });
-  return { visits, keys, from: unreadable.map(({ from }) => from) };
+  return { visits, fonts, from: unreadable.map(({ from }) => from) };
 };
 
 describe('resource walks', () => {
@@ -398,7 +398,7 @@ describe('resource walks', () => {
         name: 'a direct DR, whose direct fonts it names after AcroForm/DR',
         catalog: `/AcroForm<</Fields[]/DR<</Font<</F1 ${HELVETICA}>>>>>>`,
         objects: [],
-        expected: { visits: [[undefined, [{ kind: 'acroform' }]]], keys: ['direct:AcroForm/DR:4631'], from: [] },
+        expected: { visits: [[undefined, [{ kind: 'acroform' }]]], fonts: [{ name: 'F1', owner: 'AcroForm/DR' }], from: [] },
       },
       {
         name: 'an indirect DR, whose direct fonts it names after the dictionary',
@@ -407,19 +407,19 @@ describe('resource walks', () => {
           { number: 15, body: '<</Fields[]/DR 20 0 R>>' },
           { number: 20, body: `<</Font<</F1 ${HELVETICA}>>>>` },
         ],
-        expected: { visits: [[20, [{ kind: 'acroform' }]]], keys: ['direct:20.0:4631'], from: [] },
+        expected: { visits: [[20, [{ kind: 'acroform' }]]], fonts: [{ name: 'F1', owner: '20.0' }], from: [] },
       },
       {
         name: 'a DR it cannot parse',
         catalog: '/AcroForm<</Fields[]/DR 20 0 R>>',
         objects: [{ number: 20, body: '<</Font (unterminated' }],
-        expected: { visits: [], keys: [], from: ['AcroForm'] },
+        expected: { visits: [], fonts: [], from: ['AcroForm'] },
       },
       {
         name: 'an AcroForm it cannot parse',
         catalog: '/AcroForm 15 0 R',
         objects: [{ number: 15, body: '<</Fields (unterminated' }],
-        expected: { visits: [], keys: [], from: ['AcroForm'] },
+        expected: { visits: [], fonts: [], from: ['AcroForm'] },
       },
     ])('walks $name', ({ catalog, objects, expected }) => {
       expect(walkForm(catalog, objects)).toStrictEqual(expected);
