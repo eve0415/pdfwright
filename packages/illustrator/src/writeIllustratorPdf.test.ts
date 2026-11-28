@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeModel } from './testing/normalizeModel.ts';
 import { rawZstandardFrame } from './testing/rawZstandardFrame.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './testing/readIllustratorPdf.ts';
-import { writeIllustratorPdfExample } from './writeIllustratorPdfExample.ts';
+import { writeIllustratorPdfExample } from './testing/writeIllustratorPdfExample.ts';
 
 import { writeIllustratorPdf } from './index.ts';
 
