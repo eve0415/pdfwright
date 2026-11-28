@@ -1,6 +1,7 @@
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { LexContext, Token } from '../parse/lexer.ts';
 
+import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { Lexer } from '../parse/lexer.ts';
 import { parseObject } from '../parse/parseObject.ts';
@@ -141,9 +142,26 @@ class OperationReader {
     this.operands.push(operand);
   }
 
+  // Parsed once from all its pieces; still open after the last stream, it throws ParseError as it would in one stream.
+  private parseOpen(open: OpenOperand, context: LexContext): ContentOperand {
+    const lexer = new Lexer({ bytes: joined(open.pieces), base: open.offset, final: true }, 0, context);
+    return parseObject(lexer, this.maxNesting, MAX_CONTENT_OPERANDS);
+  }
+
   // Continues an operand left open by the streams before, and returns where the operations after it start, or undefined when this stream ends inside it too.
   private resume(open: OpenOperand, bytes: Uint8Array, last: boolean, context: LexContext): number | undefined {
-    const closed = closingEnd(bytes, 0, open.depth, context);
+    let closed: Closing;
+    try {
+      closed = closingEnd(bytes, 0, open.depth, context);
+    } catch (error: unknown) {
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
+      // Parsed up to the token that cannot be read, the operand throws ResourceLimitError for a nesting or value limit passed before it, as the same bytes in one stream would.
+      open.pieces.push(bytes);
+      this.parseOpen(open, context);
+      throw error;
+    }
     if (closed.end === undefined && !last) {
       open.pieces.push(bytes);
       open.depth = closed.depth;
@@ -152,9 +170,7 @@ class OperationReader {
     this.open = undefined;
     const end = closed.end ?? bytes.length;
     open.pieces.push(bytes.subarray(0, end));
-    // Parsed once from all its pieces; still open after the last stream, it throws ParseError as it would in one stream.
-    const lexer = new Lexer({ bytes: joined(open.pieces), base: open.offset, final: true }, 0, context);
-    this.append(parseObject(lexer, this.maxNesting, MAX_CONTENT_OPERANDS), open.stream, open.offset);
+    this.append(this.parseOpen(open, context), open.stream, open.offset);
     return end;
   }
 
