@@ -1,7 +1,7 @@
 import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfDirectObject, PdfReference } from '../object/pdfObject.ts';
-import type { ResourceCarrier } from './resourceCarriers.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SourceSpace } from './sourceSpace.ts';
 
@@ -14,7 +14,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { carrierSeen, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 
 export interface IndexedConversionReport {
@@ -193,7 +193,7 @@ const planImages = (context: IndexedContext, updates: Map<number, ImageUpdate>):
 const planCarriers = (
   context: IndexedContext,
   page: { index: number; reference: PdfReference },
-  state: { seen: Set<number>; updates: Array<CarrierUpdate> },
+  state: { seen: CarrierSeen; updates: Array<CarrierUpdate> },
 ): number => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
@@ -220,7 +220,7 @@ export const convertIndexedSpaces = (document: LoadedDocument, options: RewriteC
   const updates: Array<PageUpdate> = [];
   const imageUpdates = new Map<number, ImageUpdate>();
   const carrierUpdates: Array<CarrierUpdate> = [];
-  const seenCarriers = new Set<number>();
+  const seenCarriers = carrierSeen();
   let indexed = 0;
   for (const [index, entry] of internals.pages.entries()) {
     const planned = pageUpdate(document, index, options);

@@ -3,7 +3,7 @@ import type { LoadedDocument } from '../document/loadDocument.ts';
 import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunction, PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
-import type { ResourceCarrier } from './resourceCarriers.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 import type { RewriteColorOptions } from './rewriteContent.ts';
 import type { SampledCmykFunction } from './sampleCmykFunction.ts';
 import type { SourceSpace } from './sourceSpace.ts';
@@ -21,7 +21,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { carrierSeen, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
 import { stitchCmykFunction, writeCmykFunction } from './stitchCmykFunction.ts';
@@ -303,7 +303,7 @@ const pagePlan = (document: LoadedDocument, pageIndex: number, options: RewriteC
 const planCarriers = (
   context: SpotContext,
   page: { index: number; reference: PdfReference },
-  state: { seen: Set<number>; plans: Array<CarrierPlan> },
+  state: { seen: CarrierSeen; plans: Array<CarrierPlan> },
 ): void => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
@@ -466,7 +466,7 @@ export const convertSpotSpaces = (document: LoadedDocument, options: RewriteColo
   const pages: Array<PagePlan> = [];
   const carriers: Array<CarrierPlan> = [];
   const images = new Map<number, ImagePlan>();
-  const seenCarriers = new Set<number>();
+  const seenCarriers = carrierSeen();
   for (let page = 0; page < document.pageCount; page++) {
     const planned = pagePlan(document, page, options);
     if (planned !== undefined) {

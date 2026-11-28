@@ -4,7 +4,7 @@ import type { PdfStream } from '../font/fontValues.ts';
 import type { PdfFunctionReader } from '../function/pdfFunction.ts';
 import type { RenderingIntent } from '../icc/iccStructure.ts';
 import type { PdfDirectObject, PdfObject, PdfReference } from '../object/pdfObject.ts';
-import type { ResourceCarrier } from './resourceCarriers.ts';
+import type { CarrierSeen, ResourceCarrier } from './resourceCarriers.ts';
 import type { ColorEntryState, RewriteColorOptions, ShadingUse } from './rewriteContent.ts';
 import type { ConvertedCmykFunction } from './stitchCmykFunction.ts';
 
@@ -22,7 +22,7 @@ import { walkResources } from '../resourceGraph/walkResources.ts';
 import { combineContentStreams } from './combinedContent.ts';
 import { deleteDiscarded, discardedFunctionObjects } from './discardedObjects.ts';
 import { checkConversionRefusals } from './preflight.ts';
-import { carrierContent, referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
+import { carrierSeen, carrierContent, referenceKey, replaceCarrierResources, resourceCarriers } from './resourceCarriers.ts';
 import { rewriteContentColors } from './rewriteContent.ts';
 import { sampleCmykFunction } from './sampleCmykFunction.ts';
 import { resolveSourceSpace } from './sourceSpace.ts';
@@ -197,7 +197,8 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
-  const seenCarriers = new Set<number>();
+  const seenCarriers = carrierSeen();
+  const carriers: Array<ResourceCarrier> = [];
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) {
@@ -214,15 +215,15 @@ const collectUsage = (document: LoadedDocument, options: RewriteColorOptions): S
       usage,
       glyph: false,
     });
-    const carriers = resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers);
-    // Carrier content is scanned only when some carrier names a shading, so pages without one do not pay for parsing every glyph.
-    if (!carriers.some(carrier => carrier.resources.has(SHADING))) {
-      continue;
-    }
-    for (const carrier of carriers) {
-      for (const bytes of carrierContent(internals, carrier)) {
-        scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
-      }
+    carriers.push(...resourceCarriers(internals, { index: page, reference: entry.reference, resources: document.page(page).resources() }, seenCarriers));
+  }
+  // Carrier content is scanned only when some carrier names a shading, so documents without one do not pay for parsing every glyph; it is scanned after every page is walked, because a later page can add a font to a carrier an earlier page listed.
+  if (!carriers.some(carrier => carrier.resources.has(SHADING))) {
+    return usage;
+  }
+  for (const carrier of carriers) {
+    for (const bytes of carrierContent(internals, carrier)) {
+      scanUsageStream({ context: { document, resources: carrier.resources, options }, scope: carrier.key, bytes, usage, glyph: carrier.role === 'type3' });
     }
   }
   return usage;
@@ -500,7 +501,7 @@ const directPagePlans = (context: ShadingContext, page: PdfReference, usage: Sha
 const carrierShadingPlans = (
   context: ShadingContext,
   page: { index: number; reference: PdfReference },
-  state: { seen: Set<number>; usage: ShadingUsage },
+  state: { seen: CarrierSeen; usage: ShadingUsage },
 ): Array<CarrierShadingPlan> => {
   const internals = internalsOf(context.document);
   if (internals === undefined) {
@@ -635,7 +636,7 @@ export const convertShadings = (document: LoadedDocument, options: RewriteColorO
   const patternPlans = new Map<number, PatternShadingPlan>();
   const direct: Array<DirectShadingPlan> = [];
   const carrierDirect: Array<CarrierShadingPlan> = [];
-  const seenCarriers = new Set<number>();
+  const seenCarriers = carrierSeen();
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
     if (entry === undefined) {
