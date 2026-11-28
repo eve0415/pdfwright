@@ -1,9 +1,8 @@
 import type { TestObject } from '../testing/pdfBuilder.ts';
 
-import { readFile } from 'node:fs/promises';
-
 import { describe, expect, it } from 'vitest';
 
+import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
 import { pdfDate } from '../date/pdfDate.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { pt } from '../length/length.ts';
@@ -15,7 +14,6 @@ import { preparePdfX4Pages } from './preparePages.ts';
 import { writePdfX4Metadata } from './writeMetadata.ts';
 import { writeGtsPdfxOutputIntent } from './writeOutputIntent.ts';
 
-const profile = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 0, second: 0, offset: 'Z' });
 const source = (page = '/Resources<<>>', extra: ReadonlyArray<TestObject> = []) =>
   buildPdf([

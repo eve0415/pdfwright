@@ -1,7 +1,7 @@
-import { readFile } from 'node:fs/promises';
-
 import { describe, expect, it } from 'vitest';
 
+import profile from '../../../../tests/fixtures/icc/fogra28l.icc?icc-bytes';
+import other from '../../../../tests/fixtures/icc/synthetic-cmyk.icc?icc-bytes';
 import { loadDocument } from '../document/loadDocument.ts';
 import { ValidationError } from '../error/validationError.ts';
 import { inflateZlib } from '../flate/inflate.ts';
@@ -26,9 +26,6 @@ const base = (header = '1.7') =>
     ],
     { header: `%PDF-${header}` },
   );
-
-const profile = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/fogra28l.icc', import.meta.url)));
-const other = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures/icc/synthetic-cmyk.icc', import.meta.url)));
 
 const intentOf = (document: ReturnType<typeof loadDocument>) => {
   const intents = document.catalog().get(pdfName('OutputIntents').bytes);
