@@ -10,9 +10,12 @@ const seventhPower = (value: number): number => {
   return square * square * square * value;
 };
 
-const hueDifference = (first: number, second: number, chromaProduct: number): number => {
+const hueDifference = (first: number, second: number, chromaProduct: number, opposite: boolean): number => {
   if (chromaProduct === 0) {
     return 0;
+  }
+  if (opposite) {
+    return second > first ? 180 : -180;
   }
   const difference = second - first;
   if (difference > 180) {
@@ -24,11 +27,11 @@ const hueDifference = (first: number, second: number, chromaProduct: number): nu
   return difference;
 };
 
-const meanHue = (first: number, second: number, chromaProduct: number): number => {
+const meanHue = (first: number, second: number, chromaProduct: number, opposite: boolean): number => {
   if (chromaProduct === 0) {
     return first + second;
   }
-  if (Math.abs(first - second) <= 180) {
+  if (opposite || Math.abs(first - second) <= 180) {
     return (first + second) / 2;
   }
   const sum = first + second;
@@ -53,8 +56,10 @@ export const deltaE2000 = (first: ReadonlyArray<number>, second: ReadonlyArray<n
   const cp2 = Math.sqrt(ap2 * ap2 + b2 * b2);
   const h1 = deterministicAtanDegrees(b1, ap1);
   const h2 = deterministicAtanDegrees(b2, ap2);
-  const deltaH = hueDifference(h1, h2, cp1 * cp2);
-  const meanH = meanHue(h1, h2, cp1 * cp2);
+  // Hues exactly 180° apart take the unwrapped branch of both the hue difference and the mean hue (Sharma, Wu and Dalal 2005), but the two rounded angles can differ by slightly more than 180. The tie is settled from a*b* instead: a′ scales a* by the positive 1 + G, so the vectors are opposite exactly when these are.
+  const opposite = a1 * b2 === b1 * a2 && a1 * a2 + b1 * b2 < 0;
+  const deltaH = hueDifference(h1, h2, cp1 * cp2, opposite);
+  const meanH = meanHue(h1, h2, cp1 * cp2, opposite);
   const meanCp = (cp1 + cp2) / 2;
   const t =
     1 -
