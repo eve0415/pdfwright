@@ -43,7 +43,7 @@ Run each as a separate command and read its exit code. **Never pipe the gate int
 
 - **oxlint is the type checker.** It runs type-aware with `typeCheck` on, so it reports TypeScript's own diagnostics, and there is no separate `tsc` step.
 - **A file no tsconfig covers is checked with TypeScript's default options, not this repository's** (<https://github.com/oxc-project/oxc/issues/26822>). `check:type-aware-coverage` plants a type error that only the repository's options report in every `packages/*/src`, in `scripts/`, in `tests/`, and in a `*.config.ts` file at the root and in each package, and fails unless oxlint reports each one. A new TypeScript directory needs a tsconfig whose `include` covers it; config files are covered by `tsconfig.config.json`.
-- **oxlint does not report `isolatedDeclarations` errors (TS9xxx).** The tsdown build reports them when it emits declarations, so a change to an exported signature is checked only once `pnpm run build` passes.
+- **oxlint reports `isolatedDeclarations` errors (TS9xxx) in every file a tsconfig covers.** The tsdown build does not report all of them, so `pnpm exec oxlint` is the check for an exported signature.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
 The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS, Argyll, free ICC profiles and the Noto CJK fonts for external checks.
