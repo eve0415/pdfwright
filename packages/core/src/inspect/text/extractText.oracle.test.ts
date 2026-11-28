@@ -251,6 +251,16 @@ const inkBounds = async (file: string): Promise<ReadonlyArray<number>> => {
 
 const INK_TOLERANCE = 0.01;
 
+// How far the ink Ghostscript's bbox device reports may lie from the outline's own edge: its high-resolution bounds are rounded outward to its raster.
+const RASTER_TOLERANCE = 0.02;
+
+// The gaps between a glyph's box and its ink, as [left, bottom, right, top].
+const gapsOf = (ink: ReadonlyArray<number>, box: ReadonlyArray<number>): Array<number> => {
+  const [left = Number.NaN, bottom = Number.NaN, right = Number.NaN, top = Number.NaN] = ink;
+  const [boxLeft = 0, boxBottom = 0, boxRight = 0, boxTop = 0] = box;
+  return [left - boxLeft, bottom - boxBottom, boxRight - right, boxTop - top];
+};
+
 // Whether the ink of a page showing one glyph lies inside that glyph's box, with both for the report.
 const inkInsideBox = async (
   content: string,
@@ -429,15 +439,25 @@ describe('glyph positions against MuPDF and poppler', () => {
   });
 
   // MuPDF and poppler disagree with each other and with ISO 32000-1:2008, 9.2.4 and 9.7.4.3 in writing mode 1, so vertical boxes are checked against the ink Ghostscript renders for each glyph alone.
+  // The box spans −vx to w0 − vx across the text position and w1 to 0 along it, and the ink is the outline moved by −v, so the gaps between them are, in ems, the outline's left edge, w0 less its right edge, its bottom less vy less w1, and vy less its top.
+  // Glyphs 1 and 3 have ink 100–900 across and 0–700 up in a 1000-unit em, glyph 2 ink 50–450 across and −100–600 up; at 20 points one thousandth of an em is 0.02 points.
   it.each([
-    ['the default DW2', 'BT /V 20 Tf 300 400 Td <0001> Tj ET'],
-    ['the default DW2 and a glyph below the baseline', 'BT /V 20 Tf 300 400 Td <0002> Tj ET'],
-    ['a W2 position vector', 'BT /W 20 Tf 300 400 Td <0001> Tj ET'],
-    ['a W2 range', 'BT /W 20 Tf 300 400 Td <0003> Tj ET'],
-    ['horizontal scaling', 'BT /V 20 Tf 50 Tz 300 400 Td <0002> Tj ET'],
-    ['a rotated CTM', '0 1 -1 0 500 100 cm BT /V 20 Tf 300 400 Td <0001> Tj ET'],
-  ])('boxes a vertical glyph around the ink Ghostscript renders, with %s', async (_, content) => {
-    await expect(inkInsideBox(content)).resolves.toMatchObject({ inside: true });
+    // DW2 [880 −1000], w0 1: gaps 0.1, 0.12, 0.1 and 0.18 em.
+    ['the default DW2', 'BT /V 20 Tf 300 400 Td <0001> Tj ET', [2, 2.4, 2, 3.6]],
+    // w0 0.5: gaps 0.05, 0.02, 0.05 and 0.28 em.
+    ['the default DW2 and a glyph below the baseline', 'BT /V 20 Tf 300 400 Td <0002> Tj ET', [1, 0.4, 1, 5.6]],
+    // W2 w1 −900, v (500, 700): gaps 0.1, 0.2, 0.1 and 0 em.
+    ['a W2 position vector', 'BT /W 20 Tf 300 400 Td <0001> Tj ET', [2, 4, 2, 0]],
+    // W2 w1 −1200, v (250, 950): gaps 0.1, 0.25, 0.1 and 0.25 em.
+    ['a W2 range', 'BT /W 20 Tf 300 400 Td <0003> Tj ET', [2, 5, 2, 5]],
+    // 9.3.4: Tz 50 halves the gaps across the column.
+    ['horizontal scaling', 'BT /V 20 Tf 50 Tz 300 400 Td <0002> Tj ET', [0.5, 0.4, 0.5, 5.6]],
+    // A quarter turn counterclockwise puts the glyph's top on the page's left, its left at the bottom, its bottom on the right and its right at the top.
+    ['a rotated CTM', '0 1 -1 0 500 100 cm BT /V 20 Tf 300 400 Td <0001> Tj ET', [3.6, 2, 2.4, 2]],
+  ])('boxes a vertical glyph around the ink Ghostscript renders, with %s', async (_, content, gaps) => {
+    const { inside, ink, box } = await inkInsideBox(content);
+    const off = gapsOf(ink, box).map((gap, side) => Math.abs(gap - (gaps[side] ?? Number.NaN)) <= INK_TOLERANCE + RASTER_TOLERANCE);
+    expect([inside, off]).toStrictEqual([true, [true, true, true, true]]);
   });
 
   it.each(['qpdf', 'cabinet', 'safedocs'])('extracts the text of every page of the %s set without throwing', { timeout: 120_000 }, async set => {
