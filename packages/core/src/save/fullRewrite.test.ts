@@ -413,7 +413,9 @@ describe('full rewrite', () => {
     const draft = buildPdf([{ xref: 'classic', objects: interleavedObjects(0), trailer: '/Root 1 0 R' }]);
     const hint = draft.offsets.get(10) ?? 0;
     const prefixLength = reading === 'absolute' ? (draft.offsets.get(3) ?? 0) - hint : hint - (draft.offsets.get(4) ?? 0);
-    const linearized = buildPdf([{ xref: 'classic', objects: interleavedObjects(reading === 'absolute' ? hint + prefixLength : hint), trailer: '/Root 1 0 R' }]);
+    const linearized = buildPdf([
+      { xref: 'classic', objects: interleavedObjects(reading === 'absolute' ? hint + prefixLength : hint), trailer: '/Root 1 0 R' },
+    ]);
     const document = loadDocument(latin1Bytes(`${'J'.repeat(prefixLength)}${linearized.text}`));
     const saved = document.save({ mode: 'full' });
     const reloaded = loadDocument(saved.chunks);
