@@ -38,6 +38,12 @@ describe('deterministic calculator math', () => {
     expect([deterministicExp(-1, 2 ** 53 - 1), deterministicExp(-1, 2 ** 53)]).toStrictEqual([-1, 1]);
   });
 
+  it('keeps the sign of a negative zero base under odd integer powers only, as IEEE 754 pow does', () => {
+    const exponents = [3, 2, -3, -2, 0.5, -0.5];
+    expect(exponents.map(exponent => deterministicExp(-0, exponent))).toStrictEqual([-0, 0, -Infinity, Infinity, 0, Infinity]);
+    expect(exponents.map(exponent => deterministicExp(0, exponent))).toStrictEqual([0, 0, Infinity, Infinity, 0, Infinity]);
+  });
+
   it('returns the IEEE 754 logarithm of zero, negative values, NaN and infinity', () => {
     expect([0, -1, Number.NaN, Infinity].map(value => deterministicLog(value))).toStrictEqual([-Infinity, Number.NaN, Number.NaN, Infinity]);
   });
