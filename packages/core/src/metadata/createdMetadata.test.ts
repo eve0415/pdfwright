@@ -125,16 +125,15 @@ describe('metadata in created documents', () => {
   ] as const;
   const EVERY_TEXT = { title: 'T', author: 'A', subject: 'S', keywords: 'K', creator: 'C', producer: 'P', modificationDate: MODIFIED };
 
-  it.each(TEXT_KEYS)('omits an empty %s from Info and the packet and keeps every other value', (field, infoKey, xmpName) => {
+  it.each(TEXT_KEYS)('omits an empty %s from Info and the packet and keeps every other value', field => {
     const metadata = readMetadata(loadDocument(bytes({ info: { ...EVERY_TEXT, [field]: '' } })));
     const xmpNames = metadata.xmp !== undefined && 'packet' in metadata.xmp ? metadata.xmp.packet.properties.map(property => property.localName) : [];
-    const others = TEXT_KEYS.filter(([other]) => other !== field);
+    const others = TEXT_KEYS.flatMap(([other]) => (other === field ? [] : [other]));
     expect([
       metadata.findings,
-      TEXT_KEYS.filter(([, key]) => metadata.info?.values.has(key) === true).map(([other]) => other),
-      TEXT_KEYS.filter(([, , name]) => xmpNames.includes(name)).map(([other]) => other),
-      metadata.info?.values.has(infoKey) === true || xmpNames.includes(xmpName),
-    ]).toStrictEqual([[], others.map(([other]) => other), others.map(([other]) => other), false]);
+      TEXT_KEYS.flatMap(([other, key]) => (metadata.info?.values.has(key) === true ? [other] : [])),
+      TEXT_KEYS.flatMap(([other, , name]) => (xmpNames.includes(name) ? [other] : [])),
+    ]).toStrictEqual([[], others, others]);
   });
 
   it('omits an empty Info value without a packet', () => {
