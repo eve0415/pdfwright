@@ -54,9 +54,9 @@ describe('running oracle tools', () => {
     ['unchecked', async (): Promise<CheckedRun | ToolRun> => runTool(MISSING, [])],
   ])('names a missing tool when a %s run cannot start it', async (_, run) => {
     // Node's own spawn error names the command too, so the ENOENT cause is what shows the error was replaced by one that says what to do.
-    await expect(run()).rejects.toThrow(
-      expect.objectContaining({ message: expect.stringContaining(MISSING), cause: expect.objectContaining({ code: 'ENOENT' }) }),
-    );
+    const result = run();
+    await expect(result).rejects.toThrow(MISSING);
+    await expect(result).rejects.toHaveProperty('cause.code', 'ENOENT');
   });
 });
 
