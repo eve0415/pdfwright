@@ -54,6 +54,21 @@ const chained = (references: number): LoadedDocument => {
   return page('/Contents 4 0 R', [{ number: 4, body: streamBody('/DecodeParms 10 0 R', '0 0 m') }, ...links, { number: 9 + references, body: '1' }]);
 };
 
+// Two objects whose values are references to each other.
+const loop: ReadonlyArray<TestObject> = [
+  { number: 5, body: '6 0 R' },
+  { number: 6, body: '5 0 R' },
+];
+
+const encoded = (dictionary: string, data: string, objects: ReadonlyArray<TestObject> = []): LoadedDocument =>
+  document('4 0 R', [{ number: 4, body: streamBody(dictionary, data) }, ...objects]);
+
+// The differences, with the reason of each undecodable one left out.
+const where = (comparison: DocumentComparison): ReadonlyArray<unknown> =>
+  comparison.differences.map(difference =>
+    difference.kind === 'undecodable' ? { kind: difference.kind, where: difference.where, document: difference.document } : difference,
+  );
+
 describe('page content comparison', () => {
   it('compares content bytes across stream boundaries without inserting whitespace', () => {
     const split = document('[4 0 R 5 0 R]', [
@@ -129,6 +144,41 @@ describe('page content comparison', () => {
       content(compareDocuments(parameters('11 0 R 12 0 R'), parameters('11 0 R 12 0 R'))),
       content(compareDocuments(parameters('11 0 R 12 0 R'), parameters('12 0 R 11 0 R'))),
     ]).toMatchObject([[], [{ kind: 'page-content', page: 0 }]]);
+  });
+
+  // A chain of references that comes back to where it started names no filter or parameter the decoder can apply, so content that names one is not taken to be the content that names none.
+  describe('filters and parameters that lead into a cycle of references alone', () => {
+    const hexDeflated = `${[...deflateZlib(latin1Bytes('0 0 m'))].map(byte => byte.toString(16).padStart(2, '0')).join('')}>`;
+
+    it.each([
+      { name: 'its Filter', plain: '', looped: '/Filter 5 0 R', data: '0 0 m' },
+      { name: 'its DecodeParms', plain: '/Filter/ASCIIHexDecode', looped: '/Filter/ASCIIHexDecode/DecodeParms 5 0 R', data: '302030206D>' },
+      {
+        name: 'an item of its DecodeParms',
+        plain: '/Filter[/ASCIIHexDecode]/DecodeParms[null]',
+        looped: '/Filter[/ASCIIHexDecode]/DecodeParms[5 0 R]',
+        data: '302030206D>',
+      },
+      {
+        name: 'a parameter of its filter',
+        plain: '/Filter[/ASCIIHexDecode/FlateDecode]/DecodeParms[null<<>>]',
+        looped: '/Filter[/ASCIIHexDecode/FlateDecode]/DecodeParms[null<</Predictor 5 0 R>>]',
+        data: hexDeflated,
+      },
+    ])('reports content as undecodable, not as the same as content without it, when $name leads into one', ({ plain, looped, data }) => {
+      const [without, within] = [encoded(plain, data), encoded(looped, data, loop)];
+      expect([where(compareDocuments(without, within)), where(compareDocuments(within, without))]).toStrictEqual([
+        [{ kind: 'undecodable', where: ['page', 0, 'Contents'], document: 'b' }],
+        [{ kind: 'undecodable', where: ['page', 0, 'Contents'], document: 'a' }],
+      ]);
+    });
+
+    it('still takes a filter that names an undefined object as no filter, and two like cycles as the same', () => {
+      expect([
+        content(compareDocuments(encoded('', '0 0 m'), encoded('/Filter 9 0 R', '0 0 m'))),
+        content(compareDocuments(encoded('/Filter 5 0 R', '0 0 m', loop), encoded('/Filter 5 0 R', '0 0 m', loop))),
+      ]).toStrictEqual([[], []]);
+    });
   });
 
   it('resolves filter parameters that share objects or nest deeply without repeated work or call stack', () => {
