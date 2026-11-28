@@ -1,4 +1,4 @@
-import type { PdfDate } from '@pdfwright/core';
+import type { ConversionReport, PdfDate, PdfX4Report, SavedPdf } from '@pdfwright/core';
 
 import { checkPdfX4, convertToCmyk, loadDocument } from '@pdfwright/core';
 
@@ -11,7 +11,20 @@ export interface PrintConversionInput {
   readonly documentId: string;
 }
 
-export const preparePrintPdf = ({ input, sourceRgbProfile, outputProfile, outputConditionIdentifier, metadataDate, documentId }: PrintConversionInput) => {
+export interface PrintConversionResult {
+  readonly conversion: ConversionReport;
+  readonly structure: PdfX4Report;
+  readonly saved: SavedPdf;
+}
+
+export const preparePrintPdf = ({
+  input,
+  sourceRgbProfile,
+  outputProfile,
+  outputConditionIdentifier,
+  metadataDate,
+  documentId,
+}: PrintConversionInput): PrintConversionResult => {
   const document = loadDocument(input);
   const conversion = convertToCmyk(document, {
     sourceRgbProfile,

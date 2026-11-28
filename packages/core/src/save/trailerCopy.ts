@@ -33,7 +33,7 @@ export const copiedTrailerEntries = (base: PdfDictionaryEntries, baseKind: 'clas
   return parsedDictionaryEntries([...base.entries()].filter(([key]) => !excluded.has(latin1(key))));
 };
 
-export const TRAILER_KEYS = {
+export const TRAILER_KEYS: Readonly<Record<'size' | 'prev' | 'id' | 'root' | 'info' | 'type' | 'index' | 'w', Uint8Array>> = {
   size: pdfName('Size').bytes,
   prev: pdfName('Prev').bytes,
   id: pdfName('ID').bytes,
@@ -42,4 +42,4 @@ export const TRAILER_KEYS = {
   type: pdfName('Type').bytes,
   index: pdfName('Index').bytes,
   w: pdfName('W').bytes,
-} as const;
+};

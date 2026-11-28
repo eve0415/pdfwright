@@ -11,7 +11,7 @@ import { MeshBitReader } from './meshBits.ts';
 import { MeshBitWriter } from './meshBitWriter.ts';
 
 export const MAX_MESH_SUBDIVISION_DEPTH = 6;
-export const MAX_MESH_OUTPUT_BYTES = 4 * 1024 * 1024;
+export const MAX_MESH_OUTPUT_BYTES: number = 4 * 1024 * 1024;
 
 interface Vertex {
   readonly x: number;

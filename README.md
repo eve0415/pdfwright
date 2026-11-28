@@ -368,7 +368,7 @@ The `outputIntent` identifier names the intended printing condition, independent
 With `pdfx`, the pass writes Info `/GTS_PDFXVersion` and XMP `pdfxid:GTS_PDFXVersion`, preserves an existing XMP `DocumentID`, `VersionID` and `RenditionClass`, writes `VersionID` `1` and `RenditionClass` `default` when the packet has none, and derives `InstanceID` deterministically from the edit. `metadataDate` and `trapped` are required because neither can be inferred from page colours. It lowers a header or catalog version above 1.6 to 1.6, the version ISO 15930-7:2010, Table 1 gives for PDF/X-4, and the next `save()` reports `version-lowered` in its warnings. On a page with neither TrimBox nor ArtBox, the default adds a TrimBox equal to the CropBox, which itself defaults to the MediaBox, reduced to the MediaBox and to an explicit BleedBox, and reports its page index; an existing ArtBox is kept. Pages whose content invokes transparency gain an isolated DeviceCMYK page group when they have no group already. Page boxes and transparency group entries follow [ISO 32000-1:2008, Table 30 and 14.11.2 for page boxes, and 11.4.7 and 11.6.6, Table 147, for the page group](https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf). These entries declare PDF/X-4 in the file; the pass does not verify the rules `checkPdfX4` reports as `not-checked`.
 
 ```ts
-import type { PdfDate } from '@pdfwright/core';
+import type { ConversionReport, PdfDate, PdfX4Report, SavedPdf } from '@pdfwright/core';
 
 import { checkPdfX4, convertToCmyk, loadDocument } from '@pdfwright/core';
 
@@ -381,7 +381,20 @@ export interface PrintConversionInput {
   readonly documentId: string;
 }
 
-export const preparePrintPdf = ({ input, sourceRgbProfile, outputProfile, outputConditionIdentifier, metadataDate, documentId }: PrintConversionInput) => {
+export interface PrintConversionResult {
+  readonly conversion: ConversionReport;
+  readonly structure: PdfX4Report;
+  readonly saved: SavedPdf;
+}
+
+export const preparePrintPdf = ({
+  input,
+  sourceRgbProfile,
+  outputProfile,
+  outputConditionIdentifier,
+  metadataDate,
+  documentId,
+}: PrintConversionInput): PrintConversionResult => {
   const document = loadDocument(input);
   const conversion = convertToCmyk(document, {
     sourceRgbProfile,
