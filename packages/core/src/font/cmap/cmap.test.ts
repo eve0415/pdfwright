@@ -57,6 +57,36 @@ describe('CMaps', () => {
     expect([read, [...compared], budget.checks]).toStrictEqual([{ code: { value: 0x41, length: 1 }, valid: true }, [100], 1]);
   });
 
+  it('shares the codespace ranges a usecmap inherits instead of indexing them again, and still counts each comparison with them', () => {
+    const wide = Array.from({ length: 100 }, (_, index) => `<${index.toString(16).padStart(8, '0')}> <${index.toString(16).padStart(8, '0')}>`);
+    const parsed = parseCMap(latin1Bytes(`101 begincodespacerange ${wide.join(' ')} <00> <7F> endcodespacerange`), 32);
+    // A range is compared or indexed by reading its lower bound, so the ranges whose bound is read are the ranges touched.
+    const touched = new Set<number>();
+    const codespaces = parsed.codespaces.map(({ low, high }, index): CodespaceRange => ({
+      get low(): Uint8Array {
+        touched.add(index);
+        return low;
+      },
+      high,
+    }));
+    const parent = new CMap({ ...parsed, codespaces });
+    touched.clear();
+    const child = cmapOf('/Parent usecmap 1 begincodespacerange <8000> <80FF> endcodespacerange', parent);
+    const built = [...touched];
+    const budget = { checks: 0 };
+    const reads = [child.read(Uint8Array.of(0x41, 0x00, 0x00, 0x00), 0, budget), child.read(Uint8Array.of(0x80, 0x01, 0x00, 0x00), 0, budget)];
+    // The 1-byte code is compared with the inherited 1-byte range; the 2-byte code fails that range and then matches the child's own.
+    expect([built, reads, [...touched], budget.checks]).toStrictEqual([
+      [],
+      [
+        { code: { value: 0x41, length: 1 }, valid: true },
+        { code: { value: 0x80_01, length: 2 }, valid: true },
+      ],
+      [100],
+      3,
+    ]);
+  });
+
   it('gives U+FFFD where incrementing a bfrange destination passes U+FFFF', () => {
     // ISO 32000-1:2008, 9.10.3: a destination whose last byte passes 255 over the range gives a result that "is undefined"; a code unit past 0xFFFF is no UTF-16.
     const cmap = cmapOf('1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <00> <02> <FFFF> endbfrange');
