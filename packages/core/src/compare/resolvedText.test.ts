@@ -131,6 +131,34 @@ describe('reference cycles', () => {
     const otherValue = textOf(['<</D 21 0 R/W 2>>', '<</Y 20 0 R/V 3>>']);
     expect([direct === indirect, direct === otherValue]).toStrictEqual([true, false]);
   });
+
+  it('describes a cycle the same whether a value in it is held by one object, by several or written inline', () => {
+    const shared = textOf(['[21 0 R 21 0 R]', '<</Y 20 0 R>>']);
+    const inline = textOf(['[<</Y 20 0 R>> <</Y 20 0 R>>]']);
+    const twoObjects = textOf(['[21 0 R 22 0 R]', '<</Y 20 0 R>>', '<</Y 20 0 R>>']);
+    const referringToItself = textOf(['[21 0 R 21 0 R]', '<</Y 21 0 R>>']);
+    expect([shared === inline, shared === twoObjects, shared === referringToItself]).toStrictEqual([true, true, false]);
+  });
+
+  it('describes a value of a cycle that leads nowhere back the same whether it is direct or indirect', () => {
+    const LONG = '<</A 1/B 2/C 3/D 4/E 5/F 6/G 7/H 8>>';
+    expect([
+      textOf(['[<</A 1>> 20 0 R]']) === textOf(['[21 0 R 20 0 R]', '<</A 1>>']),
+      textOf([`[${LONG} 20 0 R]`]) === textOf(['[21 0 R 20 0 R]', LONG]),
+      textOf(['[<</A 1>> 20 0 R]']) === textOf(['[21 0 R 20 0 R]', '<</A 2>>']),
+    ]).toStrictEqual([true, true, false]);
+  });
+
+  it('describes objects that unfold to the same value the same, in a cycle or leading into one', () => {
+    const tail = ['[21 0 R]', '[21 0 R]'];
+    const twoCycles = ['[20 0 R 21 0 R]', '[21 0 R 21 0 R]'];
+    const otherItem = ['[20 0 R 21 0 R]', '[21 0 R 1]'];
+    expect([textOf(tail, 0) === textOf(tail, 1), textOf(twoCycles, 0) === textOf(twoCycles, 1), textOf(otherItem, 0) === textOf(otherItem, 1)]).toStrictEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
 });
 
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
