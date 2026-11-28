@@ -42,6 +42,23 @@ const filtered = (filter: string): ReturnType<typeof load> =>
 const encoded = (encoding: string, extra: ReadonlyArray<TestObject> = []): ReturnType<typeof load> =>
   load('<</Font<</F1 8 0 R>>>>', [{ number: 8, body: `<</Type/Font/Subtype/Type1/BaseFont/Custom/Encoding${encoding}>>` }, ...extra]);
 
+// A font-set difference on the page and in the document whose one added and one removed font differ only in the named part of their identity, which must be present on both sides.
+const expectReplacedFont = (differences: ReadonlyArray<PdfDifference>, part: 'encoding' | 'program'): void => {
+  const [first] = differences;
+  const added = first?.kind === 'font-set' ? first.added[0] : undefined;
+  const removed = first?.kind === 'font-set' ? first.removed[0] : undefined;
+  expect(differences).toStrictEqual([
+    { kind: 'font-set', page: 0, added: [added], removed: [removed] },
+    { kind: 'font-set', page: 'document', added: [added], removed: [removed] },
+  ]);
+  expect([added?.[part] === removed?.[part], added?.[part] === '', removed?.[part] === '', { ...added, [part]: '' }]).toStrictEqual([
+    false,
+    false,
+    false,
+    { ...removed, [part]: '' },
+  ]);
+};
+
 describe('resource and font comparison', () => {
   it('compares resources as values, whether direct or indirect and however numbered', () => {
     const direct = load('<</Font<</F1 8 0 R>>/ExtGState<</GS1<</CA 1>>>>>>', [helvetica]);
@@ -108,7 +125,9 @@ describe('resource and font comparison', () => {
   it('identifies a font encoding by value, however ordered or numbered', () => {
     const one = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/a#00b]>>');
     const two = encoded('<</Differences 12 0 R/BaseEncoding/WinAnsiEncoding/Type/Encoding>>', [{ number: 12, body: '[32/space/a#00b]' }]);
+    const other = encoded('<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[32/space/b]>>');
     expect(compareDocuments(one, two, { include: ['fonts'] }).differences).toStrictEqual([]);
+    expectReplacedFont(compareDocuments(one, other, { include: ['fonts'] }).differences, 'encoding');
   });
 
   it('finds fonts through graphics states, soft masks and annotation appearances', () => {
@@ -119,8 +138,13 @@ describe('resource and font comparison', () => {
       loadDocument(pdfBytes('<<>>/Annots[<</Subtype/Square/Rect[0 0 1 1]/AP<</N<</On 13 0 R>>>>>>]', [courier, appearance])),
     ];
     const empty = load('<<>>');
-    const fonts = withFonts.map(document => compareDocuments(empty, document, { include: ['fonts'] }).differences.length);
-    expect(fonts).toStrictEqual([2, 2, 2]);
+    const fonts = withFonts.map(document => compareDocuments(empty, document, { include: ['fonts'] }).differences);
+    const added = [{ subtype: 'Type1', baseFont: 'Courier', encoding: '', program: '' }];
+    const found = [
+      { kind: 'font-set', page: 0, added, removed: [] },
+      { kind: 'font-set', page: 'document', added, removed: [] },
+    ];
+    expect(fonts).toStrictEqual([found, found, found]);
   });
 
   it('includes pages only one document has in the document font set', () => {
