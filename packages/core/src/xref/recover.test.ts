@@ -280,6 +280,7 @@ describe('cross-reference reconstruction', () => {
   it('skips an object-stream member numbered above 2^31 - 1 without parsing it', () => {
     const deep = '['.repeat(257);
     expect(() => reconstruct(objectStream(2_147_483_647, deep))).toThrow(ResourceLimitError);
+    expect(() => reconstruct(objectStream(2_147_483_647, deep))).toThrow(/maxNesting/);
     expect(
       [2_147_483_648, 4_294_967_297].map(number =>
         located(reconstruct(objectStream(number, deep)).reconstruction).map(([objectNumber, type]) => [objectNumber, type]),
