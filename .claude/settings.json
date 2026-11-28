@@ -8,6 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "tsc-lsp@pdfwright": true
+    "tsrs-lsp@pdfwright": true
   }
 }
