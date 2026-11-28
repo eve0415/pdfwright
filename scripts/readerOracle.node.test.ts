@@ -36,6 +36,11 @@ describe('running oracle tools', () => {
     await expect(runChecked(node, ['-e', 'process.stderr.write("broken input"); process.exit(3)'])).rejects.toThrow(/exited 3: broken input/u);
   });
 
+  it('rejects with the exit code of a tool that quits without reading its standard input', async () => {
+    await expect(runChecked(node, ['-e', 'process.exit(5)'], new Uint8Array(4 << 20))).rejects.toThrow(/exited 5/u);
+    await expect(runChecked(node, ['-e', 'process.exit(0)'], new Uint8Array(4 << 20))).rejects.toThrow(/without reading all of its input/u);
+  });
+
   it('reports the exit code of a tool run without checking', async () => {
     await expect(runTool(node, ['-e', 'process.stdout.write("out"); process.stderr.write("err"); process.exit(2)'])).resolves.toStrictEqual({
       code: 2,
@@ -45,6 +50,7 @@ describe('running oracle tools', () => {
 
   it.each([
     ['checked', async (): Promise<CheckedRun | ToolRun> => runChecked(MISSING, [])],
+    ['checked with standard input', async (): Promise<CheckedRun | ToolRun> => runChecked(MISSING, [], new Uint8Array(1 << 20))],
     ['unchecked', async (): Promise<CheckedRun | ToolRun> => runTool(MISSING, [])],
   ])('names a missing tool when a %s run cannot start it', async (_, run) => {
     await expect(run()).rejects.toThrow(`${MISSING} is not installed or not on PATH`);
