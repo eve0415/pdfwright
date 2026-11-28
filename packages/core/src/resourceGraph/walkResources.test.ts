@@ -359,17 +359,22 @@ describe('resource walks', () => {
     const resources = inherited(document.objects, firstPage(document), { key: pdfName('Resources').bytes })?.value;
 
     it('that throws ParseError reports the font as unreadable and the walk goes on to the other fonts', () => {
+      // Every font fails, so whichever the walk reaches first, the other is reached only if the walk goes on.
       const fonts: Array<PdfDirectObject> = [];
       const unreadable = walkResources(document, firstPage(document), {
         resources,
         font: ({ value }) => {
           fonts.push(value);
-          if (value.kind === 'reference' && value.objectNumber === 30) {
-            throw new ParseError('font 30 is broken', 0);
-          }
+          throw new ParseError(`font ${value.kind === 'reference' ? String(value.objectNumber) : 'direct'} is broken`, 0);
         },
       });
-      expect([unreadable, unordered(fonts)]).toStrictEqual([[{ from: 'Resources', reason: 'font 30 is broken' }], unordered([reference(30), reference(31)])]);
+      expect([unordered(unreadable), unordered(fonts)]).toStrictEqual([
+        unordered([
+          { from: 'Resources', reason: 'font 30 is broken' },
+          { from: 'Resources', reason: 'font 31 is broken' },
+        ]),
+        unordered([reference(30), reference(31)]),
+      ]);
     });
 
     it('that throws any other error stops the walk with that error', () => {
