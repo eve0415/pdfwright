@@ -647,10 +647,13 @@ describe('properties', () => {
   it('decodes or refuses with a library error after any one byte changes', () => {
     const base = dcJpeg(ROBUSTNESS_BASE);
     fc.assert(
-      fc.property(fc.nat({ max: base.length - 1 }), fc.integer({ min: 0, max: 255 }), (offset, value) => {
-        const bytes = Uint8Array.from(base);
-        bytes[offset] = value;
-        expect(['decoded', 'refused']).toContain(outcome(bytes));
+      // Every offset takes its own generated value, so each run changes the scan header's table selectors as well as every other byte, one at a time.
+      fc.property(fc.uint8Array({ minLength: base.length, maxLength: base.length }), values => {
+        for (const [offset, value] of values.entries()) {
+          const bytes = Uint8Array.from(base);
+          bytes[offset] = value;
+          expect(['decoded', 'refused']).toContain(outcome(bytes));
+        }
       }),
     );
   });
