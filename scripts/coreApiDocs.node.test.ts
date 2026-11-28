@@ -7,10 +7,11 @@ interface ExportEntry {
   readonly source: URL;
 }
 
+const reExportBlocks = /export\s+(?:type\s+)?\{([^}]+)\}\s+from\s+'([^']+)'/gu;
+
 const declarations = (index: string, root: URL): Array<ExportEntry> => {
   const entries: Array<ExportEntry> = [];
-  const blocks = /export\s+(?:type\s+)?\{([^}]+)\}\s+from\s+'([^']+)'/gu;
-  for (const match of index.matchAll(blocks)) {
+  for (const match of index.matchAll(reExportBlocks)) {
     const [names, source] = match.slice(1);
     if (names === undefined || source === undefined) {
       continue;
@@ -50,16 +51,25 @@ const undocumented = async (index: string, root: URL): Promise<Array<string>> =>
   return checks.filter(check => !check.documented).map(check => check.name);
 };
 
-describe('public API docs', () => {
-  it('documents each public export of the core package at its declaration', async () => {
-    const indexUrl = new URL('../packages/core/src/index.ts', import.meta.url);
-    const index = await readFile(indexUrl, 'utf8');
-    await expect(undocumented(index, indexUrl)).resolves.toStrictEqual([]);
-  });
+// Every export statement of an entry must be one `declarations` parses, or an export written in another form would go unchecked.
+const unparsedExports = (index: string): Array<string> => index.replaceAll(reExportBlocks, '').match(/\bexport\b[^;]*;?/gu) ?? [];
 
-  it('documents each public export of the illustrator package at its declaration', async () => {
-    const indexUrl = new URL('../packages/illustrator/src/index.ts', import.meta.url);
+const runtimeExports = async (indexUrl: URL): Promise<Array<string>> => {
+  const entry: unknown = await import(indexUrl.href);
+  return typeof entry === 'object' && entry !== null ? Object.keys(entry) : [];
+};
+
+describe('public API docs', () => {
+  it.each([
+    { name: 'core', indexUrl: new URL('../packages/core/src/index.ts', import.meta.url) },
+    { name: 'illustrator', indexUrl: new URL('../packages/illustrator/src/index.ts', import.meta.url) },
+  ])('documents each public export of the $name package at its declaration', async ({ indexUrl }) => {
     const index = await readFile(indexUrl, 'utf8');
+    expect(unparsedExports(index)).toStrictEqual([]);
+    const parsed = new Set(declarations(index, indexUrl).map(entry => entry.name));
+    const runtime = await runtimeExports(indexUrl);
+    expect(runtime.length).toBeGreaterThan(0);
+    expect(runtime.filter(name => !parsed.has(name))).toStrictEqual([]);
     await expect(undocumented(index, indexUrl)).resolves.toStrictEqual([]);
   });
 });

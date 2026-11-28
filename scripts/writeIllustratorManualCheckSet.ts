@@ -38,7 +38,8 @@ Every file must open with the artboard in view. For each file, record the initia
 - \`08-compound.pdf\`: This file has its own artwork. Check three layers in panel order: Compound die, Compound fills, Even-odd clip. In Compound die, check that the Cut stroke is one compound path of the rounded outline and the round hole. In Even-odd clip, check that the pale cyan raster shows inside the rounded outline but not inside the round hole, and that the clipping path is one compound path. In Compound fills, check that the left pair of squares fills solid and holds the arch, and that the right pair leaves a square hole. Record the fill rule the Attributes panel shows for the left compound path, the right compound path and the clipping path, and whether the Layers panel names each one Compound Path.
 `;
 
-const contentSizeFrame = (native: Uint8Array): Uint8Array => {
+/** Re-encodes the native data as a single-segment Zstandard frame that declares its 4-byte content size (RFC 8878, 3.1.1.1.1 and 3.1.1.1.4). */
+export const contentSizeFrame = (native: Uint8Array): Uint8Array => {
   const frame = encodeZstandardFrame(native);
   const output = new Uint8Array(frame.length + 3);
   output.set(frame.subarray(0, 4));

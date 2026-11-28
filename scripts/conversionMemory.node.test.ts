@@ -9,21 +9,41 @@ interface Measurement {
   readonly pages: number;
   readonly peakBytes: number;
   readonly streamedKind: string;
+  readonly streamedBytes: number;
+  readonly convertedImages: number;
 }
 
 const measurement = (value: unknown): Measurement => {
-  if (typeof value !== 'object' || value === null || !('inputBytes' in value) || !('pages' in value) || !('peakBytes' in value) || !('streamedKind' in value)) {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('inputBytes' in value) ||
+    !('pages' in value) ||
+    !('peakBytes' in value) ||
+    !('streamedKind' in value) ||
+    !('streamedBytes' in value) ||
+    !('convertedImages' in value)
+  ) {
     throw new Error('conversion memory measurement is incomplete');
   }
   if (
     typeof value.inputBytes !== 'number' ||
     typeof value.pages !== 'number' ||
     typeof value.peakBytes !== 'number' ||
-    typeof value.streamedKind !== 'string'
+    typeof value.streamedKind !== 'string' ||
+    typeof value.streamedBytes !== 'number' ||
+    typeof value.convertedImages !== 'number'
   ) {
     throw new TypeError('conversion memory measurement is invalid');
   }
-  return { inputBytes: value.inputBytes, pages: value.pages, peakBytes: value.peakBytes, streamedKind: value.streamedKind };
+  return {
+    inputBytes: value.inputBytes,
+    pages: value.pages,
+    peakBytes: value.peakBytes,
+    streamedKind: value.streamedKind,
+    streamedBytes: value.streamedBytes,
+    convertedImages: value.convertedImages,
+  };
 };
 
 describe('conversion memory', () => {
@@ -33,7 +53,8 @@ describe('conversion memory', () => {
     expect([closed[0], errors]).toStrictEqual([0, '']);
     const result: unknown = JSON.parse(output);
     const measured = measurement(result);
-    expect([measured.pages, measured.streamedKind]).toStrictEqual([10, 'streamed']);
+    expect([measured.pages, measured.convertedImages, measured.streamedKind]).toStrictEqual([10, 10, 'streamed']);
+    expect(measured.streamedBytes).toBeGreaterThan(0);
     expect([measured.inputBytes > 80_000_000, measured.inputBytes < 90_000_000]).toStrictEqual([true, true]);
     expect(measured.peakBytes).toBeLessThanOrEqual(120_000_000);
   }, 600_000);

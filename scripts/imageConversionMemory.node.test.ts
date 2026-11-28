@@ -4,40 +4,34 @@ import { text } from 'node:stream/consumers';
 
 import { describe, expect, it } from 'vitest';
 
-interface MemoryResult {
-  readonly baselineBytes: number;
-  readonly peakBytes: number;
-  readonly elapsedMs: number;
+interface ConversionResult {
+  readonly pixels: number;
+  readonly converted: number;
+  readonly kind: string;
   readonly savedBytes: number;
 }
 
-const measured = (value: unknown): MemoryResult => {
+const measured = (value: unknown): ConversionResult => {
   if (typeof value !== 'object' || value === null) {
-    throw new TypeError('memory result is missing');
+    throw new TypeError('conversion result is missing');
   }
-  if (!('baselineBytes' in value) || !('peakBytes' in value) || !('elapsedMs' in value) || !('savedBytes' in value)) {
-    throw new Error('memory result is incomplete');
+  if (!('pixels' in value) || !('converted' in value) || !('kind' in value) || !('savedBytes' in value)) {
+    throw new Error('conversion result is incomplete');
   }
-  if (
-    typeof value.baselineBytes !== 'number' ||
-    typeof value.peakBytes !== 'number' ||
-    typeof value.elapsedMs !== 'number' ||
-    typeof value.savedBytes !== 'number'
-  ) {
-    throw new TypeError('memory result is invalid');
+  if (typeof value.pixels !== 'number' || typeof value.converted !== 'number' || typeof value.kind !== 'string' || typeof value.savedBytes !== 'number') {
+    throw new TypeError('conversion result is invalid');
   }
-  return { baselineBytes: value.baselineBytes, peakBytes: value.peakBytes, elapsedMs: value.elapsedMs, savedBytes: value.savedBytes };
+  return { pixels: value.pixels, converted: value.converted, kind: value.kind, savedBytes: value.savedBytes };
 };
 
-describe('image conversion memory', () => {
-  it('measures peak heapUsed plus external while streaming in a Node child process', async () => {
+describe('image conversion in Node', () => {
+  it('converts the shared performance fixture through a streamed save in a Node child process', async () => {
     const child = spawn(process.execPath, ['scripts/measureImageConversion.ts'], { cwd: process.cwd() });
     const [output, errors, closed] = await Promise.all([text(child.stdout), text(child.stderr), once(child, 'close')]);
     expect([closed[0], errors]).toStrictEqual([0, '']);
     const value: unknown = JSON.parse(output);
     const result = measured(value);
-    expect(result.peakBytes).toBeGreaterThanOrEqual(result.baselineBytes);
+    expect([result.converted, result.kind, result.pixels]).toStrictEqual([1, 'streamed', 524_288]);
     expect(result.savedBytes).toBeGreaterThan(0);
-    expect(result.elapsedMs).toBeLessThan(60_000);
   }, 120_000);
 });

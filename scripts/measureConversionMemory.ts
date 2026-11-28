@@ -127,7 +127,7 @@ const measure = async (filePath: string): Promise<void> => {
     const document = loadDocument(input);
     sampleLive();
     stage = 'convert';
-    convertToCmyk(document, {
+    const report = convertToCmyk(document, {
       sourceRgbProfile: readFileSync('tests/fixtures/icc/sRGB.icm'),
       outputProfile: readFileSync('tests/fixtures/icc/fogra28l.icc'),
       outputIntent: { outputConditionIdentifier: 'FOGRA28' },
@@ -165,6 +165,7 @@ const measure = async (filePath: string): Promise<void> => {
         finalUsage: process.memoryUsage(),
         streamedBytes,
         streamedKind: streamed.kind,
+        convertedImages: report.images.converted,
       }),
     );
   } catch (error) {
