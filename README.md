@@ -90,7 +90,9 @@ export const writeColorants = (): ColorantExample => {
       content.fill('nonzero');
     });
   } catch (error: unknown) {
-    if (!(error instanceof ValidationError)) throw error;
+    if (!(error instanceof ValidationError)) {
+      throw error;
+    }
     whiteOverprintReason = error.reason;
   }
   const saved = document.save();
@@ -128,7 +130,9 @@ export const preservePagePieceData = (): PieceInfoExample => {
   loaded.page(0).setBox('TrimBox', rect(pt(5), pt(5), pt(95), pt(95)));
   const saved = loaded.save();
   const preserved = loadDocument(saved.chunks).page(0).pieceInfo();
-  if (original === undefined || preserved === undefined) throw new Error('page-piece data is missing');
+  if (original === undefined || preserved === undefined) {
+    throw new Error('page-piece data is missing');
+  }
   const before = serializeObject(original, { fractionDigits: 5 });
   const after = serializeObject(preserved, { fractionDigits: 5 });
   return { saved, retained: before.length === after.length && before.every((value, index) => value === after[index]) };
@@ -156,7 +160,7 @@ import { cmyk, compareDocuments, loadDocument, mm, rect } from '@pdfwright/core'
 
 export interface VarnishEdit {
   readonly saved: SavedPdf;
-  readonly differences: readonly PdfDifference[];
+  readonly differences: ReadonlyArray<PdfDifference>;
 }
 
 export const addVarnishPlate = (input: Uint8Array): VarnishEdit => {
@@ -242,7 +246,7 @@ import { extractText, listFonts, loadDocument, matchText } from '@pdfwright/core
 export interface ProofCheck {
   readonly accepted: boolean;
   readonly match: TextMatch;
-  readonly unembedded: readonly string[];
+  readonly unembedded: ReadonlyArray<string>;
 }
 
 export const checkProof = (input: Uint8Array, name: string): ProofCheck => {
