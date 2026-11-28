@@ -118,7 +118,8 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
       throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
     }
     const subtype = subtypeOf(internals, value.entries.get(key('S')), !matches);
-    const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
+    // Only a kept intent's identifier is compared with the new one, so the identifier of an intent about to be removed is not read.
+    const identifierValue = matches ? objects.deref(value.entries.get(key('OutputConditionIdentifier'))) : undefined;
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
     existing.push({ reference, entries: value.entries, identifier, profile, matches, subtype });
   }
