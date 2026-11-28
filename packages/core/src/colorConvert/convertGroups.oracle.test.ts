@@ -2,6 +2,7 @@ import type { PdfDirectObject } from '../object/pdfObject.ts';
 
 import { readFile } from 'node:fs/promises';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { calibratedProfile } from '../color/calibratedSource.ts';
@@ -22,6 +23,7 @@ import { pdfInteger, pdfName, pdfReference } from '../object/pdfObject.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { convertTransparencyGroups } from './convertGroups.ts';
+import { deviceRgbLuminosity } from './luminosityContent.ts';
 import { MeshBitReader } from './meshBits.ts';
 import { MeshBitWriter } from './meshBitWriter.ts';
 
@@ -1171,5 +1173,27 @@ describe('transparency group conversion', () => {
     );
     convertTransparencyGroups(document, { sourceRgbProfile: source, outputProfile: destination });
     expect(meshGrays(meshShadingData(document), layout)).toStrictEqual([77, 150, 28, 255]);
+  });
+});
+
+describe('properties', () => {
+  const rgb = fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 3, maxLength: 3 });
+
+  // ISO 32000-1:2008, 10.3.2: the DeviceRGB to DeviceGray weights are fixed and sum to 1, so gray stays gray and the mapping is linear.
+  it('maps a neutral RGB colour to the same gray', () => {
+    fc.assert(
+      fc.property(fc.double({ min: 0, max: 1, noNaN: true }), value => {
+        expect(deviceRgbLuminosity([value, value, value])).toBeCloseTo(value, 12);
+      }),
+    );
+  });
+
+  it('maps the mean of two RGB colours to the mean of their grays', () => {
+    fc.assert(
+      fc.property(rgb, rgb, (first, second) => {
+        const mean = first.map((value, index) => (value + (second[index] ?? 0)) / 2);
+        expect(deviceRgbLuminosity(mean)).toBeCloseTo((deviceRgbLuminosity(first) + deviceRgbLuminosity(second)) / 2, 12);
+      }),
+    );
   });
 });
