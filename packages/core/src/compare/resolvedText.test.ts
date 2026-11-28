@@ -159,6 +159,15 @@ describe('reference cycles', () => {
       false,
     ]);
   });
+
+  // A chain of references that comes back to where it started reaches no object, so it reads as null like a reference to an object that is not defined.
+  it('reads a cycle of references alone as null', () => {
+    expect([textOf(['21 0 R', '20 0 R']), textOf(['[21 0 R]', '22 0 R', '21 0 R']), textOf(['<</A 21 0 R/B 1>>', '22 0 R', '21 0 R'])]).toStrictEqual([
+      'null',
+      textOf(['[null]']),
+      textOf(['<</B 1>>']),
+    ]);
+  });
 });
 
 // Objects whose references may lead anywhere among them, so that cycles of any length arise.
