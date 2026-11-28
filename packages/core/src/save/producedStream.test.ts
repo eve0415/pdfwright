@@ -61,8 +61,10 @@ describe('produced streams', () => {
     if (stream === undefined) {
       throw new Error('missing measured stream');
     }
-    expect(() => {
+    const write = (): void => {
       writeProducedStream(new PdfEmitter(), pdfInteger(1), { stream, context });
-    }).toThrow(/must be a stream/u);
+    };
+    expect(write).toThrow(Error);
+    expect(write).toThrow(/must be a stream/u);
   });
 });
