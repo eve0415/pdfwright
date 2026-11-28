@@ -101,6 +101,11 @@ describe('locating packets in file bytes', () => {
       { document: 0, components: 0, orphans: 0, superseded: 0, insideOtherStreams: 0 },
     ],
     [
+      'two headers in one filtered stream',
+      [{ number: 3, body: streamBody('/Type/Metadata/Subtype/XML/Filter/ASCIIHexDecode', `${hex(`${PACKET}${PACKET}`)}>`) }],
+      { document: 0, components: 0, orphans: 2, superseded: 0, insideOtherStreams: 0 },
+    ],
+    [
       'two headers in one stream',
       [{ number: 3, body: streamBody('/Type/Metadata/Subtype/XML', `${PACKET}${PACKET}`) }],
       { document: 0, components: 0, orphans: 2, superseded: 0, insideOtherStreams: 0 },
