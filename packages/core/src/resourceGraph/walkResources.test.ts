@@ -7,6 +7,7 @@ import type { ResourceOrigin, ResourceVisit, UnreadableObject } from './walkReso
 import fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 
+import { interpretPage } from '../content/interpreter.ts';
 import { internalsOf } from '../document/documentInternals.ts';
 import { loadDocument } from '../document/loadDocument.ts';
 import { inherited } from '../document/loadedPage.ts';
@@ -254,28 +255,28 @@ describe('resource walks', () => {
     ]);
   });
 
-  it('names each font as content interpretation keys it: by reference, or by resource name and the owner of its resource dictionary', () => {
+  it('names each font with the key content interpretation selects it by: by reference, or by resource name and the owner of its resource dictionary', () => {
     const helvetica = '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>';
-    const type3 = `/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<<>>/Encoding<</Differences[]>>/FirstChar 0/LastChar 0/Widths[0]`;
+    const type3 = `/Type/Font/Subtype/Type3/FontBBox[0 0 1 1]/FontMatrix[1 0 0 1 0 0]/CharProcs<</g 32 0 R>>/Encoding<</Differences[0/g]>>/FirstChar 0/LastChar 0/Widths[0]`;
     const document = internals(
-      `/Resources<</Font<</F1 ${helvetica}/F2 30 0 R/T3 31 0 R>>/ExtGState<</GS1<</Font[${helvetica} 12]>>>>/XObject<</X1 10 0 R/X2 12 0 R>>>>`,
+      `/Contents 40 0 R/Resources<</Font<</F1 ${helvetica}/F2 30 0 R/T3 31 0 R>>/ExtGState<</GS1<</Font[${helvetica} 12]>>>>/XObject<</X1 10 0 R/X2 12 0 R>>>>`,
       [
-        form(10, `<</Font<</F3 ${helvetica}>>>>`),
-        form(12, '20 0 R'),
+        { number: 10, body: streamBody(`/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources<</Font<</F3 ${helvetica}>>>>`, 'BT /F3 1 Tf ET') },
+        { number: 12, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Resources 20 0 R', 'BT /F4 1 Tf ET') },
         { number: 20, body: `<</Font<</F4 ${helvetica}>>>>` },
         { number: 30, body: helvetica },
         { number: 31, body: `<<${type3}/Resources<</Font<</F5 ${helvetica}>>>>>>` },
+        { number: 32, body: streamBody('', '0 0 d0 /F5 1 Tf') },
+        { number: 40, body: streamBody('', String.raw`/GS1 gs BT /F1 1 Tf /F2 1 Tf /T3 1 Tf (\0) Tj ET /X1 Do /X2 Do`) },
       ],
     );
-    expect(walk(document).keys.toSorted()).toStrictEqual([
-      '30.0',
-      '31.0',
-      'direct:10.0:4633',
-      'direct:20.0:4634',
-      'direct:3.0:4631',
-      'direct:3.0:ExtGState:475331',
-      'direct:31.0:4635',
-    ]);
+    const selected = new Set<string>();
+    const { complete } = interpretPage(document, 0, {
+      fontKey: key => {
+        selected.add(key);
+      },
+    });
+    expect([complete, selected.size, walk(document).keys.toSorted()]).toStrictEqual([true, 7, [...selected].toSorted()]);
   });
 
   it('names a direct font in inherited direct resources by the page tree node holding them', () => {
