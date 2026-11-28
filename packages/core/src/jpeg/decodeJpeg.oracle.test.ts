@@ -22,6 +22,17 @@ const rgb = (width = 32, height = 32): Uint8Array => {
   return bytes;
 };
 
+// Four 16 × 16 quadrants of blue, yellow, red and cyan put Cb and Cr near both ends of their range, where an error of 0.02 in a conversion coefficient moves a sample by more than 2.
+const saturated = (): Uint8Array => {
+  const colours = [
+    [0, 0, 255],
+    [255, 255, 0],
+    [255, 0, 0],
+    [0, 255, 255],
+  ];
+  return Uint8Array.from(Array.from({ length: 32 * 32 }, (_, index) => colours[Math.floor(index / 512) * 2 + Math.floor((index % 32) / 16)] ?? []).flat());
+};
+
 const decoded = (bytes: Uint8Array): Uint8Array => {
   const result = decodeJpeg(bytes);
   const output = new Uint8Array(result.width * result.height * result.components);
@@ -209,6 +220,8 @@ describe('jpeg decoding against ImageMagick libjpeg', () => {
     expect(maximumDifference(ycbcrToRgb(rowsWith(jpeg, 0)), decoded(jpeg))).toBeLessThanOrEqual(1);
     expect(maximumDifference(rowsWith(jpeg, 0), decoded(jpeg))).toBeGreaterThan(2);
     expect(rowsWith(withAdobe(jpeg, 1), 0)).toStrictEqual(decoded(jpeg));
+    const vivid = await magick(['-size', '32x32', '-depth', '8', 'rgb:-', '-quality', '90', 'jpeg:-'], saturated());
+    expect(maximumDifference(ycbcrToRgb(rowsWith(vivid, 0)), decoded(vivid))).toBeLessThanOrEqual(1);
   });
 
   it('refuses multi-scan and Adobe YCCK markers with typed reasons', async () => {
