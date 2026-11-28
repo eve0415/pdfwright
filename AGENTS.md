@@ -6,7 +6,7 @@ pdfwright is a TypeScript PDF library for print production, licensed MIT OR Apac
 
 - `packages/core` is `@pdfwright/core`, the core package.
 - `packages/illustrator` is `@pdfwright/illustrator`, which writes Illustrator-layered PDFs from a print-production artwork model.
-- `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names and that every package entry loads there.
+- `tests/` holds tests that span packages. `runtime.test.ts` asserts that every Vitest project runs its test bodies in the runtime it names, with the fixed property-test seed, and that every package entry loads there. `publicApi.test.ts` imports each package by name, pins the names of its value exports and runs one round trip through each. `setupFastCheck.ts` is the setup file every project loads.
 - `scripts/` holds repository scripts, which run on Node.
 
 ## Setup
@@ -32,19 +32,56 @@ pnpm test            # the node, browser (headless Chromium), workers (workerd) 
 pnpm run test:bun
 pnpm run test:deno
 pnpm run build
+pnpm run check:packages
 ```
 
 Run each as a separate command and read its exit code. **Never pipe the gate into `head` or `tail` before reading its exit code**: a pipeline exits with the status of its last command, so a failure reads as a pass. CI (`.github/workflows/ci.yaml`) runs the same checks, with the test projects split across jobs.
+
+`pnpm run test:coverage` reports statement and branch coverage of the node project in `coverage/`. It is outside the gate and has no threshold: read its uncovered branches as a list of untested decisions, not as a number to raise.
 
 `pnpm lint` is the fix mode: it applies every oxlint fix, including the ones oxlint marks dangerous, formats with oxfmt, and then runs the coverage check. Review its diff before committing it.
 
 - **The lint rules are `@cloudflare/oxlint-config` plus typescript-eslint's `strict-type-checked` and oxlint's `correctness` category.** `oxlint.config.ts` extends the preset and turns on every strict-type-checked rule, in test files too, where the preset would turn some off. The preset turns every category off, and the config turns `correctness` back on.
 - **oxlint is the type checker.** It runs type-aware with `typeCheck` on through `tsrs-lint` from [tsrs](https://github.com/oxc-project/tsrs), the Rust port of the TypeScript 7 compiler, so it reports TypeScript's own diagnostics for every file it lints, and there is no separate `tsc` step.
-- **A file no tsconfig covers is checked with TypeScript's default options, not this repository's** (<https://github.com/oxc-project/oxc/issues/26822>). `check:type-aware-coverage` plants a type error that only the repository's options report in every `packages/*/src`, in `scripts/`, in `tests/`, and in a `*.config.ts` file at the root and in each package, and fails unless oxlint reports each one. A new TypeScript directory needs a tsconfig whose `include` covers it; config files are covered by `tsconfig.config.json`.
+- **A file no tsconfig covers is checked with TypeScript's default options, not this repository's** (<https://github.com/oxc-project/oxc/issues/26822>). `check:type-aware-coverage` plants a type error that only the repository's options report in every `packages/*/src`, in `scripts/`, in `tests/`, in every directory that holds an `*.oracle.test.ts` file (tracked or not, as Git lists them), and in a `*.config.ts` file at the root and in each package, and fails unless oxlint reports each one. A new TypeScript directory needs a tsconfig whose `include` covers it; config files are covered by `tsconfig.config.json`.
 - **oxlint reports `isolatedDeclarations` errors (TS9xxx) in every package source file.** The tsdown build does not report all of them, so `pnpm exec oxlint` is the check for an exported signature.
+- **`check:packages` tests what a consumer installs.** It deletes each package's `dist`, builds, packs every package with `pnpm pack`, installs all the tarballs together with `npm install --offline` into a temporary project outside the repository, and imports each package there under Node, Bun and Deno. It fails when a file the published `exports` map names is missing from a tarball, when an import fails, or when the export names a runtime sees differ from the source entry's. It needs an `npm` on `PATH`, which no devDependency provides; the Node installation that ships it is enough.
 - **`test:bun` and `test:deno` start `node_modules/vitest/vitest.mjs` directly.** The `node_modules/.bin/vitest` shim runs Node whichever runtime launched it. Their `--project bun` and `--project deno` filters turn a run in the wrong runtime into a `No projects were found` error rather than a pass.
 
 The oracle project runs on Node and checks generated files with qpdf. The devcontainer also installs Ghostscript, MuPDF, poppler-utils, LittleCMS, Argyll, free ICC profiles and the Noto CJK fonts for external checks.
+
+## Tests
+
+Tests are colocated with the code they test, and the file suffix decides where a test runs. `scripts/testCollection.node.test.ts` fails when a test file is collected by no project or by a project its suffix does not name.
+
+- `X.test.ts` runs in the node, browser, workers, Bun and Deno projects.
+- `X.oracle.test.ts` runs only in the oracle project, on Node with the external tools installed.
+- `X.node.test.ts` runs only in the node project; scripts are tested this way.
+
+| Level       | What it checks                                                                                            | Where                                                    | Runs in                             |
+| ----------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------- |
+| Static      | types and lint                                                                                            | oxlint with `typeCheck`, and `check:type-aware-coverage` | the gate                            |
+| Unit        | one module through its exports: each class of input, both sides of every limit, every kind of error       | `X.test.ts` beside `X.ts`                                | the five runtime projects           |
+| Integration | several modules together on PDFs the test generates, in memory, with no doubles of this repository's code | `X.test.ts` beside the entry module                      | the five runtime projects           |
+| Property    | round trips and invariants over generated inputs, with fast-check                                         | a `describe('properties')` block in the same `X.test.ts` | the five runtime projects           |
+| Oracle      | the library's output as qpdf, Ghostscript, MuPDF, LittleCMS, Chromium and the corpus judge it             | `X.oracle.test.ts`                                       | the oracle project                  |
+| Public API  | each package through its name only, and the names it exports                                              | `tests/publicApi.test.ts`                                | the five runtime projects           |
+| Package     | the packed tarballs, installed outside the repository and imported                                        | `scripts/checkPackages.ts`                               | Node, Bun and Deno, after the build |
+
+Inside the test suite the package names resolve to the source entries through each package's `exports`; only `check:packages` reads the `publishConfig.exports` that npm consumers receive.
+
+Every new or changed test follows these rules.
+
+- **Test at the lowest level that can see the behaviour.** When an oracle test finds a defect, add a unit test of its cause on a minimal generated input as well, so the next regression does not hide behind a tool install.
+- **A fixture must separate the rule from its nearest wrong version.** A symmetric value such as tint 0.5, keys inserted in their sorted order, or a single item where "first" and "any" agree passes a broken implementation too.
+- **Test a limit at the limit and one past it**, so that `>` and `>=` cannot be swapped unnoticed.
+- **An error assertion names the error class and the field that distinguishes the failure**, such as `reason` or `offset`, never the whole message: `toThrow(XError)` for the class, and `toThrow(expect.objectContaining({ reason: 'image-truncated' }))` for the field. `toThrow(new XError(message))` compares the message and the error's own properties, including `name`, but not its class.
+- **Assert the whole output against inputs whose results differ.** A length, a prefix or a "not empty" check passes when most of the output is lost.
+- **No double of this repository's own code.** Run the real modules; double only what the repository does not own.
+- **No new wall-clock budget in the five runtime projects.** A time limit flakes on a loaded runner and can be vacuous where a clock does not advance; bound work by counting it instead.
+- **A property asserts with `expect` inside its predicate**, because `expect.requireAssertions` fails a test that makes no assertion, and states an equality (a round trip, an invariant, agreement with an independent implementation) rather than a range. `setupFastCheck.ts` fixes the seed and the number of runs in every project, and a failure prints the seed and path that replay it.
+- **An oracle test that cannot find its tool or a committed corpus fails.** A test that reads a local-only reference file through an environment variable is skipped when the variable is unset, and says so.
+- **A test asserts the behaviour the specification or the documentation states.** When the library disagrees, fix the library in the same change or leave the test out; never pin the wrong behaviour.
 
 ## Runtime rules
 
