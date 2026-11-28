@@ -1,8 +1,12 @@
 // Inputs shared by the deflate and inflate tests, so that both sides of the codec are checked against the same data.
 
+import type { Arbitrary } from 'fast-check';
+
+import fc from 'fast-check';
+
 import { seededBytes } from '../testing/seededBytes.ts';
 
-/** One KiB of English text, which compresses into a dynamic Huffman block. */
+/** One KiB of English text repeating one sentence, which deflate writes mostly as matches. */
 export const foxText = (): Uint8Array => new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
 
 /** One MiB without structure, which deflate cannot shrink. */
@@ -16,6 +20,13 @@ export const largeData = (): Uint8Array => {
   }
   return data;
 };
+
+/**
+ * Up to maxLength pseudo-random bytes, each masked with mask, drawn from a length and a seed rather than byte by byte.
+ * A failing property then shrinks the length in a few steps instead of trying to remove each of thousands of bytes in turn.
+ */
+export const seededInput = (maxLength: number, mask = 255): Arbitrary<Uint8Array> =>
+  fc.tuple(fc.integer({ min: 0, max: maxLength }), fc.nat({ max: 0xff_ff_ff_ff })).map(([length, seed]) => seededBytes(length, seed).map(byte => byte & mask));
 
 /** Joins byte arrays in order. */
 export const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {

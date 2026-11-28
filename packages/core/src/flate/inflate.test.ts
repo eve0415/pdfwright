@@ -15,7 +15,7 @@ import { BitWriter } from './bitWriter.ts';
 import { deflateZlib } from './deflate.ts';
 import { canonicalCodes } from './huffmanEncoder.ts';
 import { inflateChunks, inflateRaw, inflateZlib } from './inflate.ts';
-import { comparison, concat, foxText, largeData, randomData } from './testData.ts';
+import { comparison, concat, foxText, largeData, randomData, seededInput } from './testData.ts';
 
 const dataSet = (): Array<Uint8Array> => [new Uint8Array(), new Uint8Array([123]), foxText(), randomData()];
 
@@ -539,7 +539,7 @@ describe('chunked zlib inflate', () => {
 
 describe('properties', () => {
   // Bytes drawn from four values repeat often enough to produce matches and dynamic Huffman blocks; unrestricted bytes mostly do not.
-  const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
+  const input = fc.oneof(seededInput(2048), seededInput(4096, 3));
   const level = fc.constantFrom(0, 1, 6, 9);
   const damage = fc.oneof(
     fc.constant({ kind: 'none' } as const),

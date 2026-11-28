@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ParseError } from '../error/parseError.ts';
 import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { latin1Bytes } from '../testing/pdfBuilder.ts';
+import { seededBytes } from '../testing/seededBytes.ts';
 
 import { decodeAscii85 } from './ascii85.ts';
 import { decodeAsciiHex } from './asciiHex.ts';
@@ -121,6 +122,10 @@ const withWhiteSpace = (text: string, insertions: ReadonlyArray<readonly [number
   }
   return spaced;
 };
+
+// Up to maxLength pseudo-random bytes masked with mask, drawn from a length and a seed, so a failure shrinks in a few steps rather than byte by byte through thousands of bytes.
+const seeded = (maxLength: number, mask: number): fc.Arbitrary<Uint8Array> =>
+  fc.tuple(fc.integer({ min: 0, max: maxLength }), fc.nat({ max: 0xff_ff_ff_ff })).map(([length, seed]) => seededBytes(length, seed).map(byte => byte & mask));
 
 describe('stream filters', () => {
   it('decodes ASCIIHexDecode data, ignoring white space and padding an odd final digit', () => {
@@ -366,7 +371,7 @@ describe('properties', () => {
 
   it('decodes LZWDecode data written by a test-side encoder, through a full table and with either EarlyChange', () => {
     // Long unstructured inputs fill the 4,096-entry table; inputs from two byte values build long entries.
-    const data = fc.oneof(fc.uint8Array({ maxLength: 12_000, size: 'max' }), fc.uint8Array({ max: 1, maxLength: 2000, size: 'max' }));
+    const data = fc.oneof(seeded(12_000, 255), seeded(2000, 1));
     fc.assert(
       fc.property(data, fc.constantFrom(0, 1), fc.boolean(), (bytes, earlyChange, clearWhenFull) => {
         expect(decodeLzw(packCodes(lzwEncode(bytes, earlyChange, clearWhenFull)), { earlyChange, maxOutputBytes: LIMIT })).toStrictEqual(bytes);

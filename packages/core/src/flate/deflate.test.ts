@@ -11,7 +11,7 @@ import { md5 } from '../hash/md5.ts';
 
 import { ZlibDeflater, createDeflateStream, deflateRaw, deflateZlib } from './deflate.ts';
 import { inflateRaw, inflateZlib } from './inflate.ts';
-import { comparison, concat, foxText, largeData, randomData } from './testData.ts';
+import { comparison, concat, foxText, largeData, randomData, seededInput } from './testData.ts';
 
 const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
@@ -253,7 +253,7 @@ describe('incremental deflate output', () => {
 
 describe('properties', () => {
   // Bytes drawn from four values repeat often enough to produce matches and dynamic Huffman blocks; unrestricted bytes mostly do not.
-  const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
+  const input = fc.oneof(seededInput(2048), seededInput(4096, 3));
   const level = fc.constantFrom(...LEVELS);
 
   it('inflates what it deflates at every level', () => {

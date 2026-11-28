@@ -5,6 +5,7 @@ import { seededBytes } from '../testing/seededBytes.ts';
 
 import { matchToken, tokenize } from './lz77.ts';
 import { DISTANCE_BASE, DISTANCE_EXTRA, LENGTH_BASE, LENGTH_EXTRA } from './tables.ts';
+import { seededInput } from './testData.ts';
 
 type Token = number | readonly [length: number, distance: number];
 
@@ -105,7 +106,7 @@ describe('properties', () => {
   });
 
   it('writes tokens that replay to the input at every level', () => {
-    const input = fc.oneof(fc.uint8Array({ maxLength: 2048, size: 'max' }), fc.uint8Array({ max: 3, maxLength: 4096, size: 'max' }));
+    const input = fc.oneof(seededInput(2048), seededInput(4096, 3));
     fc.assert(
       fc.property(input, fc.integer({ min: 0, max: 9 }), (data, level) => {
         expect(replay(tokens(data, level))).toStrictEqual(data);

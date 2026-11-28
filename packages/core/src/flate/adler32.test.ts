@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { seededBytes } from '../testing/seededBytes.ts';
 
 import { adler32, updateAdler32 } from './adler32.ts';
+import { seededInput } from './testData.ts';
 
 // RFC 1950, 8.2 and 9: A is 1 plus the bytes and B the sum of each step's A, both modulo 65521, and the checksum is B * 65536 + A. Reduced after every byte, as the RFC's sample code does before its optimisation.
 const reference = (data: Uint8Array): number => {
@@ -38,7 +39,7 @@ describe('adler checksum', () => {
 describe('properties', () => {
   it('continues a checksum over any split as the reference does over the whole', () => {
     fc.assert(
-      fc.property(fc.uint8Array({ maxLength: 12_000, size: 'max' }), fc.uint8Array({ maxLength: 12_000, size: 'max' }), (first, rest) => {
+      fc.property(seededInput(12_000), seededInput(12_000), (first, rest) => {
         const joined = new Uint8Array([...first, ...rest]);
         expect(updateAdler32(adler32(first), rest)).toBe(reference(joined));
       }),
