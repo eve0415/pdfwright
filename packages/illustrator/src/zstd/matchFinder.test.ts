@@ -125,6 +125,17 @@ describe('zstandard match finder', () => {
     });
   });
 
+  it('finds a match that starts in the last three bytes of the previous block', () => {
+    const input = new TextEncoder().encode('0123456ABCDqrsABCDqrs');
+    const finder = createMatchFinder(input);
+    finder.parseBlock(0, 10);
+    expect(finder.parseBlock(10, input.length)).toStrictEqual({
+      literals: new TextEncoder().encode('Dqrs'),
+      sequences: [{ literalLength: 4, matchLength: 7, offset: 7 }],
+      trailingLiterals: 0,
+    });
+  });
+
   it('parses an empty block and continues after it', () => {
     const input = new TextEncoder().encode('abcdabcd');
     const finder = createMatchFinder(input);
@@ -190,7 +201,13 @@ describe('zstandard match finder', () => {
         [10, 9],
       ],
     },
-    { name: 'an end past the input', blocks: [[0, 131_074]] },
+    {
+      name: 'an end past the input',
+      blocks: [
+        [0, 131_072],
+        [131_072, 131_074],
+      ],
+    },
     { name: 'a 131,073-byte block', blocks: [[0, 131_073]] },
   ])('refuses $name', ({ blocks }) => {
     const finder = createMatchFinder(new Uint8Array(131_073));
