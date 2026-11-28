@@ -79,12 +79,12 @@ const offsetOf = (bytes: Uint8Array, needle: string): number => {
 };
 
 // Replaces the first occurrence of a needle, failing when it is absent so that a fixture cannot silently stay valid.
-const edited = (bytes: Uint8Array, needle: string, replacement: string): Uint8Array => {
+const edited = (bytes: Uint8Array, needle: string, replacement: string | Uint8Array): Uint8Array => {
   const index = offsetOf(bytes, needle);
   if (index === -1) {
     throw new Error(`fixture bytes are missing ${JSON.stringify(needle)}`);
   }
-  const inserted = encoder.encode(replacement);
+  const inserted = typeof replacement === 'string' ? encoder.encode(replacement) : replacement;
   const output = new Uint8Array(bytes.length - encoder.encode(needle).length + inserted.length);
   output.set(bytes.subarray(0, index));
   output.set(inserted, index);
@@ -132,6 +132,16 @@ describe('native model reader', () => {
     { case: 'a spot name continued after an LF', needle: '(White) 0.75 x', replacement: '(Wh\\\nite) 0.75 x' },
   ])('reads $case', ({ needle, replacement }) => {
     expect(readNative(edited(nativeBytes, needle, replacement), date).document).toStrictEqual(normalizeModel(document));
+  });
+
+  // The raw bytes of a name and the bytes its escapes code make one UTF-8 sequence, so é may be split between them.
+  it.each([
+    { case: 'a raw lead byte before an octal continuation byte', name: [...encoder.encode('(D'), 0xc3, ...encoder.encode(String.raw`\251sign) Ln`)] },
+    { case: 'an octal lead byte before a raw continuation byte', name: [...encoder.encode(String.raw`(D\303`), 0xa9, ...encoder.encode('sign) Ln')] },
+    { case: 'a raw lead byte before an escaped raw continuation byte', name: [...encoder.encode('(D'), 0xc3, 0x5c, 0xa9, ...encoder.encode('sign) Ln')] },
+  ])('reads a layer name with $case', ({ name }) => {
+    const native = edited(nativeBytes, '(Design) Ln', Uint8Array.from(name));
+    expect(readNative(native, date).document.layers.map(layer => layer.name)).toStrictEqual(['Hidden', 'Désign']);
   });
 
   it('reports only the setup blocks it does not know', () => {
