@@ -206,11 +206,11 @@ const planSpace = (context: SpotContext, name: Uint8Array, value: PdfDirectObjec
   if (internals === undefined) {
     return invalid('document internals are unavailable');
   }
+  const convertible = alternateSource(resolved.alternate) !== undefined;
   const original = internals.objects.deref(value);
   if (original?.kind !== 'array') {
-    return invalid('spot colour space is not an array');
+    return convertible ? invalid('spot colour space is not an array') : undefined;
   }
-  const convertible = alternateSource(resolved.alternate) !== undefined;
   const colorants = resolved.kind === 'deviceN' ? colorantPlans(context, original) : { plans: [], discarded: [] };
   if (!convertible && colorants.plans.length === 0) {
     return undefined;
