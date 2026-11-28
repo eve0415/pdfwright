@@ -95,7 +95,7 @@ const checkEntryLengths = (chain: SectionChain, log: Pick<LoadLog, 'note' | 'war
 };
 
 const firstObjectIsLinearization = (store: ObjectStore): boolean => {
-  let first: number | undefined = undefined;
+  let first: number | undefined;
   let offset = Number.POSITIVE_INFINITY;
   for (const number of store.index.inUse()) {
     const entry = store.index.get(number);

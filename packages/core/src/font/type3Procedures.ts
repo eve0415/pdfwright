@@ -30,7 +30,7 @@ export const normalised = ([x1, y1, x2, y2]: readonly [number, number, number, n
 export const readProcedure = (source: FontSource, procedure: PdfStream): ProcedureSummary => {
   const data = decodedData(source, procedure);
   if (typeof data === 'string') return { paints: undefined, box: undefined };
-  let box: Rectangle | undefined = undefined;
+  let box: Rectangle | undefined;
   let first = true;
   try {
     for (const { operator, operands } of readContent(data, source.maxNesting)) {

@@ -39,7 +39,7 @@ const languageOf = (codes: Uint8Array): string | undefined => {
 const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
   const decoder = new TextDecoder('utf-16be');
   const parts: string[] = [];
-  let language: string | undefined = undefined;
+  let language: string | undefined;
   let start = 2;
   for (let offset = 2; offset + 1 < bytes.length; offset += 2) {
     if (bytes[offset] !== 0 || bytes[offset + 1] !== ESCAPE) continue;
@@ -105,7 +105,7 @@ export class ActualTextSpans {
 
   /** Records a glyph shown inside the open sequences, outermost first, and returns the outermost ActualText span it lies in. */
   add(glyph: number, markedContent: readonly MarkedContent[]): number | undefined {
-    let outermost: number | undefined = undefined;
+    let outermost: number | undefined;
     for (const sequence of markedContent) {
       const index = this.spanOf(sequence);
       if (index === null) continue;

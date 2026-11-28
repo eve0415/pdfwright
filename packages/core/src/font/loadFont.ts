@@ -186,7 +186,7 @@ const extentWithMetrics = (extent: VerticalExtent, metrics: Standard14Metrics | 
 
 // A value computed on the first call and kept.
 const once = <T>(compute: () => T): (() => T) => {
-  let kept: { readonly value: T } | undefined = undefined;
+  let kept: { readonly value: T } | undefined;
   return () => {
     kept ??= { value: compute() };
     return kept.value;
@@ -429,7 +429,7 @@ const compositeEncoding = (
   const encoding = source.objects.deref(value);
   const available = result.kind === 'cmap' && result.cmap.unavailableParent === undefined;
   if (encoding?.kind === 'name') return { kind: 'cmap', name: encoding.bytes, predefined: true, embedded: false, writingMode, available };
-  let stored: PdfObject | undefined = undefined;
+  let stored: PdfObject | undefined;
   try {
     stored = encoding?.kind === 'stream' ? source.objects.deref(encoding.dictionary.get(CMAP_NAME)) : undefined;
   } catch (error: unknown) {

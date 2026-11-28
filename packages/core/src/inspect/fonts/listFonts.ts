@@ -372,7 +372,7 @@ const reach = (listing: Listing, index: number, model: FontModel): Reached => {
 
 const walkPage = (listing: Listing, index: number, page: PageEntry): void => {
   const { document, problems } = listing;
-  let resources: Found | undefined = undefined;
+  let resources: Found | undefined;
   try {
     resources = inherited(document.objects, page, { key: RESOURCES, cache: listing.cache });
     listing.pageResources[index] = dictionaryOf(document.objects.deref(resources?.value));

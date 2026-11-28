@@ -72,7 +72,7 @@ const subpathBounds = (subpath: Subpath): Bounds => {
 
 /** Returns the exact geometric bounds of every subpath's cubic segments. */
 export const pathBounds = (geometry: PathGeometry): Bounds => {
-  let bounds: Bounds | undefined = undefined;
+  let bounds: Bounds | undefined;
   for (const subpath of geometry.subpaths) bounds = union(bounds, subpathBounds(subpath));
   if (bounds === undefined) throw new Error('path geometry has no subpath');
   return bounds;
@@ -170,7 +170,7 @@ const itemBounds = (item: Item): Bounds | undefined => {
       return pathBounds(item.clip);
     }
     case 'group': {
-      let bounds: Bounds | undefined = undefined;
+      let bounds: Bounds | undefined;
       for (const child of item.items) {
         const next = itemBounds(child);
         if (next !== undefined) bounds = union(bounds, next);
@@ -185,7 +185,7 @@ const itemBounds = (item: Item): Bounds | undefined => {
 
 /** Returns the union of visible art, or the artboard when no visible object contributes bounds. */
 export const artBounds = (document: IllustratorDocument): Bounds => {
-  let bounds: Bounds | undefined = undefined;
+  let bounds: Bounds | undefined;
   for (const layer of document.layers) {
     if (layer.visible === false) continue;
     for (const item of layer.items) {

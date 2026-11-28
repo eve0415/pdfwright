@@ -251,7 +251,7 @@ const skipArtDictionary = (cursor: Cursor): void => {
 };
 
 const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
-  let spotPaint: Paint | undefined = undefined;
+  let spotPaint: Paint | undefined;
   if (peekLine(cursor) === '0 O') {
     cursor.takeLine();
     spotPaint = parsePaint(cursor.takeRecord());

@@ -93,7 +93,7 @@ const readProcedure = (document: DocumentInternals, value: PdfDirectObject, reso
  * Names are looked up in the font's Resources, or in `pageResources` when the font has none, as Table 112 says: "the names shall be looked up in the resource dictionary of the page on which the font is used".
  */
 export const readType3Glyphs = (document: DocumentInternals, type3: Type3Parts, pageResources: PdfDictionaryEntries | undefined): Type3Reading => {
-  let own: PdfObject | undefined = undefined;
+  let own: PdfObject | undefined;
   try {
     own = document.objects.deref(type3.resources);
   } catch (error: unknown) {

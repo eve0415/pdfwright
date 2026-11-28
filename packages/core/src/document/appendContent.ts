@@ -121,7 +121,7 @@ const additions = (resources: PdfDirectObject | undefined): ResourceAddition[] =
 
 // A name the page's resources already give the same separation, or the same image or group object written by an earlier append.
 const existingName = (context: ContentContext, page: PageEntry, resource: RegisteredResource): string | undefined => {
-  let number: number | undefined = undefined;
+  let number: number | undefined;
   if (resource.kind === 'image') number = context.placed.imageNumbers.get(resource.record)?.parent;
   else if (resource.kind === 'group') number = context.placed.groupNumbers.get(resource.record);
   const category: ResourceCategory = resource.kind === 'separation' ? 'ColorSpace' : 'XObject';

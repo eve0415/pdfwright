@@ -396,7 +396,7 @@ interface Scan {
 const scanResources = ({ document, cache }: Scan, index: number, scan: PageScan): void => {
   const page = document.pages[index];
   if (page === undefined) return;
-  let found: Found | undefined = undefined;
+  let found: Found | undefined;
   try {
     found = inherited(document.objects, page, { key: RESOURCES, cache });
     scan.separationInfo(dictionaryOf(document.objects.deref(page.reference)));
