@@ -159,7 +159,7 @@ const siblingForm = (index: number, count: number): TestObject => ({
 
 /**
  * `fonts` Type 3 fonts, objects 10 on, share CharProcs object 5 of `glyphs` glyph procedures, objects 100 on, the last of which applies `names` graphics states; each font names its states opaque, except that the last font names the last state transparent.
- * The scan takes one step for each CharProcs entry of each font and one for each name it looks up again with a later font's Resources, so it finds the transparent state at step glyphs + (fonts - 1) * (glyphs + names).
+ * The scan takes one step for each entry of the CharProcs dictionary the first time it reads it, and one for each later font that reads it with other Resources and for each name that font looks up again, so it finds the transparent state at step glyphs + (fonts - 1) * (1 + names).
  */
 const sharedGlyphs = (fonts: number, glyphs: number, names: number, maxDecodedBytes: number) => {
   const states = Array.from({ length: names }, (_, index) => `/G${String(index)}`);
@@ -600,7 +600,7 @@ describe('pdfx page preparation', () => {
 
   it.each<[string, number, number, number, number]>([
     ['names looked up again', 10, 1, 30, 280],
-    ['CharProcs entries', 10, 30, 1, 309],
+    ['CharProcs entries once', 10, 30, 1, 48],
   ])(
     'reads glyph procedures that fonts with different Resources share for as many steps as maxDecodedBytes and refuses one more, counting %s',
     (_, fonts, glyphs, names, steps) => {
