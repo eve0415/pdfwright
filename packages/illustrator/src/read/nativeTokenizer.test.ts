@@ -75,6 +75,7 @@ describe('native tokenizer', () => {
     { case: 'octal escapes of UTF-8 bytes', literal: String.raw`(caf\303\251)`, expected: 'café' },
     { case: 'the letter escapes', literal: String.raw`(\n\r\t\b\f)`, expected: '\n\r\t\b\f' },
     { case: 'a backslash before a line feed', literal: '(ab\\\ncd)', expected: 'abcd' },
+    { case: 'a byte order mark at the start of an escaped name', literal: String.raw`(${'﻿'}\(a)`, expected: '﻿(a' },
     { case: 'a backslash before a character without an escape', literal: String.raw`(\q\8)`, expected: 'q8' },
   ])('reads $case', ({ literal, expected }) => {
     expect(parseNativeLiteral(literal, 0)).toBe(expected);
