@@ -137,17 +137,21 @@ describe('header and startxref location', () => {
 });
 
 describe('properties', () => {
-  // Filler of white space and one regular letter holds no keyword xref and no "n g obj" header.
-  const filler = fc.array(fc.constantFrom(' ', '\n', '\r', 'z'), { maxLength: 120 }).map(characters => characters.join(''));
   const chunk = fc.constantFrom(0, 1, 3, 7, 64);
 
   it('finds a lone section from any offset within 64 bytes, and reports a correction unless only white space lies between', () => {
+    // Padding of white space and one regular letter holds no keyword xref and no "n g obj" header; 80 bytes on each side keep every drawn offset inside the file.
+    const padding = fc.array(fc.constantFrom(' ', '\n', '\r', 'z'), { minLength: 80, maxLength: 160 }).map(characters => characters.join(''));
+    // A regular byte before the line ending ends the white space there; a long run of white space lets the skip reach past the window.
+    const separator = fc.constantFrom('z', ' \r\n'.repeat(30));
+    // Half the distances sit on either side of the 64-byte edge of the window.
+    const distance = fc.oneof(fc.constantFrom(-65, -64, 64, 65), fc.integer({ min: -80, max: 80 }));
     fc.assert(
-      fc.property(filler, filler, chunk, fc.nat(300), (before, after, size, rawOffset) => {
-        const prefix = `${before}\n`;
+      fc.property(padding, separator, padding, chunk, distance, (before, between, after, size, delta) => {
+        const prefix = `${before}${between}\n`;
         const start = prefix.length;
         const text = `${prefix}xref\n0 1\n${after}`;
-        const offset = rawOffset % text.length;
+        const offset = start + delta;
         const blank = offset <= start && /^[ \n\r]*$/u.test(text.slice(offset, start));
         const near = Math.abs(offset - start) <= 64;
         expect(sectionStartNear(source(text, size), offset)).toStrictEqual(blank || near ? { offset: start, corrected: !blank } : undefined);
