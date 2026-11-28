@@ -1,4 +1,4 @@
-import type { LoadedDocument } from '../document/loadDocument.ts';
+import type { LoadedDocument, LoadOptions } from '../document/loadDocument.ts';
 import type { PdfDirectObject } from '../object/pdfObject.ts';
 import type { TestObject } from '../testing/pdfBuilder.ts';
 import type { OutputIntentOptions } from './writeOutputIntent.ts';
@@ -154,6 +154,41 @@ const objectStreamProfile = () =>
       },
     ]).bytes,
   );
+
+/** An intent, object 4, whose S is object 21, the name GTS_PDFA1 in object stream 20 beside a 300 000-byte string, and whose profile holds the given bytes. */
+const objectStreamSubtype = (bytes: Uint8Array, options: LoadOptions) => {
+  const document = loadDocument(
+    buildPdf([
+      {
+        xref: 'stream',
+        objects: [
+          { number: 1, body: '<</Type/Catalog/Pages 2 0 R/OutputIntents[4 0 R]>>' },
+          { number: 2, body: '<</Type/Pages/Kids[3 0 R]/Count 1>>' },
+          { number: 3, body: '<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]/Resources<<>>>>' },
+          { number: 4, body: '<</S 21 0 R>>' },
+        ],
+        objectStreams: [
+          {
+            number: 20,
+            members: [
+              { number: 21, body: '/GTS_PDFA1' },
+              { number: 22, body: `(${'x'.repeat(300_000)})` },
+            ],
+          },
+        ],
+        trailer: '/Root 1 0 R',
+      },
+    ]).bytes,
+    options,
+  );
+  const profileReference = document.object({ kind: 'stream', dictionary: new PdfDictionaryEntries(), data: bytes });
+  const entries = new PdfDictionaryEntries([
+    [pdfName('S').bytes, pdfReference(21, 0)],
+    [pdfName('DestOutputProfile').bytes, profileReference],
+  ]);
+  document.set(pdfReference(4, 0), pdfDictionary(entries));
+  return document;
+};
 
 describe('gts pdfx output intent', () => {
   it('writes registry defaults', () => {
@@ -455,6 +490,29 @@ describe('gts pdfx output intent', () => {
     const document = withIntents('[4 0 R]', objects);
     const replaced = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
     expect([replaced.action, replaced.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', ['other'], ['GTS_PDFX']]);
+  });
+
+  it.each<[string, LoadOptions, string]>([
+    ['as many members as maxObjectStreamMembers', { maxObjectStreamMembers: 2 }, 'GTS_PDFA1'],
+    ['more members than maxObjectStreamMembers', { maxObjectStreamMembers: 1 }, 'other'],
+    ['a decoded length within maxDecodedBytes', { maxDecodedBytes: 400_000 }, 'GTS_PDFA1'],
+    ['a decoded length past maxDecodedBytes', { maxDecodedBytes: 250_000 }, 'other'],
+  ])('replaces an intent whose S is in an object stream of %s', (_, options, subtype) => {
+    const document = objectStreamSubtype(other, options);
+    const result = writeGtsPdfxOutputIntent(document, { outputProfile: profile, outputConditionIdentifier: 'FOGRA39', existing: 'replace' });
+    expect([result.action, result.removedSubtypes, subtypesOf(document)]).toStrictEqual(['replaced', [subtype], ['GTS_PDFX']]);
+  });
+
+  it('refuses an intent it keeps whose S is in an object stream past the limits', () => {
+    // A kept intent's subtype decides whether it is updated or a GTS_PDFX intent is added beside it, so its S is not guessed.
+    const write = () =>
+      writeGtsPdfxOutputIntent(objectStreamSubtype(profile, { maxObjectStreamMembers: 1 }), {
+        outputProfile: profile,
+        outputConditionIdentifier: 'FOGRA39',
+        existing: 'replace',
+      });
+    expect(write).toThrow(ResourceLimitError);
+    expect(write).toThrow(/maxObjectStreamMembers/u);
   });
 
   it('writes N 4 on a reused profile that lacks it', () => {
