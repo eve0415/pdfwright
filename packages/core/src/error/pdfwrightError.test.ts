@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EncryptedDocumentError } from './encryptedDocumentError.ts';
+import { GenerationMismatchError } from './generationMismatchError.ts';
 import { InvalidArgumentError } from './invalidArgumentError.ts';
 import { InvalidProfileError } from './invalidProfileError.ts';
 import { ParseError } from './parseError.ts';
@@ -28,6 +29,13 @@ describe('pdf errors', () => {
     }
     expect(errors[1][0].offset).toBe(17);
   });
+
+  it('reports a generation mismatch as a parse error with its offset', () => {
+    const error = new GenerationMismatchError('generation 1 does not match 0', 42);
+    expect(error).toBeInstanceOf(ParseError);
+    expect(error).toBeInstanceOf(PdfwrightError);
+    expect([error.name, error.code, error.offset, error.reason]).toStrictEqual(['GenerationMismatchError', 'parse', 42, undefined]);
+  });
 });
 
 describe('invalid ICC profile errors', () => {
@@ -35,6 +43,10 @@ describe('invalid ICC profile errors', () => {
     const error = new InvalidProfileError('invalid curve', 'bad-tag-data', { offset: 256, tag: 'rTRC' });
     expect([error.reason, error.offset, error.tag]).toStrictEqual(['bad-tag-data', 256, 'rTRC']);
     expect(new UnsupportedFeatureError('unsupported tag', 'icc-mpet').reason).toBe('icc-mpet');
+    expect([new InvalidProfileError('truncated', 'truncated', { offset: 0 }).tag, new UnsupportedFeatureError('unsupported').reason]).toStrictEqual([
+      undefined,
+      undefined,
+    ]);
   });
 });
 
