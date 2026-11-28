@@ -114,16 +114,24 @@ describe('cover index', () => {
     expect([point.hides(5, 5), line.hides(45, 5), line.hides(60, 5)]).toStrictEqual([true, true, false]);
   });
 
-  it('bounds quads, or gives undefined for none and for a coordinate that is not finite', () => {
+  it('bounds the quads whose coordinates are all finite, or gives undefined when none are', () => {
     const square: Quad = [10, 20, 30, 20, 30, 40, 10, 40];
     // The square gives the left and top edges, and the turned quad's third corner the right edge and its second corner the bottom edge.
     const turned: Quad = [52, 3, 58, -5, 60, 9, 45, 2];
+    // A quad with one coordinate that is not finite is skipped whole, so its finite coordinates (x 50, y 0) do not widen the bounds either.
     expect([
       quadBounds([]),
       quadBounds([square, turned]),
-      quadBounds([square, [10, 20, Number.NaN, 20, 30, 40, 10, 40]]),
-      quadBounds([square, [10, 20, 30, 20, 30, Infinity, 10, 40]]),
-    ]).toStrictEqual([undefined, { left: 10, bottom: -5, right: 60, top: 40 }, undefined, undefined]);
+      quadBounds([square, [50, 0, Number.NaN, 20, 30, 40, 10, 40]]),
+      quadBounds([square, [50, 0, 30, 20, 30, Infinity, 10, 40]]),
+      quadBounds([[Number.NaN, 0, 1, 0, 1, 1, 0, 1]]),
+    ]).toStrictEqual([
+      undefined,
+      { left: 10, bottom: -5, right: 60, top: 40 },
+      { left: 10, bottom: 20, right: 30, top: 40 },
+      { left: 10, bottom: 20, right: 30, top: 40 },
+      undefined,
+    ]);
   });
 });
 
