@@ -34,7 +34,7 @@ export interface ContentOperation {
 }
 
 export interface SpannedContentOperation extends ContentOperation {
-  /** First operand byte, or the operator byte when it has no operands; an offset in `stream`. */
+  /** First operand byte, or the operator byte when it has no operands or its first operand is in an earlier stream; an offset in `stream`. */
   readonly start: number;
   /** The index of the stream `end` is in: `stream`, or for an inline image the stream holding EI, which can be a later one. */
   readonly endStream: number;
