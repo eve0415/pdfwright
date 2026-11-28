@@ -1,12 +1,13 @@
 import type { CMapCode } from './mappingTable.ts';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { ResourceLimitError } from '../../error/resourceLimitError.ts';
 import { latin1Bytes } from '../../testing/pdfBuilder.ts';
 
 import { CMap } from './cmap.ts';
-import { parseCMap } from './parseCMap.ts';
+import { parseCMap, utf16Text } from './parseCMap.ts';
 
 const parse = (text: string): ReturnType<typeof parseCMap> => parseCMap(latin1Bytes(text), 32);
 
@@ -91,6 +92,8 @@ CMapName currentdict /CMap defineresource pop
 end
 end
 `;
+
+const CODESPACE = '1 begincodespacerange <0000> <FFFF> endcodespacerange';
 
 const toUnicode = (body: string): string => `begincmap\n1 begincodespacerange <00> <FF> endcodespacerange\n${body}\nendcmap`;
 
@@ -264,5 +267,148 @@ describe('embedded and ToUnicode CMaps', () => {
   it('accepts 65,536 entries and throws ResourceLimitError at the next one', () => {
     expect(parse(cidChars(65_536)).cids).toHaveLength(65_536);
     expect(() => parse(cidChars(65_537))).toThrow(ResourceLimitError);
+  });
+});
+
+// The parts of a parse that tell which entries were kept: how many codespace ranges, CID mappings and Unicode mappings, and the kinds of the problems.
+const kept = (text: string): [number, number, number, Array<string>] => {
+  const parsed = parse(text);
+  return [parsed.codespaces.length, parsed.cids.length, parsed.unicode.length, parsed.problems.map(problem => problem.kind)];
+};
+
+describe('damaged CMap entries', () => {
+  it.each([
+    { label: 'a codespace range without its upper bound', text: '2 begincodespacerange <00> <7F> <80> endcodespacerange', kept: [1, 0, 0, ['damaged']] },
+    { label: 'a cidchar without its CID', text: '2 begincidchar <20> 5 <21> endcidchar', kept: [0, 1, 0, ['damaged']] },
+    { label: 'a cidrange without its CID', text: '2 begincidrange <20> <21> 5 <22> <23> endcidrange', kept: [0, 1, 0, ['damaged']] },
+    { label: 'a bfchar without its destination', text: '2 beginbfchar <41> <0042> <43> endbfchar', kept: [0, 0, 1, ['damaged']] },
+    { label: 'a bfrange without its destination', text: '2 beginbfrange <01> <02> <0041> <03> <04> endbfrange', kept: [0, 0, 1, ['damaged']] },
+  ])('keeps the complete entries before $label and reports it once', ({ text, kept: expected }) => {
+    expect(kept(text)).toStrictEqual(expected);
+  });
+
+  it.each([
+    { label: 'a 4-byte codespace range', text: '1 begincodespacerange <01020304> <01020304> endcodespacerange', kept: [1, 0, 0, []] },
+    { label: 'a 5-byte codespace range', text: '1 begincodespacerange <0102030405> <0102030405> endcodespacerange', kept: [0, 0, 0, ['damaged']] },
+    { label: 'an empty codespace bound', text: '1 begincodespacerange <> <FF> endcodespacerange', kept: [0, 0, 0, ['damaged']] },
+    { label: 'an empty source code', text: '1 begincidchar <> 5 endcidchar', kept: [0, 0, 0, ['damaged']] },
+    { label: 'a 5-byte source code', text: '1 begincidchar <0102030405> 5 endcidchar', kept: [0, 0, 0, ['damaged']] },
+    { label: 'CID 0', text: '1 begincidchar <20> 0 endcidchar', kept: [0, 1, 0, []] },
+    { label: 'a negative CID', text: '1 begincidchar <20> -5 endcidchar', kept: [0, 0, 0, ['damaged']] },
+    { label: 'a bfrange destination that is a number', text: '1 beginbfrange <01> <02> 5 endbfrange', kept: [0, 0, 0, ['damaged']] },
+  ])('reads $label', ({ text, kept: expected }) => {
+    // ISO 32000-1:2008, 9.7.6.2: "The code length shall not be greater than 4."
+    expect(kept(text)).toStrictEqual(expected);
+  });
+
+  it('reports a usecmap that follows no name and names no CMap', () => {
+    const parsed = parse('5 usecmap');
+    expect([parsed.useCMap, parsed.problems.map(problem => problem.kind)]).toStrictEqual([undefined, ['damaged']]);
+  });
+
+  it('reads a bfrange array item that is not a string as unmapped', () => {
+    const parsed = parse(toUnicode('1 beginbfrange <01> <02> [<0041> 7] endbfrange'));
+    const cmap = new CMap(parsed);
+    expect([parsed.problems.map(problem => problem.kind), cmap.unicode(code('01')), cmap.unicode(code('02'))]).toStrictEqual([['damaged'], 'A', undefined]);
+  });
+
+  it('ignores a WMode other than 0 or 1', () => {
+    // 9.7.5.3, Table 120, WMode: "(Optional) A code that shall determine the writing mode for any CIDFont with which this CMap is combined. The possible values shall be 0 for horizontal and 1 for vertical."
+    expect([parse('/WMode 2 def').writingMode, parse('/WMode 1 def').writingMode]).toStrictEqual([undefined, 1]);
+  });
+
+  it.each([
+    { label: 'a 1-byte destination as one code unit', destination: '<41>', text: 'A', problems: [] },
+    { label: 'an odd leading byte as a code unit of its own', destination: '<004142>', text: '\u0000䅂', problems: [] },
+    { label: 'a lone low surrogate as U+FFFD', destination: '<DC00>', text: '�', problems: ['damaged'] },
+    { label: 'a high surrogate at the end as U+FFFD', destination: '<0041D83D>', text: 'A�', problems: ['damaged'] },
+  ])('decodes $label', ({ destination, text, problems }) => {
+    // 9.10.3: the destination is "a string of UTF-16BE-encoded Unicode characters".
+    const parsed = parse(toUnicode(`1 beginbfchar <01> ${destination} endbfchar`));
+    expect([new CMap(parsed).unicode(code('01')), parsed.problems.map(problem => problem.kind)]).toStrictEqual([text, problems]);
+  });
+
+  it('throws ResourceLimitError for arrays nested deeper than maxNesting, and reads them at it', () => {
+    expect(parseCMap(latin1Bytes('[[1]] pop'), 2).problems).toStrictEqual([]);
+    expect(() => parseCMap(latin1Bytes('[[[1]]] pop'), 2)).toThrow(ResourceLimitError);
+  });
+});
+
+const hex4 = (value: number): string => value.toString(16).padStart(4, '0');
+
+const utf16Hex = (text: string): string => Array.from({ length: text.length }, (_, index) => hex4(text.charCodeAt(index))).join('');
+
+// Entries written as blocks of at most 100, the most a CMap file block holds (9.7.5.4).
+const blocks = (operator: string, entries: ReadonlyArray<string>): string => {
+  const written: Array<string> = [];
+  for (let start = 0; start < entries.length; start += 100) {
+    const block = entries.slice(start, start + 100);
+    written.push(`${String(block.length)} begin${operator} ${block.join(' ')} end${operator}`);
+  }
+  return written.join('\n');
+};
+
+describe('properties', () => {
+  // Disjoint 2-byte code segments, each written as one cidrange or as one cidchar per code, with the CID of its first code.
+  const segment = fc.record({
+    gap: fc.integer({ min: 0, max: 4 }),
+    span: fc.integer({ min: 0, max: 6 }),
+    cid: fc.integer({ min: 0, max: 60_000 }),
+    range: fc.boolean(),
+  });
+  const unicodeText = fc.string({ unit: 'binary', minLength: 1, maxLength: 3 });
+
+  it('maps every code as the cidrange, cidchar and bfchar entries written for it say', () => {
+    fc.assert(
+      fc.property(
+        fc.array(segment, { maxLength: 60 }),
+        fc.array(fc.tuple(fc.integer({ min: 0, max: 400 }), unicodeText), { maxLength: 60 }),
+        (segments, texts) => {
+          const cids = new Map<number, number>();
+          const ranges: Array<string> = [];
+          const chars: Array<string> = [];
+          let next = 0;
+          for (const { gap, span, cid, range } of segments) {
+            const low = next + gap;
+            for (let offset = 0; offset <= span; offset++) {
+              cids.set(low + offset, cid + offset);
+              if (!range) {
+                chars.push(`<${hex4(low + offset)}> ${String(cid + offset)}`);
+              }
+            }
+            if (range) {
+              ranges.push(`<${hex4(low)}> <${hex4(low + span)}> ${String(cid)}`);
+            }
+            next = low + span + 1;
+          }
+          const unicode = new Map(texts);
+          const bfchars = [...unicode].map(([source, text]) => `<${hex4(source)}> <${utf16Hex(text)}>`);
+          const file = [CODESPACE, blocks('cidrange', ranges), blocks('cidchar', chars), blocks('bfchar', bfchars)].join('\n');
+          const cmap = new CMap(parse(file));
+          const codes = Array.from({ length: Math.max(next, 401) + 2 }, (_, index) => index);
+          expect(codes.map(value => [cmap.cid({ value, length: 2 }), cmap.unicode({ value, length: 2 })])).toStrictEqual(
+            codes.map(value => [cids.get(value) ?? 0, unicode.get(value)]),
+          );
+        },
+      ),
+    );
+  });
+
+  it('decodes UTF-16 code units as the platform does, with each lone surrogate as U+FFFD', () => {
+    fc.assert(
+      fc.property(fc.array(fc.oneof(fc.integer({ min: 0, max: 0xff_ff }), fc.integer({ min: 0xd8_00, max: 0xdf_ff })), { maxLength: 24 }), units => {
+        const platform = String.fromCharCode(...units);
+        expect(utf16Text(units)).toStrictEqual({ text: platform.toWellFormed(), unpaired: !platform.isWellFormed() });
+      }),
+    );
+  });
+
+  it('decodes the UTF-16 code units of any well-formed text back to that text', () => {
+    fc.assert(
+      fc.property(fc.string({ unit: 'binary' }), text => {
+        const units = Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
+        expect(utf16Text(units)).toStrictEqual({ text, unpaired: false });
+      }),
+    );
   });
 });
