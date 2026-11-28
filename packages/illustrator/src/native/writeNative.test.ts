@@ -1,9 +1,23 @@
 import type { IllustratorDocument, Layer, PathItem } from '../model/illustratorDocument.ts';
 
-import { pdfDate } from '@pdfwright/core';
+import { ValidationError, pdfDate } from '@pdfwright/core';
 import { describe, expect, it } from 'vitest';
 
+import { nameBasedUuid } from './nameBasedUuid.ts';
 import { writeNative } from './writeNative.ts';
+
+const artboardUuid = (bytes: Uint8Array): string | undefined =>
+  /%_\(([0-9a-f-]{36})\) \/String \(ArtboardUUID\) ,\r/u.exec(new TextDecoder().decode(bytes))?.[1];
+// Searches the bytes rather than decoded text, because multi-byte layer names would shift string offsets.
+const indexOf = (bytes: Uint8Array, marker: string): number => {
+  const needle = new TextEncoder().encode(marker);
+  for (let start = 0; start + needle.length <= bytes.length; start++) {
+    if (needle.every((byte, index) => bytes[start + index] === byte)) {
+      return start;
+    }
+  }
+  return -1;
+};
 
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 0, offset: 'Z' });
 const path: PathItem = {
@@ -84,10 +98,28 @@ describe('native data assembly', () => {
     const second = writeNative(document);
     expect(first.bytes).toStrictEqual(second.bytes);
     const changed = writeNative({ ...document, layers: [{ ...hiddenLayer, name: 'Hidden' }, baseLayer] });
-    expect(changed.bytes).not.toStrictEqual(first.bytes);
-    const text = new TextDecoder().decode(first.bytes);
-    expect(text).toMatch(/%_\([0-9a-f-]{36}\) \/String \(ArtboardUUID\) ,\r/u);
-    expect(text).not.toContain('c2pa');
+    const uuid = artboardUuid(first.bytes);
+    expect(uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-3[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+    expect(artboardUuid(second.bytes)).toBe(uuid);
+    expect(artboardUuid(changed.bytes)).not.toBe(uuid);
+  });
+
+  it('derives the artboard UUID from the layer bytes between the setup and the page trailer', () => {
+    const { bytes } = writeNative(document);
+    const setupEnd = indexOf(bytes, '%%EndSetup\r') + '%%EndSetup\r'.length;
+    const layers = bytes.slice(setupEnd, indexOf(bytes, '%%PageTrailer\r'));
+    expect(new TextDecoder().decode(layers)).toMatch(/^%AI5_BeginLayer\r[^]*%AI5_EndLayer--\r$/u);
+    expect(artboardUuid(bytes)).toBe(nameBasedUuid('artboard', layers));
+  });
+
+  it('ends with the page trailer after the last layer', () => {
+    expect(new TextDecoder().decode(writeNative(document).bytes)).toMatch(
+      /%AI5_EndLayer--\r%%PageTrailer\rgsave annotatepage grestore showpage\r%%Trailer\r%%EOF\r$/u,
+    );
+  });
+
+  it('validates the document before writing it', () => {
+    expect(() => writeNative({ ...document, artboard: { width: 0, height: 70 } })).toThrow(ValidationError);
   });
 
   it('moves native coordinates to the artboard’s top-left origin', () => {
