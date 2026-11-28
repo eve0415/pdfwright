@@ -554,6 +554,40 @@ describe('pdfx page preparation', () => {
     expect(resolve.mock.calls.filter(([objectNumber]) => objectNumber === 7)).toHaveLength(1);
   });
 
+  it.each<[string, string, string, ReadonlyArray<TestObject>, string]>([
+    ['a form that Do draws after Tf names it', '<</Font<</F 5 0 R>>/XObject<</X 5 0 R>>>>', 'BT /F 12 Tf ET /X Do', [], ''],
+    [
+      'a form that Do draws after a graphics state Font entry names it',
+      '<</ExtGState<</G 6 0 R>>/XObject<</X 5 0 R>>>>',
+      '/G gs /X Do',
+      [{ number: 6, body: '<</Font[5 0 R 12]>>' }],
+      '',
+    ],
+    [
+      'a shading pattern that scn paints after Tf names it',
+      '<</Font<</F 5 0 R>>/Pattern<</P 5 0 R>>>>',
+      'BT /F 12 Tf ET /Pattern cs /P scn 0 0 1 1 re f',
+      [
+        {
+          number: 5,
+          body: '<</Type/Pattern/PatternType 2/ExtGState<</ca 0.5>>/Shading<</ShadingType 2/ColorSpace/DeviceCMYK/Coords[0 0 1 1]/Function<</FunctionType 2/Domain[0 1]/C0[0 0 0 0]/C1[1 1 1 1]/N 1>>>>>>',
+        },
+      ],
+      '',
+    ],
+    [
+      'an annotation appearance after Tf names it',
+      '<</Font<</F 5 0 R>>>>',
+      'BT /F 12 Tf ET',
+      [],
+      '/Annots[<</Type/Annot/Subtype/Stamp/Rect[0 0 1 1]/AP<</N 5 0 R>>>>]',
+    ],
+  ])('reads the transparency of %s', (_, resources, content, extra, page) => {
+    const form = { number: 5, body: streamBody('/Type/XObject/Subtype/Form/BBox[0 0 1 1]/Group<</S/Transparency>>', '0 0 1 1 re f') };
+    const objects = extra.some(object => object.number === 5) ? extra : [form, ...extra];
+    expect(addedGroups(single(resources, streamBody('', content), objects, page))).toStrictEqual([0]);
+  });
+
   it('refuses a selected Type 3 font whose glyph procedure cannot be decoded', () => {
     const document = single('<</Font<</T3 5 0 R>>>>', streamBody('', 'BT /T3 12 Tf (a) Tj ET'), [
       {
