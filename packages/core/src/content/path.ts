@@ -25,17 +25,23 @@ const rectangleOf = (polygon: readonly Point[]): Rectangle | undefined => {
   const last = polygon.at(-1);
   const corners =
     polygon.length === 5 && first !== undefined && last !== undefined && first[0] === last[0] && first[1] === last[1] ? polygon.slice(0, 4) : polygon;
-  if (corners.length !== 4) return undefined;
+  if (corners.length !== 4) {
+    return undefined;
+  }
   const xs = new Set(corners.map(([x]) => x));
   const ys = new Set(corners.map(([, y]) => y));
   // Each side is horizontal or vertical, and they alternate.
   const sides = corners.map((corner, index) => {
     const next = corners[(index + 1) % 4] ?? corner;
-    if (corner[1] === next[1] && corner[0] !== next[0]) return 'horizontal';
+    if (corner[1] === next[1] && corner[0] !== next[0]) {
+      return 'horizontal';
+    }
     return corner[0] === next[0] && corner[1] !== next[1] ? 'vertical' : 'other';
   });
   const alternate = sides.every((side, index) => side !== 'other' && side !== sides[(index + 1) % 4]);
-  if (xs.size !== 2 || ys.size !== 2 || !alternate) return undefined;
+  if (xs.size !== 2 || ys.size !== 2 || !alternate) {
+    return undefined;
+  }
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
@@ -63,7 +69,9 @@ export class PathBuilder {
   // Adds a point to a subpath while the path is within the vertex limit.
   private keep(points: Point[], point: Point): void {
     this.count++;
-    if (this.count <= MAX_CLIP_VERTICES + 1) points.push(point);
+    if (this.count <= MAX_CLIP_VERTICES + 1) {
+      points.push(point);
+    }
   }
 
   /** The number of vertices the path has, including those past the limit that it does not keep. */
@@ -74,7 +82,9 @@ export class PathBuilder {
   moveTo(x: number, y: number): void {
     this.current = [];
     this.keep(this.current, this.point(x, y));
-    if (this.count <= MAX_CLIP_VERTICES + 1) this.subpaths.push(this.current);
+    if (this.count <= MAX_CLIP_VERTICES + 1) {
+      this.subpaths.push(this.current);
+    }
     this.user = [x, y];
     this.start = [x, y];
   }
@@ -122,7 +132,9 @@ export class PathBuilder {
 
   /** h: closes the current subpath. Its polygon is closed implicitly, so no point is added. */
   close(): void {
-    if (this.current === undefined) return;
+    if (this.current === undefined) {
+      return;
+    }
     this.current = undefined;
     this.user = this.start;
   }
@@ -145,11 +157,15 @@ export class PathBuilder {
    * Rectangles that do not overlap are each filled entirely by both fill rules, while overlapping ones can cancel by the nonzero rule when drawn in opposite directions and leave a hole by the even-odd rule (ISO 32000-1:2008, 8.5.3.3.2 and 8.5.3.3.3). A path of more than MAX_RECTANGLES subpaths gives undefined.
    */
   axisAlignedRectangles(): readonly Rectangle[] | undefined {
-    if (this.subpaths.length === 0 || this.subpaths.length > MAX_RECTANGLES || this.count > MAX_CLIP_VERTICES) return undefined;
+    if (this.subpaths.length === 0 || this.subpaths.length > MAX_RECTANGLES || this.count > MAX_CLIP_VERTICES) {
+      return undefined;
+    }
     const rectangles: Rectangle[] = [];
     for (const polygon of this.subpaths) {
       const rectangle = rectangleOf(polygon);
-      if (rectangle === undefined) return undefined;
+      if (rectangle === undefined) {
+        return undefined;
+      }
       rectangles.push(rectangle);
     }
     const overlapping = rectangles.some((rectangle, index) => rectangles.slice(index + 1).some(other => overlap(rectangle, other)));

@@ -411,7 +411,9 @@ describe('marked content', () => {
 
 const internalsWith = (bytes: Uint8Array, maxNesting: number): DocumentInternals => {
   const parts = internalsOf(loadDocument(bytes, { maxNesting }));
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 

@@ -40,10 +40,16 @@ const bySearch = <T extends { readonly start: number; readonly end: number }>(it
   while (first <= last) {
     const middle = Math.floor((first + last) / 2);
     const item = items[middle];
-    if (item === undefined) return undefined;
-    if (key < item.start) last = middle - 1;
-    else if (key > item.end) first = middle + 1;
-    else return item;
+    if (item === undefined) {
+      return undefined;
+    }
+    if (key < item.start) {
+      last = middle - 1;
+    } else if (key > item.end) {
+      first = middle + 1;
+    } else {
+      return item;
+    }
   }
   return undefined;
 };
@@ -59,10 +65,15 @@ const reverseCharacters = <T extends { readonly start: number; readonly end: num
       for (const range of ranges) {
         for (let codePoint = range.start; codePoint <= range.end; codePoint++) {
           const mapped = glyph(range, codePoint);
-          if (mapped === undefined) continue;
+          if (mapped === undefined) {
+            continue;
+          }
           const characters = index.get(mapped);
-          if (characters === undefined) index.set(mapped, [codePoint]);
-          else characters.push(codePoint);
+          if (characters === undefined) {
+            index.set(mapped, [codePoint]);
+          } else {
+            characters.push(codePoint);
+          }
         }
       }
       reverse = index;
@@ -76,7 +87,9 @@ const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> 
   const read = sfntReader(table);
   const length = Math.min(read.u16(2), table.length);
   const count = read.u16(6) / 2;
-  if (!Number.isInteger(count) || 16 + 8 * count > length) throw new ParseError('the format 4 segment count does not fit the subtable', 0);
+  if (!Number.isInteger(count) || 16 + 8 * count > length) {
+    throw new ParseError('the format 4 segment count does not fit the subtable', 0);
+  }
   const segments: Segment[] = [];
   for (let index = 0; index < count; index++) {
     const rangeOffset = read.u16(16 + 6 * count + 2 * index);
@@ -99,14 +112,18 @@ const format4 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> 
     if (segment.glyphs !== 0) {
       const at = segment.glyphs + 2 * (codePoint - segment.start);
       base = at + 1 < length ? view.u16(at) : 0;
-      if (base === 0) return undefined;
+      if (base === 0) {
+        return undefined;
+      }
     }
     const mapped = (base + segment.delta) % 65_536;
     return mapped === 0 ? undefined : mapped;
   };
   return {
     glyph: (codePoint: number): number | undefined => {
-      if (codePoint > 0xffff) return undefined;
+      if (codePoint > 0xffff) {
+        return undefined;
+      }
       const segment = bySearch(segments, codePoint);
       return segment === undefined ? undefined : glyph(segment, codePoint);
     },
@@ -124,7 +141,9 @@ interface Group {
 const format12 = (table: Uint8Array): Pick<TrueTypeCmap, 'glyph' | 'characters'> => {
   const read = sfntReader(table);
   const count = read.u32(12);
-  if (16 + 12 * count > Math.min(read.u32(4), table.length)) throw new ParseError('the format 12 group count does not fit the subtable', 0);
+  if (16 + 12 * count > Math.min(read.u32(4), table.length)) {
+    throw new ParseError('the format 12 group count does not fit the subtable', 0);
+  }
   const groups: Group[] = [];
   for (let index = 0; index < count; index++) {
     const at = 16 + 12 * index;
@@ -161,8 +180,12 @@ const MAX_VARIATION_ENTRIES = 16_384;
 const format14 = (table: Uint8Array): Selector[] => {
   const read = sfntReader(table);
   const count = read.u32(6);
-  if (10 + 11 * count > Math.min(read.u32(2), table.length)) throw new ParseError('the format 14 record count does not fit the subtable', 0);
-  if (count > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+  if (10 + 11 * count > Math.min(read.u32(2), table.length)) {
+    throw new ParseError('the format 14 record count does not fit the subtable', 0);
+  }
+  if (count > MAX_VARIATION_ENTRIES) {
+    throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+  }
   const selectors: Selector[] = [];
   let entries = count;
   for (let index = 0; index < count; index++) {
@@ -172,18 +195,28 @@ const format14 = (table: Uint8Array): Selector[] => {
     const defaults: { start: number; end: number }[] = [];
     const mappings = new Map<number, number>();
     const ranges = defaultOffset === 0 ? 0 : read.u32(defaultOffset);
-    if (defaultOffset !== 0 && defaultOffset + 4 + 4 * ranges > table.length) throw new ParseError('a default UVS table does not fit the subtable', 0);
+    if (defaultOffset !== 0 && defaultOffset + 4 + 4 * ranges > table.length) {
+      throw new ParseError('a default UVS table does not fit the subtable', 0);
+    }
     entries += ranges;
-    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    if (entries > MAX_VARIATION_ENTRIES) {
+      throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    }
     for (let range = 0; range < ranges; range++) {
       const start = read.u24(defaultOffset + 4 + 4 * range);
       defaults.push({ start, end: start + read.u8(defaultOffset + 7 + 4 * range) });
     }
     const pairs = mappingOffset === 0 ? 0 : read.u32(mappingOffset);
-    if (mappingOffset !== 0 && mappingOffset + 4 + 5 * pairs > table.length) throw new ParseError('a non-default UVS table does not fit the subtable', 0);
+    if (mappingOffset !== 0 && mappingOffset + 4 + 5 * pairs > table.length) {
+      throw new ParseError('a non-default UVS table does not fit the subtable', 0);
+    }
     entries += pairs;
-    if (entries > MAX_VARIATION_ENTRIES) throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
-    for (let pair = 0; pair < pairs; pair++) mappings.set(read.u24(mappingOffset + 4 + 5 * pair), read.u16(mappingOffset + 7 + 5 * pair));
+    if (entries > MAX_VARIATION_ENTRIES) {
+      throw new ResourceLimitError(`the format 14 cmap exceeds ${String(MAX_VARIATION_ENTRIES)} variation entries`);
+    }
+    for (let pair = 0; pair < pairs; pair++) {
+      mappings.set(read.u24(mappingOffset + 4 + 5 * pair), read.u16(mappingOffset + 7 + 5 * pair));
+    }
     selectors.push({ selector: read.u24(at), defaults, mappings });
   }
   return selectors;
@@ -222,7 +255,9 @@ const buildCmap = (table: Uint8Array): CmapReading => {
   }
   const unicode = subtables.filter(subtable => rank(subtable) >= 0).toSorted((left, right) => rank(left) - rank(right));
   const [chosen] = unicode;
-  if (chosen === undefined) return { kind: 'absent' };
+  if (chosen === undefined) {
+    return { kind: 'absent' };
+  }
   const body = table.subarray(chosen.offset);
   const { glyph, characters } = chosen.format === 12 ? format12(body) : format4(body);
   const variations = subtables.find(subtable => subtable.platform === 0 && subtable.encoding === 5 && subtable.format === 14);
@@ -237,8 +272,12 @@ const buildCmap = (table: Uint8Array): CmapReading => {
       characters,
       variant: (codePoint: number, selector: number): number | 'default' | undefined => {
         const record = selectors.find(item => item.selector === selector);
-        if (record === undefined) return undefined;
-        if (record.defaults.some(range => codePoint >= range.start && codePoint <= range.end)) return 'default';
+        if (record === undefined) {
+          return undefined;
+        }
+        if (record.defaults.some(range => codePoint >= range.start && codePoint <= range.end)) {
+          return 'default';
+        }
         return record.mappings.get(codePoint);
       },
     },
@@ -251,7 +290,9 @@ export const readTrueTypeCmap = (program: Uint8Array): CmapReading => {
     const table = findTable(program, 'cmap');
     return table === undefined ? { kind: 'absent' } : buildCmap(table);
   } catch (error) {
-    if (error instanceof ParseError) return { kind: 'unreadable', reason: error.message };
+    if (error instanceof ParseError) {
+      return { kind: 'unreadable', reason: error.message };
+    }
     throw error;
   }
 };

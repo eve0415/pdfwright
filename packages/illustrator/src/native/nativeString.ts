@@ -6,14 +6,22 @@ const encoder = new TextEncoder();
 export const escapeNativeString = (value: string, encoding: 'utf8' | 'ascii' = 'utf8'): Uint8Array => {
   for (const character of value) {
     const code = character.codePointAt(0);
-    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) throw new ValidationError('native strings cannot contain lone surrogates', 'illustrator-model');
+    if (code !== undefined && code >= 0xd800 && code <= 0xdfff) {
+      throw new ValidationError('native strings cannot contain lone surrogates', 'illustrator-model');
+    }
   }
   const bytes = encoder.encode(value);
   const escaped: number[] = [40];
   for (const byte of bytes) {
-    if (byte < 32 || byte === 127) throw new ValidationError('native strings cannot contain control characters', 'illustrator-model');
-    if (encoding === 'ascii' && byte > 127) throw new ValidationError('native field requires ASCII', 'illustrator-model');
-    if (byte === 40 || byte === 41 || byte === 92) escaped.push(92);
+    if (byte < 32 || byte === 127) {
+      throw new ValidationError('native strings cannot contain control characters', 'illustrator-model');
+    }
+    if (encoding === 'ascii' && byte > 127) {
+      throw new ValidationError('native field requires ASCII', 'illustrator-model');
+    }
+    if (byte === 40 || byte === 41 || byte === 92) {
+      escaped.push(92);
+    }
     escaped.push(byte);
   }
   escaped.push(41);

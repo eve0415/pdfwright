@@ -27,7 +27,9 @@ export const descendantOf = (source: FontSource, font: PdfDictionaryEntries): De
   const array = source.objects.deref(font.get(DESCENDANT_FONTS));
   const [item] = array?.kind === 'array' ? array.items : [];
   const dictionary = dictionaryOf(source.objects.deref(item));
-  if (dictionary === undefined) return undefined;
+  if (dictionary === undefined) {
+    return undefined;
+  }
   const subtype = nameOf(source.objects.deref(dictionary.get(SUBTYPE)));
   return { subtype: cidSubtype(subtype), dictionary, reference: item?.kind === 'reference' ? item : undefined };
 };
@@ -40,7 +42,9 @@ export const collectionOf = (
   const info = dictionaryOf(source.objects.deref(dictionary?.get(CID_SYSTEM_INFO)));
   const registry = source.objects.deref(info?.get(REGISTRY));
   const ordering = source.objects.deref(info?.get(ORDERING));
-  if (registry?.kind !== 'string' || ordering?.kind !== 'string') return undefined;
+  if (registry?.kind !== 'string' || ordering?.kind !== 'string') {
+    return undefined;
+  }
   return { registry: latin1(registry.bytes), ordering: latin1(ordering.bytes) };
 };
 
@@ -65,12 +69,16 @@ export const cidMetrics = <T>(source: FontSource, value: PdfDirectObject | undef
   while (index < items.length) {
     const first = numberOf(items[index]);
     const next = items[index + 1];
-    if (first === undefined || !Number.isInteger(first) || first < 0) break;
+    if (first === undefined || !Number.isInteger(first) || first < 0) {
+      break;
+    }
     if (next?.kind === 'array') {
       const numbers = next.items.map(item => numberOf(source.objects.deref(item)));
       for (let group = 0; group + size <= numbers.length; group += size) {
         const slice = numbers.slice(group, group + size);
-        if (slice.includes(undefined)) break;
+        if (slice.includes(undefined)) {
+          break;
+        }
         const cid = first + group / size;
         metrics.push({ length: 2, low: cid, high: cid, metric: make(slice.map(number => number ?? 0)) });
       }
@@ -79,7 +87,9 @@ export const cidMetrics = <T>(source: FontSource, value: PdfDirectObject | undef
     }
     const last = numberOf(next);
     const numbers = items.slice(index + 2, index + 2 + size).map(item => numberOf(item));
-    if (last === undefined || !Number.isInteger(last) || last < first || numbers.length < size || numbers.includes(undefined)) break;
+    if (last === undefined || !Number.isInteger(last) || last < first || numbers.length < size || numbers.includes(undefined)) {
+      break;
+    }
     metrics.push({ length: 2, low: first, high: last, metric: make(numbers.map(number => number ?? 0)) });
     index += 2 + size;
   }
@@ -99,10 +109,16 @@ export const cidWidths = (source: FontSource, descendant: PdfDictionaryEntries):
  */
 export const cidToGid = (source: FontSource, descendant: PdfDictionaryEntries): ((cid: number) => number) | string => {
   const value = source.objects.deref(descendant.get(CID_TO_GID_MAP));
-  if (value === undefined || nameOf(value) === 'Identity') return cid => cid;
-  if (value.kind !== 'stream') return 'the CIDToGIDMap entry is not the name Identity or a stream';
+  if (value === undefined || nameOf(value) === 'Identity') {
+    return cid => cid;
+  }
+  if (value.kind !== 'stream') {
+    return 'the CIDToGIDMap entry is not the name Identity or a stream';
+  }
   const data = decodedData(source, value);
-  if (typeof data === 'string') return `the CIDToGIDMap stream cannot be decoded: ${data}`;
+  if (typeof data === 'string') {
+    return `the CIDToGIDMap stream cannot be decoded: ${data}`;
+  }
   return cid => (data[2 * cid] ?? 0) * 256 + (data[2 * cid + 1] ?? 0);
 };
 

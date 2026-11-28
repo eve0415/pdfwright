@@ -48,7 +48,9 @@ export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): 
   let foundDistance = 0;
 
   const insert = (position: number): void => {
-    if (position + 2 >= end) return;
+    if (position + 2 >= end) {
+      return;
+    }
     const hash = hashAt(data, position);
     previous[position] = heads[hash] ?? -1;
     heads[hash] = position;
@@ -57,18 +59,24 @@ export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): 
   // Returns the best match length at position and leaves its distance in foundDistance.
   const find = (position: number): number => {
     foundDistance = 0;
-    if (position + 2 >= end) return 0;
+    if (position + 2 >= end) {
+      return 0;
+    }
     let candidate = heads[hashAt(data, position)] ?? -1;
     let bestLength = 2;
     const limit = Math.min(258, end - position);
     let searched = 0;
     while (candidate >= 0 && position - candidate <= 32768 && searched < limits.chain) {
       let length = 0;
-      while (length < limit && data[candidate + length] === data[position + length]) length++;
+      while (length < limit && data[candidate + length] === data[position + length]) {
+        length++;
+      }
       if (length > bestLength) {
         bestLength = length;
         foundDistance = position - candidate;
-        if (length === limit) break;
+        if (length === limit) {
+          break;
+        }
       }
       candidate = previous[candidate] ?? -1;
       searched++;
@@ -88,7 +96,9 @@ export const tokenize = (data: Uint8Array, level: number, tokens: Uint32Array): 
         continue;
       }
       tokens[count++] = matchToken(length, distance);
-      for (let index = 1; index < length; index++) insert(position + index);
+      for (let index = 1; index < length; index++) {
+        insert(position + index);
+      }
       position += length;
     } else {
       tokens[count++] = data[position] ?? 0;

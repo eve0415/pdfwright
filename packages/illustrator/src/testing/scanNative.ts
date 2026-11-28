@@ -26,14 +26,20 @@ export const findExponentTokens = (native: Uint8Array): string[] => {
   let ascii85 = false;
   let hexPayload = false;
   for (const record of tokenizeNative(native)) {
-    if (record.kind === 'rasterData') continue;
+    if (record.kind === 'rasterData') {
+      continue;
+    }
     const { text } = record;
     if (ascii85) {
-      if (text.includes('~>')) ascii85 = false;
+      if (text.includes('~>')) {
+        ascii85 = false;
+      }
       continue;
     }
     if (hexPayload) {
-      if (text === '%%EndData') hexPayload = false;
+      if (text === '%%EndData') {
+        hexPayload = false;
+      }
       continue;
     }
     if (text.includes('/ASCII85Decode ,')) {
@@ -44,7 +50,9 @@ export const findExponentTokens = (native: Uint8Array): string[] => {
       hexPayload = true;
       continue;
     }
-    for (const match of withoutLiteralStrings(text).matchAll(EXPONENT)) found.push(match[0]);
+    for (const match of withoutLiteralStrings(text).matchAll(EXPONENT)) {
+      found.push(match[0]);
+    }
   }
   return found;
 };

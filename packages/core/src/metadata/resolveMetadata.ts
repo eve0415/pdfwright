@@ -69,7 +69,9 @@ export interface ResolvedInput {
 // Each byte as the code point of the same value, so that bytes above 0x7F are shown as they are stored; a loop, since spreading a long string's bytes can exceed the engine's argument limit.
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -103,26 +105,42 @@ interface StoredInfo {
 }
 
 const readable = (key: MappedKey, value: InfoValue): boolean => {
-  if (key === 'Trapped') return value.kind === 'name' && trappedName(value.name) !== undefined;
-  if (value.kind !== 'text') return false;
+  if (key === 'Trapped') {
+    return value.kind === 'name' && trappedName(value.name) !== undefined;
+  }
+  if (value.kind !== 'text') {
+    return false;
+  }
   return (key !== 'CreationDate' && key !== 'ModDate') || value.text === '' || parsePdfDate(value.text) !== undefined;
 };
 
 // A stored Info value of the wrong kind (ISO 32000-1:2008, Table 317), or a date that does not parse (7.9.4), shown as it was stored: a string's bytes, a name with its solidus, a number or a reference as written.
 const storedUnread = (stored: StoredInfo, key: MappedKey): string | undefined => {
   const value = stored.values?.get(key);
-  if (value === undefined || readable(key, value)) return undefined;
+  if (value === undefined || readable(key, value)) {
+    return undefined;
+  }
   const entry = stored.entries?.get(pdfName(key).bytes);
-  if (entry?.kind === 'string') return latin1(entry.bytes);
-  if (entry?.kind === 'name') return `/${latin1(entry.bytes)}`;
-  if (entry?.kind === 'integer' || entry?.kind === 'boolean') return String(entry.value);
-  if (entry?.kind === 'reference') return `${String(entry.objectNumber)} ${String(entry.generation)} R`;
+  if (entry?.kind === 'string') {
+    return latin1(entry.bytes);
+  }
+  if (entry?.kind === 'name') {
+    return `/${latin1(entry.bytes)}`;
+  }
+  if (entry?.kind === 'integer' || entry?.kind === 'boolean') {
+    return String(entry.value);
+  }
+  if (entry?.kind === 'reference') {
+    return `${String(entry.objectNumber)} ${String(entry.generation)} R`;
+  }
   return `a value of type ${value.kind === 'other' ? value.type : value.kind}`;
 };
 
 // What replaces a packet value that cannot be read: the input when it sets the key, else a readable Info value, else nothing.
 const replacer = (inputSet: boolean, infoReadable: boolean): ReconciledValue['from'] | undefined => {
-  if (inputSet) return 'input';
+  if (inputSet) {
+    return 'input';
+  }
   return infoReadable ? 'info' : undefined;
 };
 
@@ -160,7 +178,9 @@ class Resolver {
 
   // A property that occurs once is left as it is; with more occurrences, which one a reader takes is unclear, so it is written again.
   private keepXmp(key: MappedKey, written: () => XmpAction): XmpAction {
-    if (this.occurrences.get(key)?.length !== 1) return written();
+    if (this.occurrences.get(key)?.length !== 1) {
+      return written();
+    }
     this.kept.add(key);
     return KEEP;
   }
@@ -171,17 +191,24 @@ class Resolver {
     from: ReconciledValue['from'],
     { value, written }: { readonly value: XmpValue | undefined; readonly written: string | undefined },
   ): void {
-    if (value?.kind === 'text' && from !== 'input' && value.text !== written) this.reconciled.push({ key, from, discarded: value.text });
+    if (value?.kind === 'text' && from !== 'input' && value.text !== written) {
+      this.reconciled.push({ key, from, discarded: value.text });
+    }
     // A value the mapping does not read is reported as the XML it was written as.
     const [first] = this.occurrences.get(key) ?? [];
     if ((value?.kind === 'opaque' || value?.kind === 'uri') && first !== undefined) {
       this.reconciled.push({ key, from, discarded: this.packetText.slice(first.textSpan.start, first.textSpan.end) });
     }
-    if (value?.kind !== 'array') return;
+    if (value?.kind !== 'array') {
+      return;
+    }
     let carried = false;
     for (const item of value.items) {
-      if (!carried && item.text === written) carried = true;
-      else this.reconciled.push({ key, from, discarded: item.text });
+      if (!carried && item.text === written) {
+        carried = true;
+      } else {
+        this.reconciled.push({ key, from, discarded: item.text });
+      }
     }
   }
 
@@ -189,10 +216,16 @@ class Resolver {
   private resolve(key: MappedKey, sides: Sides<string>, writers: Writers): KeyPlan {
     const { info, xmp } = sides;
     const row = this.row(key);
-    if (xmp === undefined) return info === undefined ? BOTH_REMOVED : { info: KEEP, xmp: writers.xmp(info) };
+    if (xmp === undefined) {
+      return info === undefined ? BOTH_REMOVED : { info: KEEP, xmp: writers.xmp(info) };
+    }
     const fromXmp = (): KeyPlan => ({ info: { kind: 'set', value: writers.info(xmp) }, xmp: this.keepXmp(key, () => writers.xmp(xmp)) });
-    if (info === undefined) return fromXmp();
-    if (row?.agreement === 'agree') return { info: KEEP, xmp: this.keepXmp(key, () => writers.xmp(xmp)) };
+    if (info === undefined) {
+      return fromXmp();
+    }
+    if (row?.agreement === 'agree') {
+      return { info: KEEP, xmp: this.keepXmp(key, () => writers.xmp(xmp)) };
+    }
     if (this.mapping.authority === 'xmp') {
       this.reconciled.push({ key, from: 'xmp', discarded: info });
       return fromXmp();
@@ -204,12 +237,16 @@ class Resolver {
   // Where the input or the packet replaces an Info value that cannot be read, the value is listed as it was stored.
   replaceStored(key: MappedKey, from: ReconciledValue['from']): void {
     const shown = storedUnread(this.stored, key);
-    if (shown !== undefined) this.reconciled.push({ key, from, discarded: shown });
+    if (shown !== undefined) {
+      this.reconciled.push({ key, from, discarded: shown });
+    }
   }
 
   // An Info value that cannot be read and that nothing replaces is kept as it was stored, rather than deleted.
   private keepStored(key: MappedKey): KeyPlan | undefined {
-    if (storedUnread(this.stored, key) === undefined) return undefined;
+    if (storedUnread(this.stored, key) === undefined) {
+      return undefined;
+    }
     this.findings.push({ code: 'info-value-kept', detail: `Info ${key} cannot be read and was left as it was stored` });
     return { info: KEEP, xmp: REMOVE };
   }
@@ -228,7 +265,9 @@ class Resolver {
     const row = this.row(key);
     const found = this.occurrences.get(key) ?? [];
     const [only] = found;
-    if (found.length !== 1 || (only?.value.kind !== 'opaque' && only?.value.kind !== 'uri')) return undefined;
+    if (found.length !== 1 || (only?.value.kind !== 'opaque' && only?.value.kind !== 'uri')) {
+      return undefined;
+    }
     this.kept.add(key);
     this.findings.push({ code: 'opaque-property-kept', detail: `${row?.property ?? key} is in a form the mapping does not read and was left as it is` });
     return { info: row?.info === undefined && storedUnread(this.stored, key) === undefined ? REMOVE : KEEP, xmp: KEEP };
@@ -238,7 +277,9 @@ class Resolver {
   text(key: ResolvedKey, input: string | null | undefined): KeyPlan {
     const row = this.row(key);
     const unread = input === undefined ? this.unread(key) : undefined;
-    if (unread !== undefined) return unread;
+    if (unread !== undefined) {
+      return unread;
+    }
     if (input !== undefined) {
       this.replaceStored(key, 'input');
       const value = input === null || input === '' ? undefined : input;
@@ -262,7 +303,9 @@ class Resolver {
       this.reconciled.push({ key, from: replacedBy, discarded: text });
       return undefined;
     }
-    if (this.occurrences.get(key)?.length !== 1) return undefined;
+    if (this.occurrences.get(key)?.length !== 1) {
+      return undefined;
+    }
     this.kept.add(key);
     this.findings.push({ code: 'xmp-value-kept', detail: `${this.row(key)?.property ?? key} cannot be read and was left as it is` });
     return { info: storedUnread(this.stored, key) === undefined ? REMOVE : KEEP, xmp: KEEP };
@@ -271,14 +314,24 @@ class Resolver {
   trapped(input: MetadataInput['trapped']): KeyPlan {
     const row = this.row('Trapped');
     const unparsedText = this.unparsedXmp('Trapped', text => text === 'True' || text === 'False');
-    if (input !== undefined) this.replaceStored('Trapped', 'input');
+    if (input !== undefined) {
+      this.replaceStored('Trapped', 'input');
+    }
     const replacedBy = replacer(input !== undefined, trappedName(row?.info) !== undefined);
     const kept = unparsedText === undefined ? undefined : this.unparsed('Trapped', unparsedText, replacedBy);
-    if (kept !== undefined) return kept;
-    if (input === null) return BOTH_REMOVED;
-    if (input !== undefined) return { info: { kind: 'set', value: pdfName(input) }, xmp: TRAPPED_WRITERS.xmp(input) };
+    if (kept !== undefined) {
+      return kept;
+    }
+    if (input === null) {
+      return BOTH_REMOVED;
+    }
+    if (input !== undefined) {
+      return { info: { kind: 'set', value: pdfName(input) }, xmp: TRAPPED_WRITERS.xmp(input) };
+    }
     const unread = this.unread('Trapped');
-    if (unread !== undefined) return unread;
+    if (unread !== undefined) {
+      return unread;
+    }
     const xmp = trappedName(row?.xmp === undefined || unparsedText !== undefined ? undefined : comparableText(row.xmp));
     return this.storedOr('Trapped', xmp !== undefined, () => this.resolve('Trapped', { info: trappedName(row?.info), xmp }, TRAPPED_WRITERS));
   }
@@ -298,26 +351,42 @@ class Resolver {
   creationDate(input: PdfDate | null | undefined): KeyPlan {
     const row = this.row('CreationDate');
     const unparsedText = this.unparsedXmp('CreationDate', text => parseXmpDate(text) !== undefined);
-    if (input !== undefined) this.replaceStored('CreationDate', 'input');
+    if (input !== undefined) {
+      this.replaceStored('CreationDate', 'input');
+    }
     const readableInfo = row?.info !== undefined && parsePdfDate(row.info) !== undefined;
     const replacedBy = replacer(input !== undefined, readableInfo);
     const kept = unparsedText === undefined ? undefined : this.unparsed('CreationDate', unparsedText, replacedBy);
-    if (kept !== undefined) return kept;
-    if (input === null) return BOTH_REMOVED;
-    if (input !== undefined) return { info: { kind: 'set', value: pdfDateObject(input) }, xmp: { kind: 'write', value: xmpDateString(input) } };
+    if (kept !== undefined) {
+      return kept;
+    }
+    if (input === null) {
+      return BOTH_REMOVED;
+    }
+    if (input !== undefined) {
+      return { info: { kind: 'set', value: pdfDateObject(input) }, xmp: { kind: 'write', value: xmpDateString(input) } };
+    }
     const unread = this.unread('CreationDate');
-    if (unread !== undefined) return unread;
+    if (unread !== undefined) {
+      return unread;
+    }
     const { info, xmp, shown } = this.dateSides();
     return this.storedOr('CreationDate', xmp !== undefined, () => this.dateFrom({ info, xmp }, shown));
   }
 
   private dateFrom({ info, xmp }: Sides<ParsedPdfDate>, shown: Sides<string>): KeyPlan {
     const keepXmp = (value: ParsedPdfDate): XmpAction => this.keepXmp('CreationDate', () => dateToXmp(value));
-    if (info === undefined) return xmp === undefined ? BOTH_REMOVED : { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
-    if (xmp === undefined) return { info: KEEP, xmp: dateToXmp(info) };
+    if (info === undefined) {
+      return xmp === undefined ? BOTH_REMOVED : { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+    }
+    if (xmp === undefined) {
+      return { info: KEEP, xmp: dateToXmp(info) };
+    }
     const agreement = this.row('CreationDate')?.agreement;
     if (agreement === 'agree') {
-      if (finerThan(xmp, info) && pdfDateText(xmp) !== pdfDateText(info)) return { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+      if (finerThan(xmp, info) && pdfDateText(xmp) !== pdfDateText(info)) {
+        return { info: dateToInfo(xmp), xmp: keepXmp(xmp) };
+      }
       return finerThan(info, xmp) ? { info: KEEP, xmp: dateToXmp(info) } : { info: KEEP, xmp: keepXmp(xmp) };
     }
     if (agreement === 'differ' && this.mapping.authority === 'xmp') {
@@ -383,13 +452,20 @@ export const managedValues = (resolved: ResolvedInput, input: MetadataInput, ide
 export const infoDictionary = (existing: PdfDictionaryEntries | undefined, resolved: ResolvedInput, input: MetadataInput): PdfDictionaryEntries => {
   const entries = new PdfDictionaryEntries(existing === undefined ? [] : [...existing.entries()]);
   const apply = (key: string, action: InfoAction): void => {
-    if (action.kind === 'remove') entries.delete(pdfName(key).bytes);
-    else if (action.kind === 'set') entries.set(pdfName(key).bytes, action.value);
+    if (action.kind === 'remove') {
+      entries.delete(pdfName(key).bytes);
+    } else if (action.kind === 'set') {
+      entries.set(pdfName(key).bytes, action.value);
+    }
   };
   const { plans } = resolved;
-  for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate'] as const) apply(key, plans[key].info);
+  for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate'] as const) {
+    apply(key, plans[key].info);
+  }
   apply('ModDate', { kind: 'set', value: pdfDateObject(input.modificationDate) });
   apply('Trapped', plans.Trapped.info);
-  if (input.pdfxVersion !== undefined) entries.set(pdfName('GTS_PDFXVersion').bytes, pdfTextString(input.pdfxVersion));
+  if (input.pdfxVersion !== undefined) {
+    entries.set(pdfName('GTS_PDFXVersion').bytes, pdfTextString(input.pdfxVersion));
+  }
   return entries;
 };

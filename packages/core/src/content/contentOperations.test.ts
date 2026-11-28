@@ -14,7 +14,11 @@ const operations = (content: string | readonly string[]): ContentOperation[] => 
 
 const leftOver = (content: string): readonly ContentOperand[] => {
   const reader = readContent(latin1Bytes(content), 32);
-  for (let step = reader.next(); ; step = reader.next()) if (step.done === true) return step.value;
+  for (let step = reader.next(); ; step = reader.next()) {
+    if (step.done === true) {
+      return step.value;
+    }
+  }
 };
 
 const name = (text: string): ContentOperand => ({ kind: 'name', bytes: latin1Bytes(text) });

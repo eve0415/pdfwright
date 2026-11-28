@@ -76,79 +76,119 @@ const sharedOverprintPdf = buildPdf([
 
 const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('missing internals');
+  if (internals === undefined) {
+    throw new Error('missing internals');
+  }
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('missing page');
+  if (page.kind !== 'dictionary') {
+    throw new Error('missing page');
+  }
   const stream = internals.objects.deref(page.entries.get(pdfName('Contents').bytes));
-  if (stream?.kind !== 'stream') throw new Error('missing content stream');
+  if (stream?.kind !== 'stream') {
+    throw new Error('missing content stream');
+  }
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
 const namedImage = (document: ReturnType<typeof loadDocument>, name: string): Extract<PdfObject, { kind: 'stream' }> => {
   const xobjects = document.page(0).resources().get(pdfName('XObject').bytes);
-  if (xobjects?.kind !== 'dictionary') throw new Error('missing XObjects');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('missing XObjects');
+  }
   const reference = xobjects.entries.get(pdfName(name).bytes);
-  if (reference?.kind !== 'reference') throw new Error('missing image');
+  if (reference?.kind !== 'reference') {
+    throw new Error('missing image');
+  }
   const image = document.get(reference);
-  if (image.kind !== 'stream') throw new Error('missing image stream');
+  if (image.kind !== 'stream') {
+    throw new Error('missing image stream');
+  }
   return image;
 };
 
 const spotName = (document: ReturnType<typeof loadDocument>): Uint8Array => {
   const resources = document.page(0).resources();
   const spaces = resources.get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('missing ColorSpace');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('missing ColorSpace');
+  }
   const separation = spaces.entries.get(pdfName('CS2').bytes);
-  if (separation?.kind !== 'array') throw new Error('missing Separation');
+  if (separation?.kind !== 'array') {
+    throw new Error('missing Separation');
+  }
   const [, name] = separation.items;
-  if (name?.kind !== 'name') throw new Error('missing colorant name');
+  if (name?.kind !== 'name') {
+    throw new Error('missing colorant name');
+  }
   return name.bytes;
 };
 
 const addedOverprintStates = (document: ReturnType<typeof loadDocument>): readonly boolean[] => {
   const resources = document.page(0).resources();
   const states = resources.get(pdfName('ExtGState').bytes);
-  if (states?.kind !== 'dictionary') throw new Error('missing ExtGState');
+  if (states?.kind !== 'dictionary') {
+    throw new Error('missing ExtGState');
+  }
   return [states.entries.has(pdfName('PWOPM0').bytes), states.entries.has(pdfName('PWOPM1').bytes)];
 };
 
 const inlineData = (bytes: Uint8Array): Uint8Array => {
   const [operation] = readContent(bytes, 32);
   const data = operation?.inlineImage?.data;
-  if (data === undefined) throw new Error('converted inline image is missing');
+  if (data === undefined) {
+    throw new Error('converted inline image is missing');
+  }
   return data;
 };
 
 const inlineIndexedLookup = (bytes: Uint8Array): Uint8Array => {
   const [operation] = readContent(bytes, 32);
   const parameters = operation?.inlineImage?.parameters;
-  if (parameters === undefined) throw new Error('inline image is missing');
+  if (parameters === undefined) {
+    throw new Error('inline image is missing');
+  }
   const index = parameters.findIndex(value => value.kind === 'name' && new TextDecoder('latin1').decode(value.bytes) === 'CS');
   const color = parameters[index + 1];
-  if (color?.kind !== 'array') throw new Error('Indexed inline colour space is missing');
+  if (color?.kind !== 'array') {
+    throw new Error('Indexed inline colour space is missing');
+  }
   const lookup = color.items.at(3);
-  if (lookup?.kind !== 'string') throw new Error('Indexed inline lookup is missing');
+  if (lookup?.kind !== 'string') {
+    throw new Error('Indexed inline lookup is missing');
+  }
   return lookup.bytes;
 };
 
 const xObjectData = (document: ReturnType<typeof loadDocument>, name: string): Uint8Array => {
   const resources = document.page(0).resources();
   const objects = resources.get(pdfName('XObject').bytes);
-  if (objects?.kind !== 'dictionary') throw new Error('XObject resources are missing');
+  if (objects?.kind !== 'dictionary') {
+    throw new Error('XObject resources are missing');
+  }
   const reference = objects.entries.get(pdfName(name).bytes);
-  if (reference?.kind !== 'reference') throw new Error('image reference is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('image reference is missing');
+  }
   const stream = document.get(reference);
   const internals = internalsOf(document);
-  if (stream.kind !== 'stream' || internals === undefined) throw new Error('image stream is missing');
+  if (stream.kind !== 'stream' || internals === undefined) {
+    throw new Error('image stream is missing');
+  }
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return data;
 };
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
-  if (value.kind !== 'dictionary') throw new Error('page is missing');
+  if (value.kind !== 'dictionary') {
+    throw new Error('page is missing');
+  }
   return value;
 };
 

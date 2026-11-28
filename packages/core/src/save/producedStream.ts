@@ -22,7 +22,9 @@ export const measureStreams = (streams: ReadonlyMap<number, StreamProducer>, fir
   let number = firstNumber;
   for (const [objectNumber, produce] of [...streams].toSorted((left, right) => left[0] - right[0])) {
     let length = 0;
-    for (const chunk of produce()) length += chunk.length;
+    for (const chunk of produce()) {
+      length += chunk.length;
+    }
     measured.set(objectNumber, { length, produce, lengthNumber: number++ });
   }
   return measured;
@@ -30,7 +32,9 @@ export const measureStreams = (streams: ReadonlyMap<number, StreamProducer>, fir
 
 /** ISO 32000-1:2008, 7.3.10, Example 3: the unknown stream length is an indirect integer object following its data. */
 export const writeProducedStream = (emitter: PdfEmitter, value: PdfObject, input: { stream: MeasuredStream; context: MergeContext }): void => {
-  if (value.kind !== 'stream') throw new Error('a produced object must be a stream');
+  if (value.kind !== 'stream') {
+    throw new Error('a produced object must be a stream');
+  }
   const dictionary = new PdfDictionaryEntries(value.dictionary.entries());
   dictionary.set(LENGTH, pdfReference(input.stream.lengthNumber, 0));
   const writer = new ByteWriter();

@@ -68,7 +68,9 @@ const proofBytes = async (proof: Proof): Promise<Uint8Array> => {
   printing ??= printProofs();
   const printed = await printing;
   const bytes = printed.get(proof);
-  if (bytes === undefined) throw new Error(`${proof} was not printed`);
+  if (bytes === undefined) {
+    throw new Error(`${proof} was not printed`);
+  }
   return bytes;
 };
 
@@ -138,8 +140,12 @@ const ENTITIES: ReadonlyMap<string, string> = new Map([
 // Character references and the predefined entities MuPDF writes in the c attribute.
 const unescapeXml = (text: string): string =>
   text.replaceAll(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/giu, (_, reference: string) => {
-    if (reference.startsWith('#x') || reference.startsWith('#X')) return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
-    if (reference.startsWith('#')) return String.fromCodePoint(Number(reference.slice(1)));
+    if (reference.startsWith('#x') || reference.startsWith('#X')) {
+      return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
+    }
+    if (reference.startsWith('#')) {
+      return String.fromCodePoint(Number(reference.slice(1)));
+    }
     return ENTITIES.get(reference) ?? '';
   });
 
@@ -161,7 +167,9 @@ const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
   const joined = page.glyphs.map(glyph => {
     const span = glyph.actualText === undefined ? undefined : page.actualText[glyph.actualText];
     if (glyph.actualText !== undefined) {
-      if (opened.has(glyph.actualText)) return { glyph, count: 0, text: '' };
+      if (opened.has(glyph.actualText)) {
+        return { glyph, count: 0, text: '' };
+      }
       opened.add(glyph.actualText);
     }
     const text = span === undefined ? (glyph.text ?? '') : span.text;
@@ -176,7 +184,9 @@ const mupdfDifferences = (page: PageText, chars: readonly Char[]): string[] => {
     const own = chars.slice(next, next + count);
     next += count;
     const [first] = own;
-    if (first === undefined) return [];
+    if (first === undefined) {
+      return [];
+    }
     const [x, y] = [glyph.origin[0], top - glyph.origin[1]];
     const found = own.map(char => char.c).join('');
     return [
@@ -203,7 +213,9 @@ const mupdfReading = async (proof: Proof): Promise<{ readonly code: number; read
 };
 
 const qpdfRank = (code: number): number => {
-  if (code === 0) return 0;
+  if (code === 0) {
+    return 0;
+  }
   return code === 3 ? 1 : 2;
 };
 

@@ -81,9 +81,15 @@ const SIGNATURES: ReadonlyMap<string, readonly OperandKind[]> = new Map<string, 
 const VARIABLE = new Set(['SC', 'SCN', 'sc', 'scn', 'BI']);
 
 const matches = (operand: ContentOperand, kind: OperandKind): boolean => {
-  if (operand.kind === 'stray-delimiter') return false;
-  if (kind === 'number') return numberOf(operand) !== undefined;
-  if (kind === 'properties') return operand.kind === 'name' || operand.kind === 'dictionary';
+  if (operand.kind === 'stray-delimiter') {
+    return false;
+  }
+  if (kind === 'number') {
+    return numberOf(operand) !== undefined;
+  }
+  if (kind === 'properties') {
+    return operand.kind === 'name' || operand.kind === 'dictionary';
+  }
   return operand.kind === kind;
 };
 
@@ -99,13 +105,19 @@ export const checkOperands = (operator: string, operands: readonly ContentOperan
     return values.length === operands.length ? { kind: 'known', values } : { kind: 'bad' };
   }
   const signature = SIGNATURES.get(operator);
-  if (signature === undefined) return { kind: 'unknown' };
-  if (operands.length < signature.length) return { kind: 'bad' };
+  if (signature === undefined) {
+    return { kind: 'unknown' };
+  }
+  if (operands.length < signature.length) {
+    return { kind: 'bad' };
+  }
   const taken = operands.slice(operands.length - signature.length);
   const values: PdfDirectObject[] = [];
   for (const [index, operand] of taken.entries()) {
     const kind = signature[index];
-    if (kind === undefined || operand.kind === 'stray-delimiter' || !matches(operand, kind)) return { kind: 'bad' };
+    if (kind === undefined || operand.kind === 'stray-delimiter' || !matches(operand, kind)) {
+      return { kind: 'bad' };
+    }
     values.push(operand);
   }
   return { kind: 'known', values };

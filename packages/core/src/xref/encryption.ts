@@ -12,6 +12,8 @@ const ENCRYPT = pdfName('Encrypt').bytes;
  */
 export const refuseEncryption = (trailers: Iterable<PdfDictionaryEntries>): void => {
   for (const trailer of trailers) {
-    if (trailer.has(ENCRYPT)) throw new EncryptedDocumentError('the document is encrypted; pdfwright does not decrypt documents');
+    if (trailer.has(ENCRYPT)) {
+      throw new EncryptedDocumentError('the document is encrypted; pdfwright does not decrypt documents');
+    }
   }
 };

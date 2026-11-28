@@ -11,7 +11,9 @@ import { readIllustratorExportManifest } from './illustratorExports.ts';
 import { writeDiagnosticLadder, writeManualCheckSet } from './writeIllustratorManualCheckSet.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
-if (exportsDirectory === undefined) stdout.write('Local Illustrator transplant ladder not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+if (exportsDirectory === undefined) {
+  stdout.write('Local Illustrator transplant ladder not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+}
 const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
 const ladderSource = manifest?.samples[manifest.ladderSample]?.file ?? '';
 

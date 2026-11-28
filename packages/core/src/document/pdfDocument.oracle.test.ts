@@ -31,7 +31,9 @@ interface PageBoxEntries {
 const runQpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
   const child = spawn('qpdf', args);
   const [closed, stdout, stderr] = await Promise.all([once(child, 'close'), text(child.stdout), text(child.stderr)]);
-  if (closed[0] !== 0) throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
+  if (closed[0] !== 0) {
+    throw new Error(`qpdf exited ${String(closed[0])}: ${stdout}${stderr}`);
+  }
   return { stdout, stderr };
 };
 
@@ -47,17 +49,27 @@ const qpdf = async (args: string[]): Promise<{ stdout: string; stderr: string }>
 };
 
 const boxForPage = (entries: readonly [string, unknown][], page: unknown, boxName = '/MediaBox'): string[] => {
-  if (typeof page !== 'object' || page === null || !('object' in page) || typeof page.object !== 'string') throw new Error('qpdf omitted a page reference');
+  if (typeof page !== 'object' || page === null || !('object' in page) || typeof page.object !== 'string') {
+    throw new Error('qpdf omitted a page reference');
+  }
   const key = `obj:${page.object}`;
   const indirect = entries.find(([entry]) => entry === key)?.[1];
-  if (typeof indirect !== 'object' || indirect === null || !('value' in indirect)) throw new Error('qpdf omitted a page value');
+  if (typeof indirect !== 'object' || indirect === null || !('value' in indirect)) {
+    throw new Error('qpdf omitted a page value');
+  }
   const value: unknown = indirect.value;
-  if (typeof value !== 'object' || value === null) throw new Error(`qpdf omitted a page ${boxName}`);
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`qpdf omitted a page ${boxName}`);
+  }
   const box: unknown = Object.entries(value).find(([entryName]) => entryName === boxName)?.[1];
-  if (!Array.isArray(box)) throw new TypeError(`qpdf omitted a page ${boxName}`);
+  if (!Array.isArray(box)) {
+    throw new TypeError(`qpdf omitted a page ${boxName}`);
+  }
   const mediaBox: unknown[] = box;
   return mediaBox.map(number => {
-    if (typeof number !== 'number') throw new TypeError('qpdf returned a nonnumeric MediaBox');
+    if (typeof number !== 'number') {
+      throw new TypeError('qpdf returned a nonnumeric MediaBox');
+    }
     return String(number);
   });
 };
@@ -69,14 +81,18 @@ const pageBoxes = (json: unknown): PageReport => {
   const pages: unknown[] = json.pages;
   const sections: unknown[] = json.qpdf;
   const [, section] = sections;
-  if (typeof section !== 'object' || section === null) throw new Error('qpdf omitted indirect objects');
+  if (typeof section !== 'object' || section === null) {
+    throw new Error('qpdf omitted indirect objects');
+  }
   const entries: [string, unknown][] = Object.entries(section);
   return { pages, boxes: pages.map(page => boxForPage(entries, page)) };
 };
 
 const checkDocument = async (directory: string, pageCount: number): Promise<OracleReport> => {
   const document = createDocument();
-  for (let index = 0; index < pageCount; index++) document.addPage({ mediaBox: [pt(0), pt(0), mm(210), mm(297)] });
+  for (let index = 0; index < pageCount; index++) {
+    document.addPage({ mediaBox: [pt(0), pt(0), mm(210), mm(297)] });
+  }
   const file = path.join(directory, `a4-${String(pageCount)}.pdf`);
   await writeFile(file, document.save().toBytes());
   const checked = await qpdf(['--check', file]);
@@ -91,7 +107,9 @@ const pageBoxEntries = (json: unknown): PageBoxEntries => {
   }
   const page: unknown = json.pages[0];
   const section: unknown = json.qpdf[1];
-  if (typeof section !== 'object' || section === null) throw new Error('qpdf omitted indirect objects');
+  if (typeof section !== 'object' || section === null) {
+    throw new Error('qpdf omitted indirect objects');
+  }
   return { page, entries: Object.entries(section) };
 };
 
@@ -134,7 +152,9 @@ describe('qpdf document oracle', () => {
         expect(report.checkError).toBe('');
         expect(report.pages).toHaveLength(report.pageCount);
         const expected = ['0', '0', formatLength(mm(210), 5), formatLength(mm(297), 5)];
-        for (const box of report.boxes) expect(box).toStrictEqual(expected);
+        for (const box of report.boxes) {
+          expect(box).toStrictEqual(expected);
+        }
       }
     } finally {
       await rm(directory, { recursive: true, force: true });

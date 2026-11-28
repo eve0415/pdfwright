@@ -26,7 +26,9 @@ export const runTool = async (command: string, args: readonly string[]): Promise
 
 const numbers = (values: readonly (string | undefined)[]): readonly number[] | undefined => {
   const parsed: number[] = [];
-  for (const value of values) parsed.push(Number(value));
+  for (const value of values) {
+    parsed.push(Number(value));
+  }
   return parsed.length === 4 && parsed.every(value => Number.isFinite(value)) ? parsed : undefined;
 };
 

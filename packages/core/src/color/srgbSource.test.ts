@@ -34,7 +34,9 @@ const hex = (bytes: Uint8Array): string => [...bytes].map(byte => byte.toString(
 
 const rgbCurves = (profile: IccProfile): readonly Curve[] => {
   const { trc } = profile;
-  if (trc === undefined || !('red' in trc)) throw new Error('the profile has no RGB TRCs');
+  if (trc === undefined || !('red' in trc)) {
+    throw new Error('the profile has no RGB TRCs');
+  }
   return [trc.red, trc.green, trc.blue];
 };
 
@@ -77,7 +79,9 @@ describe('built-in sRGB source', () => {
     let maximum = 0;
     for (let index = 0; index <= 65535; index++) {
       const value = index / 65535;
-      for (const curve of curves) maximum = Math.max(maximum, Math.abs(evaluateCurve(curve, value) - decode(value)));
+      for (const curve of curves) {
+        maximum = Math.max(maximum, Math.abs(evaluateCurve(curve, value) - decode(value)));
+      }
     }
     expect(maximum).toBeLessThan(1 / 65535);
   });

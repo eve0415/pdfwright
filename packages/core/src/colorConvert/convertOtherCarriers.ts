@@ -68,13 +68,19 @@ const AP = pdfName('AP').bytes;
 const MK = pdfName('MK').bytes;
 
 const dictionaryOf = (value: PdfDirectObject | PdfStream | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
 const numberOf = (value: PdfDirectObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real' && typeof value.value === 'number') return value.value;
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind === 'real' && typeof value.value === 'number') {
+    return value.value;
+  }
   throw new ValidationError('annotation colour component is not numeric', 'color-space');
 };
 
@@ -82,17 +88,27 @@ const nameOf = (value: PdfDirectObject | undefined): string | undefined => (valu
 
 const planStream = (scan: Scan, input: { reference: PdfReference; resources: PdfDictionaryEntries; kind: StreamPlan['kind'] }): void => {
   const { reference, resources, kind } = input;
-  if (scan.streams.has(reference.objectNumber)) return;
+  if (scan.streams.has(reference.objectNumber)) {
+    return;
+  }
   const stream = scan.internals.objects.deref(reference);
-  if (stream?.kind !== 'stream') throw new ValidationError(`${kind} is not a stream`, 'color-space');
+  if (stream?.kind !== 'stream') {
+    throw new ValidationError(`${kind} is not a stream`, 'color-space');
+  }
   const own = scan.internals.objects.deref(stream.dictionary.get(RESOURCES));
   const effective = own?.kind === 'dictionary' ? own.entries : resources;
   const bytes = decodedData(scan.internals, stream);
-  if (typeof bytes === 'string') throw new ValidationError(`${kind} content cannot be read: ${bytes}`, 'color-operator');
+  if (typeof bytes === 'string') {
+    throw new ValidationError(`${kind} content cannot be read: ${bytes}`, 'color-operator');
+  }
   const names = chooseOverprintNames(scan.document, effective);
   const rewritten = rewriteContentColors(scan.document, bytes, { resources: effective, options: scan.options, overprintNames: names });
-  if (rewritten.bytes.length > scan.internals.maxDecodedBytes) throw new ResourceLimitError(`converted ${kind} exceeds maxDecodedBytes`);
-  if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) return;
+  if (rewritten.bytes.length > scan.internals.maxDecodedBytes) {
+    throw new ResourceLimitError(`converted ${kind} exceeds maxDecodedBytes`);
+  }
+  if (rewritten.operators === 0 && rewritten.overprintAdjustments === 0) {
+    return;
+  }
   scan.streams.set(reference.objectNumber, {
     reference,
     stream,
@@ -107,46 +123,72 @@ const planStream = (scan: Scan, input: { reference: PdfReference; resources: Pdf
 
 const planPatternResources = (scan: Scan, resources: PdfDictionaryEntries): void => {
   const category = scan.internals.objects.deref(resources.get(PATTERN));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, entry] of category.entries.entries()) {
-    if (entry.kind !== 'reference') continue;
+    if (entry.kind !== 'reference') {
+      continue;
+    }
     const value = scan.internals.objects.deref(entry);
-    if (value?.kind !== 'stream') continue;
+    if (value?.kind !== 'stream') {
+      continue;
+    }
     const patternType = value.dictionary.get(PATTERN_TYPE);
     const paintType = value.dictionary.get(PAINT_TYPE);
     // ISO 32000-1:2008, Table 75: a coloured tiling pattern specifies its colours in its content stream.
-    if (patternType?.kind !== 'integer' || patternType.value !== 1) continue;
-    if (paintType?.kind !== 'integer' || paintType.value !== 1) continue;
+    if (patternType?.kind !== 'integer' || patternType.value !== 1) {
+      continue;
+    }
+    if (paintType?.kind !== 'integer' || paintType.value !== 1) {
+      continue;
+    }
     planStream(scan, { reference: entry, resources, kind: 'pattern' });
   }
 };
 
 const planGlyphs = (scan: Scan, resources: PdfDictionaryEntries): void => {
   const category = scan.internals.objects.deref(resources.get(FONT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, entry] of category.entries.entries()) {
     const font = scan.internals.objects.deref(entry);
     const dictionary = dictionaryOf(font);
-    if (dictionary === undefined || nameOf(dictionary.get(SUBTYPE)) !== 'Type3') continue;
+    if (dictionary === undefined || nameOf(dictionary.get(SUBTYPE)) !== 'Type3') {
+      continue;
+    }
     const own = scan.internals.objects.deref(dictionary.get(RESOURCES));
     const effective = own?.kind === 'dictionary' ? own.entries : resources;
     const glyphs = scan.internals.objects.deref(dictionary.get(CHAR_PROCS));
-    if (glyphs?.kind !== 'dictionary') continue;
+    if (glyphs?.kind !== 'dictionary') {
+      continue;
+    }
     for (const [, glyph] of glyphs.entries.entries()) {
-      if (glyph.kind !== 'reference') continue;
+      if (glyph.kind !== 'reference') {
+        continue;
+      }
       const stream = scan.internals.objects.deref(glyph);
-      if (stream?.kind !== 'stream') continue;
+      if (stream?.kind !== 'stream') {
+        continue;
+      }
       const bytes = decodedData(scan.internals, stream);
-      if (typeof bytes === 'string') throw new ValidationError(`Type 3 glyph cannot be read: ${bytes}`, 'color-operator');
+      if (typeof bytes === 'string') {
+        throw new ValidationError(`Type 3 glyph cannot be read: ${bytes}`, 'color-operator');
+      }
       const [first] = readContent(bytes, scan.internals.maxNesting);
-      if (first?.operator === 'd0') planStream(scan, { reference: glyph, resources: effective, kind: 'glyph' });
+      if (first?.operator === 'd0') {
+        planStream(scan, { reference: glyph, resources: effective, kind: 'glyph' });
+      }
     }
   }
 };
 
 const annotationColor = (scan: Scan, value: PdfDirectObject | undefined): PdfDirectObject | undefined => {
   // ISO 32000-1:2008, Table 164: three annotation colour components mean DeviceRGB; four mean DeviceCMYK.
-  if (value?.kind !== 'array' || value.items.length !== 3) return undefined;
+  if (value?.kind !== 'array' || value.items.length !== 3) {
+    return undefined;
+  }
   const rgb = value.items.map(item => numberOf(item));
   if (rgb.every(component => component === 0) && scan.options.pureBlack !== 'convert') {
     return pdfArray([pdfInteger(0), pdfInteger(0), pdfInteger(0), pdfInteger(1)]);
@@ -164,14 +206,18 @@ const annotationColor = (scan: Scan, value: PdfDirectObject | undefined): PdfDir
 
 const replaceColor = (scan: Scan, dictionary: PdfDictionaryEntries, key: Uint8Array): boolean => {
   const converted = annotationColor(scan, dictionary.get(key));
-  if (converted === undefined) return false;
+  if (converted === undefined) {
+    return false;
+  }
   dictionary.set(key, converted);
   return true;
 };
 
 const planAppearances = (scan: Scan, dictionary: PdfDictionaryEntries, resources: PdfDictionaryEntries): void => {
   const appearances = scan.internals.objects.deref(dictionary.get(AP));
-  if (appearances?.kind !== 'dictionary') return;
+  if (appearances?.kind !== 'dictionary') {
+    return;
+  }
   for (const state of ['N', 'R', 'D']) {
     const entry = appearances.entries.get(pdfName(state).bytes);
     if (entry?.kind === 'reference') {
@@ -182,9 +228,13 @@ const planAppearances = (scan: Scan, dictionary: PdfDictionaryEntries, resources
       }
     }
     const variants = scan.internals.objects.deref(entry);
-    if (variants?.kind !== 'dictionary') continue;
+    if (variants?.kind !== 'dictionary') {
+      continue;
+    }
     for (const [, appearance] of variants.entries.entries()) {
-      if (appearance.kind === 'reference') planStream(scan, { reference: appearance, resources, kind: 'appearance' });
+      if (appearance.kind === 'reference') {
+        planStream(scan, { reference: appearance, resources, kind: 'appearance' });
+      }
     }
   }
 };
@@ -193,11 +243,17 @@ const planAnnotations = (scan: Scan, page: PdfReference, resources: PdfDictionar
   const owner = scan.internals.objects.deref(page);
   const pageDictionary = dictionaryOf(owner);
   const annotations = scan.internals.objects.deref(pageDictionary?.get(ANNOTS));
-  if (annotations?.kind !== 'array') return;
+  if (annotations?.kind !== 'array') {
+    return;
+  }
   for (const entry of annotations.items) {
-    if (entry.kind !== 'reference') continue;
+    if (entry.kind !== 'reference') {
+      continue;
+    }
     const annotation = scan.internals.objects.deref(entry);
-    if (annotation?.kind !== 'dictionary') continue;
+    if (annotation?.kind !== 'dictionary') {
+      continue;
+    }
     planAppearances(scan, annotation.entries, resources);
     const dictionary = new PdfDictionaryEntries(annotation.entries.entries());
     let changed = replaceColor(scan, dictionary, pdfName('C').bytes);
@@ -210,12 +266,16 @@ const planAnnotations = (scan: Scan, page: PdfReference, resources: PdfDictionar
       const background = replaceColor(scan, mapped, pdfName('BG').bytes);
       const border = replaceColor(scan, mapped, pdfName('BC').bytes);
       if (background || border) {
-        if (oldMk?.kind === 'reference') discarded.push(oldMk);
+        if (oldMk?.kind === 'reference') {
+          discarded.push(oldMk);
+        }
         dictionary.set(MK, pdfDictionary(mapped));
         changed = true;
       }
     }
-    if (changed) scan.annotations.push({ reference: entry, dictionary, discarded });
+    if (changed) {
+      scan.annotations.push({ reference: entry, dictionary, discarded });
+    }
   }
 };
 
@@ -227,10 +287,14 @@ const apply = (scan: Scan): OtherCarrierReport => {
     dictionary.delete(DECODE_PARMS);
     if (plan.overprintAdjustments > 0 || plan.inlineImages.length > 0) {
       const resources = new PdfDictionaryEntries(plan.resources.entries());
-      if (plan.overprintAdjustments > 0) addOverprintStates(scan.document, resources, plan.names);
+      if (plan.overprintAdjustments > 0) {
+        addOverprintStates(scan.document, resources, plan.names);
+      }
       addInlineXObjects(scan.document, resources, plan.inlineImages);
       const oldResources = dictionary.get(RESOURCES);
-      if (oldResources?.kind === 'reference') discarded.push(oldResources);
+      if (oldResources?.kind === 'reference') {
+        discarded.push(oldResources);
+      }
       dictionary.set(RESOURCES, pdfDictionary(resources));
     }
     scan.document.set(plan.reference, { kind: 'stream', dictionary, data: plan.data });
@@ -256,11 +320,15 @@ const apply = (scan: Scan): OtherCarrierReport => {
 export const convertOtherCarriers = (document: LoadedDocument, options: RewriteColorOptions): OtherCarrierReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const scan: Scan = { document, internals, options, streams: new Map(), annotations: [] };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+    if (entry === undefined) {
+      throw new ValidationError('page entry is missing', 'color-space');
+    }
     const effective = document.page(page).resources();
     const resources: PdfDirectObject = pdfDictionary(effective);
     const unreadable = walkResources(internals, entry, {
@@ -270,7 +338,9 @@ export const convertOtherCarriers = (document: LoadedDocument, options: RewriteC
         planGlyphs(scan, visit.resources);
       },
     });
-    if (unreadable.length > 0) throw new ValidationError('painted resources cannot be read', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('painted resources cannot be read', 'unreadable-resource');
+    }
     planAnnotations(scan, entry.reference, effective);
   }
   return apply(scan);

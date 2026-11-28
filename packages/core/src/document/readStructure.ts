@@ -83,7 +83,9 @@ const logged = (session: LoadSession): StoreContext =>
 
 const checkEntryLengths = (chain: SectionChain, log: Pick<LoadLog, 'note' | 'warn'>): void => {
   for (const { section } of chain.sections) {
-    if (section.kind !== 'classic') continue;
+    if (section.kind !== 'classic') {
+      continue;
+    }
     const irregular = section.entryLengths.filter(length => length !== 20 && length !== 19);
     // 19-byte entries (a lone LF) are read silently by every common reader; other lengths are reported by some.
     if (irregular.length > 0) {
@@ -114,19 +116,25 @@ const linearized = (store: ObjectStore): boolean => {
     return firstObjectIsLinearization(store);
   } catch (error: unknown) {
     // The probe reads one object nothing may refer to; a damaged one there is not the linearization dictionary, and it is reported if something reads it.
-    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) return false;
+    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) {
+      return false;
+    }
     throw error;
   }
 };
 
 const hasCatalog = (store: ObjectStore, trailer: PdfDictionaryEntries): boolean => {
   const root = trailer.get(ROOT);
-  if (root?.kind !== 'reference') return false;
+  if (root?.kind !== 'reference') {
+    return false;
+  }
   try {
     const catalog = store.resolve(root.objectNumber, root.generation);
     return catalog.kind === 'dictionary' && catalog.entries.has(PAGES);
   } catch (error: unknown) {
-    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) return false;
+    if (error instanceof ParseError && !(error instanceof GenerationMismatchError)) {
+      return false;
+    }
     throw error;
   }
 };
@@ -159,8 +167,12 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
   // An update may reuse the number of an older cross-reference stream for an ordinary object, so a stream is known by its number and its offset.
   const xrefStreams = new Map<number, number>();
   for (const { section, hybrid } of chain.sections) {
-    if (section.kind === 'stream') xrefStreams.set(section.objectNumber, section.offset);
-    if (hybrid !== undefined) xrefStreams.set(hybrid.objectNumber, hybrid.offset);
+    if (section.kind === 'stream') {
+      xrefStreams.set(section.objectNumber, section.offset);
+    }
+    if (hybrid !== undefined) {
+      xrefStreams.set(hybrid.objectNumber, hybrid.offset);
+    }
   }
   const mismatch = validateHeaders(session.source, index, {
     skip: xrefStreams,
@@ -168,11 +180,15 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
       warn({ code: 'xref-entry-offset-zero', detail: `the in-use entry of object ${String(objectNumber)} has offset 0 and is read as free`, objectNumber });
     },
   });
-  if (mismatch !== undefined) throw new ParseError(`object ${String(mismatch.objectNumber)} is not at its cross-reference offset`, mismatch.offset);
+  if (mismatch !== undefined) {
+    throw new ParseError(`object ${String(mismatch.objectNumber)} is not at its cross-reference offset`, mismatch.offset);
+  }
   const [newest] = chain.sections;
   const trailer = newest?.section.trailer;
   const store = new ObjectStore(session.source, index, contextOf(session, warn));
-  if (trailer === undefined || !hasCatalog(store, trailer)) throw new ParseError('the trailer has no Root that resolves to a document catalog', 0);
+  if (trailer === undefined || !hasCatalog(store, trailer)) {
+    throw new ParseError('the trailer has no Root that resolves to a document catalog', 0);
+  }
   const size = trailer.get(SIZE);
   // ISO 32000-1:2008, Table 15, Size: objects numbered beyond it "shall be ignored"; every common reader keeps them, and so does pdfwright.
   if (size?.kind === 'integer' && index.size > size.value) {
@@ -199,7 +215,9 @@ const readWithShift = (session: LoadSession, attempt: ShiftAttempt, warn: (warni
  */
 export const readFromChain = (session: LoadSession, header: HeaderLocation): ReadStructure => {
   const startxref = locateStartxref(session.source);
-  if (startxref === undefined) throw new ParseError('no startxref', session.source.length);
+  if (startxref === undefined) {
+    throw new ParseError('no startxref', session.source.length);
+  }
   const eofEnd = locatedEofEnd(session.source, startxref.keyword);
   const shifts = header.offset > 0 ? [header.offset, 0] : [0];
   for (const [position, shift] of shifts.entries()) {
@@ -212,7 +230,9 @@ export const readFromChain = (session: LoadSession, header: HeaderLocation): Rea
       }
       return read;
     } catch (error: unknown) {
-      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError || position === shifts.length - 1) throw error;
+      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError || position === shifts.length - 1) {
+        throw error;
+      }
     }
   }
   throw new ParseError('unreadable cross-reference data', startxref.keyword);
@@ -224,7 +244,9 @@ export const reconstruct = (session: LoadSession, reason: string, header: Header
   const reconstruction = reconstructIndex(session.source, context);
   // Encryption is checked on every trailer the scan found before any of them is used.
   refuseEncryption(reconstruction.trailers);
-  if (reconstruction.objects === 0) throw new ParseError('not a PDF file: no objects found', 0);
+  if (reconstruction.objects === 0) {
+    throw new ParseError('not a PDF file: no objects found', 0);
+  }
   if (reconstruction.ambiguous.length > 0) {
     const list = reconstruction.ambiguous.join(', ');
     if (session.options.recovery === 'refuse-ambiguous') {
@@ -252,7 +274,9 @@ export const reconstruct = (session: LoadSession, reason: string, header: Header
   let trailer = reconstruction.trailers.findLast(candidate => hasCatalog(store, candidate));
   if (trailer === undefined) {
     const catalog = reconstruction.catalogs.at(-1);
-    if (catalog === undefined) throw new ParseError('no document catalog found', 0);
+    if (catalog === undefined) {
+      throw new ParseError('no document catalog found', 0);
+    }
     trailer = parsedDictionaryEntries([[ROOT, { kind: 'reference', objectNumber: catalog, generation: store.index.get(catalog).generation }]]);
   }
   session.log.warn({

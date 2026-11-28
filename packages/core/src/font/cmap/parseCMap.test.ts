@@ -167,7 +167,9 @@ describe('embedded and ToUnicode CMaps', () => {
     const cmap = '5000 begincodespacerange '.concat('<00> <FF> '.repeat(5000), 'endcodespacerange ').repeat(4);
     let parent = new CMap(parse(cmap));
     expect(() => {
-      for (let index = 0; index < 3; index++) parent = new CMap(parse(cmap), parent);
+      for (let index = 0; index < 3; index++) {
+        parent = new CMap(parse(cmap), parent);
+      }
     }).toThrow(ResourceLimitError);
   });
 
@@ -178,7 +180,9 @@ describe('embedded and ToUnicode CMaps', () => {
     });
     const cmap = new CMap(parse(`2000 begincodespacerange ${entries.join(' ')} endcodespacerange`));
     expect(() => {
-      for (let index = 0; index < 1000; index++) cmap.read(Uint8Array.of(0xff, 0xff), 0);
+      for (let index = 0; index < 1000; index++) {
+        cmap.read(Uint8Array.of(0xff, 0xff), 0);
+      }
     }).toThrow(ResourceLimitError);
   });
 

@@ -19,7 +19,9 @@ const dataSet = (): Uint8Array[] => {
   let state = 0x12345678;
   for (let index = 0; index < random.length; index++) {
     state = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
-    if (state < 0) state += 4294967296;
+    if (state < 0) {
+      state += 4294967296;
+    }
     random[index] = Math.floor(state / 16777216);
   }
   const text = new TextEncoder().encode('The quick brown fox jumps over the lazy dog. '.repeat(24).slice(0, 1024));
@@ -28,7 +30,9 @@ const dataSet = (): Uint8Array[] => {
 
 const largeData = (): Uint8Array => {
   const data = new Uint8Array(10 * 1024 * 1024);
-  for (let index = 0; index < data.length; index++) data[index] = 65 + (index % 4);
+  for (let index = 0; index < data.length; index++) {
+    data[index] = 65 + (index % 4);
+  }
   return data;
 };
 
@@ -44,11 +48,17 @@ const dynamicBlock = (literal: number[], distance: number[], symbols: number[]):
   writer.writeBits(distance.length - 1, 5);
   writer.writeBits(19 - 4, 4);
   const codeLengths = lengths(19, Object.fromEntries(Array.from({ length: 16 }, (_, symbol) => [symbol, 4])));
-  for (const symbol of CODE_LENGTH_ORDER) writer.writeBits(codeLengths[symbol] ?? 0, 3);
+  for (const symbol of CODE_LENGTH_ORDER) {
+    writer.writeBits(codeLengths[symbol] ?? 0, 3);
+  }
   const codeCodes = canonicalCodes(codeLengths);
-  for (const length of [...literal, ...distance]) writer.writeBits(codeCodes[length] ?? 0, 4);
+  for (const length of [...literal, ...distance]) {
+    writer.writeBits(codeCodes[length] ?? 0, 4);
+  }
   const literalCodes = canonicalCodes(literal);
-  for (const symbol of symbols) writer.writeBits(literalCodes[symbol] ?? 0, literal[symbol] ?? 0);
+  for (const symbol of symbols) {
+    writer.writeBits(literalCodes[symbol] ?? 0, literal[symbol] ?? 0);
+  }
   return writer.finish();
 };
 
@@ -118,7 +128,9 @@ describe('zlib inflation', () => {
       expect(inflateZlib(compressed, { maxOutputBytes: zeros.length }).data).toHaveLength(zeros.length);
     }
     expect(() => inflateZlib(compressFflate(new Uint8Array([1])), { maxOutputBytes: 0 })).toThrow(ResourceLimitError);
-    for (const maxOutputBytes of [-1, 1.5, Number.NaN]) expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
+    for (const maxOutputBytes of [-1, 1.5, Number.NaN]) {
+      expect(() => inflateRaw(new Uint8Array([3, 0]), { maxOutputBytes })).toThrow(InvalidArgumentError);
+    }
   });
 
   it('rejects more literal/length or distance codes than zlib accepts', () => {

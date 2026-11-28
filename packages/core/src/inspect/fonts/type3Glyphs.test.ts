@@ -24,7 +24,9 @@ const type3 = (procedures: readonly string[], resources = '', pageResources = ''
     { number: 120, body: IMAGE },
   ];
   const [font] = listFonts(loadDocument(textPdfBytes({ pages: [{ resources: `/Font<</T3 110 0 R>>${pageResources}` }], objects }))).fonts;
-  if (font === undefined) throw new Error('the page has no font');
+  if (font === undefined) {
+    throw new Error('the page has no font');
+  }
   return font;
 };
 

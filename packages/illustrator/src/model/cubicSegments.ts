@@ -10,7 +10,9 @@ const exact = (value: Coordinate): Length => (typeof value === 'number' ? pt(val
 
 // (a + 2b) / 3, kept exact when either coordinate is an exact length; add reduces the fraction it builds.
 const twoThirdsToward = (from: Coordinate, toward: Coordinate): Coordinate => {
-  if (typeof from === 'number' && typeof toward === 'number') return (from + 2 * toward) / 3;
+  if (typeof from === 'number' && typeof toward === 'number') {
+    return (from + 2 * toward) / 3;
+  }
   const towardLength = exact(toward);
   const sum = add(exact(from), add(towardLength, towardLength));
   return add({ numerator: sum.numerator, denominator: sum.denominator * 3n }, pt(0));
@@ -27,7 +29,9 @@ export const cubicSegments = (subpath: Subpath): readonly CubicSegment[] => {
   return subpath.segments.map(segment => {
     const from = current;
     current = segment.to;
-    if (segment.kind !== 'quadratic') return segment;
+    if (segment.kind !== 'quadratic') {
+      return segment;
+    }
     const [control1, control2] = raise(from, segment.control, segment.to);
     return segment.anchor === undefined
       ? { kind: 'curve', control1, control2, to: segment.to }

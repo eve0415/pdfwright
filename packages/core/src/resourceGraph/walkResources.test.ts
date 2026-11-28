@@ -30,7 +30,9 @@ const internals = (page: string, objects: readonly TestObject[], tree = ''): Doc
     ]).bytes,
   );
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
@@ -44,7 +46,9 @@ interface Walked {
 
 const walk = (document: DocumentInternals): Walked => {
   const [page] = document.pages;
-  if (page === undefined) throw new Error('the document has no page');
+  if (page === undefined) {
+    throw new Error('the document has no page');
+  }
   const visits: ResourceVisit[] = [];
   const fonts: PdfDirectObject[] = [];
   const keys: string[] = [];

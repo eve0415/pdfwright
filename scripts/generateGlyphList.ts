@@ -19,14 +19,20 @@ const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 
 const readInput = async (directory: string, name: keyof typeof INPUTS): Promise<string> => {
   const bytes = await readFile(path.join(directory, name));
-  if (sha256(bytes) !== INPUTS[name]) throw new Error(`${name} does not have the sha256 of the file at ${COMMIT}`);
+  if (sha256(bytes) !== INPUTS[name]) {
+    throw new Error(`${name} does not have the sha256 of the file at ${COMMIT}`);
+  }
   return bytes.toString('utf8');
 };
 
 // Each data line is `name;XXXX` or `name;XXXX XXXX…`: a glyph name and its Unicode values as four uppercase hexadecimal digits.
 const dataLines = (text: string): string[] => {
   const lines = text.split('\n').filter(line => line !== '' && !line.startsWith('#'));
-  for (const line of lines) if (!/^[A-Za-z0-9]+;[0-9A-F]{4}( [0-9A-F]{4})*$/u.test(line)) throw new Error(`unexpected line: ${line}`);
+  for (const line of lines) {
+    if (!/^[A-Za-z0-9]+;[0-9A-F]{4}( [0-9A-F]{4})*$/u.test(line)) {
+      throw new Error(`unexpected line: ${line}`);
+    }
+  }
   return lines;
 };
 
@@ -39,7 +45,9 @@ const paragraphs = (text: string): string[] =>
 
 const main = async (): Promise<void> => {
   const [directory] = process.argv.slice(2);
-  if (directory === undefined) throw new Error('usage: node scripts/generateGlyphList.ts <input directory>');
+  if (directory === undefined) {
+    throw new Error('usage: node scripts/generateGlyphList.ts <input directory>');
+  }
   const glyphs = dataLines(await readInput(directory, 'glyphlist.txt'));
   const dingbats = dataLines(await readInput(directory, 'zapfdingbats.txt'));
   const licence = paragraphs(await readInput(directory, 'LICENSE.md'));

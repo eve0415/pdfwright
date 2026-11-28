@@ -19,7 +19,9 @@ describe('pdf objects', () => {
   it('validates name bytes and preserves non-ASCII names', () => {
     expect(pdfName('').bytes).toStrictEqual(new Uint8Array());
     expect(pdfNameFromBytes(new Uint8Array([0x82, 0xa0])).bytes).toStrictEqual(new Uint8Array([0x82, 0xa0]));
-    for (const name of ['a b', 'é', '\0', '\t']) expect(() => pdfName(name)).toThrow(InvalidArgumentError);
+    for (const name of ['a b', 'é', '\0', '\t']) {
+      expect(() => pdfName(name)).toThrow(InvalidArgumentError);
+    }
     expect(() => pdfNameFromBytes(new Uint8Array([0])).bytes).toThrow(InvalidArgumentError);
     expect(() => pdfNameFromBytes(new Uint8Array(128))).toThrow(InvalidArgumentError);
     expect(pdfNameFromBytes(new Uint8Array(127).fill(65)).bytes).toHaveLength(127);

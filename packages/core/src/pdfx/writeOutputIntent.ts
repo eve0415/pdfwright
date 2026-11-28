@@ -65,11 +65,15 @@ interface ReadExistingInput {
 const readExisting = ({ internals, catalog, destination, replacement }: ReadExistingInput): ExistingIntent[] => {
   const { objects } = internals;
   const intents = objects.deref(catalog.get(key('OutputIntents')));
-  if (intents !== undefined && intents.kind !== 'array') throw new ValidationError('OutputIntents is not an array', 'output-intent-conflict');
+  if (intents !== undefined && intents.kind !== 'array') {
+    throw new ValidationError('OutputIntents is not an array', 'output-intent-conflict');
+  }
   const existing: ExistingIntent[] = [];
   for (const item of intents?.kind === 'array' ? intents.items : []) {
     const value = objects.deref(item);
-    if (value?.kind !== 'dictionary') throw new ValidationError('an output intent is not a dictionary', 'output-intent-conflict');
+    if (value?.kind !== 'dictionary') {
+      throw new ValidationError('an output intent is not a dictionary', 'output-intent-conflict');
+    }
     const reference = item.kind === 'reference' ? item : undefined;
     const profileValue = value.entries.get(key('DestOutputProfile'));
     const profile = profileValue?.kind === 'reference' ? profileValue : undefined;
@@ -77,10 +81,14 @@ const readExisting = ({ internals, catalog, destination, replacement }: ReadExis
     let matches = false;
     if (stream?.kind === 'stream') {
       const bytes = decodedData(internals, stream);
-      if (typeof bytes === 'string') throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
+      if (typeof bytes === 'string') {
+        throw new ValidationError(`output profile cannot be read: ${bytes}`, 'unreadable-resource');
+      }
       matches = sameIdentity(parseIccProfile(bytes), destination);
     }
-    if (!matches && !replacement) throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
+    if (!matches && !replacement) {
+      throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
+    }
     const subtype = nameOf(value.entries.get(key('S'))) ?? 'other';
     const identifierValue = objects.deref(value.entries.get(key('OutputConditionIdentifier')));
     const identifier = identifierValue?.kind === 'string' ? readTextString(identifierValue.bytes).text : undefined;
@@ -99,7 +107,9 @@ interface Prepared {
 
 const prepare = (document: LoadedDocument, options: OutputIntentOptions): Prepared => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable', 'unreadable-resource');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable', 'unreadable-resource');
+  }
   const destination = parseIccProfile(options.outputProfile);
   if (destination.header.profileClass !== 'output' || destination.header.colorSpace !== 'CMYK') {
     throw new ValidationError('the output intent needs an output-class CMYK ICC profile', 'color-space');
@@ -109,10 +119,16 @@ const prepare = (document: LoadedDocument, options: OutputIntentOptions): Prepar
     throw new ValidationError('an unregistered output condition needs an identifier and Info', 'output-intent-conflict');
   }
   const root = internals.structure.trailer.get(key('Root'));
-  if (root?.kind !== 'reference') throw new ValidationError('the document catalog is unavailable', 'unreadable-resource');
+  if (root?.kind !== 'reference') {
+    throw new ValidationError('the document catalog is unavailable', 'unreadable-resource');
+  }
   const catalog = document.get(root);
-  if (catalog.kind !== 'dictionary') throw new ValidationError('the document catalog is not a dictionary', 'unreadable-resource');
-  if (catalog.entries.has(key('Extensions'))) throw new ValidationError('PDF extensions prevent PDF/X-4 version lowering', 'pdf-extensions');
+  if (catalog.kind !== 'dictionary') {
+    throw new ValidationError('the document catalog is not a dictionary', 'unreadable-resource');
+  }
+  if (catalog.entries.has(key('Extensions'))) {
+    throw new ValidationError('PDF extensions prevent PDF/X-4 version lowering', 'pdf-extensions');
+  }
   const existing = readExisting({ internals, catalog: catalog.entries, destination, replacement: options.existing === 'replace' });
   return { internals, root, catalog: catalog.entries, condition, existing };
 };
@@ -130,14 +146,20 @@ const newEntries = ({ options, condition, sameGts, profile }: NewEntriesInput): 
   const entries = new Entries(sameGts === undefined ? [] : [...sameGts.entries.entries()]);
   // ISO 32000-1:2008, Table 365: Info, OutputCondition and RegistryName describe the condition OutputConditionIdentifier names, so they are kept only while it is unchanged.
   const kept = sameGts !== undefined && sameGts.identifier === options.outputConditionIdentifier;
-  if (!kept) for (const name of describing) entries.delete(key(name));
+  if (!kept) {
+    for (const name of describing) {
+      entries.delete(key(name));
+    }
+  }
   entries.set(key('Type'), pdfName('OutputIntent'));
   entries.set(key('S'), pdfName('GTS_PDFX'));
   entries.set(key('DestOutputProfile'), profile);
   entries.set(key('OutputConditionIdentifier'), pdfTextString(options.outputConditionIdentifier));
   const setText = (name: string, explicit: string | undefined, fallback: string | undefined): void => {
     const value = explicit ?? (kept ? undefined : fallback);
-    if (value !== undefined) entries.set(key(name), pdfTextString(value));
+    if (value !== undefined) {
+      entries.set(key(name), pdfTextString(value));
+    }
   };
   setText('Info', options.info, condition?.identifier);
   setText('OutputCondition', options.outputCondition, condition === undefined ? undefined : `${condition.designation} — ${condition.media}`);
@@ -158,23 +180,33 @@ const place = ({ document, prepared, sameGts, profile, options }: PlaceInput): b
   const entries = newEntries({ options, condition, sameGts, profile });
   const intentReference = sameGts?.reference;
   const updated = intentReference ?? document.object(pdfDictionary(entries));
-  if (intentReference !== undefined) document.set(intentReference, pdfDictionary(entries));
+  if (intentReference !== undefined) {
+    document.set(intentReference, pdfDictionary(entries));
+  }
   const items: PdfDirectObject[] = [updated];
   for (const intent of existing) {
     // ISO 32000-1:2008, Table 28 and 7.3.10: OutputIntents holds output intent dictionaries, each written directly or as an indirect reference.
-    if (intent.matches && intent !== sameGts) items.push(intent.reference ?? pdfDictionary(intent.entries));
+    if (intent.matches && intent !== sameGts) {
+      items.push(intent.reference ?? pdfDictionary(intent.entries));
+    }
   }
   catalog.set(key('OutputIntents'), pdfArray(items));
   const catalogVersion = nameOf(catalog.get(key('Version')));
   const catalogLowered = options.pdfx !== false && catalogVersion !== undefined && versionNumber(catalogVersion) > 16;
-  if (catalogLowered) catalog.set(key('Version'), pdfName('1.6'));
+  if (catalogLowered) {
+    catalog.set(key('Version'), pdfName('1.6'));
+  }
   document.set(root, pdfDictionary(catalog));
   for (const intent of existing) {
-    if (!intent.matches && intent.reference !== undefined) document.delete(intent.reference);
+    if (!intent.matches && intent.reference !== undefined) {
+      document.delete(intent.reference);
+    }
   }
   const reachable = reachableObjects(internals).objects;
   for (const intent of existing) {
-    if (!intent.matches && intent.profile !== undefined && !reachable.has(intent.profile.objectNumber)) document.delete(intent.profile);
+    if (!intent.matches && intent.profile !== undefined && !reachable.has(intent.profile.objectNumber)) {
+      document.delete(intent.profile);
+    }
   }
   return catalogLowered;
 };
@@ -199,17 +231,24 @@ export const writeGtsPdfxOutputIntent = (document: LoadedDocument, options: Outp
     });
   if (reused !== undefined) {
     const stream = document.get(reused);
-    if (stream.kind !== 'stream') throw new ValidationError('the reused output profile is not a stream', 'unreadable-resource');
+    if (stream.kind !== 'stream') {
+      throw new ValidationError('the reused output profile is not a stream', 'unreadable-resource');
+    }
     stream.dictionary.set(key('N'), pdfInteger(4));
     document.set(reused, stream);
   }
   const catalogLowered = place({ document, prepared, sameGts, profile, options });
   const removed = existing.filter(intent => !intent.matches);
   internals.objects.requireFullRewrite('color-conversion');
-  if (options.pdfx !== false) internals.lowerPdfX4Version(catalogLowered);
+  if (options.pdfx !== false) {
+    internals.lowerPdfX4Version(catalogLowered);
+  }
   let action: OutputIntentChange['action'] = 'updated';
-  if (removed.length > 0) action = 'replaced';
-  else if (sameGts === undefined) action = 'added';
+  if (removed.length > 0) {
+    action = 'replaced';
+  } else if (sameGts === undefined) {
+    action = 'added';
+  }
   return {
     action,
     removedSubtypes: removed.map(intent => intent.subtype),

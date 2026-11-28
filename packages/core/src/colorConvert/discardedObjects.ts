@@ -15,8 +15,12 @@ export const deleteDiscarded = (document: LoadedDocument, internals: DocumentInt
   const seen = new Set<number>();
   for (const reference of discarded) {
     const number = reference.objectNumber;
-    if (seen.has(number) || remaining.has(number)) continue;
+    if (seen.has(number) || remaining.has(number)) {
+      continue;
+    }
     seen.add(number);
-    if (internals.objects.generationOf(number) === reference.generation) document.delete(reference);
+    if (internals.objects.generationOf(number) === reference.generation) {
+      document.delete(reference);
+    }
   }
 };

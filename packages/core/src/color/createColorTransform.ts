@@ -74,7 +74,11 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
     if (input.length !== inputChannels || output.length < outputChannels) {
       throw new InvalidArgumentError('colour transform buffer dimensions differ from profile channels');
     }
-    for (const value of input) if (!Number.isFinite(value)) throw new InvalidArgumentError('colour components must be finite');
+    for (const value of input) {
+      if (!Number.isFinite(value)) {
+        throw new InvalidArgumentError('colour components must be finite');
+      }
+    }
     if (
       sourceProfile.header.colorSpace === 'RGB' &&
       destination.header.colorSpace === 'CMYK' &&
@@ -89,7 +93,9 @@ export const createColorTransform = (source: ColorSource, destination: IccProfil
     const corrected = compensate === undefined ? pcsValue : compensate(pcsValue);
     const connected = options.intent === 'absoluteColorimetric' ? absolute(corrected, sourceWhite, destinationWhite) : corrected;
     const values = toDevice(connected);
-    for (let index = 0; index < outputChannels; index++) output[index] = Math.min(1, Math.max(0, values[index] ?? 0));
+    for (let index = 0; index < outputChannels; index++) {
+      output[index] = Math.min(1, Math.max(0, values[index] ?? 0));
+    }
   };
   return { inputChannels, outputChannels, convert, ...createRowConverters(convert, inputChannels, outputChannels) };
 };

@@ -31,9 +31,15 @@ const LN2_HIGH = 6.9314718036912381649e-1;
 const LN2_LOW = 1.90821492927058770002e-10;
 
 export const deterministicLog = (value: number): number => {
-  if (value === 0) return -Infinity;
-  if (value < 0 || Number.isNaN(value)) return Number.NaN;
-  if (value === Infinity) return Infinity;
+  if (value === 0) {
+    return -Infinity;
+  }
+  if (value < 0 || Number.isNaN(value)) {
+    return Number.NaN;
+  }
+  if (value === Infinity) {
+    return Infinity;
+  }
   let x = value;
   let word = high(x);
   let exponent = 0;
@@ -49,7 +55,9 @@ export const deterministicLog = (value: number): number => {
   exponent += upper / 0x100000;
   const f = x - 1;
   if ((2 + fraction) % 0x100000 < 3) {
-    if (f === 0) return exponent === 0 ? 0 : exponent * LN2_HIGH + exponent * LN2_LOW;
+    if (f === 0) {
+      return exponent === 0 ? 0 : exponent * LN2_HIGH + exponent * LN2_LOW;
+    }
     const correction = f * f * (0.5 - f / 3);
     return exponent === 0 ? f - correction : exponent * LN2_HIGH - (correction - exponent * LN2_LOW - f);
   }
@@ -96,26 +104,42 @@ const kernelCos = (x: number): number => {
       square *
         (COS_COEFFICIENTS[1] +
           square * (COS_COEFFICIENTS[2] + square * (COS_COEFFICIENTS[3] + square * (COS_COEFFICIENTS[4] + square * COS_COEFFICIENTS[5])))));
-  if (Math.abs(x) < 0.3) return 1 - (0.5 * square - square * tail);
+  if (Math.abs(x) < 0.3) {
+    return 1 - (0.5 * square - square * tail);
+  }
   const quarter = Math.abs(x) > 0.78125 ? 0.28125 : Math.abs(x) / 4;
   return 1 - quarter - (0.5 * square - quarter - square * tail);
 };
 
 const degreeTrig = (degrees: number, cosine: boolean): number => {
-  if (!Number.isFinite(degrees)) return Number.NaN;
+  if (!Number.isFinite(degrees)) {
+    return Number.NaN;
+  }
   const angle = ((degrees % 360) * Math.PI) / 180;
   const quadrant = Math.round(angle / PI_OVER_TWO_HIGH);
   const reduced = angle - quadrant * PI_OVER_TWO_HIGH - quadrant * PI_OVER_TWO_LOW;
   const position = ((quadrant % 4) + 4) % 4;
   if (cosine) {
-    if (position === 0) return kernelCos(reduced);
-    if (position === 1) return -kernelSin(reduced);
-    if (position === 2) return -kernelCos(reduced);
+    if (position === 0) {
+      return kernelCos(reduced);
+    }
+    if (position === 1) {
+      return -kernelSin(reduced);
+    }
+    if (position === 2) {
+      return -kernelCos(reduced);
+    }
     return kernelSin(reduced);
   }
-  if (position === 0) return kernelSin(reduced);
-  if (position === 1) return kernelCos(reduced);
-  if (position === 2) return -kernelSin(reduced);
+  if (position === 0) {
+    return kernelSin(reduced);
+  }
+  if (position === 1) {
+    return kernelCos(reduced);
+  }
+  if (position === 2) {
+    return -kernelSin(reduced);
+  }
   return -kernelCos(reduced);
 };
 
@@ -132,7 +156,9 @@ const ATAN_COEFFICIENTS = [
 
 const deterministicAtan = (value: number): number => {
   const magnitude = Math.abs(value);
-  if (magnitude >= 2 ** 66) return value < 0 ? -(ATAN_HIGH[3] + ATAN_LOW[3]) : ATAN_HIGH[3] + ATAN_LOW[3];
+  if (magnitude >= 2 ** 66) {
+    return value < 0 ? -(ATAN_HIGH[3] + ATAN_LOW[3]) : ATAN_HIGH[3] + ATAN_LOW[3];
+  }
   let x = magnitude;
   let region = -1;
   if (x >= 0.4375 && x < 1.1875) {
@@ -167,14 +193,22 @@ const deterministicAtan = (value: number): number => {
 };
 
 const deterministicAtan2 = (y: number, x: number): number => {
-  if (Number.isNaN(x) || Number.isNaN(y)) return Number.NaN;
+  if (Number.isNaN(x) || Number.isNaN(y)) {
+    return Number.NaN;
+  }
   if (y === 0) {
-    if (x >= 0) return y;
+    if (x >= 0) {
+      return y;
+    }
     return Object.is(y, -0) ? -Math.PI : Math.PI;
   }
-  if (x === 0) return y < 0 ? -PI_OVER_TWO_HIGH : PI_OVER_TWO_HIGH;
+  if (x === 0) {
+    return y < 0 ? -PI_OVER_TWO_HIGH : PI_OVER_TWO_HIGH;
+  }
   const angle = deterministicAtan(Math.abs(y / x));
-  if (x > 0) return y < 0 ? -angle : angle;
+  if (x > 0) {
+    return y < 0 ? -angle : angle;
+  }
   return y < 0 ? angle - Math.PI : Math.PI - angle;
 };
 
@@ -182,8 +216,12 @@ export const deterministicAtanDegrees = (numerator: number, denominator: number)
   ((deterministicAtan2(numerator, denominator) * 180) / Math.PI + 360) % 360;
 
 export const deterministicExp = (base: number, exponent: number): number => {
-  if (base >= 0 || Object.is(base, -0)) return deterministicPow(base, exponent);
-  if (!Number.isInteger(exponent)) return Number.NaN;
+  if (base >= 0 || Object.is(base, -0)) {
+    return deterministicPow(base, exponent);
+  }
+  if (!Number.isInteger(exponent)) {
+    return Number.NaN;
+  }
   const magnitude = deterministicPow(-base, exponent);
   return exponent % 2 === 0 ? magnitude : -magnitude;
 };

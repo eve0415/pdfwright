@@ -36,9 +36,13 @@ const pdf = buildPdf([
 const formText = (document: ReturnType<typeof loadDocument>): string => {
   const form = document.get(pdfReference(5, 0));
   const internals = internalsOf(document);
-  if (form.kind !== 'stream' || internals === undefined) throw new Error('form is missing');
+  if (form.kind !== 'stream' || internals === undefined) {
+    throw new Error('form is missing');
+  }
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
@@ -141,54 +145,82 @@ const inlineFormPdf = buildPdf([
 const formReference = (document: ReturnType<typeof loadDocument>, page: number, name = 'Fm'): ReturnType<typeof pdfReference> => {
   const resources = document.page(page).resources();
   const xobjects = resources.get(pdfName('XObject').bytes);
-  if (xobjects?.kind !== 'dictionary') throw new Error('missing XObject resources');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('missing XObject resources');
+  }
   const reference = xobjects.entries.get(pdfName(name).bytes);
-  if (reference?.kind !== 'reference') throw new Error('missing form reference');
+  if (reference?.kind !== 'reference') {
+    throw new Error('missing form reference');
+  }
   return reference;
 };
 
 const dictionaryValue = (value: PdfObject): Extract<PdfObject, { kind: 'dictionary' }> => {
-  if (value.kind !== 'dictionary') throw new Error('expected dictionary');
+  if (value.kind !== 'dictionary') {
+    throw new Error('expected dictionary');
+  }
   return value;
 };
 
 const streamValue = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
-  if (value.kind !== 'stream') throw new Error('expected stream');
+  if (value.kind !== 'stream') {
+    throw new Error('expected stream');
+  }
   return value;
 };
 
 const textOf = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): string => {
   const form = document.get(reference);
   const internals = internalsOf(document);
-  if (form.kind !== 'stream' || internals === undefined) throw new Error('form is missing');
+  if (form.kind !== 'stream' || internals === undefined) {
+    throw new Error('form is missing');
+  }
   const data = decodedData(internals, form);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
 const pageText = (document: ReturnType<typeof loadDocument>): string => {
   const page = document.get(document.page(0).reference);
   const internals = internalsOf(document);
-  if (page.kind !== 'dictionary' || internals === undefined) throw new Error('page is missing');
+  if (page.kind !== 'dictionary' || internals === undefined) {
+    throw new Error('page is missing');
+  }
   const stream = internals.objects.deref(page.entries.get(pdfName('Contents').bytes));
-  if (stream?.kind !== 'stream') throw new Error('page content is missing');
+  if (stream?.kind !== 'stream') {
+    throw new Error('page content is missing');
+  }
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
 const formImageData = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): Uint8Array => {
   const form = streamValue(document.get(reference));
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('document internals are missing');
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
   const resources = internals.objects.deref(form.dictionary.get(pdfName('Resources').bytes));
-  if (resources?.kind !== 'dictionary') throw new Error('form resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('form resources are missing');
+  }
   const xobjects = internals.objects.deref(resources.entries.get(pdfName('XObject').bytes));
-  if (xobjects?.kind !== 'dictionary') throw new Error('form images are missing');
+  if (xobjects?.kind !== 'dictionary') {
+    throw new Error('form images are missing');
+  }
   const image = xobjects.entries.get(pdfName('PWIM0').bytes);
-  if (image?.kind !== 'reference') throw new Error('converted image is missing');
+  if (image?.kind !== 'reference') {
+    throw new Error('converted image is missing');
+  }
   const data = decodedData(internals, streamValue(document.get(image)));
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return data;
 };
 

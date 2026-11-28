@@ -30,16 +30,26 @@ export const pdfTextString = (value: string): PdfDirectObject => {
   let ascii = true;
   for (let index = 0; index < value.length; index++) {
     const code = value.codePointAt(index);
-    if (code === undefined) throw new ValidationError('invalid text character');
-    if (!selfMapped(code)) ascii = false;
-    if (code >= 0xd800 && code <= 0xdfff) throw new ValidationError('text contains an unpaired UTF-16 surrogate');
+    if (code === undefined) {
+      throw new ValidationError('invalid text character');
+    }
+    if (!selfMapped(code)) {
+      ascii = false;
+    }
+    if (code >= 0xd800 && code <= 0xdfff) {
+      throw new ValidationError('text contains an unpaired UTF-16 surrogate');
+    }
     if (code > 0xffff) {
       const scalar = code - 0x10000;
       units.push(0xd800 + Math.floor(scalar / 1024), 0xdc00 + (scalar % 1024));
       index++;
-    } else units.push(code);
+    } else {
+      units.push(code);
+    }
   }
-  if (ascii) return pdfString(Uint8Array.from(units));
+  if (ascii) {
+    return pdfString(Uint8Array.from(units));
+  }
   const bytes = new Uint8Array(units.length * 2 + 2);
   bytes[0] = 0xfe;
   bytes[1] = 0xff;
@@ -62,12 +72,20 @@ export const documentInfoDictionary = (info: DocumentInfo): PdfDictionaryEntries
     ['Creator', info.creator],
     ['Producer', info.producer],
   ] as const) {
-    if (value !== undefined) entries.set(pdfName(key).bytes, pdfTextString(value));
+    if (value !== undefined) {
+      entries.set(pdfName(key).bytes, pdfTextString(value));
+    }
   }
-  if (info.creationDate !== undefined) entries.set(pdfName('CreationDate').bytes, pdfDateObject(info.creationDate));
-  if (info.modificationDate !== undefined) entries.set(pdfName('ModDate').bytes, pdfDateObject(info.modificationDate));
+  if (info.creationDate !== undefined) {
+    entries.set(pdfName('CreationDate').bytes, pdfDateObject(info.creationDate));
+  }
+  if (info.modificationDate !== undefined) {
+    entries.set(pdfName('ModDate').bytes, pdfDateObject(info.modificationDate));
+  }
   // Table 317, Trapped: "This shall be the name True, not the boolean value true".
-  if (info.trapped !== undefined) entries.set(pdfName('Trapped').bytes, pdfName(info.trapped));
+  if (info.trapped !== undefined) {
+    entries.set(pdfName('Trapped').bytes, pdfName(info.trapped));
+  }
   return entries;
 };
 
@@ -94,10 +112,16 @@ const isAsciiLetter = (byte: number | undefined): boolean => byte !== undefined 
 const languageEscape = (bytes: Uint8Array, start: number): { readonly code: string; readonly end: number } | undefined => {
   const letters = (from: number): boolean => isAsciiLetter(bytes[from]) && isAsciiLetter(bytes[from + 1]);
   const escapeAt = (at: number): boolean => bytes[at] === 0 && bytes[at + 1] === ESCAPE;
-  if (!escapeAt(start) || !letters(start + 2)) return undefined;
+  if (!escapeAt(start) || !letters(start + 2)) {
+    return undefined;
+  }
   const language = String.fromCodePoint(bytes[start + 2] ?? 0, bytes[start + 3] ?? 0);
-  if (escapeAt(start + 4)) return { code: language, end: start + 6 };
-  if (!letters(start + 4) || !escapeAt(start + 6)) return undefined;
+  if (escapeAt(start + 4)) {
+    return { code: language, end: start + 6 };
+  }
+  if (!letters(start + 4) || !escapeAt(start + 6)) {
+    return undefined;
+  }
   return { code: `${language}-${String.fromCodePoint(bytes[start + 4] ?? 0, bytes[start + 5] ?? 0)}`, end: start + 8 };
 };
 
@@ -122,7 +146,9 @@ const readUtf16 = (bytes: Uint8Array): TextString => {
     } else if (unit >= 0xd800 && unit <= 0xdfff) {
       text += '\uFFFD';
       replaced++;
-    } else text += String.fromCodePoint(unit);
+    } else {
+      text += String.fromCodePoint(unit);
+    }
   }
   if (index < bytes.length) {
     text += '\uFFFD';
@@ -133,12 +159,16 @@ const readUtf16 = (bytes: Uint8Array): TextString => {
 
 /** Decodes a text string (ISO 32000-1:2008, 7.9.2.2): UTF-16BE after the bytes 254 and 255, with language escapes removed, and PDFDocEncoding through Annex D otherwise. */
 export const readTextString = (bytes: Uint8Array): TextString => {
-  if (bytes[0] === 0xfe && bytes[1] === 0xff) return readUtf16(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return readUtf16(bytes);
+  }
   let text = '';
   let replaced = 0;
   for (const byte of bytes) {
     const unicode = pdfDocEncodingUnicode(byte);
-    if (unicode === undefined) replaced++;
+    if (unicode === undefined) {
+      replaced++;
+    }
     text += String.fromCodePoint(unicode ?? 0xfffd);
   }
   return { text, encoding: 'pdfdoc', languages: [], replaced };
@@ -146,7 +176,9 @@ export const readTextString = (bytes: Uint8Array): TextString => {
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -156,10 +188,16 @@ export const readInfoValues = (entries: PdfDictionaryEntries, deref: (reference:
   const values = new Map<string, InfoValue>();
   for (const [key, stored] of entries.entries()) {
     const value = stored.kind === 'reference' ? (deref(stored) ?? { kind: 'null' }) : stored;
-    if (value.kind === 'null') continue;
-    if (value.kind === 'string') values.set(latin1(key), { kind: 'text', ...readTextString(value.bytes) });
-    else if (value.kind === 'name') values.set(latin1(key), { kind: 'name', name: latin1(value.bytes) });
-    else values.set(latin1(key), { kind: 'other', type: value.kind });
+    if (value.kind === 'null') {
+      continue;
+    }
+    if (value.kind === 'string') {
+      values.set(latin1(key), { kind: 'text', ...readTextString(value.bytes) });
+    } else if (value.kind === 'name') {
+      values.set(latin1(key), { kind: 'name', name: latin1(value.bytes) });
+    } else {
+      values.set(latin1(key), { kind: 'other', type: value.kind });
+    }
   }
   return values;
 };

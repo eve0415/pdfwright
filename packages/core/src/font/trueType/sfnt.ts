@@ -11,7 +11,9 @@ export interface SfntReader {
 export const sfntReader = (data: Uint8Array): SfntReader => {
   const byte = (offset: number): number => {
     const value = data[offset];
-    if (value === undefined || offset < 0) throw new ParseError(`the program ends before byte ${String(offset)}`, offset);
+    if (value === undefined || offset < 0) {
+      throw new ParseError(`the program ends before byte ${String(offset)}`, offset);
+    }
     return value;
   };
   return {
@@ -29,15 +31,21 @@ export const sfntReader = (data: Uint8Array): SfntReader => {
 export const findTable = (data: Uint8Array, tag: string): Uint8Array | undefined => {
   const read = sfntReader(data);
   const version = read.u32(0);
-  if (version !== 0x00010000 && version !== 0x74727565 && version !== 0x4f54544f) throw new ParseError('the program is not a TrueType or OpenType font', 0);
+  if (version !== 0x00010000 && version !== 0x74727565 && version !== 0x4f54544f) {
+    throw new ParseError('the program is not a TrueType or OpenType font', 0);
+  }
   const count = read.u16(4);
   for (let index = 0; index < count; index++) {
     const record = 12 + 16 * index;
     const name = String.fromCodePoint(read.u8(record), read.u8(record + 1), read.u8(record + 2), read.u8(record + 3));
-    if (name !== tag) continue;
+    if (name !== tag) {
+      continue;
+    }
     const offset = read.u32(record + 8);
     const length = read.u32(record + 12);
-    if (offset + length > data.length) throw new ParseError(`the ${tag} table runs past the end of the program`, 0);
+    if (offset + length > data.length) {
+      throw new ParseError(`the ${tag} table runs past the end of the program`, 0);
+    }
     return data.subarray(offset, offset + length);
   }
   return undefined;

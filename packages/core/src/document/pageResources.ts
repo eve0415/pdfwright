@@ -41,7 +41,9 @@ const label = (reference: PdfReference): string => `${String(reference.objectNum
 
 const dictionaryOf = (objects: ObjectResolver, reference: PdfReference): PdfDictionaryEntries => {
   const value = objects.resolve(reference.objectNumber, reference.generation);
-  if (value.kind !== 'dictionary') throw new ParseError(`object ${label(reference)} is not a dictionary`, 0);
+  if (value.kind !== 'dictionary') {
+    throw new ParseError(`object ${label(reference)} is not a dictionary`, 0);
+  }
   return value.entries;
 };
 
@@ -50,10 +52,14 @@ const resourcesEntry = (objects: ObjectResolver, entry: PageEntry): { value: Pdf
   // A reference to a missing object reads as null (7.3.10), which is the same as an absent entry (7.3.7).
   const present = (value: PdfDirectObject | undefined): value is PdfDirectObject => value !== undefined && objects.deref(value)?.kind !== 'null';
   const own = dictionaryOf(objects, entry.reference).get(RESOURCES);
-  if (present(own)) return { value: own, inherited: false };
+  if (present(own)) {
+    return { value: own, inherited: false };
+  }
   for (const ancestor of ancestorsOf(entry)) {
     const value = dictionaryOf(objects, ancestor).get(RESOURCES);
-    if (present(value)) return { value, inherited: true };
+    if (present(value)) {
+      return { value, inherited: true };
+    }
   }
   return undefined;
 };
@@ -63,8 +69,12 @@ const copyEntries = (entries: PdfDictionaryEntries): PdfDictionaryEntries =>
 
 const asDictionary = (objects: ObjectResolver, value: PdfDirectObject | undefined, what: string): PdfDictionaryEntries => {
   const resolved = objects.deref(value);
-  if (resolved === undefined || resolved.kind === 'null') return parsedDictionaryEntries([]);
-  if (resolved.kind !== 'dictionary') throw new ParseError(`${what} is not a dictionary`, 0);
+  if (resolved === undefined || resolved.kind === 'null') {
+    return parsedDictionaryEntries([]);
+  }
+  if (resolved.kind !== 'dictionary') {
+    throw new ParseError(`${what} is not a dictionary`, 0);
+  }
   return copyEntries(resolved.entries);
 };
 
@@ -80,10 +90,16 @@ interface Sharing {
 
 const sharedWithOtherPages = (context: ResourceContext, page: PageEntry, { reference, category }: Sharing): boolean =>
   context.pages.some(other => {
-    if (other.reference.objectNumber === page.reference.objectNumber) return false;
+    if (other.reference.objectNumber === page.reference.objectNumber) {
+      return false;
+    }
     const found = resourcesEntry(context.objects, other);
-    if (found === undefined) return false;
-    if (category === undefined) return sameReference(found.value, reference);
+    if (found === undefined) {
+      return false;
+    }
+    if (category === undefined) {
+      return sameReference(found.value, reference);
+    }
     const resources = context.objects.deref(found.value);
     return resources?.kind === 'dictionary' && sameReference(resources.entries.get(category), reference);
   });
@@ -91,7 +107,9 @@ const sharedWithOtherPages = (context: ResourceContext, page: PageEntry, { refer
 const freeName = (taken: PdfDictionaryEntries, prefix: string): Uint8Array => {
   for (let ordinal = 1; ; ordinal++) {
     const name = pdfName(`${prefix}${String(ordinal)}`).bytes;
-    if (!taken.has(name)) return name;
+    if (!taken.has(name)) {
+      return name;
+    }
   }
 };
 
@@ -108,7 +126,9 @@ const pageResourcesTarget = (context: ResourceContext, page: PageEntry): Target 
   const found = resourcesEntry(objects, page);
   const pageEntries = (): PdfDictionaryEntries => {
     const value = objects.get(page.reference);
-    if (value.kind !== 'dictionary') throw new ParseError(`page ${label(page.reference)} is not a dictionary`, 0);
+    if (value.kind !== 'dictionary') {
+      throw new ParseError(`page ${label(page.reference)} is not a dictionary`, 0);
+    }
     return value.entries;
   };
   const setOnPage = (value: PdfDirectObject): void => {
@@ -121,7 +141,9 @@ const pageResourcesTarget = (context: ResourceContext, page: PageEntry): Target 
   const inline = (changed: PdfDictionaryEntries): void => {
     setOnPage({ kind: 'dictionary', entries: changed });
   };
-  if (found === undefined || found.inherited || reference === undefined) return { entries, store: inline };
+  if (found === undefined || found.inherited || reference === undefined) {
+    return { entries, store: inline };
+  }
   if (sharedWithOtherPages(context, page, { reference })) {
     return {
       entries,
@@ -146,7 +168,9 @@ export interface ResourceAddition {
 
 /** Adds named resources to a page; only the page, its own resources, or copies of shared ones change. */
 export const addPageResources = (context: ResourceContext, page: PageEntry, additions: readonly ResourceAddition[]): void => {
-  if (additions.length === 0) return;
+  if (additions.length === 0) {
+    return;
+  }
   const { objects } = context;
   const resources = pageResourcesTarget(context, page);
   let resourcesChanged = false;
@@ -154,23 +178,32 @@ export const addPageResources = (context: ResourceContext, page: PageEntry, addi
     const categoryKey = pdfName(category).bytes;
     const current = resources.entries.get(categoryKey);
     const entries = asDictionary(objects, current, `the ${category} resources of page ${label(page.reference)}`);
-    for (const addition of additions) if (addition.category === category) entries.set(addition.name, addition.value);
+    for (const addition of additions) {
+      if (addition.category === category) {
+        entries.set(addition.name, addition.value);
+      }
+    }
     const changed = { kind: 'dictionary', entries } as const;
     // A category object that no other page reaches changes in place, and the resources dictionary that names it stays as it is.
-    if (current?.kind === 'reference' && !sharedWithOtherPages(context, page, { reference: current, category: categoryKey })) objects.set(current, changed);
-    else {
+    if (current?.kind === 'reference' && !sharedWithOtherPages(context, page, { reference: current, category: categoryKey })) {
+      objects.set(current, changed);
+    } else {
       resources.entries.set(categoryKey, current?.kind === 'reference' ? objects.add(changed) : changed);
       resourcesChanged = true;
     }
   }
-  if (resourcesChanged) resources.store(resources.entries);
+  if (resourcesChanged) {
+    resources.store(resources.entries);
+  }
 };
 
 /** Names already used in a category of the page's effective resources. */
 export const takenNames = (context: ResourceContext, page: PageEntry, category: ResourceCategory): PdfDictionaryEntries => {
   const found = resourcesEntry(context.objects, page);
   const resources = context.objects.deref(found?.value);
-  if (resources?.kind !== 'dictionary') return parsedDictionaryEntries([]);
+  if (resources?.kind !== 'dictionary') {
+    return parsedDictionaryEntries([]);
+  }
   return asDictionary(context.objects, resources.entries.get(pdfName(category).bytes), `the ${category} resources of page ${label(page.reference)}`);
 };
 

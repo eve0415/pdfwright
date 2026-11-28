@@ -16,7 +16,9 @@ const thrown = (action: () => void): Error | undefined => {
   try {
     action();
   } catch (error: unknown) {
-    if (error instanceof Error) return error;
+    if (error instanceof Error) {
+      return error;
+    }
     throw error;
   }
   return undefined;

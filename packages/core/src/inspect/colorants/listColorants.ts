@@ -131,7 +131,9 @@ interface Use {
 type Place = 'page' | 'soft-mask' | 'annotation-not-printed';
 
 const placeOf = ({ sources }: PaintContext): Place => {
-  if (sources.some(source => source.kind === 'soft-mask')) return 'soft-mask';
+  if (sources.some(source => source.kind === 'soft-mask')) {
+    return 'soft-mask';
+  }
   const [outer] = sources;
   return outer?.kind === 'annotation' && !outer.printable ? 'annotation-not-printed' : 'page';
 };
@@ -156,30 +158,46 @@ const OPERATION: Readonly<Record<Exclude<PaintEvent['kind'], 'fill-stroke' | 'cl
 
 // Whether the direct space at an index is painted by stroking: fill-stroke paints its first space by filling and its second by stroking; text fills before it strokes.
 const strokesAt = (event: PaintEvent, index: number): boolean => {
-  if (event.kind === 'fill-stroke') return index === 1;
-  if (event.kind === 'text') return index > 0 || !FILLING_MODES.has(event.state.renderMode);
+  if (event.kind === 'fill-stroke') {
+    return index === 1;
+  }
+  if (event.kind === 'text') {
+    return index > 0 || !FILLING_MODES.has(event.state.renderMode);
+  }
   return event.kind === 'stroke';
 };
 
 // The operation that painted with the direct space at an index.
 const operationAt = (event: PaintEvent, index: number): PaintedBy => {
-  if (event.kind === 'fill-stroke') return index === 0 ? 'fill' : 'stroke';
-  if (event.kind === 'clip') return 'fill';
+  if (event.kind === 'fill-stroke') {
+    return index === 0 ? 'fill' : 'stroke';
+  }
+  if (event.kind === 'clip') {
+    return 'fill';
+  }
   return OPERATION[event.kind];
 };
 
 const contextPainters = ({ sources }: PaintContext): PaintedBy[] => {
   const painters: PaintedBy[] = [];
-  if (sources.some(source => source.kind === 'tiling-pattern')) painters.push('pattern');
-  if (sources.some(source => source.kind === 'type3-glyph')) painters.push('type3-glyph');
-  if (sources[0]?.kind === 'annotation') painters.push('annotation');
+  if (sources.some(source => source.kind === 'tiling-pattern')) {
+    painters.push('pattern');
+  }
+  if (sources.some(source => source.kind === 'type3-glyph')) {
+    painters.push('type3-glyph');
+  }
+  if (sources[0]?.kind === 'annotation') {
+    painters.push('annotation');
+  }
   return painters;
 };
 
 const compareBytes = (left: Uint8Array, right: Uint8Array): number => {
   for (let index = 0; index < Math.min(left.length, right.length); index++) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
+    if (difference !== 0) {
+      return difference;
+    }
   }
   return left.length - right.length;
 };
@@ -198,9 +216,13 @@ class PageScan {
 
   warn(warning: InspectWarning, incomplete: boolean): void {
     const key = `${warning.code} ${warning.detail}`;
-    if (!this.reported.has(key)) this.warnings.push(warning);
+    if (!this.reported.has(key)) {
+      this.warnings.push(warning);
+    }
     this.reported.add(key);
-    if (incomplete) this.complete = false;
+    if (incomplete) {
+      this.complete = false;
+    }
   }
 
   // An object that cannot be read is reported and read as absent; the handlers run inside content interpretation, which a thrown error would stop.
@@ -208,23 +230,33 @@ class PageScan {
     try {
       return value?.kind === 'reference' ? this.document.objects.deref(value) : value;
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn({ code: 'content-unreadable', detail: `an object cannot be read: ${error.message}` }, true);
       return undefined;
     }
   }
 
   private colorantsOf(space: PdfObject | undefined): readonly SpaceColorant[] {
-    if (space === undefined) return [];
+    if (space === undefined) {
+      return [];
+    }
     const known = this.spaces.get(space);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      return known;
+    }
     let colorants: readonly SpaceColorant[] = [];
     try {
       const result = colorSpaceColorants(this.document.objects, space);
-      for (const warning of result.warnings) this.warn(warning, warning.code === 'colorspace-unreadable');
+      for (const warning of result.warnings) {
+        this.warn(warning, warning.code === 'colorspace-unreadable');
+      }
       ({ colorants } = result);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.warn({ code: 'colorspace-unreadable', detail: `a colour space cannot be read: ${error.message}` }, true);
     }
     this.spaces.set(space, colorants);
@@ -245,9 +277,14 @@ class PageScan {
   each(space: PdfObject | undefined, mark: (use: Use) => void): void {
     for (const colorant of this.colorantsOf(space)) {
       const use = this.use(colorant.name, colorant.kind);
-      if (colorant.alternate !== undefined) use.alternates.set(colorant.alternate.definition, colorant.alternate);
-      if (colorant.component) mark(use);
-      else use.declared.add('nchannel-colorants');
+      if (colorant.alternate !== undefined) {
+        use.alternates.set(colorant.alternate.definition, colorant.alternate);
+      }
+      if (colorant.component) {
+        mark(use);
+      } else {
+        use.declared.add('nchannel-colorants');
+      }
     }
   }
 
@@ -264,9 +301,13 @@ class PageScan {
 
   // ISO 32000-1:2008, 8.6.5.6 substitutes a Default* colour space from the current resources when a device-colour operator paints.
   private paintedSpace(space: PdfObject | undefined, resources: PdfDictionaryEntries | undefined): PdfObject | undefined {
-    if (space?.kind !== 'name') return space;
+    if (space?.kind !== 'name') {
+      return space;
+    }
     const key = DEFAULT_SPACES.get(latin1(space.bytes));
-    if (key === undefined) return space;
+    if (key === undefined) {
+      return space;
+    }
     const spaces = dictionaryOf(this.read(resources?.get(COLOR_SPACE)));
     return this.read(spaces?.get(key)) ?? space;
   }
@@ -285,7 +326,9 @@ class PageScan {
         });
         continue;
       }
-      if (isPatternSpace(space)) continue;
+      if (isPatternSpace(space)) {
+        continue;
+      }
       const owner = event.spaceOf[index] ?? index;
       const operation = operationAt(event, owner);
       if (glyph && (strokesAt(event, owner) ? strokeAlpha : fillAlpha) * group.alpha === 0) {
@@ -296,7 +339,9 @@ class PageScan {
       }
       const by: PaintedBy[] = owner === index ? [operation, ...painters] : [operation, 'pattern', ...painters];
       this.placed(place, this.paintedSpace(space.space, event.resources), use => {
-        for (const painter of by) use.painted.add(painter);
+        for (const painter of by) {
+          use.painted.add(painter);
+        }
       });
     }
   }
@@ -305,8 +350,11 @@ class PageScan {
     const place = placeOf(event.context);
     const { colour } = event.context;
     const mark = (use: Use): void => {
-      if (colour === 'used') use.chosen = true;
-      else use.declared.add(colour);
+      if (colour === 'used') {
+        use.chosen = true;
+      } else {
+        use.declared.add(colour);
+      }
     };
     this.placed(place, event.use.space, mark);
     // A shading pattern chosen where colours are ignored names its shading's space (8.7.4.1).
@@ -320,7 +368,9 @@ class PageScan {
   // 9.3.6, Table 106: render mode 3 paints nothing and mode 7 only adds the glyphs to the clipping path.
   text(event: TextShowEvent): void {
     const mode = event.state.renderMode;
-    if (event.string.length === 0 || (mode !== 3 && mode !== 7)) return;
+    if (event.string.length === 0 || (mode !== 3 && mode !== 7)) {
+      return;
+    }
     const reason: SelectedBy = mode === 3 ? 'invisible-text' : 'clip-only';
     this.placed(placeOf(event.context), event.state.fill.space, use => {
       use.selected.add(reason);
@@ -340,9 +390,17 @@ class PageScan {
         use.inResources = true;
       });
     };
-    for (const space of values(COLOR_SPACE)) declare(space);
-    for (const xObject of values(XOBJECT)) if (xObject.kind === 'stream') declare(this.read(xObject.dictionary.get(COLOR_SPACE)));
-    for (const shading of values(SHADING)) declare(this.read(dictionaryOf(shading)?.get(COLOR_SPACE)));
+    for (const space of values(COLOR_SPACE)) {
+      declare(space);
+    }
+    for (const xObject of values(XOBJECT)) {
+      if (xObject.kind === 'stream') {
+        declare(this.read(xObject.dictionary.get(COLOR_SPACE)));
+      }
+    }
+    for (const shading of values(SHADING)) {
+      declare(this.read(dictionaryOf(shading)?.get(COLOR_SPACE)));
+    }
     for (const pattern of values(PATTERN)) {
       const shading = dictionaryOf(this.read(dictionaryOf(pattern)?.get(SHADING)));
       declare(this.read(shading?.get(COLOR_SPACE)));
@@ -353,13 +411,18 @@ class PageScan {
   separationInfo(page: PdfDictionaryEntries | undefined): void {
     const { objects } = this.document;
     const info = dictionaryOf(objects.deref(page?.get(SEPARATION_INFO)));
-    if (info === undefined) return;
+    if (info === undefined) {
+      return;
+    }
     const colorant = objects.deref(info.get(DEVICE_COLORANT));
     if (colorant?.kind === 'name' || colorant?.kind === 'string') {
       const text = latin1(colorant.bytes);
       let kind: ColorantKind = PROCESS_NAMES.has(text) ? 'process' : 'spot';
-      if (text === 'All') kind = 'all';
-      else if (text === 'None') kind = 'none';
+      if (text === 'All') {
+        kind = 'all';
+      } else if (text === 'None') {
+        kind = 'none';
+      }
       this.use(colorant.bytes, kind).declared.add('separation-info');
     }
     this.each(objects.deref(info.get(COLOR_SPACE)), use => {
@@ -371,9 +434,13 @@ class PageScan {
     return [...this.uses.values()]
       .map(use => {
         const selected = new Set(use.selected);
-        if (use.chosen && use.painted.size === 0 && selected.size === 0) selected.add('colour-space-only');
+        if (use.chosen && use.painted.size === 0 && selected.size === 0) {
+          selected.add('colour-space-only');
+        }
         const declared = new Set(use.declared);
-        if (use.inResources && use.painted.size === 0) declared.add('resources');
+        if (use.inResources && use.painted.size === 0) {
+          declared.add('resources');
+        }
         return {
           name: use.name,
           kind: use.kind,
@@ -395,13 +462,17 @@ interface Scan {
 
 const scanResources = ({ document, cache }: Scan, index: number, scan: PageScan): void => {
   const page = document.pages[index];
-  if (page === undefined) return;
+  if (page === undefined) {
+    return;
+  }
   let found: Found | undefined;
   try {
     found = inherited(document.objects, page, { key: RESOURCES, cache });
     scan.separationInfo(dictionaryOf(document.objects.deref(page.reference)));
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     scan.warn({ code: 'content-unreadable', detail: `the page cannot be read: ${error.message}` }, true);
   }
   const unread = walkResources(document, page, {
@@ -411,12 +482,16 @@ const scanResources = ({ document, cache }: Scan, index: number, scan: PageScan)
       try {
         scan.resources(resources);
       } catch (error: unknown) {
-        if (!unreadable(error)) throw error;
+        if (!unreadable(error)) {
+          throw error;
+        }
         scan.warn({ code: 'content-unreadable', detail: `a resource cannot be read: ${error.message}` }, true);
       }
     },
   });
-  for (const object of unread) scan.warn({ code: 'content-unreadable', detail: object.reason }, true);
+  for (const object of unread) {
+    scan.warn({ code: 'content-unreadable', detail: object.reason }, true);
+  }
 };
 
 const scanPage = (context: Scan, index: number): PageColorants => {
@@ -435,8 +510,12 @@ const scanPage = (context: Scan, index: number): PageColorants => {
       scan.text(event);
     },
   });
-  for (const warning of result.warnings) scan.warn(warning, false);
-  if (!result.complete) scan.complete = false;
+  for (const warning of result.warnings) {
+    scan.warn(warning, false);
+  }
+  if (!result.complete) {
+    scan.complete = false;
+  }
   scanResources(context, index, scan);
   return { page: index, colorants: scan.result(), complete: scan.complete, warnings: scan.warnings };
 };
@@ -445,8 +524,12 @@ const isList = (value: unknown): value is readonly unknown[] => Array.isArray(va
 
 // The pages to scan, all when absent; a value outside the type, as a caller without type checking can pass, is refused rather than iterated.
 const pagesOf = (document: DocumentInternals, pages: unknown): number[] => {
-  if (pages === undefined) return [...document.pages.keys()];
-  if (!isList(pages)) throw new InvalidArgumentError(`listColorants: pages ${JSON.stringify(pages)} is not an array of page indexes`);
+  if (pages === undefined) {
+    return [...document.pages.keys()];
+  }
+  if (!isList(pages)) {
+    throw new InvalidArgumentError(`listColorants: pages ${JSON.stringify(pages)} is not an array of page indexes`);
+  }
   return pages.map(index => {
     if (typeof index !== 'number' || !Number.isInteger(index) || document.pages[index] === undefined) {
       const shown = typeof index === 'number' ? String(index) : JSON.stringify(index);
@@ -462,7 +545,9 @@ const pagesOf = (document: DocumentInternals, pages: unknown): number[] => {
  */
 export const listColorants = (document: LoadedDocument, options: ListColorantsOptions = {}): readonly PageColorants[] => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  if (parts === undefined) {
+    throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  }
   const pages = pagesOf(parts, options.pages);
   const context: Scan = { document: parts, fonts: new FontCache(parts, undefined), cache: createInheritedCache() };
   return pages.map(index => scanPage(context, index));

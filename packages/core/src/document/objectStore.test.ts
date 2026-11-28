@@ -47,7 +47,9 @@ const data = (value: PdfObject): string => (value.kind === 'stream' ? new TextDe
 
 class SearchGuard extends Uint8Array {
   override indexOf(searchElement: number, fromIndex?: number): number {
-    if (searchElement === 0x65) throw new Error('searched past the last endstream');
+    if (searchElement === 0x65) {
+      throw new Error('searched past the last endstream');
+    }
     return super.indexOf(searchElement, fromIndex);
   }
 }

@@ -28,12 +28,16 @@ export interface Owner {
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const dictionaryOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
@@ -42,7 +46,9 @@ const read = (document: DocumentInternals, value: PdfDirectObject | undefined): 
   try {
     return document.objects.deref(value);
   } catch (error: unknown) {
-    if (error instanceof ParseError) return undefined;
+    if (error instanceof ParseError) {
+      return undefined;
+    }
     throw error;
   }
 };
@@ -53,7 +59,9 @@ const dateBytes = (document: DocumentInternals, value: PdfDirectObject | undefin
 };
 
 const ownerPath = (owner: PieceOwner): ValuePath => {
-  if (owner.kind === 'catalog') return ['Root'];
+  if (owner.kind === 'catalog') {
+    return ['Root'];
+  }
   return owner.kind === 'page' ? ['page', owner.page] : ['page', owner.page, ...owner.path];
 };
 
@@ -62,10 +70,14 @@ const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined):
 
 // The source bytes of a PieceInfo written directly in the owner's dictionary; undefined when it is indirect or the owner has no source bytes.
 const directSource = (document: DocumentInternals, reference: PdfReference | undefined): Uint8Array | undefined => {
-  if (reference === undefined || document.objects.changes.has(reference.objectNumber)) return undefined;
+  if (reference === undefined || document.objects.changes.has(reference.objectNumber)) {
+    return undefined;
+  }
   const original = originalValue(document.objects.store, reference.objectNumber, document.maxNesting);
   const node = original?.node.entries?.findLast(entry => latin1(entry.key) === PIECE_INFO_NAME)?.node;
-  if (original === undefined || node === undefined || node.value.kind === 'reference') return undefined;
+  if (original === undefined || node === undefined || node.value.kind === 'reference') {
+    return undefined;
+  }
   return original.bytes.subarray(node.start, node.end);
 };
 
@@ -93,15 +105,17 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
   const dataA = dictionaryOf(read(sides.a, pieceA));
   const dataB = dictionaryOf(read(sides.b, pieceB));
   const values = new ValueGraph(sides, report('value'));
-  if (dataA === undefined || dataB === undefined) values.compare(pieceA, pieceB, path);
-  else {
+  if (dataA === undefined || dataB === undefined) {
+    values.compare(pieceA, pieceB, path);
+  } else {
     const applications = new Map([...dataA.entries(), ...dataB.entries()].map(([key]): readonly [string, Uint8Array] => [latin1(key), key]));
     for (const [application, key] of applications) {
       reportDuplicates([...where, PIECE_INFO_NAME, application], [duplicatesOf(sides.a, dataA.get(key)), duplicatesOf(sides.b, dataB.get(key))], differences);
       const appA = dictionaryOf(read(sides.a, dataA.get(key)));
       const appB = dictionaryOf(read(sides.b, dataB.get(key)));
-      if (appA === undefined || appB === undefined) values.compare(dataA.get(key), dataB.get(key), [...path, application]);
-      else {
+      if (appA === undefined || appB === undefined) {
+        values.compare(dataA.get(key), dataB.get(key), [...path, application]);
+      } else {
         values.entries({ left: appA, right: appB, path: [...path, application], skip: SKIP_LAST_MODIFIED });
         const dateA = dateBytes(sides.a, appA.get(LAST_MODIFIED));
         const dateB = dateBytes(sides.b, appB.get(LAST_MODIFIED));
@@ -126,5 +140,7 @@ export const comparePieceInfo = (sides: GraphContext, owner: Owner, differences:
   }
   const dateA = dateBytes(sides.a, owner.a?.get(LAST_MODIFIED));
   const dateB = dateBytes(sides.b, owner.b?.get(LAST_MODIFIED));
-  if (!sameBytes(dateA, dateB)) differences.push({ kind: 'last-modified', owner: owner.owner, path: ['LastModified'], a: dateA, b: dateB });
+  if (!sameBytes(dateA, dateB)) {
+    differences.push({ kind: 'last-modified', owner: owner.owner, path: ['LastModified'], a: dateA, b: dateB });
+  }
 };

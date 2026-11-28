@@ -47,14 +47,18 @@ const matchesAt = (bytes: Uint8Array, position: number, pattern: readonly number
 
 const indexOf = (bytes: Uint8Array, pattern: readonly number[], from: number): number => {
   for (let position = bytes.indexOf(pattern[0] ?? 0, from); position >= 0; position = bytes.indexOf(pattern[0] ?? 0, position + 1)) {
-    if (matchesAt(bytes, position, pattern)) return position;
+    if (matchesAt(bytes, position, pattern)) {
+      return position;
+    }
   }
   return -1;
 };
 
 const lastIndexOf = (bytes: Uint8Array, pattern: readonly number[]): number => {
   for (let position = bytes.lastIndexOf(pattern[0] ?? 0); position >= 0; position = position === 0 ? -1 : bytes.lastIndexOf(pattern[0] ?? 0, position - 1)) {
-    if (matchesAt(bytes, position, pattern)) return position;
+    if (matchesAt(bytes, position, pattern)) {
+      return position;
+    }
   }
   return -1;
 };
@@ -76,11 +80,15 @@ export const locateHeader = (source: ByteSource): HeaderLocation | undefined => 
           break;
         }
       }
-      if (position >= 0) break;
+      if (position >= 0) {
+        break;
+      }
       base += segment.length;
     }
   }
-  if (position < 0) return undefined;
+  if (position < 0) {
+    return undefined;
+  }
   const major = source.byteAt(position + 5);
   const minor = source.byteAt(position + 7);
   const version = isDigit(major) && source.byteAt(position + 6) === 0x2e && isDigit(minor) ? String.fromCodePoint(major ?? 0, 0x2e, minor ?? 0) : '';
@@ -105,7 +113,9 @@ export const locateStartxref = (source: ByteSource): StartxrefLocation | undefin
     position = lastIndexOf(last.bytes, STARTXREF);
     ({ base } = last);
   }
-  if (position < 0) return undefined;
+  if (position < 0) {
+    return undefined;
+  }
   return readStartxref(source, base + position);
 };
 
@@ -139,26 +149,38 @@ const startsStreamSection = (source: ByteSource, offset: number): boolean => {
     });
   } catch (error: unknown) {
     // Incomplete windows are retried by parseAt; malformed or truncated objects are not section starts.
-    if (error instanceof ParseError || error instanceof ResourceLimitError) return false;
+    if (error instanceof ParseError || error instanceof ResourceLimitError) {
+      return false;
+    }
     throw error;
   }
 };
 
 // A section starts with the keyword xref or with the header "n g obj" of a cross-reference stream.
 const startsSection = (source: ByteSource, offset: number): boolean => {
-  if (offset < 0 || offset >= source.length || isRegular(source.byteAt(offset - 1) ?? 0)) return false;
-  if (XREF.every((byte, index) => source.byteAt(offset + index) === byte)) return !isRegular(source.byteAt(offset + 4) ?? 0);
+  if (offset < 0 || offset >= source.length || isRegular(source.byteAt(offset - 1) ?? 0)) {
+    return false;
+  }
+  if (XREF.every((byte, index) => source.byteAt(offset + index) === byte)) {
+    return !isRegular(source.byteAt(offset + 4) ?? 0);
+  }
   return startsStreamSection(source, offset);
 };
 
 /** Finds the cross-reference section at `offset`, after white space, or else the nearest one within 64 bytes. */
 export const sectionStartNear = (source: ByteSource, offset: number): SectionStart | undefined => {
   let start = offset;
-  while (start < source.length && isWhitespace(source.byteAt(start) ?? 1)) start++;
-  if (startsSection(source, start)) return { offset: start, corrected: false };
+  while (start < source.length && isWhitespace(source.byteAt(start) ?? 1)) {
+    start++;
+  }
+  if (startsSection(source, start)) {
+    return { offset: start, corrected: false };
+  }
   for (let distance = 1; distance <= CORRECTION; distance++) {
     for (const candidate of [offset - distance, offset + distance]) {
-      if (startsSection(source, candidate)) return { offset: candidate, corrected: true };
+      if (startsSection(source, candidate)) {
+        return { offset: candidate, corrected: true };
+      }
     }
   }
   return undefined;

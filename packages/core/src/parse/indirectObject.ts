@@ -43,7 +43,9 @@ const isKeyword = (token: Token, keyword: string): boolean => token.kind === 'ke
 
 const matchesAt = (lexer: Lexer, position: number, pattern: readonly number[]): boolean => {
   for (let index = 0; index < pattern.length; index++) {
-    if (lexer.atEnd(position + index) || lexer.bytes[position + index] !== pattern[index]) return false;
+    if (lexer.atEnd(position + index) || lexer.bytes[position + index] !== pattern[index]) {
+      return false;
+    }
   }
   return true;
 };
@@ -69,7 +71,9 @@ const readHeader = (lexer: Lexer): ObjectHeader => {
 const dataStartAfter = (lexer: Lexer, keywordEnd: number): number => {
   let position = keywordEnd;
   // Readers skip spaces and tabs a writer put between the keyword and the end-of-line marker.
-  while (!lexer.atEnd(position) && (lexer.bytes[position] === 0x20 || lexer.bytes[position] === 0x09)) position++;
+  while (!lexer.atEnd(position) && (lexer.bytes[position] === 0x20 || lexer.bytes[position] === 0x09)) {
+    position++;
+  }
   const first = lexer.atEnd(position) ? undefined : lexer.bytes[position];
   if (first !== 0x0a && first !== 0x0d) {
     lexer.warn({ code: 'stream-keyword-eol', detail: 'the keyword stream is not followed by an end-of-line marker' }, keywordEnd);
@@ -78,8 +82,12 @@ const dataStartAfter = (lexer: Lexer, keywordEnd: number): number => {
   if (position > keywordEnd) {
     lexer.warn({ code: 'stream-keyword-eol', detail: 'white space separates the keyword stream from its end-of-line marker' }, keywordEnd);
   }
-  if (first === 0x0a) return position + 1;
-  if (!lexer.atEnd(position + 1) && lexer.bytes[position + 1] === 0x0a) return position + 2;
+  if (first === 0x0a) {
+    return position + 1;
+  }
+  if (!lexer.atEnd(position + 1) && lexer.bytes[position + 1] === 0x0a) {
+    return position + 2;
+  }
   lexer.warn({ code: 'stream-keyword-cr', detail: 'the keyword stream is followed by a CARRIAGE RETURN alone' }, position);
   return position + 1;
 };
@@ -87,15 +95,23 @@ const dataStartAfter = (lexer: Lexer, keywordEnd: number): number => {
 // ISO 32000-1:2008, 7.3.8.2, Table 5, Length: "The number of bytes from the beginning of the line following the keyword stream to the last byte just before the keyword endstream. (There may be an additional EOL marker, preceding endstream, that is not included in the count".
 const endstreamAfterData = (lexer: Lexer, dataEnd: number): number | undefined => {
   let position = dataEnd;
-  if (!lexer.atEnd(position) && lexer.bytes[position] === 0x0d) position++;
-  if (!lexer.atEnd(position) && lexer.bytes[position] === 0x0a) position++;
-  while (!lexer.atEnd(position) && isWhitespace(lexer.bytes[position] ?? 0)) position++;
+  if (!lexer.atEnd(position) && lexer.bytes[position] === 0x0d) {
+    position++;
+  }
+  if (!lexer.atEnd(position) && lexer.bytes[position] === 0x0a) {
+    position++;
+  }
+  while (!lexer.atEnd(position) && isWhitespace(lexer.bytes[position] ?? 0)) {
+    position++;
+  }
   return matchesAt(lexer, position, ENDSTREAM) ? position : undefined;
 };
 
 const declaredLength = (dictionary: PdfDictionaryEntries, context: IndirectObjectContext): number | undefined => {
   const length = dictionary.get(Uint8Array.of(0x4c, 0x65, 0x6e, 0x67, 0x74, 0x68));
-  if (length?.kind === 'reference') return context.resolveLength?.(length.objectNumber, length.generation);
+  if (length?.kind === 'reference') {
+    return context.resolveLength?.(length.objectNumber, length.generation);
+  }
   return length?.kind === 'integer' && length.value >= 0 ? length.value : undefined;
 };
 
@@ -109,7 +125,9 @@ const ENDOBJ = [0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a];
 
 const followedByEndobj = (lexer: Lexer, endstream: number): boolean => {
   let position = endstream + ENDSTREAM.length;
-  while (!lexer.atEnd(position) && isWhitespace(lexer.bytes[position] ?? 0)) position++;
+  while (!lexer.atEnd(position) && isWhitespace(lexer.bytes[position] ?? 0)) {
+    position++;
+  }
   return matchesAt(lexer, position, ENDOBJ);
 };
 
@@ -134,12 +152,16 @@ const searchEndstream = (lexer: Lexer, dataStart: number, context: IndirectObjec
       break;
     }
     if (matchesAt(lexer, position, ENDSTREAM)) {
-      if (followedByEndobj(lexer, position)) return position;
+      if (followedByEndobj(lexer, position)) {
+        return position;
+      }
       found.push(position);
     }
   }
   const [first] = found;
-  if (first === undefined) throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+  if (first === undefined) {
+    throw new ParseError('stream data has no endstream keyword', lexer.base + dataStart);
+  }
   return first;
 };
 
@@ -152,12 +174,18 @@ const streamExtent = (lexer: Lexer, { dictionary, keywordEnd }: StreamStart, con
   const dataStart = dataStartAfter(lexer, keywordEnd);
   const length = declaredLength(dictionary, context);
   const endstream = length === undefined ? undefined : endstreamAfterData(lexer, dataStart + length);
-  if (length !== undefined && endstream !== undefined) return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
+  if (length !== undefined && endstream !== undefined) {
+    return { dataStart, dataEnd: dataStart + length, endstreamEnd: endstream + ENDSTREAM.length };
+  }
   const found = searchEndstream(lexer, dataStart, context);
   let dataEnd = found;
   // One end-of-line marker before endstream is not part of the data (Table 5, Length).
-  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0a) dataEnd--;
-  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0d) dataEnd--;
+  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0a) {
+    dataEnd--;
+  }
+  if (dataEnd > dataStart && lexer.bytes[dataEnd - 1] === 0x0d) {
+    dataEnd--;
+  }
   const declared = length === undefined ? 'missing or unresolvable' : String(length);
   lexer.warn({ code: 'stream-length-recovered', detail: `stream Length ${declared}, found ${String(dataEnd - dataStart)} bytes before endstream` }, dataStart);
   return { dataStart, dataEnd, endstreamEnd: found + ENDSTREAM.length };
@@ -165,8 +193,12 @@ const streamExtent = (lexer: Lexer, { dictionary, keywordEnd }: StreamStart, con
 
 // Readers accept an object whose endobj is missing when the next thing is another object, a cross-reference section, a trailer or the end of the file.
 const startsNextStructure = (lexer: Lexer, token: Token): boolean => {
-  if (token.kind === 'eof' || isKeyword(token, 'xref') || isKeyword(token, 'trailer') || isKeyword(token, 'startxref')) return true;
-  if (token.kind !== 'integer') return false;
+  if (token.kind === 'eof' || isKeyword(token, 'xref') || isKeyword(token, 'trailer') || isKeyword(token, 'startxref')) {
+    return true;
+  }
+  if (token.kind !== 'integer') {
+    return false;
+  }
   const resume = lexer.position;
   lexer.next();
   const generation = lexer.next();
@@ -197,7 +229,9 @@ export const parseIndirectObject = (window: LexWindow, local: number, context: I
   let stream: FileSource['stream'];
   const afterValue = lexer.peek();
   if (isKeyword(afterValue, 'stream')) {
-    if (direct.kind !== 'dictionary') throw new ParseError('a stream must follow a dictionary', lexer.base + afterValue.start);
+    if (direct.kind !== 'dictionary') {
+      throw new ParseError('a stream must follow a dictionary', lexer.base + afterValue.start);
+    }
     const extent = streamExtent(lexer, { dictionary: direct.entries, keywordEnd: afterValue.end }, context);
     // Data from a copied window is copied out, so that keeping the object does not keep the whole window alive.
     const data = lexer.copied ? lexer.bytes.slice(extent.dataStart, extent.dataEnd) : lexer.bytes.subarray(extent.dataStart, extent.dataEnd);
@@ -208,9 +242,13 @@ export const parseIndirectObject = (window: LexWindow, local: number, context: I
   }
   const closing = lexer.peek();
   let objectEnd = valueEnd;
-  if (isKeyword(closing, 'endobj')) objectEnd = lexer.next().end;
-  else if (startsNextStructure(lexer, closing)) lexer.warn({ code: 'missing-endobj', detail: 'the object has no endobj keyword' }, closing.start);
-  else throw new ParseError('expected endobj', lexer.base + closing.start);
+  if (isKeyword(closing, 'endobj')) {
+    objectEnd = lexer.next().end;
+  } else if (startsNextStructure(lexer, closing)) {
+    lexer.warn({ code: 'missing-endobj', detail: 'the object has no endobj keyword' }, closing.start);
+  } else {
+    throw new ParseError('expected endobj', lexer.base + closing.start);
+  }
   const { base } = lexer;
   const extent = {
     kind: 'file',

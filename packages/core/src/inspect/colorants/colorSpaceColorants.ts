@@ -58,13 +58,27 @@ const entriesText = (entries: PdfDictionaryEntries, item: (value: PdfObject) => 
 const canonical = (resolver: ObjectResolver, value: PdfObject | undefined, depth: number): string => {
   const item = (inner: PdfObject): string => canonical(resolver, inner, depth + 1);
   const object = value?.kind === 'reference' ? resolver.deref(value) : value;
-  if (object === undefined || depth > MAX_DEPTH) return '?';
-  if (object.kind === 'name' || object.kind === 'string' || object.kind === 'invalid') return `${object.kind}:${hex(object.bytes)}`;
-  if (object.kind === 'integer' || object.kind === 'real') return `n:${numberText(object)}`;
-  if (object.kind === 'boolean') return String(object.value);
-  if (object.kind === 'array') return `[${object.items.map(item).join(' ')}]`;
-  if (object.kind === 'dictionary') return entriesText(object.entries, item);
-  if (object.kind === 'stream') return `${entriesText(object.dictionary, item)}stream:${hex(md5(object.data))}`;
+  if (object === undefined || depth > MAX_DEPTH) {
+    return '?';
+  }
+  if (object.kind === 'name' || object.kind === 'string' || object.kind === 'invalid') {
+    return `${object.kind}:${hex(object.bytes)}`;
+  }
+  if (object.kind === 'integer' || object.kind === 'real') {
+    return `n:${numberText(object)}`;
+  }
+  if (object.kind === 'boolean') {
+    return String(object.value);
+  }
+  if (object.kind === 'array') {
+    return `[${object.items.map(item).join(' ')}]`;
+  }
+  if (object.kind === 'dictionary') {
+    return entriesText(object.entries, item);
+  }
+  if (object.kind === 'stream') {
+    return `${entriesText(object.dictionary, item)}stream:${hex(md5(object.data))}`;
+  }
   return object.kind;
 };
 
@@ -84,7 +98,9 @@ class Reader {
     try {
       return value?.kind === 'reference' ? this.resolver.deref(value) : value;
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.unreadable(`an object of a colour space cannot be read: ${error.message}`);
       return undefined;
     }
@@ -101,7 +117,9 @@ class Reader {
     try {
       text = canonical(this.resolver, space, 0) + canonical(this.resolver, tint, 0);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.unreadable(`the alternate space or tint transform of a colorant cannot be read: ${error.message}`);
     }
     return { family: family?.kind === 'name' ? latin1(family.bytes) : 'unknown', definition: hex(md5(latin1Bytes(text))) };
@@ -109,14 +127,21 @@ class Reader {
 
   read(value: PdfObject | undefined, depth: number): void {
     const space = this.deref(value);
-    if (space?.kind !== 'array' || depth > MAX_DEPTH) return;
+    if (space?.kind !== 'array' || depth > MAX_DEPTH) {
+      return;
+    }
     const [familyValue, first, second, third, fourth] = space.items;
     const family = this.deref(familyValue);
     const familyName = family?.kind === 'name' ? latin1(family.bytes) : undefined;
-    if (familyName === 'Separation') this.separation(this.deref(first), { alternate: second, tint: third, component: true });
-    else if (familyName === 'DeviceN') this.deviceN(this.deref(first), { alternate: second, tint: third, attributes: this.deref(fourth) });
+    if (familyName === 'Separation') {
+      this.separation(this.deref(first), { alternate: second, tint: third, component: true });
+    } else if (familyName === 'DeviceN') {
+      this.deviceN(this.deref(first), { alternate: second, tint: third, attributes: this.deref(fourth) });
+    }
     // 8.6.6.3: an Indexed space's base may be "(PDF 1.3) a Separation or DeviceN space"; 8.7.3.3: an uncoloured pattern paints in the Pattern space's underlying space.
-    else if (familyName === 'Indexed' || familyName === 'Pattern') this.read(first, depth + 1);
+    else if (familyName === 'Indexed' || familyName === 'Pattern') {
+      this.read(first, depth + 1);
+    }
   }
 
   // 8.6.6.4: "The special colorant name All shall refer collectively to all colorants available on an output device"; "The special colorant name None shall not produce any visible output".
@@ -130,22 +155,30 @@ class Reader {
     }
     const text = latin1(name.bytes);
     let kind: ColorantKind = 'spot';
-    if (text === 'All') kind = 'all';
-    else if (text === 'None') kind = 'none';
-    else if (PROCESS_NAMES.has(text)) kind = 'process';
+    if (text === 'All') {
+      kind = 'all';
+    } else if (text === 'None') {
+      kind = 'none';
+    } else if (PROCESS_NAMES.has(text)) {
+      kind = 'process';
+    }
     this.colorants.push({ name: name.bytes, kind, component, alternate: this.alternate(alternate, tint) });
   }
 
   private nchannel(attributes: PdfObject | undefined): { process: Set<string>; colorants: PdfDictionaryEntries | undefined } | undefined {
     const dictionary = dictionaryOf(attributes);
     const subtype = this.deref(dictionary?.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || latin1(subtype.bytes) !== 'NChannel') return undefined;
+    if (subtype?.kind !== 'name' || latin1(subtype.bytes) !== 'NChannel') {
+      return undefined;
+    }
     const process = dictionaryOf(this.deref(dictionary?.get(PROCESS)));
     const components = this.deref(process?.get(COMPONENTS));
     const names = new Set<string>();
     for (const item of components?.kind === 'array' ? components.items : []) {
       const component = this.deref(item);
-      if (component?.kind === 'name') names.add(latin1(component.bytes));
+      if (component?.kind === 'name') {
+        names.add(latin1(component.bytes));
+      }
     }
     return { process: names, colorants: dictionaryOf(this.deref(dictionary?.get(COLORANTS))) };
   }
@@ -170,16 +203,21 @@ class Reader {
       const text = latin1(name.bytes);
       listed.add(text);
       let kind: ColorantKind = 'spot';
-      if (text === 'None') kind = 'none';
-      else if (text === 'All') {
+      if (text === 'None') {
+        kind = 'none';
+      } else if (text === 'All') {
         kind = 'all';
         this.warnings.push({ code: 'devicen-all', detail: 'a DeviceN space names the colorant All' });
-      } else if (PROCESS_NAMES.has(text) || nchannel?.process.has(text) === true) kind = 'process';
+      } else if (PROCESS_NAMES.has(text) || nchannel?.process.has(text) === true) {
+        kind = 'process';
+      }
       this.colorants.push({ name: name.bytes, kind, component: true, alternate: this.colorantAlternate(nchannel?.colorants, name.bytes) });
     }
     // Table 71, Colorants: "This dictionary may also include additional colorants not used by this colour space."
     for (const [key, value] of nchannel?.colorants?.entries() ?? []) {
-      if (listed.has(latin1(key))) continue;
+      if (listed.has(latin1(key))) {
+        continue;
+      }
       const separation = this.deref(value);
       const [alternate, tint] = separation?.kind === 'array' ? separation.items.slice(2) : [];
       this.separation({ kind: 'name', bytes: key }, { alternate, tint, component: false });
@@ -189,7 +227,9 @@ class Reader {
   // Table 71, Colorants: each value is "an array defining a Separation colour space for that colorant".
   private colorantAlternate(colorants: PdfDictionaryEntries | undefined, name: Uint8Array): AlternateSummary | undefined {
     const separation = this.deref(colorants?.get(name));
-    if (separation?.kind !== 'array') return undefined;
+    if (separation?.kind !== 'array') {
+      return undefined;
+    }
     const [alternate, tint] = separation.items.slice(2);
     return this.alternate(alternate, tint);
   }

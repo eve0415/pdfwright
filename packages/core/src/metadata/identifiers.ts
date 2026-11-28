@@ -30,8 +30,12 @@ export interface DocumentIdSources {
  * Without either, a caller must supply one, since a new file identifier would be derived from a body that holds the packet.
  */
 export const resolveDocumentId = (sources: DocumentIdSources): string => {
-  if (sources.supplied !== undefined) return sources.supplied;
-  if (sources.existing !== undefined && sources.existing !== '') return sources.existing;
+  if (sources.supplied !== undefined) {
+    return sources.supplied;
+  }
+  if (sources.existing !== undefined && sources.existing !== '') {
+    return sources.existing;
+  }
   const id = sources.fileIdentifier;
   if (id === undefined) {
     throw new ValidationError('the document has neither an xmpMM:DocumentID nor a file identifier; supply documentId', 'document-id-required');
@@ -53,7 +57,9 @@ export const changesDigest = (
   const hash = createMd5();
   for (const objectNumber of [...changes.keys()].toSorted((left, right) => left - right)) {
     const change = changes.get(objectNumber);
-    if (change === undefined || excluded.has(objectNumber)) continue;
+    if (change === undefined || excluded.has(objectNumber)) {
+      continue;
+    }
     if ('deleted' in change) {
       hash.update(ENCODER.encode(`${String(objectNumber)} ${String(change.generation)} deleted\n`));
       continue;
@@ -81,6 +87,8 @@ export interface InstanceIdInput {
  */
 export const deriveInstanceId = (input: InstanceIdInput): string => {
   const hash = createMd5().update(ENCODER.encode('pdfwright-instance\0'));
-  for (const text of [input.documentId, input.metadataDate, input.previous ?? '']) hash.update(ENCODER.encode(`${text}\0`));
+  for (const text of [input.documentId, input.metadataDate, input.previous ?? '']) {
+    hash.update(ENCODER.encode(`${text}\0`));
+  }
   return formatUuid(hash.update(input.changes).digest());
 };

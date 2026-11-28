@@ -27,9 +27,13 @@ const streamFunction = (type: number, extra: Record<string, PdfDirectObject>, da
 });
 
 const resolveObject = (objects: ReadonlyMap<number, PdfDirectObject>, value: PdfDirectObject): PdfObject => {
-  if (value.kind !== 'reference') return value;
+  if (value.kind !== 'reference') {
+    return value;
+  }
   const resolved = objects.get(value.objectNumber);
-  if (resolved === undefined) throw new Error('missing test object');
+  if (resolved === undefined) {
+    throw new Error('missing test object');
+  }
   return resolved;
 };
 
@@ -56,8 +60,12 @@ const evenStitching = (children: PdfDirectObject[]): ReturnType<typeof pdfDictio
 const countingResolver = (objects: ReadonlyMap<number, PdfDirectObject>) => {
   const resolved: number[] = [];
   const resolve = (value: PdfDirectObject): PdfObject => {
-    if (value.kind === 'reference') resolved.push(value.objectNumber);
-    if (resolved.length > 1000) throw new Error('resolved more than 1000 references');
+    if (value.kind === 'reference') {
+      resolved.push(value.objectNumber);
+    }
+    if (resolved.length > 1000) {
+      throw new Error('resolved more than 1000 references');
+    }
     return resolveObject(objects, value);
   };
   return { resolved, resolve };
@@ -90,7 +98,9 @@ describe('pdf functions', () => {
     const evaluate = createPdfFunction(functionObject(2, { N: pdfReal(0.73) }));
     const bytes = new Uint8Array(4096 * 8);
     const view = new DataView(bytes.buffer);
-    for (let index = 0; index < 4096; index++) view.setFloat64(index * 8, Number(evaluate([(index + 0.5) / 4096])[0]), true);
+    for (let index = 0; index < 4096; index++) {
+      view.setFloat64(index * 8, Number(evaluate([(index + 0.5) / 4096])[0]), true);
+    }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('99d1177a420226d463c2d956854aa51e');
   });

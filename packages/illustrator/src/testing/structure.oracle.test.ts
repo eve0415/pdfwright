@@ -19,14 +19,18 @@ import { normalizeModel } from './normalizeModel.ts';
 import { readIllustratorContainer, readIllustratorPdf } from './readIllustratorPdf.ts';
 
 const exportsDirectory = env['PDFWRIGHT_ADOBE_EXPORTS_DIR'];
-if (exportsDirectory === undefined) stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+if (exportsDirectory === undefined) {
+  stdout.write('Local Illustrator structure comparison not run: PDFWRIGHT_ADOBE_EXPORTS_DIR is unset.\n');
+}
 
 const manifest = exportsDirectory === undefined ? undefined : await readIllustratorExportManifest(exportsDirectory);
 const samples = manifest?.samples ?? [];
 const lockSample = manifest?.lockSample ?? '';
 
 const localSource = async (file: string): Promise<Uint8Array> => {
-  if (exportsDirectory === undefined) throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  if (exportsDirectory === undefined) {
+    throw new Error('PDFWRIGHT_ADOBE_EXPORTS_DIR is unset');
+  }
   return readFile(path.join(exportsDirectory, file));
 };
 const textLines = (records: readonly NativeRecord[]): string[] => records.flatMap(record => (record.kind === 'line' ? [record.text] : []));
@@ -50,7 +54,9 @@ const lockFields = (lines: readonly string[]): Map<string, { readonly layer: str
     const end = lines.findIndex((line, index) => index > start && (line === '%AI5_BeginLayer' || line === '%AI5_EndLayer--'));
     const lb = lines[start + 1]?.split(' ');
     const name = lines[start + 2];
-    if (end === -1 || lb?.[14] !== 'Lb' || name === undefined || !name.endsWith(') Ln')) throw new Error('invalid native layer lock structure');
+    if (end === -1 || lb?.[14] !== 'Lb' || name === undefined || !name.endsWith(') Ln')) {
+      throw new Error('invalid native layer lock structure');
+    }
     const beforeItem = lines.slice(start + 3, end);
     const itemIndex = beforeItem.findIndex(line => /^\d+ As$/u.test(line));
     const state = (itemIndex === -1 ? beforeItem : beforeItem.slice(0, itemIndex)).filter(line => /^[01] (?:A|Xw)$/u.test(line));
@@ -95,7 +101,9 @@ describe('local Illustrator structure comparison', () => {
     const written = textLines(tokenizeNative(writtenContainer.native));
     const sourceFields = lockFields(observed);
     const writtenFields = lockFields(written);
-    for (const [name, fields] of writtenFields) expect(fields).toStrictEqual(sourceFields.get(name));
+    for (const [name, fields] of writtenFields) {
+      expect(fields).toStrictEqual(sourceFields.get(name));
+    }
     expect(sourceFields.get('Locked sublayer')).toMatchObject({ layer: '1 0 1', state: ['1 A', '0 Xw', '0 A'] });
     expect(observed.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');
     expect(written.find(line => line.startsWith('%AI5_OpenViewLayers: '))).toBe('%AI5_OpenViewLayers: 37277');

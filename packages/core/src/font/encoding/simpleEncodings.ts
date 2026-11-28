@@ -784,7 +784,11 @@ const rows = (table: string): string[][] => table.split('\n').map(row => row.spl
 
 const tableOf = (entries: readonly (readonly [string, string | undefined])[]): EncodingTable => {
   const names: (string | undefined)[] = Array.from<string | undefined>({ length: 256 });
-  for (const [name, octal] of entries) if (octal !== undefined && octal !== '-') names[Number.parseInt(octal, 8)] = name;
+  for (const [name, octal] of entries) {
+    if (octal !== undefined && octal !== '-') {
+      names[Number.parseInt(octal, 8)] = name;
+    }
+  }
   return names;
 };
 
@@ -807,7 +811,9 @@ export const WIN_ANSI_ENCODING: EncodingTable = ((): EncodingTable => {
   const names = latinColumn(2);
   names[0o240] = 'space';
   names[0o255] = 'hyphen';
-  for (let code = 0o41; code < 256; code++) names[code] ??= 'bullet';
+  for (let code = 0o41; code < 256; code++) {
+    names[code] ??= 'bullet';
+  }
   return names;
 })();
 
@@ -838,8 +844,12 @@ const PDF_DOC_DIFFERENCES: ReadonlyMap<number, number> = new Map(
 
 /** The Unicode value of a PDFDocEncoding code (D.3), or undefined for the codes Table D.2 marks "Undefined code point in PDFDocEncoding": 0–8, 11, 12, 14–23, 127, 159 and 173. */
 export const pdfDocEncodingUnicode = (code: number): number | undefined => {
-  if (code < 0 || code > 255 || code === 0x7f || code === 0x9f || code === 0xad) return undefined;
-  if (code < 0x18 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return undefined;
+  if (code < 0 || code > 255 || code === 0x7f || code === 0x9f || code === 0xad) {
+    return undefined;
+  }
+  if (code < 0x18 && code !== 0x09 && code !== 0x0a && code !== 0x0d) {
+    return undefined;
+  }
   return PDF_DOC_DIFFERENCES.get(code) ?? code;
 };
 

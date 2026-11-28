@@ -34,7 +34,9 @@ const fileInside = (directory: string, relative: string, extensions: readonly st
 };
 
 const numberField = (value: unknown, name: string): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`invalid Illustrator export ${name}`);
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new TypeError(`invalid Illustrator export ${name}`);
+  }
   return value;
 };
 
@@ -43,8 +45,12 @@ const sampleFrom = (value: unknown, directory: string): IllustratorExportSample 
     throw new Error('invalid Illustrator export sample');
   }
   const paint: number[] = [];
-  if (!('paint' in value) || !Array.isArray(value.paint) || value.paint.length !== 5) throw new Error('invalid Illustrator paint counts');
-  for (const entry of value.paint) paint.push(numberField(entry, 'paint count'));
+  if (!('paint' in value) || !Array.isArray(value.paint) || value.paint.length !== 5) {
+    throw new Error('invalid Illustrator paint counts');
+  }
+  for (const entry of value.paint) {
+    paint.push(numberField(entry, 'paint count'));
+  }
   return {
     file: fileInside(directory, value.file, ['.pdf']),
     blocks: numberField('blocks' in value ? value.blocks : undefined, 'block count'),
@@ -86,9 +92,13 @@ export const readIllustratorExportManifest = async (directory: string): Promise<
     throw new Error('invalid Illustrator export manifest');
   }
   const samples: IllustratorExportSample[] = [];
-  for (const entry of input.samples) samples.push(sampleFrom(entry, directory));
+  for (const entry of input.samples) {
+    samples.push(sampleFrom(entry, directory));
+  }
   const acceptance: IllustratorAcceptanceExport[] = [];
-  for (const entry of input.acceptance) acceptance.push(acceptanceFrom(entry, directory));
+  for (const entry of input.acceptance) {
+    acceptance.push(acceptanceFrom(entry, directory));
+  }
   if (
     samples.length === 0 ||
     typeof input.ladderSample !== 'number' ||
@@ -99,7 +109,9 @@ export const readIllustratorExportManifest = async (directory: string): Promise<
     throw new Error('invalid Illustrator export ladder sample');
   }
   const lockSample = 'lockSample' in input ? input.lockSample : undefined;
-  if (lockSample !== undefined && typeof lockSample !== 'string') throw new Error('invalid Illustrator lock sample');
+  if (lockSample !== undefined && typeof lockSample !== 'string') {
+    throw new Error('invalid Illustrator lock sample');
+  }
   return lockSample === undefined
     ? { samples, ladderSample: input.ladderSample, acceptance }
     : { samples, ladderSample: input.ladderSample, acceptance, lockSample: fileInside(directory, lockSample, ['.pdf']) };

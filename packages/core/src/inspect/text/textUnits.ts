@@ -31,7 +31,9 @@ const ESCAPE = 0x1b;
 // The ASCII bytes of a language escape's codes: a 2-byte ISO 639 language code and an optional 2-byte ISO 3166 country code.
 const languageOf = (codes: Uint8Array): string | undefined => {
   const text = latin1(codes);
-  if (!/^[A-Za-z]{2}(?:[A-Za-z]{2})?$/u.test(text)) return undefined;
+  if (!/^[A-Za-z]{2}(?:[A-Za-z]{2})?$/u.test(text)) {
+    return undefined;
+  }
   return text.length === 4 ? `${text.slice(0, 2)}-${text.slice(2)}` : text;
 };
 
@@ -42,9 +44,13 @@ const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
   let language: string | undefined;
   let start = 2;
   for (let offset = 2; offset + 1 < bytes.length; offset += 2) {
-    if (bytes[offset] !== 0 || bytes[offset + 1] !== ESCAPE) continue;
+    if (bytes[offset] !== 0 || bytes[offset + 1] !== ESCAPE) {
+      continue;
+    }
     const end = [6, 8].map(length => offset + length).find(close => bytes[close - 2] === 0 && bytes[close - 1] === ESCAPE);
-    if (end === undefined) continue;
+    if (end === undefined) {
+      continue;
+    }
     parts.push(decoder.decode(bytes.subarray(start, offset)));
     language ??= languageOf(bytes.subarray(offset + 2, end - 2));
     start = end;
@@ -58,7 +64,9 @@ const decodeUtf16 = (bytes: Uint8Array): DecodedText => {
  * Decodes a text string (ISO 32000-1:2008, 7.9.2.2): "For text strings encoded in Unicode, the first two bytes shall be 254 followed by 255", and the rest is UTF-16BE; any other string is PDFDocEncoding (Annex D), whose undefined codes become U+FFFD.
  */
 export const decodeTextString = (bytes: Uint8Array): DecodedText => {
-  if (bytes[0] === 254 && bytes[1] === 255) return decodeUtf16(bytes);
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    return decodeUtf16(bytes);
+  }
   const text = [...bytes].map(code => {
     const unicode = pdfDocEncodingUnicode(code);
     return unicode === undefined ? REPLACEMENT : String.fromCodePoint(unicode);
@@ -85,14 +93,18 @@ export class ActualTextSpans {
       const resolved = this.document.objects.deref(value?.get(key));
       return resolved?.kind === 'string' ? decodeTextString(resolved.bytes) : undefined;
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       return undefined;
     }
   }
 
   private spanOf(sequence: MarkedContent): number | null {
     const known = this.sequences.get(sequence.id);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      return known;
+    }
     const actual = latin1(sequence.tag) === 'Span' ? this.text(sequence.properties, ACTUAL_TEXT) : undefined;
     let index: number | null = null;
     if (actual !== undefined) {
@@ -108,7 +120,9 @@ export class ActualTextSpans {
     let outermost: number | undefined;
     for (const sequence of markedContent) {
       const index = this.spanOf(sequence);
-      if (index === null) continue;
+      if (index === null) {
+        continue;
+      }
       this.spans[index]?.glyphs.push(glyph);
       outermost ??= index;
     }

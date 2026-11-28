@@ -14,7 +14,9 @@ export class ChunkedInflateOutput {
   }
 
   push(byte: number): void {
-    if (this.total >= this.limit) throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
+    if (this.total >= this.limit) {
+      throw new ResourceLimitError(`inflated data exceeds maxOutputBytes (${String(this.limit)} bytes)`);
+    }
     this.window[this.total & 32767] = byte;
     this.total++;
     this.chunk[this.used++] = byte;
@@ -26,8 +28,12 @@ export class ChunkedInflateOutput {
   }
 
   copy(distance: number, length: number, offset: number): void {
-    if (distance < 1 || distance > this.total || distance > 32768) throw new ParseError('invalid backward distance', offset);
-    for (let index = 0; index < length; index++) this.push(this.window[(this.total - distance) & 32767] ?? 0);
+    if (distance < 1 || distance > this.total || distance > 32768) {
+      throw new ParseError('invalid backward distance', offset);
+    }
+    for (let index = 0; index < length; index++) {
+      this.push(this.window[(this.total - distance) & 32767] ?? 0);
+    }
   }
 
   take(): Uint8Array | undefined {

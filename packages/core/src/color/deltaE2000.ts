@@ -4,18 +4,30 @@ const angle = (b: number, a: number): number => {
 };
 
 const hueDifference = (first: number, second: number, chromaProduct: number): number => {
-  if (chromaProduct === 0) return 0;
+  if (chromaProduct === 0) {
+    return 0;
+  }
   const difference = second - first;
-  if (difference > 180) return difference - 360;
-  if (difference < -180) return difference + 360;
+  if (difference > 180) {
+    return difference - 360;
+  }
+  if (difference < -180) {
+    return difference + 360;
+  }
   return difference;
 };
 
 const meanHue = (first: number, second: number, chromaProduct: number): number => {
-  if (chromaProduct === 0) return first + second;
-  if (Math.abs(first - second) <= 180) return (first + second) / 2;
+  if (chromaProduct === 0) {
+    return first + second;
+  }
+  if (Math.abs(first - second) <= 180) {
+    return (first + second) / 2;
+  }
   const sum = first + second;
-  if (sum < 360) return (sum + 360) / 2;
+  if (sum < 360) {
+    return (sum + 360) / 2;
+  }
   return (sum - 360) / 2;
 };
 

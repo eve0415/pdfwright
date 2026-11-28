@@ -28,7 +28,9 @@ const text = (bytes: Uint8Array): string => latin1Text(bytes);
 
 // The number of rows a cross-reference stream holds, from its decoded length and W.
 const streamRows = (xref: PdfObject): number => {
-  if (xref.kind !== 'stream') return 0;
+  if (xref.kind !== 'stream') {
+    return 0;
+  }
   const widths = xref.dictionary.get(pdfName('W').bytes);
   const rowBytes = widths?.kind === 'array' ? widths.items.reduce((sum, item) => sum + (item.kind === 'integer' ? item.value : 0), 0) : 0;
   return inflateZlib(xref.data).data.length / rowBytes;

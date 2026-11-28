@@ -46,7 +46,9 @@ export const createDocumentHandles = (options: HandleOptions): DocumentHandles =
         kind: 'PdfGroup',
         pieceInfo: (input: PieceInfoInput): void => {
           const record = groupRecord(records, handle);
-          if (record.written === true) throw new ValidationError('group PieceInfo must be set before content first draws the group in a loaded document');
+          if (record.written === true) {
+            throw new ValidationError('group PieceInfo must be set before content first draws the group in a loaded document');
+          }
           record.pieceInfo = pieceInfoRecord(input.lastModified, input.data);
         },
       });

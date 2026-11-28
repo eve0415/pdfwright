@@ -20,9 +20,15 @@ export type CMapResult =
 const USE_CMAP = pdfName('UseCMap').bytes;
 
 const build = (parsed: ParsedCMap, used: CMapResult | undefined): CMapResult => {
-  if (used === undefined) return { kind: 'cmap', cmap: new CMap(parsed), problems: parsed.problems };
-  if (used.kind === 'unreadable') return used;
-  if (used.kind === 'unavailable') return { kind: 'cmap', cmap: new CMap(parsed, { unavailable: used.name }), problems: parsed.problems };
+  if (used === undefined) {
+    return { kind: 'cmap', cmap: new CMap(parsed), problems: parsed.problems };
+  }
+  if (used.kind === 'unreadable') {
+    return used;
+  }
+  if (used.kind === 'unavailable') {
+    return { kind: 'cmap', cmap: new CMap(parsed, { unavailable: used.name }), problems: parsed.problems };
+  }
   return { kind: 'cmap', cmap: new CMap(parsed, used.cmap), problems: [...parsed.problems, ...used.problems] };
 };
 
@@ -47,11 +53,17 @@ export class CMapResolver {
 
   private cached(key: string, load: () => CMapResult): CMapResult {
     const known = this.results.get(key);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      return known;
+    }
     // ISO 32000-1:2008, Table 120, UseCMap names the CMap this one differs from; a CMap that uses itself, directly or through others, defines nothing.
-    if (this.resolving.has(key)) return { kind: 'unreadable', reason: 'the CMaps that usecmap names form a cycle' };
+    if (this.resolving.has(key)) {
+      return { kind: 'unreadable', reason: 'the CMaps that usecmap names form a cycle' };
+    }
     const { maxNesting } = this.document;
-    if (this.resolving.size >= maxNesting) throw new ResourceLimitError(`usecmap chains deeper than maxNesting (${String(maxNesting)})`);
+    if (this.resolving.size >= maxNesting) {
+      throw new ResourceLimitError(`usecmap chains deeper than maxNesting (${String(maxNesting)})`);
+    }
     this.resolving.add(key);
     try {
       const result = load();
@@ -65,11 +77,17 @@ export class CMapResolver {
   /** A predefined CMap by name: Identity-H and Identity-V built in, any other name from the provider. */
   named(name: string): CMapResult {
     return this.cached(`name:${name}`, () => {
-      if (name === 'Identity-H' || name === 'Identity-V') return { kind: 'cmap', cmap: identityCMap(name), problems: [] };
+      if (name === 'Identity-H' || name === 'Identity-V') {
+        return { kind: 'cmap', cmap: identityCMap(name), problems: [] };
+      }
       const bytes = this.provider?.cmap(name);
-      if (bytes === undefined) return { kind: 'unavailable', name };
+      if (bytes === undefined) {
+        return { kind: 'unavailable', name };
+      }
       const parsed = parseCMap(bytes, this.document.maxNesting);
-      if (definesNothing(parsed)) return { kind: 'unavailable', name };
+      if (definesNothing(parsed)) {
+        return { kind: 'unavailable', name };
+      }
       return build(parsed, parsed.useCMap === undefined ? undefined : this.named(parsed.useCMap));
     });
   }
@@ -77,25 +95,35 @@ export class CMapResolver {
   // The stream dictionary's UseCMap entry, a name or a stream, is preferred to the file's usecmap operator; 9.7.5.4 a) requires them to name the same CMap.
   private embedded(stream: PdfStream): CMapResult {
     const bytes = decodedData(this.document, stream);
-    if (typeof bytes === 'string') return { kind: 'unreadable', reason: bytes };
+    if (typeof bytes === 'string') {
+      return { kind: 'unreadable', reason: bytes };
+    }
     const parsed = parseCMap(bytes, this.document.maxNesting);
     const entry = stream.dictionary.get(USE_CMAP);
-    if (entry !== undefined) return build(parsed, this.encoding(entry));
+    if (entry !== undefined) {
+      return build(parsed, this.encoding(entry));
+    }
     return build(parsed, parsed.useCMap === undefined ? undefined : this.named(parsed.useCMap));
   }
 
   /** An embedded CMap stream, as a ToUnicode entry requires (9.10.3); a name or any other value is unreadable there. */
   stream(value: PdfDirectObject | undefined): CMapResult {
     const resolved = this.document.objects.deref(value);
-    if (resolved?.kind !== 'stream') return { kind: 'unreadable', reason: 'the CMap is not a stream' };
-    if (value?.kind !== 'reference') return this.embedded(resolved);
+    if (resolved?.kind !== 'stream') {
+      return { kind: 'unreadable', reason: 'the CMap is not a stream' };
+    }
+    if (value?.kind !== 'reference') {
+      return this.embedded(resolved);
+    }
     return this.cached(`stream:${String(value.objectNumber)}.${String(value.generation)}`, () => this.embedded(resolved));
   }
 
   /** A Type 0 font's Encoding or a CMap's UseCMap: "a name object identifying a predefined CMap" or "a stream object whose contents shall be a CMap file" (ISO 32000-1:2008, 9.7.5.1). */
   encoding(value: PdfDirectObject | undefined): CMapResult {
     const resolved = this.document.objects.deref(value);
-    if (resolved?.kind === 'name') return this.named(latin1(resolved.bytes));
+    if (resolved?.kind === 'name') {
+      return this.named(latin1(resolved.bytes));
+    }
     return this.stream(value);
   }
 }

@@ -17,7 +17,9 @@ export const xyzTag = (values: readonly [number, number, number]): Uint8Array =>
   const bytes = new Uint8Array(20);
   const view = new DataView(bytes.buffer);
   bytes.set(ascii('XYZ '));
-  for (const [index, value] of values.entries()) setFixed(view, 8 + index * 4, value);
+  for (const [index, value] of values.entries()) {
+    setFixed(view, 8 + index * 4, value);
+  }
   return bytes;
 };
 
@@ -35,7 +37,9 @@ export const sampledCurveTag = (samples: readonly number[]): Uint8Array => {
   const view = new DataView(bytes.buffer);
   bytes.set(ascii('curv'));
   view.setUint32(8, samples.length);
-  for (const [index, sample] of samples.entries()) view.setUint16(12 + index * 2, sample);
+  for (const [index, sample] of samples.entries()) {
+    view.setUint16(12 + index * 2, sample);
+  }
   return bytes;
 };
 
@@ -57,7 +61,9 @@ export const matrixLutTag = (type: 'mAB ' | 'mBA ', elements: readonly number[])
     bytes.set(curve, bOffset + index * curve.length);
     bytes.set(curve, mOffset + index * curve.length);
   }
-  for (const [index, value] of elements.entries()) setFixed(view, matrixOffset + index * 4, value);
+  for (const [index, value] of elements.entries()) {
+    setFixed(view, matrixOffset + index * 4, value);
+  }
   return bytes;
 };
 
@@ -72,7 +78,9 @@ const textTag = (text: string): Uint8Array => {
   bytes.set(ascii('enUS'), 16);
   view.setUint32(20, units.length * 2);
   view.setUint32(24, 28);
-  for (const [index, unit] of units.entries()) view.setUint16(28 + index * 2, unit);
+  for (const [index, unit] of units.entries()) {
+    view.setUint16(28 + index * 2, unit);
+  }
   return bytes;
 };
 
@@ -103,7 +111,9 @@ export const iccProfileBytes = (input: IccProfileInput): Uint8Array => {
   bytes.set(ascii(input.profileClass + input.colorSpace + input.pcs), 12);
   bytes.set(ascii('acsp'), 36);
   view.setUint32(64, 1);
-  for (const [index, value] of D50.entries()) setFixed(view, 68 + index * 4, value);
+  for (const [index, value] of D50.entries()) {
+    setFixed(view, 68 + index * 4, value);
+  }
   view.setUint32(128, tags.length);
   for (const [index, [signature, data]] of tags.entries()) {
     bytes.set(ascii(signature), 132 + index * 12);

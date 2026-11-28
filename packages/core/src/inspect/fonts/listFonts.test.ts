@@ -20,7 +20,9 @@ const inventory = (pages: readonly TestPage[], objects: readonly TestObject[] = 
 
 const only = (result: FontInventory): FontEntry => {
   const [font, ...rest] = result.fonts;
-  if (font === undefined || rest.length > 0) throw new Error(`expected one font, found ${String(result.fonts.length)}`);
+  if (font === undefined || rest.length > 0) {
+    throw new Error(`expected one font, found ${String(result.fonts.length)}`);
+  }
   return font;
 };
 

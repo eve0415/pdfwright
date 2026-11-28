@@ -163,17 +163,29 @@ const closeChannels = (actual: readonly number[], expected: Float64Array): boole
 
 const spot = (document: ReturnType<typeof loadDocument>): ConvertedSpot => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const value = spaces.entries.get(pdfName('CS1').bytes);
-  if (value?.kind !== 'array') throw new Error('Separation is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('Separation is missing');
+  }
   const [, name, alternate, tint] = value.items;
-  if (name?.kind !== 'name' || alternate?.kind !== 'name' || tint?.kind !== 'reference') throw new Error('converted Separation is invalid');
+  if (name?.kind !== 'name' || alternate?.kind !== 'name' || tint?.kind !== 'reference') {
+    throw new Error('converted Separation is invalid');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('document internals are missing');
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
   const stream = document.get(tint);
-  if (stream.kind !== 'stream') throw new Error('tint function is missing');
+  if (stream.kind !== 'stream') {
+    throw new Error('tint function is missing');
+  }
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: stream.dictionary, data });
   return { name: name.bytes, alternate: new TextDecoder('latin1').decode(alternate.bytes), evaluate: tintValue => evaluate([tintValue]) };
 };
@@ -186,21 +198,35 @@ interface ConvertedDeviceN {
 
 const deviceN = (document: ReturnType<typeof loadDocument>): ConvertedDeviceN => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const value = spaces.entries.get(pdfName('CS2').bytes);
-  if (value?.kind !== 'array') throw new Error('DeviceN is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('DeviceN is missing');
+  }
   const [, names, alternate, tint] = value.items;
-  if (names?.kind !== 'array' || alternate?.kind !== 'name' || tint?.kind !== 'reference') throw new Error('converted DeviceN is invalid');
+  if (names?.kind !== 'array' || alternate?.kind !== 'name' || tint?.kind !== 'reference') {
+    throw new Error('converted DeviceN is invalid');
+  }
   const decodedNames = names.items.map(name => {
-    if (name.kind !== 'name') throw new Error('DeviceN colorant is invalid');
+    if (name.kind !== 'name') {
+      throw new Error('DeviceN colorant is invalid');
+    }
     return name.bytes;
   });
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('document internals are missing');
+  if (internals === undefined) {
+    throw new Error('document internals are missing');
+  }
   const stream = document.get(tint);
-  if (stream.kind !== 'stream') throw new Error('DeviceN tint function is missing');
+  if (stream.kind !== 'stream') {
+    throw new Error('DeviceN tint function is missing');
+  }
   const data = decodedData(internals, stream);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: stream.dictionary, data });
   return { names: decodedNames, alternate: new TextDecoder('latin1').decode(alternate.bytes), evaluate: (first, second) => evaluate([first, second]) };
 };
@@ -208,12 +234,18 @@ const deviceN = (document: ReturnType<typeof loadDocument>): ConvertedDeviceN =>
 const withRgbProcess = (): ReturnType<typeof loadDocument> => {
   const document = loadDocument(deviceNPdf.bytes);
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is missing');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is missing');
+  }
   const resources = document.page(0).resources();
   const spaces = resources.get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const value = spaces.entries.get(pdfName('CS2').bytes);
-  if (value?.kind !== 'array') throw new Error('DeviceN is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('DeviceN is missing');
+  }
   const process = pdfDictionary(new PdfDictionaryEntries([[pdfName('ColorSpace').bytes, pdfName('DeviceRGB')]]));
   const attributes = pdfDictionary(
     new PdfDictionaryEntries([
@@ -231,14 +263,22 @@ const withRgbProcess = (): ReturnType<typeof loadDocument> => {
 const withFiveColorants = (): ReturnType<typeof loadDocument> => {
   const document = loadDocument(deviceNPdf.bytes);
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is missing');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is missing');
+  }
   const resources = document.page(0).resources();
   const spaces = resources.get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const value = spaces.entries.get(pdfName('CS2').bytes);
-  if (value?.kind !== 'array') throw new Error('DeviceN is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('DeviceN is missing');
+  }
   const names = value.items.at(1);
-  if (names?.kind !== 'array') throw new Error('DeviceN colorants are missing');
+  if (names?.kind !== 'array') {
+    throw new Error('DeviceN colorants are missing');
+  }
   names.items.push(pdfName('SpotC'), pdfName('SpotD'), pdfName('SpotE'));
   spaces.entries.set(pdfName('CS2').bytes, value);
   page.entries.set(pdfName('Resources').bytes, pdfDictionary(resources));
@@ -248,58 +288,94 @@ const withFiveColorants = (): ReturnType<typeof loadDocument> => {
 
 const alternateOf = (document: ReturnType<typeof loadDocument>, objectNumber: number, resourceName?: string): string => {
   const object = document.get({ kind: 'reference', objectNumber, generation: 0 });
-  if (object.kind !== 'stream') throw new Error('object is not a stream');
+  if (object.kind !== 'stream') {
+    throw new Error('object is not a stream');
+  }
   let color = object.dictionary.get(pdfName('ColorSpace').bytes);
   if (resourceName !== undefined) {
     const resources = object.dictionary.get(pdfName('Resources').bytes);
-    if (resources?.kind !== 'dictionary') throw new Error('form resources are missing');
+    if (resources?.kind !== 'dictionary') {
+      throw new Error('form resources are missing');
+    }
     const spaces = resources.entries.get(pdfName('ColorSpace').bytes);
-    if (spaces?.kind !== 'dictionary') throw new Error('form ColorSpace is missing');
+    if (spaces?.kind !== 'dictionary') {
+      throw new Error('form ColorSpace is missing');
+    }
     color = spaces.entries.get(pdfName(resourceName).bytes);
   }
-  if (color?.kind !== 'array') throw new Error('spot colour space is missing');
+  if (color?.kind !== 'array') {
+    throw new Error('spot colour space is missing');
+  }
   const alternate = color.items.at(2);
-  if (alternate?.kind !== 'name') throw new Error('spot alternate is missing');
+  if (alternate?.kind !== 'name') {
+    throw new Error('spot alternate is missing');
+  }
   return new TextDecoder('latin1').decode(alternate.bytes);
 };
 
 const streamData = (value: PdfObject): Uint8Array => {
-  if (value.kind !== 'stream') throw new Error('object is not a stream');
+  if (value.kind !== 'stream') {
+    throw new Error('object is not a stream');
+  }
   return value.data;
 };
 
 const boundNumber = (value: PdfObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real' && typeof value.value === 'number') return value.value;
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind === 'real' && typeof value.value === 'number') {
+    return value.value;
+  }
   throw new Error('bound is not numeric');
 };
 
 const stitchedBounds = (document: ReturnType<typeof loadDocument>): readonly number[] => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const color = spaces.entries.get(pdfName('CS1').bytes);
-  if (color?.kind !== 'array') throw new Error('Separation is missing');
+  if (color?.kind !== 'array') {
+    throw new Error('Separation is missing');
+  }
   const tint = color.items.at(3);
-  if (tint?.kind !== 'reference') throw new Error('tint function is missing');
+  if (tint?.kind !== 'reference') {
+    throw new Error('tint function is missing');
+  }
   const object = document.get(tint);
-  if (object.kind !== 'dictionary') throw new Error('stitching function is missing');
+  if (object.kind !== 'dictionary') {
+    throw new Error('stitching function is missing');
+  }
   const type = object.entries.get(pdfName('FunctionType').bytes);
   const bounds = object.entries.get(pdfName('Bounds').bytes);
-  if (type?.kind !== 'integer' || type.value !== 3 || bounds?.kind !== 'array') throw new Error('hard stop was not preserved');
+  if (type?.kind !== 'integer' || type.value !== 3 || bounds?.kind !== 'array') {
+    throw new Error('hard stop was not preserved');
+  }
   return bounds.items.map(value => boundNumber(value));
 };
 
 const spotGrid = (document: ReturnType<typeof loadDocument>): number => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('ColorSpace resources are missing');
+  }
   const color = spaces.entries.get(pdfName('CS1').bytes);
-  if (color?.kind !== 'array') throw new Error('Separation is missing');
+  if (color?.kind !== 'array') {
+    throw new Error('Separation is missing');
+  }
   const tint = color.items.at(3);
-  if (tint?.kind !== 'reference') throw new Error('tint function is missing');
+  if (tint?.kind !== 'reference') {
+    throw new Error('tint function is missing');
+  }
   const object = document.get(tint);
-  if (object.kind !== 'stream') throw new Error('sampled tint function is missing');
+  if (object.kind !== 'stream') {
+    throw new Error('sampled tint function is missing');
+  }
   const size = object.dictionary.get(pdfName('Size').bytes);
-  if (size?.kind !== 'array' || size.items[0]?.kind !== 'integer') throw new Error('sample grid is missing');
+  if (size?.kind !== 'array' || size.items[0]?.kind !== 'integer') {
+    throw new Error('sample grid is missing');
+  }
   return size.items[0].value;
 };
 

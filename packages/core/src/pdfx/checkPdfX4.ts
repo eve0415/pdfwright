@@ -62,7 +62,9 @@ const needsClause = (clause: string): Outcome => unchecked(`ISO 15930-7:2010, ${
 
 const xmpText = (metadata: DocumentMetadata, namespace: string, localName: string): string | undefined => {
   const { xmp } = metadata;
-  if (xmp === undefined || !('packet' in xmp)) return undefined;
+  if (xmp === undefined || !('packet' in xmp)) {
+    return undefined;
+  }
   const matches = xmp.packet.properties.filter(property => property.namespace === namespace && property.localName === localName);
   const value = matches.length === 1 ? matches[0]?.value : undefined;
   return value?.kind === 'text' ? value.text : undefined;
@@ -70,7 +72,9 @@ const xmpText = (metadata: DocumentMetadata, namespace: string, localName: strin
 
 const entriesOf = (context: Context, value: PdfDirectObject | undefined): PdfDictionaryEntries | undefined => {
   const resolved = context.internals.objects.deref(value);
-  if (resolved?.kind === 'dictionary') return resolved.entries;
+  if (resolved?.kind === 'dictionary') {
+    return resolved.entries;
+  }
   return resolved?.kind === 'stream' ? resolved.dictionary : undefined;
 };
 const resolvedText = (context: Context, entries: PdfDictionaryEntries, name: string): string | undefined => {
@@ -80,11 +84,15 @@ const resolvedText = (context: Context, entries: PdfDictionaryEntries, name: str
 
 const outputIntent = (context: Context): PdfDictionaryEntries | undefined => {
   const value = context.internals.objects.deref(context.catalog.get(key('OutputIntents')));
-  if (value?.kind !== 'array') return undefined;
+  if (value?.kind !== 'array') {
+    return undefined;
+  }
   for (const item of value.items) {
     const entries = entriesOf(context, item);
     const subtype = context.internals.objects.deref(entries?.get(key('S')));
-    if (nameOf(subtype) === 'GTS_PDFX') return entries;
+    if (nameOf(subtype) === 'GTS_PDFX') {
+      return entries;
+    }
   }
   return undefined;
 };
@@ -95,10 +103,14 @@ const checkIntentEntries: Check = context => {
     return unchecked('ISO 15930-7:2010 sets output-intent requirements, and this rule cannot check them because no GTS_PDFX intent is present');
   }
   const identifier = resolvedText(context, intent, 'OutputConditionIdentifier');
-  if (identifier === undefined || identifier.length === 0) return violation('OutputConditionIdentifier is missing or not a text string');
+  if (identifier === undefined || identifier.length === 0) {
+    return violation('OutputConditionIdentifier is missing or not a text string');
+  }
   const registered = registeredPrintingConditions.some(condition => condition.identifier === identifier);
   const info = resolvedText(context, intent, 'Info');
-  if (!registered && (info === undefined || info.length === 0)) return violation('an unregistered output condition needs Info');
+  if (!registered && (info === undefined || info.length === 0)) {
+    return violation('an unregistered output condition needs Info');
+  }
   const registry = resolvedText(context, intent, 'RegistryName');
   if (registered && registry === undefined) {
     return passed('required entries are present; CGATS Application Notes (2006), 3.3 recommends RegistryName for this registered identifier');
@@ -112,9 +124,13 @@ const checkProfile: Check = context => {
     return unchecked('ISO 15930-7:2010 sets output-intent requirements, and this rule cannot check them because no GTS_PDFX intent is present');
   }
   const value = context.internals.objects.deref(intent.get(key('DestOutputProfile')));
-  if (value?.kind !== 'stream') return violation('DestOutputProfile is not an embedded ICC stream');
+  if (value?.kind !== 'stream') {
+    return violation('DestOutputProfile is not an embedded ICC stream');
+  }
   const bytes = decodedData(context.internals, value);
-  if (typeof bytes === 'string') return violation(`DestOutputProfile could not be decoded: ${bytes}`);
+  if (typeof bytes === 'string') {
+    return violation(`DestOutputProfile could not be decoded: ${bytes}`);
+  }
   try {
     const profile = parseIccProfile(bytes);
     const space = profile.header.colorSpace;
@@ -142,7 +158,9 @@ const checkProfile: Check = context => {
         `ISO 15930-7:2010 sets output-profile requirements, and this rule cannot check them because the profile exceeds the 24 MiB parsing limit: ${error.message}`,
       );
     }
-    if (error instanceof PdfwrightError) return violation(`output ICC profile is invalid or unsupported: ${error.message}`);
+    if (error instanceof PdfwrightError) {
+      return violation(`output ICC profile is invalid or unsupported: ${error.message}`);
+    }
     throw error;
   }
 };
@@ -154,8 +172,12 @@ const checkBoxes: Check = context => {
   for (let index = 0; index < context.document.pageCount; index++) {
     const boxes = context.document.page(index).boxes();
     const print = boxes.TrimBox.explicit ? boxes.TrimBox : boxes.ArtBox;
-    if (boxes.TrimBox.explicit === boxes.ArtBox.explicit) return violation('page needs either TrimBox or ArtBox, but not both', `page ${String(index)}`);
-    if (!within(print.rect, boxes.MediaBox.rect)) return violation('print-area box extends beyond MediaBox', `page ${String(index)}`);
+    if (boxes.TrimBox.explicit === boxes.ArtBox.explicit) {
+      return violation('page needs either TrimBox or ArtBox, but not both', `page ${String(index)}`);
+    }
+    if (!within(print.rect, boxes.MediaBox.rect)) {
+      return violation('print-area box extends beyond MediaBox', `page ${String(index)}`);
+    }
     if (boxes.BleedBox.explicit && !within(print.rect, boxes.BleedBox.rect)) {
       return violation('print-area box extends beyond BleedBox', `page ${String(index)}`);
     }
@@ -168,14 +190,22 @@ const checkBoxes: Check = context => {
 
 const visitAll = (context: Context, predicate: (value: PdfObject) => boolean): boolean => {
   const work: PdfObject[] = [];
-  for (const [number, generation] of context.reachable) work.push(context.internals.objects.resolve(number, generation));
+  for (const [number, generation] of context.reachable) {
+    work.push(context.internals.objects.resolve(number, generation));
+  }
   for (let value = work.pop(); value !== undefined; value = work.pop()) {
-    if (predicate(value)) return true;
+    if (predicate(value)) {
+      return true;
+    }
     if (value.kind === 'array') {
-      for (const item of value.items) work.push(item);
+      for (const item of value.items) {
+        work.push(item);
+      }
     } else if (value.kind === 'dictionary' || value.kind === 'stream') {
       const entries = value.kind === 'dictionary' ? value.entries : value.dictionary;
-      for (const [, child] of entries.entries()) work.push(child);
+      for (const [, child] of entries.entries()) {
+        work.push(child);
+      }
     }
   }
   return false;
@@ -192,21 +222,31 @@ const globalCheck = (context: Context, forbidden: (value: PdfObject) => boolean,
 
 const hasName = (context: Context, value: PdfDirectObject | undefined, expected: string): boolean => {
   const resolved = context.internals.objects.deref(value);
-  if (resolved?.kind === 'array') return resolved.items.some(item => nameOf(context.internals.objects.deref(item)) === expected);
+  if (resolved?.kind === 'array') {
+    return resolved.items.some(item => nameOf(context.internals.objects.deref(item)) === expected);
+  }
   return nameOf(resolved) === expected;
 };
 
 const inlineLzw = (context: Context, bytes: Uint8Array | readonly Uint8Array[]): boolean => {
   for (const operation of readContent(bytes, context.internals.maxNesting)) {
-    if (operation.inlineImage === undefined) continue;
+    if (operation.inlineImage === undefined) {
+      continue;
+    }
     const { parameters } = operation.inlineImage;
     for (let index = 0; index + 1 < parameters.length; index += 2) {
       const parameter = parameters[index];
       const value = parameters[index + 1];
-      if (parameter?.kind !== 'name' || value?.kind === 'stray-delimiter') continue;
+      if (parameter?.kind !== 'name' || value?.kind === 'stray-delimiter') {
+        continue;
+      }
       const name = nameOf(parameter);
-      if (name !== 'F' && name !== 'Filter') continue;
-      if (hasName(context, value, 'LZW') || hasName(context, value, 'LZWDecode')) return true;
+      if (name !== 'F' && name !== 'Filter') {
+        continue;
+      }
+      if (hasName(context, value, 'LZW') || hasName(context, value, 'LZWDecode')) {
+        return true;
+      }
     }
   }
   return false;
@@ -219,27 +259,42 @@ const contentStreams = (context: Context): Set<Extract<PdfObject, { kind: 'strea
   const streams = new Set<Extract<PdfObject, { kind: 'stream' }>>();
   const add = (value: PdfDirectObject | undefined): void => {
     const resolved = objects.deref(value);
-    if (resolved?.kind === 'stream') streams.add(resolved);
+    if (resolved?.kind === 'stream') {
+      streams.add(resolved);
+    }
   };
   const subtypeKey = key('Subtype');
   const subtypeOf = (entries: PdfDictionaryEntries): string | undefined => nameOf(objects.deref(entries.get(subtypeKey)));
   for (const [number, generation] of context.reachable) {
     const object = objects.resolve(number, generation);
-    if (object.kind !== 'stream') continue;
+    if (object.kind !== 'stream') {
+      continue;
+    }
     const patternType = objects.deref(object.dictionary.get(key('PatternType')));
-    if (subtypeOf(object.dictionary) === 'Form' || (patternType?.kind === 'integer' && patternType.value === 1)) streams.add(object);
+    if (subtypeOf(object.dictionary) === 'Form' || (patternType?.kind === 'integer' && patternType.value === 1)) {
+      streams.add(object);
+    }
   }
   visitAll(context, value => {
-    if (value.kind !== 'dictionary') return false;
+    if (value.kind !== 'dictionary') {
+      return false;
+    }
     const glyphs = subtypeOf(value.entries) === 'Type3' ? entriesOf(context, value.entries.get(key('CharProcs'))) : undefined;
-    for (const [, glyph] of glyphs?.entries() ?? []) add(glyph);
+    for (const [, glyph] of glyphs?.entries() ?? []) {
+      add(glyph);
+    }
     const appearances = entriesOf(context, value.entries.get(key('AP')));
     for (const name of ['N', 'R', 'D']) {
       const appearance = appearances?.get(key(name));
       const resolved = objects.deref(appearance);
       // Table 168: each appearance is a stream, or a subdictionary of streams keyed by appearance state.
-      if (resolved?.kind === 'dictionary') for (const [, state] of resolved.entries.entries()) add(state);
-      else add(appearance);
+      if (resolved?.kind === 'dictionary') {
+        for (const [, state] of resolved.entries.entries()) {
+          add(state);
+        }
+      } else {
+        add(appearance);
+      }
     }
     return false;
   });
@@ -252,14 +307,18 @@ const lzw: Check = context => {
     value => value.kind === 'stream' && hasName(context, value.dictionary.get(key('Filter')), 'LZWDecode'),
     'LZWDecode filter',
   );
-  if (streams.status !== 'passed') return streams;
+  if (streams.status !== 'passed') {
+    return streams;
+  }
   try {
     for (const page of context.internals.pages) {
       const content = pageContent(context.internals, page);
       if (content.problems.length > 0) {
         return unchecked('PDF/X-4 prohibits LZW, and this rule cannot check inline images because page content could not be read');
       }
-      if (inlineLzw(context, content.streams)) return violation('LZW filter was found in an inline image');
+      if (inlineLzw(context, content.streams)) {
+        return violation('LZW filter was found in an inline image');
+      }
     }
     for (const object of contentStreams(context)) {
       const bytes = decodedData(context.internals, object);
@@ -268,7 +327,9 @@ const lzw: Check = context => {
           'PDF/X-4 prohibits LZW, and this rule cannot check inline images because form, pattern, glyph or appearance content could not be read',
         );
       }
-      if (inlineLzw(context, bytes)) return violation('LZW filter was found in an inline image');
+      if (inlineLzw(context, bytes)) {
+        return violation('LZW filter was found in an inline image');
+      }
     }
   } catch (error: unknown) {
     if (error instanceof PdfwrightError) {
@@ -281,17 +342,25 @@ const lzw: Check = context => {
 
 const javascript: Check = context => {
   const names = entriesOf(context, context.catalog.get(key('Names')));
-  if (names?.has(key('JavaScript')) === true) return violation('the JavaScript name tree is present');
+  if (names?.has(key('JavaScript')) === true) {
+    return violation('the JavaScript name tree is present');
+  }
   const script = globalCheck(context, value => value.kind === 'dictionary' && nameOf(value.entries.get(key('S'))) === 'JavaScript', 'JavaScript action');
-  if (script.status !== 'passed') return script;
+  if (script.status !== 'passed') {
+    return script;
+  }
   const additional = visitAll(context, value => value.kind === 'dictionary' && value.entries.has(key('AA')));
   return additional ? unchecked('ISO 15930-7:2010, 6.18 sets restrictions on non-JavaScript additional actions, and this rule does not check them') : script;
 };
 
 const forms: Check = context => {
   const form = entriesOf(context, context.catalog.get(key('AcroForm')));
-  if (form === undefined) return passed('no AcroForm is present');
-  if (form.has(key('XFA'))) return violation('an XFA form is present');
+  if (form === undefined) {
+    return passed('no AcroForm is present');
+  }
+  if (form.has(key('XFA'))) {
+    return violation('an XFA form is present');
+  }
   const fields = context.internals.objects.deref(form.get(key('Fields')));
   if (fields?.kind !== 'array') {
     return unchecked('PDF/X-4 restricts form fields, and this rule cannot check them because AcroForm Fields is not a readable array');
@@ -302,7 +371,9 @@ const forms: Check = context => {
 const trapped: Check = context => {
   const info = context.metadata.info?.values.get('Trapped');
   const infoName = info?.kind === 'name' ? info.name : undefined;
-  if (infoName !== 'True' && infoName !== 'False') return violation('Info Trapped must be the name True or False');
+  if (infoName !== 'True' && infoName !== 'False') {
+    return violation('Info Trapped must be the name True or False');
+  }
   return passed('Info Trapped is True or False');
 };
 
@@ -323,7 +394,9 @@ const xmpVersion: Check = context =>
 const xmpMm: Check = context => {
   const missing: string[] = [];
   for (const name of ['DocumentID', 'VersionID', 'RenditionClass']) {
-    if (xmpText(context.metadata, XMP_MM_NAMESPACE, name) === undefined) missing.push(`xmpMM:${name}`);
+    if (xmpText(context.metadata, XMP_MM_NAMESPACE, name) === undefined) {
+      missing.push(`xmpMM:${name}`);
+    }
   }
   const presence = missing.length === 0 ? 'xmpMM:DocumentID, xmpMM:VersionID and xmpMM:RenditionClass are present' : `${missing.join(', ')} absent`;
   return unchecked(`${presence}; ISO 15930-7:2010, 6.10 sets the identification requirements, and this rule does not check them`);
@@ -353,7 +426,9 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
     globalCheck(
       context,
       value => {
-        if (value.kind !== 'dictionary' && value.kind !== 'stream') return false;
+        if (value.kind !== 'dictionary' && value.kind !== 'stream') {
+          return false;
+        }
         const entries = value.kind === 'dictionary' ? value.entries : value.dictionary;
         return (
           entries.has(key('EmbeddedFiles')) ||
@@ -383,7 +458,9 @@ const checks: Readonly<Record<PdfX4RuleId, Check>> = {
 /** Runs each rule of `pdfX4Rules` and reports it as `violation`, `passed` or `not-checked` with its source and authority; `summary` is `violations-found` when any rule reports a violation, else `no-violation-found-by-these-rules`, which is not a claim of PDF/X-4 conformance. */
 export const checkPdfX4 = (document: LoadedDocument): PdfX4Report => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new TypeError('checkPdfX4 needs a document from loadDocument');
+  if (internals === undefined) {
+    throw new TypeError('checkPdfX4 needs a document from loadDocument');
+  }
   const reachable = reachableObjects(internals);
   const context: Context = {
     document,

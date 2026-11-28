@@ -15,6 +15,8 @@ export const formatNumber = (value: number, fractionDigits: number): string => f
 
 /** Formats a PDF integer within the supported 32-bit signed range. */
 export const formatInteger = (value: number): string => {
-  if (!Number.isSafeInteger(value) || Math.abs(value) > MAX_INTEGER) throw new InvalidArgumentError('integer out of range');
+  if (!Number.isSafeInteger(value) || Math.abs(value) > MAX_INTEGER) {
+    throw new InvalidArgumentError('integer out of range');
+  }
   return Object.is(value, -0) ? '0' : String(value);
 };

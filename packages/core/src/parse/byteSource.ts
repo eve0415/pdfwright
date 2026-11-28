@@ -31,14 +31,19 @@ export class ByteSource {
     let high = this.segments.length - 1;
     while (low < high) {
       const middle = Math.ceil((low + high) / 2);
-      if ((this.starts[middle] ?? 0) <= offset) low = middle;
-      else high = middle - 1;
+      if ((this.starts[middle] ?? 0) <= offset) {
+        low = middle;
+      } else {
+        high = middle - 1;
+      }
     }
     return low;
   }
 
   byteAt(offset: number): number | undefined {
-    if (offset < 0 || offset >= this.length) return undefined;
+    if (offset < 0 || offset >= this.length) {
+      return undefined;
+    }
     const index = this.segmentIndex(offset);
     return this.segments[index]?.[offset - (this.starts[index] ?? 0)];
   }
@@ -47,12 +52,16 @@ export class ByteSource {
   indexesOf(pattern: readonly number[]): number[] {
     const found: number[] = [];
     const [first] = pattern;
-    if (first === undefined) return found;
+    if (first === undefined) {
+      return found;
+    }
     for (const [index, segment] of this.segments.entries()) {
       const start = this.starts[index] ?? 0;
       for (let local = segment.indexOf(first); local !== -1; local = segment.indexOf(first, local + 1)) {
         const inside = local + pattern.length <= segment.length;
-        if (pattern.every((byte, offset) => (inside ? segment[local + offset] : this.byteAt(start + local + offset)) === byte)) found.push(start + local);
+        if (pattern.every((byte, offset) => (inside ? segment[local + offset] : this.byteAt(start + local + offset)) === byte)) {
+          found.push(start + local);
+        }
       }
     }
     return found;
@@ -60,14 +69,18 @@ export class ByteSource {
 
   /** Last occurrence of a byte pattern, including one crossing segment boundaries. */
   lastIndexOf(pattern: readonly number[]): number {
-    if (pattern.length === 0) return this.length;
+    if (pattern.length === 0) {
+      return this.length;
+    }
     let base = this.length;
     for (let index = this.segments.length - 1; index >= 0; index--) {
       const segment = this.segments[index] ?? new Uint8Array();
       base -= segment.length;
       for (let local = segment.lastIndexOf(pattern[0] ?? 0); local >= 0; local = local === 0 ? -1 : segment.lastIndexOf(pattern[0] ?? 0, local - 1)) {
         const candidate = base + local;
-        if (pattern.every((byte, offset) => this.byteAt(candidate + offset) === byte)) return candidate;
+        if (pattern.every((byte, offset) => this.byteAt(candidate + offset) === byte)) {
+          return candidate;
+        }
       }
     }
     return -1;
@@ -97,11 +110,15 @@ export class ByteSource {
   /** Views of the original segments covering `start` to `end`. */
   views(start: number, end: number): Uint8Array[] {
     const views: Uint8Array[] = [];
-    if (start >= end || this.segments.length === 0) return views;
+    if (start >= end || this.segments.length === 0) {
+      return views;
+    }
     for (let index = this.segmentIndex(start); index < this.segments.length; index++) {
       const segment = this.segments[index] ?? new Uint8Array();
       const base = this.starts[index] ?? 0;
-      if (base >= end) break;
+      if (base >= end) {
+        break;
+      }
       views.push(segment.subarray(Math.max(start - base, 0), Math.min(end - base, segment.length)));
     }
     return views;
@@ -124,10 +141,14 @@ export class ByteSource {
       };
       try {
         const result = parse(window, offset - window.base, buffered);
-        for (const warning of warnings) context.warn(warning);
+        for (const warning of warnings) {
+          context.warn(warning);
+        }
         return result;
       } catch (error: unknown) {
-        if (!(error instanceof WindowEndError) || window.final) throw error;
+        if (!(error instanceof WindowEndError) || window.final) {
+          throw error;
+        }
       }
       window = this.copy(offset, offset + size);
       size *= 2;

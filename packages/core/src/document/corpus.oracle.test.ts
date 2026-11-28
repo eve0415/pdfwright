@@ -21,9 +21,15 @@ const CORPUS = path.join(import.meta.dirname, '../../test/corpus');
 type ExpectedFailure = { readonly error: string; readonly reason: string } | { readonly undecodable: readonly string[]; readonly reason: string };
 
 const expectedFailure = (entry: unknown): ExpectedFailure | undefined => {
-  if (typeof entry !== 'object' || entry === null || !('reason' in entry) || typeof entry.reason !== 'string') return undefined;
-  if ('error' in entry && typeof entry.error === 'string') return { error: entry.error, reason: entry.reason };
-  if (!('undecodable' in entry) || !Array.isArray(entry.undecodable)) return undefined;
+  if (typeof entry !== 'object' || entry === null || !('reason' in entry) || typeof entry.reason !== 'string') {
+    return undefined;
+  }
+  if ('error' in entry && typeof entry.error === 'string') {
+    return { error: entry.error, reason: entry.reason };
+  }
+  if (!('undecodable' in entry) || !Array.isArray(entry.undecodable)) {
+    return undefined;
+  }
   const places = entry.undecodable.filter((place: unknown): place is string => typeof place === 'string');
   return { undecodable: places, reason: entry.reason };
 };
@@ -31,17 +37,23 @@ const expectedFailure = (entry: unknown): ExpectedFailure | undefined => {
 const expectedFailures = async (): Promise<ReadonlyMap<string, ExpectedFailure>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failures = new Map<string, ExpectedFailure>();
-  if (typeof parsed !== 'object' || parsed === null) return failures;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failures;
+  }
   for (const [file, entry] of new Map<string, unknown>(Object.entries(parsed))) {
     const failure = expectedFailure(entry);
-    if (failure !== undefined) failures.set(file, failure);
+    if (failure !== undefined) {
+      failures.set(file, failure);
+    }
   }
   return failures;
 };
 
 // qpdf --check exits 0 when clean, 3 with warnings only and 2 with errors.
 const rank = (code: number): number => {
-  if (code === 0) return 0;
+  if (code === 0) {
+    return 0;
+  }
   return code === 3 ? 1 : 2;
 };
 
@@ -75,16 +87,24 @@ const checkSaved = async (workspace: Workspace, [label, bytes]: readonly [string
   const saved = await qpdfCheck(file);
   const problems =
     saved.rank > workspace.source.rank ? [`${label}: qpdf --check status went from ${String(workspace.source.rank)} to ${String(saved.rank)}`] : [];
-  for (const line of saved.classes) if (!workspace.source.classes.has(line)) problems.push(`${label}: new qpdf warning ${line}`);
+  for (const line of saved.classes) {
+    if (!workspace.source.classes.has(line)) {
+      problems.push(`${label}: new qpdf warning ${line}`);
+    }
+  }
   return problems;
 };
 
 // An edit of one box must show as exactly that difference.
 const checkBoxEdit = (bytes: Uint8Array, undecodable: ReadonlySet<string>): string[] => {
   const document = loadDocument(bytes);
-  if (document.pageCount === 0) return [];
+  if (document.pageCount === 0) {
+    return [];
+  }
   const [left, bottom, right, top] = document.page(0).boxes().CropBox.rect;
-  if (right - left < 4 || top - bottom < 4) return [];
+  if (right - left < 4 || top - bottom < 4) {
+    return [];
+  }
   document.page(0).setBox('TrimBox', rect(pt(left + 1), pt(bottom + 1), pt(right - 1), pt(top - 1)));
   const saved = loadDocument(document.save().chunks);
   const differences = withoutExpected(compareDocuments(loadDocument(bytes), saved).differences, undecodable).map(difference =>
@@ -155,9 +175,13 @@ const runSet = async (set: string, directory = path.join(CORPUS, set)): Promise<
   // Files run one after another, so that a large set does not start every qpdf process at once.
   const next = async (index: number): Promise<Record<string, string[]>> => {
     const name = files[index];
-    if (name === undefined) return problems;
+    if (name === undefined) {
+      return problems;
+    }
     const found = await checkFile(path.join(directory, name), failures.get(`${set}/${name}`));
-    if (found.length > 0) problems[name] = found;
+    if (found.length > 0) {
+      problems[name] = found;
+    }
     return next(index + 1);
   };
   return next(0);
@@ -170,11 +194,15 @@ const runFetched = async (): Promise<Record<string, string[]>> => {
   try {
     const names = await readdir(GOVDOCS);
     if (!names.some(name => name.endsWith('.pdf'))) {
-      if (env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+      if (env['CI'] !== undefined) {
+        throw new Error('govdocs1 corpus is missing');
+      }
       return {};
     }
   } catch {
-    if (env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+    if (env['CI'] !== undefined) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return {};
   }
   return runSet('govdocs1', GOVDOCS);
@@ -192,7 +220,9 @@ const readOptional = async (file: string): Promise<Uint8Array | undefined> => {
 const illustratorEdit = async (): Promise<string[]> => {
   const bytes = await readOptional(path.join(GOVDOCS, '000146.pdf'));
   if (bytes === undefined) {
-    if (env['CI'] !== undefined) throw new Error('govdocs1 Illustrator file is missing');
+    if (env['CI'] !== undefined) {
+      throw new Error('govdocs1 Illustrator file is missing');
+    }
     return [];
   }
   const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-illustrator-'));
@@ -218,7 +248,9 @@ const illustratorEdit = async (): Promise<string[]> => {
         const readers = reports
           .filter(report => report.notices.length > 0 || report.trimBox?.join(' ') !== '20 20 500 700')
           .map(report => `${mode}: ${report.tool} ${report.notices.join('; ')}`);
-        for (const report of readers) unexpected.push(report);
+        for (const report of readers) {
+          unexpected.push(report);
+        }
         return unexpected;
       }),
     );

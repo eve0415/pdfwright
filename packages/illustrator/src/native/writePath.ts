@@ -33,7 +33,9 @@ const formatted = (point: Point, yOffset: number): readonly [string, string] => 
 
 const needsClosingLine = (subpath: Subpath, yOffset: number): boolean => {
   const last = subpath.segments.at(-1)?.to;
-  if (last === undefined) return false;
+  if (last === undefined) {
+    return false;
+  }
   const [startX, startY] = formatted(subpath.start, yOffset);
   const [lastX, lastY] = formatted(last, yOffset);
   return lastX !== startX || lastY !== startY;
@@ -56,7 +58,9 @@ const writeSubpath = (writer: NativeWriter, subpath: Subpath, yOffset: number): 
       writer.line(`${x1} ${y1} ${x2} ${y2} ${x} ${y} ${smooth ? 'c' : 'C'}`);
     }
   }
-  if (needsClosingLine(subpath, yOffset)) writer.line(`${startX} ${startY} L`);
+  if (needsClosingLine(subpath, yOffset)) {
+    writer.line(`${startX} ${startY} L`);
+  }
 };
 
 /** The `XR` line selecting a fill rule. Illustrator 30.8.2 saves write `0 XR` on ordinary paths and `1 XR` only on a compound path, so `1` is taken to be the even-odd rule; no file using it has been opened in Illustrator. */
@@ -74,11 +78,17 @@ export const writeNativeGeometry = (writer: NativeWriter, geometry: PathGeometry
   }
   for (const [index, subpath] of geometry.subpaths.entries()) {
     writer.line(`${String(anchorCount(subpath, options.yOffset))} As`);
-    if (index === 0) options.writeState();
+    if (index === 0) {
+      options.writeState();
+    }
     writeSubpath(writer, subpath, options.yOffset);
-    for (const line of options.ending) writer.line(line);
+    for (const line of options.ending) {
+      writer.line(line);
+    }
   }
-  if (compound) writer.line('*U');
+  if (compound) {
+    writer.line('*U');
+  }
 };
 
 const writePaint = (writer: NativeWriter, paint: Paint, channel: 'fill' | 'stroke'): void => {
@@ -98,8 +108,11 @@ const writePaint = (writer: NativeWriter, paint: Paint, channel: 'fill' | 'strok
 export const writePath = (writer: NativeWriter, item: PathItem, options: NativePathOptions = {}): void => {
   const rule = item.geometry.fillRule ?? 'nonzero';
   let operator = 'b';
-  if (item.fill === undefined) operator = 's';
-  else if (item.stroke === undefined) operator = 'f';
+  if (item.fill === undefined) {
+    operator = 's';
+  } else if (item.stroke === undefined) {
+    operator = 'f';
+  }
   const writeState = (): void => {
     if (item.fill !== undefined) {
       writer.line(item.fill.overprint === true ? '1 O' : '0 O');
@@ -114,5 +127,7 @@ export const writePath = (writer: NativeWriter, item: PathItem, options: NativeP
     writer.line(fillRuleLine(rule));
   };
   writeNativeGeometry(writer, item.geometry, { yOffset: options.yOffset ?? 0, writeState, ending: [operator] });
-  if (options.fillRuleState !== undefined) options.fillRuleState.value = rule;
+  if (options.fillRuleState !== undefined) {
+    options.fillRuleState.value = rule;
+  }
 };

@@ -35,7 +35,9 @@ export const pageContent = (document: DocumentInternals, page: PageEntry): PageC
     for (const [index, item] of items.entries()) {
       const stream = document.objects.deref(item);
       // 7.3.10: a reference to a missing object is a reference to null, which contributes no content.
-      if (stream === undefined || stream.kind === 'null') continue;
+      if (stream === undefined || stream.kind === 'null') {
+        continue;
+      }
       const data = stream.kind === 'stream' ? decodedData(document, stream) : `${label(index)} is not a stream`;
       if (typeof data === 'string') {
         problems.push(`${label(index)} cannot be read: ${data}`);
@@ -49,7 +51,9 @@ export const pageContent = (document: DocumentInternals, page: PageEntry): PageC
       indexes.push(index);
     }
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     problems.push(`the page's Contents cannot be read: ${error.message}`);
   }
   return { streams, indexes, problems };

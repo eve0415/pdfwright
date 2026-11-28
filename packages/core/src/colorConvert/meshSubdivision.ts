@@ -81,20 +81,28 @@ const readVertex = (reader: MeshBitReader, options: MeshSubdivisionOptions): Ver
 };
 
 const pushTriangle = (triangles: Triangle[], triangle: Triangle, maxTriangles: number): void => {
-  if (triangles.length >= maxTriangles) throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+  if (triangles.length >= maxTriangles) {
+    throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+  }
   triangles.push(triangle);
 };
 
 const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
   const triangles: Triangle[] = [];
   const perRow = options.verticesPerRow;
-  if (perRow === undefined || perRow < 2) throw new ParseError('mesh VerticesPerRow is invalid', 0);
+  if (perRow === undefined || perRow < 2) {
+    throw new ParseError('mesh VerticesPerRow is invalid', 0);
+  }
   const vertices: Vertex[] = [];
   while (reader.remainingBits > 0) {
     vertices.push(readVertex(reader, options).vertex);
-    if (vertices.length > maxTriangles + 2) throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    if (vertices.length > maxTriangles + 2) {
+      throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    }
   }
-  if (vertices.length < perRow * 2 || vertices.length % perRow !== 0) throw new ParseError('lattice mesh rows are incomplete', 0);
+  if (vertices.length < perRow * 2 || vertices.length % perRow !== 0) {
+    throw new ParseError('lattice mesh rows are incomplete', 0);
+  }
   const rows = vertices.length / perRow;
   for (let row = 0; row < rows - 1; row++) {
     for (let column = 0; column < perRow - 1; column++) {
@@ -102,7 +110,9 @@ const latticeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions
       const b = vertices[row * perRow + column + 1];
       const c = vertices[(row + 1) * perRow + column];
       const d = vertices[(row + 1) * perRow + column + 1];
-      if (a === undefined || b === undefined || c === undefined || d === undefined) throw new ParseError('lattice mesh vertex is missing', 0);
+      if (a === undefined || b === undefined || c === undefined || d === undefined) {
+        throw new ParseError('lattice mesh vertex is missing', 0);
+      }
       // ISO 32000-1:2008, 8.7.4.5.6: each lattice cell uses these two vertex triplets.
       pushTriangle(triangles, [a, b, c], maxTriangles);
       pushTriangle(triangles, [b, c, d], maxTriangles);
@@ -117,7 +127,9 @@ const freeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, m
   let previous: Triangle | undefined;
   while (reader.remainingBits > 0) {
     const { vertex, flag } = readVertex(reader, options);
-    if (flag > 2) throw new ParseError('Type 4 mesh edge flag is invalid', 0);
+    if (flag > 2) {
+      throw new ParseError('Type 4 mesh edge flag is invalid', 0);
+    }
     if (pending.length > 0 || previous === undefined || flag === 0) {
       pending.push(vertex);
       if (pending.length === 3) {
@@ -130,7 +142,9 @@ const freeTriangles = (reader: MeshBitReader, options: MeshSubdivisionOptions, m
     previous = flag === 1 ? [previous[1], previous[2], vertex] : [previous[0], previous[2], vertex];
     pushTriangle(triangles, previous, maxTriangles);
   }
-  if (pending.length > 0 || triangles.length === 0) throw new ParseError('free-form mesh has incomplete triangles', 0);
+  if (pending.length > 0 || triangles.length === 0) {
+    throw new ParseError('free-form mesh has incomplete triangles', 0);
+  }
   return triangles;
 };
 
@@ -297,33 +311,49 @@ const patches = (reader: MeshBitReader, options: MeshSubdivisionOptions, maxTria
   let previous: Patch | undefined;
   while (reader.remainingBits > 0) {
     const flag = reader.read(options.flagBits) % 4;
-    if (previous === undefined && flag !== 0) throw new ParseError('the first mesh patch must start a new patch', 0);
+    if (previous === undefined && flag !== 0) {
+      throw new ParseError('the first mesh patch must start a new patch', 0);
+    }
     const points: Point[] = previous === undefined || flag === 0 ? [] : [...sharedEdge(previous, flag)];
     const count = options.type === 6 ? 12 : 16;
-    while (points.length < count) points.push(point(reader, options));
+    while (points.length < count) {
+      points.push(point(reader, options));
+    }
     const colors: (readonly number[])[] = previous === undefined || flag === 0 ? [] : [...sharedColors(previous, flag)];
-    while (colors.length < 4) colors.push(patchColor(reader, options));
+    while (colors.length < 4) {
+      colors.push(patchColor(reader, options));
+    }
     reader.alignByte();
     previous = { points, colors };
     const patch = patchTriangles(previous, options.type === 6 ? 6 : 7, options.transform);
-    if (triangles.length + patch.length > maxTriangles) throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    if (triangles.length + patch.length > maxTriangles) {
+      throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    }
     triangles.push(...patch);
   }
-  if (previous === undefined) throw new ParseError('patch mesh is empty', 0);
+  if (previous === undefined) {
+    throw new ParseError('patch mesh is empty', 0);
+  }
   return triangles;
 };
 
 const trianglesOf = (data: Uint8Array, options: MeshSubdivisionOptions, maxTriangles: number): readonly Triangle[] => {
   const reader = new MeshBitReader(data);
-  if (options.type === 5) return latticeTriangles(reader, options, maxTriangles);
-  if (options.type === 4) return freeTriangles(reader, options, maxTriangles);
+  if (options.type === 5) {
+    return latticeTriangles(reader, options, maxTriangles);
+  }
+  if (options.type === 4) {
+    return freeTriangles(reader, options, maxTriangles);
+  }
   return patches(reader, options, maxTriangles);
 };
 
 const midpoint = (a: Vertex, b: Vertex, transform: ColorTransform): Vertex => {
   const pa = a.parameter;
   const pb = b.parameter;
-  if (pa !== undefined && pb !== undefined && pa.surface === pb.surface) return pa.surface((pa.u + pb.u) / 2, (pa.v + pb.v) / 2);
+  if (pa !== undefined && pb !== undefined && pa.surface === pb.surface) {
+    return pa.surface((pa.u + pb.u) / 2, (pa.v + pb.v) / 2);
+  }
   const rgb = a.rgb.map((value, index) => (value + (b.rgb[index] ?? 0)) / 2);
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, rgb, cmyk: converted(transform, rgb) };
 };
@@ -346,7 +376,9 @@ const edgeError = (a: Vertex, b: Vertex, config: { exact: Vertex; lab: (cmyk: re
 };
 
 const encodeCoordinate = (value: number, bits: number, range: { low: number; high: number }): number => {
-  if (range.high === range.low) return 0;
+  if (range.high === range.low) {
+    return 0;
+  }
   const fraction = (value - range.low) / (range.high - range.low);
   return Math.round(Math.min(1, Math.max(0, fraction)) * (2 ** bits - 1));
 };
@@ -368,7 +400,9 @@ export const subdivideMesh = (data: Uint8Array, options: MeshSubdivisionOptions)
   let cappedTriangles = 0;
   const emit = (triangle: Triangle): void => {
     outputBytes += recordBytes * 3;
-    if (outputBytes > options.maxBytes) throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    if (outputBytes > options.maxBytes) {
+      throw new ResourceLimitError('mesh subdivision exceeds maxMeshOutputBytes');
+    }
     for (const vertex of triangle) {
       writer.write(8, 0);
       writer.write(coordinateBits, encodeCoordinate(vertex.x, coordinateBits, { low: options.decode[0] ?? 0, high: options.decode[1] ?? 1 }));
@@ -384,7 +418,9 @@ export const subdivideMesh = (data: Uint8Array, options: MeshSubdivisionOptions)
   const pending = trianglesOf(data, options, maxTriangles).map(triangle => ({ triangle, depth: 0 }));
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current === undefined) break;
+    if (current === undefined) {
+      break;
+    }
     const { triangle, depth } = current;
     const [a, b, c] = triangle;
     const ab = midpoint(a, b, options.transform);
@@ -409,7 +445,9 @@ export const subdivideMesh = (data: Uint8Array, options: MeshSubdivisionOptions)
         { triangle: [ab, bc, ca], depth: depth + 1 },
       );
     } else {
-      if (error > 0.5) cappedTriangles++;
+      if (error > 0.5) {
+        cappedTriangles++;
+      }
       emit(triangle);
     }
   }

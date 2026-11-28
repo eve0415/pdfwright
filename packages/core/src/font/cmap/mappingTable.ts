@@ -21,8 +21,11 @@ export class MappingTable<T extends CodeRange> {
   constructor(mappings: readonly T[]) {
     const ranges: T[] = [];
     for (const mapping of mappings) {
-      if (mapping.low === mapping.high) this.singles.set(keyOf(mapping.length, mapping.low), mapping);
-      else ranges.push(mapping);
+      if (mapping.low === mapping.high) {
+        this.singles.set(keyOf(mapping.length, mapping.low), mapping);
+      } else {
+        ranges.push(mapping);
+      }
     }
     ranges.sort((left, right) => keyOf(left.length, left.low) - keyOf(right.length, right.low));
     this.ranges = ranges;
@@ -37,18 +40,25 @@ export class MappingTable<T extends CodeRange> {
   find(code: CMapCode): T | undefined {
     const key = keyOf(code.length, code.value);
     const single = this.singles.get(key);
-    if (single !== undefined) return single;
+    if (single !== undefined) {
+      return single;
+    }
     let low = 0;
     let high = this.ranges.length - 1;
     while (low <= high) {
       const middle = Math.floor((low + high) / 2);
       const range = this.ranges[middle];
-      if (range !== undefined && keyOf(range.length, range.low) <= key) low = middle + 1;
-      else high = middle - 1;
+      if (range !== undefined && keyOf(range.length, range.low) <= key) {
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
     }
     for (let index = high; index >= 0 && (this.reach[index] ?? 0) >= key; index--) {
       const range = this.ranges[index];
-      if (range !== undefined && range.length === code.length && range.low <= code.value && code.value <= range.high) return range;
+      if (range !== undefined && range.length === code.length && range.low <= code.value && code.value <= range.high) {
+        return range;
+      }
     }
     return undefined;
   }

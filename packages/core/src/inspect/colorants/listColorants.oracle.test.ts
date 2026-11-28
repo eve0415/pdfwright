@@ -273,8 +273,14 @@ const withDirectory = async <T>(run: (directory: string) => Promise<T>): Promise
 const failingFiles = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
-  for (const [file, entry] of Object.entries(parsed)) if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
+  for (const [file, entry] of Object.entries(parsed)) {
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
+  }
   return failing;
 };
 
@@ -295,20 +301,28 @@ const corpusDifferences = async (set: string, directory = path.join(CORPUS, set)
   const failing = await failingFiles();
   const names = await readdir(directory).catch((): string[] => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
-  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
+    throw new Error('govdocs1 corpus is missing');
+  }
   const differences: string[] = [];
   const next = async (index: number): Promise<string[]> => {
     const name = files[index];
-    if (name === undefined) return differences;
+    if (name === undefined) {
+      return differences;
+    }
     const file = path.join(directory, name);
     const bytes = new Uint8Array(await readFile(file));
     const pages = listColorants(loadDocument(bytes));
     if (pages.some(colorants => colorants.colorants.some(use => use.kind === 'spot'))) {
       const { plates, failed } = await withDirectory(async output => renderPagePlates(file, output));
       for (const colorants of pages) {
-        if (failed.has(colorants.page + 1)) continue;
+        if (failed.has(colorants.page + 1)) {
+          continue;
+        }
         const found = relation(colorants, plates.get(colorants.page + 1) ?? []);
-        if (found.unplated.length > 0 || found.plated.length > 0) differences.push(`${name} page ${String(colorants.page + 1)}: ${JSON.stringify(found)}`);
+        if (found.unplated.length > 0 || found.plated.length > 0) {
+          differences.push(`${name} page ${String(colorants.page + 1)}: ${JSON.stringify(found)}`);
+        }
       }
     }
     return next(index + 1);

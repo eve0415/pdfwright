@@ -39,7 +39,9 @@ const ignore = (): void => {
 const count = (bytes: Uint8Array): number => {
   let found = 0;
   for (let at = bytes.indexOf(HEADER[0] ?? 0); at !== -1; at = bytes.indexOf(HEADER[0] ?? 0, at + 1)) {
-    if (HEADER.every((byte, offset) => bytes[at + offset] === byte)) found++;
+    if (HEADER.every((byte, offset) => bytes[at + offset] === byte)) {
+      found++;
+    }
   }
   return found;
 };
@@ -47,21 +49,31 @@ const count = (bytes: Uint8Array): number => {
 type Role = 'document' | 'components' | 'orphans' | 'insideOtherStreams';
 
 const roleOf = (objectNumber: number, roles: PacketRoles): Role => {
-  if (objectNumber === roles.document) return 'document';
-  if (roles.components.has(objectNumber)) return 'components';
+  if (objectNumber === roles.document) {
+    return 'document';
+  }
+  if (roles.components.has(objectNumber)) {
+    return 'components';
+  }
   return roles.orphans.has(objectNumber) ? 'orphans' : 'insideOtherStreams';
 };
 
 // A filtered metadata stream's packet is found in its decoded data, where a reader looks for it; undefined when the stream is not filtered or cannot be decoded.
 const decodedCount = (document: DocumentInternals, objectNumber: number): number | undefined => {
   const generation = document.objects.generationOf(objectNumber);
-  if (generation === undefined) return undefined;
+  if (generation === undefined) {
+    return undefined;
+  }
   try {
     const value = document.objects.resolve(objectNumber, generation);
-    if (value.kind !== 'stream' || !value.dictionary.has(FILTER)) return undefined;
+    if (value.kind !== 'stream' || !value.dictionary.has(FILTER)) {
+      return undefined;
+    }
     return count(decodeStream(value, { maxDecodedBytes: document.maxDecodedBytes, warn: ignore, deref: item => document.objects.deref(item) }));
   } catch (error: unknown) {
-    if (error instanceof ParseError || error instanceof UnsupportedFeatureError || error instanceof ResourceLimitError) return 0;
+    if (error instanceof ParseError || error instanceof UnsupportedFeatureError || error instanceof ResourceLimitError) {
+      return 0;
+    }
     throw error;
   }
 };
@@ -76,7 +88,9 @@ const inFileObjects = (document: DocumentInternals): Extent[] => {
   const extents: Extent[] = [];
   for (const objectNumber of index.inUse()) {
     const entry = index.get(objectNumber);
-    if (entry.type === IN_FILE) extents.push({ objectNumber, start: entry.location });
+    if (entry.type === IN_FILE) {
+      extents.push({ objectNumber, start: entry.location });
+    }
   }
   return extents.toSorted((left, right) => left.start - right.start);
 };
@@ -85,9 +99,13 @@ const inFileObjects = (document: DocumentInternals): Extent[] => {
 const objectEnd = (document: DocumentInternals, extent: Extent, next: Extent | undefined): number | undefined => {
   try {
     const object = document.objects.store.load(extent.objectNumber);
-    if (object?.source.kind === 'file') return object.source.objectEnd;
+    if (object?.source.kind === 'file') {
+      return object.source.objectEnd;
+    }
   } catch (error: unknown) {
-    if (!(error instanceof ParseError)) throw error;
+    if (!(error instanceof ParseError)) {
+      throw error;
+    }
   }
   return next?.start ?? document.objects.store.source.length;
 };
@@ -100,10 +118,14 @@ export const scanPackets = (document: DocumentInternals, roles: PacketRoles): Sc
   const counts = { document: 0, components: 0, orphans: 0, superseded: 0, insideOtherStreams: 0 };
   const decoded = new Map<number, number | undefined>();
   for (const objectNumber of [roles.document, ...roles.components, ...roles.orphans]) {
-    if (objectNumber === undefined) continue;
+    if (objectNumber === undefined) {
+      continue;
+    }
     const found = decodedCount(document, objectNumber);
     decoded.set(objectNumber, found);
-    if (found !== undefined) counts[roleOf(objectNumber, roles)] += found;
+    if (found !== undefined) {
+      counts[roleOf(objectNumber, roles)] += found;
+    }
   }
   const { store } = document.objects;
   const extents = inFileObjects(document);
@@ -111,13 +133,19 @@ export const scanPackets = (document: DocumentInternals, roles: PacketRoles): Sc
     let low = -1;
     for (let high = extents.length - 1; low < high;) {
       const middle = Math.ceil((low + high) / 2);
-      if ((extents[middle]?.start ?? 0) <= hit) low = middle;
-      else high = middle - 1;
+      if ((extents[middle]?.start ?? 0) <= hit) {
+        low = middle;
+      } else {
+        high = middle - 1;
+      }
     }
     const extent = extents[low];
     const end = extent === undefined ? undefined : objectEnd(document, extent, extents[low + 1]);
-    if (extent === undefined || end === undefined || hit >= end) counts.superseded++;
-    else if (decoded.get(extent.objectNumber) === undefined) counts[roleOf(extent.objectNumber, roles)]++;
+    if (extent === undefined || end === undefined || hit >= end) {
+      counts.superseded++;
+    } else if (decoded.get(extent.objectNumber) === undefined) {
+      counts[roleOf(extent.objectNumber, roles)]++;
+    }
   }
   return counts;
 };

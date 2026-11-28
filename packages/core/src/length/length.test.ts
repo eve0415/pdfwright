@@ -30,7 +30,9 @@ describe('exact lengths', () => {
 
   it('retains exact arithmetic across repeated additions', () => {
     let sum = pt(0);
-    for (let index = 0; index < 10_000; index++) sum = add(sum, mm(0.1));
+    for (let index = 0; index < 10_000; index++) {
+      sum = add(sum, mm(0.1));
+    }
     expect([equals(sum, mm(1000))]).toStrictEqual([true]);
     const three = mm(3);
     const negativeThree = mm(-3);

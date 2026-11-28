@@ -7,7 +7,9 @@ const codeBlock = (readme: string, heading = '## Writing a print page'): string 
   const opener = readme.indexOf('```ts\n', section);
   const start = opener + 6;
   const end = readme.indexOf('```', start);
-  if (section === -1 || opener === -1 || end === -1) throw new Error(`README code block under ${heading} is missing`);
+  if (section === -1 || opener === -1 || end === -1) {
+    throw new Error(`README code block under ${heading} is missing`);
+  }
   return readme.slice(start, end);
 };
 

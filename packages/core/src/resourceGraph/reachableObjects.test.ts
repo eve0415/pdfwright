@@ -27,7 +27,9 @@ const load = (catalog: string, objects: readonly TestObject[], trailer = ''): Lo
 
 const internals = (document: LoadedDocument): DocumentInternals => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 

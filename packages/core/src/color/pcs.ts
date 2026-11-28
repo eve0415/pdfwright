@@ -32,7 +32,9 @@ const adobeLut8 = (tag: LutTag, option: 'icc' | 'adobe'): boolean => tag.kind ==
 
 export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
   // ICC.1:2022, 6.3.4.2 Tables 11–13 and 10.10: mft2 uses legacy PCSLAB (FFFF/FF00 conversion) even inside v4 profiles.
-  if (pcs === 'XYZ') return values.map(value => clamp(value / XYZ_SCALE));
+  if (pcs === 'XYZ') {
+    return values.map(value => clamp(value / XYZ_SCALE));
+  }
   if (config.tag.kind === 'lut16') {
     return [clamp(((values[0] ?? 0) * 652.8) / 65535), clamp((((values[1] ?? 0) + 128) * 256) / 65535), clamp((((values[2] ?? 0) + 128) * 256) / 65535)];
   }
@@ -41,8 +43,12 @@ export const encodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config:
 };
 
 export const decodePcs = (values: readonly number[], pcs: 'XYZ' | 'Lab', config: { tag: LutTag; option: 'icc' | 'adobe' }): number[] => {
-  if (pcs === 'XYZ') return values.map(value => value * XYZ_SCALE);
-  if (config.tag.kind === 'lut16') return [((values[0] ?? 0) * 65535) / 652.8, ((values[1] ?? 0) * 65535) / 256 - 128, ((values[2] ?? 0) * 65535) / 256 - 128];
+  if (pcs === 'XYZ') {
+    return values.map(value => value * XYZ_SCALE);
+  }
+  if (config.tag.kind === 'lut16') {
+    return [((values[0] ?? 0) * 65535) / 652.8, ((values[1] ?? 0) * 65535) / 256 - 128, ((values[2] ?? 0) * 65535) / 256 - 128];
+  }
   const multiplier = adobeLut8(config.tag, config.option) ? 256 : 255;
   return [(values[0] ?? 0) * 100, (values[1] ?? 0) * multiplier - 128, (values[2] ?? 0) * multiplier - 128];
 };

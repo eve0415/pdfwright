@@ -14,7 +14,9 @@ const magick = async (args: readonly string[], input: Uint8Array): Promise<Uint8
   const child = spawn('magick', args);
   child.stdin.end(input);
   const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
-  if (closed[0] !== 0) throw new Error(errors);
+  if (closed[0] !== 0) {
+    throw new Error(errors);
+  }
   return new Uint8Array(output);
 };
 
@@ -28,9 +30,15 @@ const rawInput = (format: 'gray' | 'rgb' | 'rgba', colorType: number, depth: num
   for (let pixel = 0; pixel < WIDTH * HEIGHT; pixel++) {
     for (let channel = 0; channel < channels; channel++) {
       let value = (pixel * 4099 + channel * 12_345) % 65_536;
-      if (colorType === 0) value = ((pixel * 7 + 3) % 2 ** depth) * (65_535 / (2 ** depth - 1));
-      if (colorType === 3) value = (((pixel % 2 ** depth) * 50 + channel * 30) % 256) * 257;
-      if (colorType === 4 && channel < 3) value = (pixel * 4099) % 65_536;
+      if (colorType === 0) {
+        value = ((pixel * 7 + 3) % 2 ** depth) * (65_535 / (2 ** depth - 1));
+      }
+      if (colorType === 3) {
+        value = (((pixel % 2 ** depth) * 50 + channel * 30) % 256) * 257;
+      }
+      if (colorType === 4 && channel < 3) {
+        value = (pixel * 4099) % 65_536;
+      }
       view.setUint16((pixel * channels + channel) * 2, value);
     }
   }

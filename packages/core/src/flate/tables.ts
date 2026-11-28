@@ -13,9 +13,15 @@ export const CODE_LENGTH_ORDER: readonly number[] = [16, 17, 18, 0, 8, 7, 9, 6, 
 
 // RFC 1951, 3.2.6: fixed literal/length code lengths (8, 9, 7, 8 bits by symbol range) and five-bit distance codes.
 export const FIXED_LITERAL_LENGTHS: readonly number[] = Array.from({ length: 288 }, (_, symbol) => {
-  if (symbol < 144) return 8;
-  if (symbol < 256) return 9;
-  if (symbol < 280) return 7;
+  if (symbol < 144) {
+    return 8;
+  }
+  if (symbol < 256) {
+    return 9;
+  }
+  if (symbol < 280) {
+    return 7;
+  }
   return 8;
 });
 export const FIXED_DISTANCE_LENGTHS: readonly number[] = Array.from({ length: 32 }, () => 5);
@@ -37,7 +43,9 @@ export const DISTANCE_CODE: Uint8Array = new Uint8Array(512);
 for (let code = 0; code < LENGTH_BASE.length; code++) {
   const base = LENGTH_BASE[code] ?? 0;
   const end = Math.min(base + (1 << (LENGTH_EXTRA[code] ?? 0)), 259);
-  for (let length = base; length < end; length++) LENGTH_CODE[length - 3] = code;
+  for (let length = base; length < end; length++) {
+    LENGTH_CODE[length - 3] = code;
+  }
 }
 for (let code = 0; code < DISTANCE_BASE.length; code++) {
   const base = DISTANCE_BASE[code] ?? 0;

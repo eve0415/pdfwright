@@ -32,7 +32,9 @@ const documentOptions = (model: IllustratorDocument, options: WriteIllustratorPd
   }
   // ISO 32000-1:2008, 14.3.3, Table 317: ModDate is the date the document was most recently modified, which is the model's lastModified unless the caller says otherwise.
   const dated = info === undefined ? undefined : { ...info, modificationDate: info.modificationDate ?? model.lastModified };
-  if (dated === undefined) return fractionDigits === undefined ? {} : { fractionDigits };
+  if (dated === undefined) {
+    return fractionDigits === undefined ? {} : { fractionDigits };
+  }
   return fractionDigits === undefined ? { info: dated } : { info: dated, fractionDigits };
 };
 
@@ -42,7 +44,9 @@ const nativeOptions = (options: WriteIllustratorPdfOptions): WriteNativeOptions 
     throw new ValidationError('nativeOrigin must be artboard-bottom-left or artboard-top-left', 'illustrator-model');
   }
   const { creator, nativeOrigin } = options;
-  if (creator === undefined) return nativeOrigin === undefined ? {} : { nativeOrigin };
+  if (creator === undefined) {
+    return nativeOrigin === undefined ? {} : { nativeOrigin };
+  }
   return nativeOrigin === undefined ? { creator } : { creator, nativeOrigin };
 };
 

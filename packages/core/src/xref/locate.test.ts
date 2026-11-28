@@ -6,9 +6,13 @@ import { locateHeader, locateStartxref, sectionStartNear } from './locate.ts';
 
 const source = (text: string, chunk = 0): ByteSource => {
   const bytes = Uint8Array.from(text, character => character.codePointAt(0) ?? 0);
-  if (chunk === 0) return new ByteSource(bytes);
+  if (chunk === 0) {
+    return new ByteSource(bytes);
+  }
   const chunks: Uint8Array[] = [];
-  for (let offset = 0; offset < bytes.length; offset += chunk) chunks.push(bytes.subarray(offset, offset + chunk));
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    chunks.push(bytes.subarray(offset, offset + chunk));
+  }
   return new ByteSource(chunks);
 };
 

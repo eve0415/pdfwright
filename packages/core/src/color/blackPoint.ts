@@ -39,8 +39,12 @@ const scale = (input: readonly number[], blackIn: Xyz, blackOut: Xyz): BlackPoin
 };
 
 const usesMatrixTrc = (profile: IccProfile): boolean => {
-  if (profile.header.colorSpace === 'RGB') return profile.colorants !== undefined && profile.trc !== undefined && 'red' in profile.trc;
-  if (profile.header.colorSpace === 'Gray') return profile.trc !== undefined && 'gray' in profile.trc;
+  if (profile.header.colorSpace === 'RGB') {
+    return profile.colorants !== undefined && profile.trc !== undefined && 'red' in profile.trc;
+  }
+  if (profile.header.colorSpace === 'Gray') {
+    return profile.trc !== undefined && 'gray' in profile.trc;
+  }
   return false;
 };
 
@@ -53,15 +57,20 @@ const roundtrip = (profile: IccProfile, config: { intent: RenderingIntent; optio
   const fromDevice = sourceEvaluator(profile, 'relativeColorimetric', option);
   return inputLab => {
     let input: PcsValue = { space: 'Lab', values: inputLab };
-    if (forcedV4(profile, intent)) input = { space: 'XYZ', values: scale(labToXyz(inputLab), ZERO, PERCEPTUAL_BLACK).values };
+    if (forcedV4(profile, intent)) {
+      input = { space: 'XYZ', values: scale(labToXyz(inputLab), ZERO, PERCEPTUAL_BLACK).values };
+    }
     return toLab(fromDevice(toDevice(input)));
   };
 };
 
 const darkerColorant = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): Xyz => {
   let channels = [0, 0, 0];
-  if (profile.header.colorSpace === 'CMYK') channels = [1, 1, 1, 1];
-  else if (profile.header.colorSpace === 'Gray') channels = [0];
+  if (profile.header.colorSpace === 'CMYK') {
+    channels = [1, 1, 1, 1];
+  } else if (profile.header.colorSpace === 'Gray') {
+    channels = [0];
+  }
   const result = toLab(sourceEvaluator(profile, intent, option)(channels));
   const lightness = result[0] ?? 0;
   return neutral(lightness > 50 || lightness < 0 ? 0 : lightness);
@@ -69,7 +78,9 @@ const darkerColorant = (profile: IccProfile, intent: RenderingIntent, option: 'i
 
 const sourceBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): Xyz => {
   // LittleCMS 2.16 cmssamp.c:191–274: v4 perceptual/saturation has a reference black except for matrix-shaper profiles.
-  if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) return PERCEPTUAL_BLACK;
+  if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) {
+    return PERCEPTUAL_BLACK;
+  }
   if (intent === 'relativeColorimetric' && profile.header.profileClass === 'output' && profile.header.colorSpace === 'CMYK') {
     const lightness = roundtrip(profile, { intent: 'perceptual', option })([0, 0, 0])[0] ?? 0;
     return neutral(Math.min(50, lightness));
@@ -104,25 +115,41 @@ const quadraticMoments = (points: readonly (readonly [number, number])[]): numbe
 
 const pivotRow = (rows: number[][], column: number): number[] | undefined => {
   let pivot = column;
-  for (let row = column + 1; row < 3; row++) if (Math.abs(rows[row]?.[column] ?? 0) > Math.abs(rows[pivot]?.[column] ?? 0)) pivot = row;
+  for (let row = column + 1; row < 3; row++) {
+    if (Math.abs(rows[row]?.[column] ?? 0) > Math.abs(rows[pivot]?.[column] ?? 0)) {
+      pivot = row;
+    }
+  }
   const current = rows[column];
   const selected = rows[pivot];
-  if (current === undefined || selected === undefined) return undefined;
+  if (current === undefined || selected === undefined) {
+    return undefined;
+  }
   rows[pivot] = current;
   rows[column] = selected;
   const divisor = selected[column] ?? 0;
-  if (Math.abs(divisor) < 1e-12) return undefined;
-  for (let index = column; index < 4; index++) selected[index] = (selected[index] ?? 0) / divisor;
+  if (Math.abs(divisor) < 1e-12) {
+    return undefined;
+  }
+  for (let index = column; index < 4; index++) {
+    selected[index] = (selected[index] ?? 0) / divisor;
+  }
   return selected;
 };
 
 const eliminateColumn = (rows: number[][], column: number, selected: number[]): boolean => {
   for (let row = 0; row < 3; row++) {
-    if (row === column) continue;
+    if (row === column) {
+      continue;
+    }
     const target = rows[row];
-    if (target === undefined) return false;
+    if (target === undefined) {
+      return false;
+    }
     const factor = target[column] ?? 0;
-    for (let index = column; index < 4; index++) target[index] = (target[index] ?? 0) - factor * (selected[index] ?? 0);
+    for (let index = column; index < 4; index++) {
+      target[index] = (target[index] ?? 0) - factor * (selected[index] ?? 0);
+    }
   }
   return true;
 };
@@ -130,19 +157,29 @@ const eliminateColumn = (rows: number[][], column: number, selected: number[]): 
 const quadraticCoefficients = (rows: number[][]): readonly [number, number, number] | undefined => {
   for (let column = 0; column < 3; column++) {
     const selected = pivotRow(rows, column);
-    if (selected === undefined || !eliminateColumn(rows, column, selected)) return undefined;
+    if (selected === undefined || !eliminateColumn(rows, column, selected)) {
+      return undefined;
+    }
   }
   return [rows[0]?.[3] ?? 0, rows[1]?.[3] ?? 0, rows[2]?.[3] ?? 0];
 };
 
 const solveQuadratic = (points: readonly (readonly [number, number])[]): number => {
-  if (points.length < 4) return 0;
+  if (points.length < 4) {
+    return 0;
+  }
   const coefficients = quadraticCoefficients(quadraticMoments(points));
-  if (coefficients === undefined) return 0;
+  if (coefficients === undefined) {
+    return 0;
+  }
   const [constant, linear, quadratic] = coefficients;
-  if (Math.abs(quadratic) < 1e-10) return 0;
+  if (Math.abs(quadratic) < 1e-10) {
+    return 0;
+  }
   const discriminant = linear * linear - 4 * quadratic * constant;
-  if (discriminant <= 0) return 0;
+  if (discriminant <= 0) {
+    return 0;
+  }
   return Math.max(0, Math.min(50, (-linear + Math.sqrt(discriminant)) / (2 * quadratic)));
 };
 
@@ -166,7 +203,9 @@ const sampleRamp = (profile: IccProfile, config: { intent: RenderingIntent; opti
     const returned = evaluate([lightness, chromaA, chromaB]);
     outputRamp.push(returned[0] ?? 0);
   }
-  for (let index = 254; index > 0; index--) outputRamp[index] = Math.min(outputRamp[index] ?? 0, outputRamp[index + 1] ?? 0);
+  for (let index = 254; index > 0; index--) {
+    outputRamp[index] = Math.min(outputRamp[index] ?? 0, outputRamp[index + 1] ?? 0);
+  }
   return { input: inputRamp, output: outputRamp, minimum: outputRamp[0] ?? 0, maximum: outputRamp[255] ?? 0 };
 };
 
@@ -176,7 +215,9 @@ const shadowPoints = (ramp: LightnessRamp, intent: RenderingIntent): [number, nu
   const points: [number, number][] = [];
   for (let index = 0; index < 256; index++) {
     const normalized = ((ramp.output[index] ?? 0) - ramp.minimum) / (ramp.maximum - ramp.minimum);
-    if (normalized >= lower && normalized < upper) points.push([ramp.input[index] ?? 0, normalized]);
+    if (normalized >= lower && normalized < upper) {
+      points.push([ramp.input[index] ?? 0, normalized]);
+    }
   }
   return points;
 };
@@ -185,21 +226,31 @@ const fittedBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc'
   const initialLab = intent === 'relativeColorimetric' ? xyzToLab(xyzArray(sourceBlack(profile, intent, option))) : [0, 0, 0];
   const ramp = sampleRamp(profile, { intent, option, initialLab });
   const { minimum, maximum } = ramp;
-  if (minimum >= maximum) return ZERO;
+  if (minimum >= maximum) {
+    return ZERO;
+  }
   if (intent === 'relativeColorimetric') {
     const straight = ramp.input.every((value, index) => value <= minimum + 0.2 * (maximum - minimum) || Math.abs(value - (ramp.output[index] ?? 0)) < 4);
-    if (straight) return xyzPoint(labToXyz(initialLab));
+    if (straight) {
+      return xyzPoint(labToXyz(initialLab));
+    }
   }
   const points = shadowPoints(ramp, intent);
-  if (points.length < 3) return ZERO;
+  if (points.length < 3) {
+    return ZERO;
+  }
   return xyzPoint(labToXyz([solveQuadratic(points), initialLab[1] ?? 0, initialLab[2] ?? 0]));
 };
 
 const destinationBlack = (profile: IccProfile, intent: RenderingIntent, option: 'icc' | 'adobe'): Xyz => {
   // LittleCMS 2.16 cmssamp.c:352–552: v4 perceptual is fixed; LUT destinations use a 256-step roundtrip and a shadow fit.
-  if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) return PERCEPTUAL_BLACK;
+  if (forcedV4(profile, intent) && !usesMatrixTrc(profile)) {
+    return PERCEPTUAL_BLACK;
+  }
   const tag = profile.pcsToDevice[intentIndex(intent)] ?? profile.pcsToDevice[0];
-  if (tag === undefined || ('clut' in tag && tag.clut === undefined)) return sourceBlack(profile, intent, option);
+  if (tag === undefined || ('clut' in tag && tag.clut === undefined)) {
+    return sourceBlack(profile, intent, option);
+  }
   return fittedBlack(profile, intent, option);
 };
 
@@ -209,10 +260,14 @@ export const blackPointCompensation = (
   config: { intent: RenderingIntent; requested: boolean; option: 'icc' | 'adobe' },
 ): ((input: PcsValue) => PcsValue) | undefined => {
   const { intent, requested, option } = config;
-  if (intent === 'absoluteColorimetric' || (!requested && !forcedV4(destination, intent))) return undefined;
+  if (intent === 'absoluteColorimetric' || (!requested && !forcedV4(destination, intent))) {
+    return undefined;
+  }
   const blackIn = sourceBlack(source, intent, option);
   const blackOut = destinationBlack(destination, intent, option);
   const { magnitude } = scale([0, 0, 0], blackIn, blackOut);
-  if (magnitude < 0.002) return undefined;
+  if (magnitude < 0.002) {
+    return undefined;
+  }
   return input => ({ space: 'XYZ', values: scale(toXyz(input), blackIn, blackOut).values });
 };

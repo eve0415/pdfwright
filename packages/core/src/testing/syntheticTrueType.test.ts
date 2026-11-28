@@ -28,7 +28,9 @@ const u32 = (bytes: Uint8Array, offset: number): number => u16(bytes, offset) * 
 
 const checksum = (bytes: Uint8Array): number => {
   let sum = 0;
-  for (let offset = 0; offset < bytes.length; offset += 4) sum = (sum + u32(bytes, offset)) % 4_294_967_296;
+  for (let offset = 0; offset < bytes.length; offset += 4) {
+    sum = (sum + u32(bytes, offset)) % 4_294_967_296;
+  }
   return sum;
 };
 
@@ -44,13 +46,17 @@ const tables = (bytes: Uint8Array): Map<string, { readonly data: Uint8Array; rea
 };
 
 const cmapOf = (reading: CmapReading): TrueTypeCmap => {
-  if (reading.kind !== 'cmap') throw new Error(`the cmap table does not read: ${reading.kind}`);
+  if (reading.kind !== 'cmap') {
+    throw new Error(`the cmap table does not read: ${reading.kind}`);
+  }
   return reading.cmap;
 };
 
 const tableData = (found: ReturnType<typeof tables>, tag: string): Uint8Array => {
   const table = found.get(tag);
-  if (table === undefined) throw new Error(`the program has no ${tag} table`);
+  if (table === undefined) {
+    throw new Error(`the program has no ${tag} table`);
+  }
   return table.data;
 };
 

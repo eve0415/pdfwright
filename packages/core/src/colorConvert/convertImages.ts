@@ -123,31 +123,46 @@ const deref = (scan: ImageScan, value: PdfDirectObject | undefined): PdfDirectOb
 
 const imageNumber = (scan: ImageScan, image: PdfStream, key: Uint8Array): number => {
   const value = deref(scan, image.dictionary.get(key));
-  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) return invalid('image dimensions or bit depth are invalid');
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) {
+    return invalid('image dimensions or bit depth are invalid');
+  }
   return value.value;
 };
 
 const filterNames = (scan: ImageScan, image: PdfStream): string[] => {
   const value = deref(scan, image.dictionary.get(FILTER));
   let entries: readonly PdfDirectObject[] = [];
-  if (value?.kind === 'array') entries = value.items;
-  else if (value !== undefined) {
-    if (value.kind !== 'name') return invalid('image filter is not a name');
+  if (value?.kind === 'array') {
+    entries = value.items;
+  } else if (value !== undefined) {
+    if (value.kind !== 'name') {
+      return invalid('image filter is not a name');
+    }
     entries = [value];
   }
   return entries.map(item => {
     const resolved = deref(scan, item);
-    if (resolved?.kind !== 'name') return invalid('image filter is not a name');
+    if (resolved?.kind !== 'name') {
+      return invalid('image filter is not a name');
+    }
     const name = new TextDecoder('latin1').decode(resolved.bytes);
-    if (name === 'DCT') return 'DCTDecode';
-    if (name === 'Fl') return 'FlateDecode';
+    if (name === 'DCT') {
+      return 'DCTDecode';
+    }
+    if (name === 'Fl') {
+      return 'FlateDecode';
+    }
     return name;
   });
 };
 
 const compressedFilter = (names: readonly string[]): 'DCTDecode' | 'JPXDecode' | undefined => {
-  if (names.includes('JPXDecode')) return 'JPXDecode';
-  if (names.includes('DCTDecode')) return 'DCTDecode';
+  if (names.includes('JPXDecode')) {
+    return 'JPXDecode';
+  }
+  if (names.includes('DCTDecode')) {
+    return 'DCTDecode';
+  }
   return undefined;
 };
 
@@ -155,27 +170,45 @@ const colorSource = (space: SourceSpace): ColorSource | undefined => (space.kind
 
 const explicitDefaultRgb = (scan: ImageScan, resources: PdfDictionaryEntries): PdfDirectObject => {
   const category = deref(scan, resources.get(COLOR_SPACE));
-  if (category?.kind !== 'dictionary') return invalid('DefaultRGB resource is missing');
+  if (category?.kind !== 'dictionary') {
+    return invalid('DefaultRGB resource is missing');
+  }
   const value = category.entries.get(DEFAULT_RGB);
-  if (value === undefined) return invalid('DefaultRGB resource is missing');
+  if (value === undefined) {
+    return invalid('DefaultRGB resource is missing');
+  }
   const resolved = deref(scan, value);
-  if (resolved?.kind === 'array') return resolved;
-  if (value.kind === 'reference') return value;
+  if (resolved?.kind === 'array') {
+    return resolved;
+  }
+  if (value.kind === 'reference') {
+    return value;
+  }
   return invalid('DefaultRGB cannot be made explicit on an image');
 };
 
 const sourceKey = (space: SourceSpace): string => {
   const source = colorSource(space);
-  if (source === undefined) return space.kind;
+  if (source === undefined) {
+    return space.kind;
+  }
   return source.kind === 'icc' ? [...source.profile.identity].join(',') : JSON.stringify(source);
 };
 
 const intentName = (value: PdfDirectObject | PdfStream | undefined): RenderingIntent | undefined => {
-  if (value?.kind !== 'name') return undefined;
+  if (value?.kind !== 'name') {
+    return undefined;
+  }
   const name = new TextDecoder('latin1').decode(value.bytes);
-  if (name === 'Perceptual') return 'perceptual';
-  if (name === 'Saturation') return 'saturation';
-  if (name === 'AbsoluteColorimetric') return 'absoluteColorimetric';
+  if (name === 'Perceptual') {
+    return 'perceptual';
+  }
+  if (name === 'Saturation') {
+    return 'saturation';
+  }
+  if (name === 'AbsoluteColorimetric') {
+    return 'absoluteColorimetric';
+  }
   return 'relativeColorimetric';
 };
 
@@ -186,7 +219,9 @@ const transformFor = (scan: ImageScan, image: PdfStream, selection: { source: Co
       : scan.options.intent;
   const key = `${intent}:${selection.source.kind === 'icc' ? [...selection.source.profile.identity].join(',') : JSON.stringify(selection.source)}`;
   const cached = scan.transforms.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const transform = createColorTransform(selection.source, scan.options.outputProfile, {
     intent,
     blackPointCompensation: scan.options.blackPointCompensation !== false,
@@ -198,13 +233,21 @@ const transformFor = (scan: ImageScan, image: PdfStream, selection: { source: Co
 
 const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): number[] | undefined => {
   const value = deref(scan, image.dictionary.get(DECODE));
-  if (value === undefined) return undefined;
-  if (value.kind !== 'array' || value.items.length !== channels * 2) return invalid('image Decode array has the wrong length');
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.kind !== 'array' || value.items.length !== channels * 2) {
+    return invalid('image Decode array has the wrong length');
+  }
   const values: number[] = [];
   for (const item of value.items) {
     const component = deref(scan, item);
-    if (component?.kind !== 'integer' && component?.kind !== 'real') return invalid('image Decode entry is not numeric');
-    if (typeof component.value !== 'number') return invalid('image Decode entry is not numeric');
+    if (component?.kind !== 'integer' && component?.kind !== 'real') {
+      return invalid('image Decode entry is not numeric');
+    }
+    if (typeof component.value !== 'number') {
+      return invalid('image Decode entry is not numeric');
+    }
     values.push(component.value);
   }
   return values;
@@ -213,13 +256,19 @@ const decodeArray = (scan: ImageScan, image: PdfStream, channels: number): numbe
 const maskRanges = (scan: ImageScan, image: PdfStream, config: { channels: number; bits: number }): readonly number[] | undefined => {
   const { channels, bits } = config;
   const mask = deref(scan, image.dictionary.get(MASK));
-  if (mask?.kind !== 'array') return undefined;
-  if (mask.items.length !== channels * 2) return invalid('image colour-key mask has the wrong number of ranges');
+  if (mask?.kind !== 'array') {
+    return undefined;
+  }
+  if (mask.items.length !== channels * 2) {
+    return invalid('image colour-key mask has the wrong number of ranges');
+  }
   const maximum = 2 ** bits - 1;
   const ranges: number[] = [];
   for (const item of mask.items) {
     const value = deref(scan, item);
-    if (value?.kind !== 'integer' || value.value < 0 || value.value > maximum) return invalid('image colour-key mask range is invalid');
+    if (value?.kind !== 'integer' || value.value < 0 || value.value > maximum) {
+      return invalid('image colour-key mask range is invalid');
+    }
     ranges.push(value.value);
   }
   return ranges;
@@ -233,37 +282,57 @@ const stencilRow = (row: Uint8Array, config: { width: number; channels: number; 
     let keyed = true;
     for (let channel = 0; channel < channels; channel++) {
       const value = readImageSample(row, pixel * channels + channel, bits);
-      if (value < (ranges[channel * 2] ?? 0) || value > (ranges[channel * 2 + 1] ?? -1)) keyed = false;
+      if (value < (ranges[channel * 2] ?? 0) || value > (ranges[channel * 2 + 1] ?? -1)) {
+        keyed = false;
+      }
     }
-    if (keyed) stencil[Math.floor(pixel / 8)] = (stencil[Math.floor(pixel / 8)] ?? 0) + 2 ** (7 - (pixel % 8));
+    if (keyed) {
+      stencil[Math.floor(pixel / 8)] = (stencil[Math.floor(pixel / 8)] ?? 0) + 2 ** (7 - (pixel % 8));
+    }
   }
   return stencil;
 };
 
 const imageBits = (scan: ImageScan, image: PdfStream): number => {
   const bits = imageNumber(scan, image, BITS);
-  if (![1, 2, 4, 8, 16].includes(bits)) return invalid('image BitsPerComponent is unsupported');
+  if (![1, 2, 4, 8, 16].includes(bits)) {
+    return invalid('image BitsPerComponent is unsupported');
+  }
   return bits;
 };
 
 const softMaskMatte = (scan: ImageScan, image: PdfStream, parent: { width: number; height: number; channels: number }): SoftMaskMatte | undefined => {
   const reference = image.dictionary.get(SOFT_MASK);
   const mask = deref(scan, reference);
-  if (mask?.kind !== 'stream') return undefined;
+  if (mask?.kind !== 'stream') {
+    return undefined;
+  }
   const matte = deref(scan, mask.dictionary.get(MATTE));
-  if (matte === undefined) return undefined;
-  if (reference?.kind !== 'reference') return invalid('soft-mask image must be indirect');
+  if (matte === undefined) {
+    return undefined;
+  }
+  if (reference?.kind !== 'reference') {
+    return invalid('soft-mask image must be indirect');
+  }
   // ISO 32000-1:2008, 11.6.5.3, Table 146: Matte has one component per component of the parent image's colour space, and a preblended image and its soft mask have the same Width and Height.
-  if (matte.kind !== 'array' || matte.items.length !== parent.channels) return invalid('soft-mask Matte does not match the image colour space');
+  if (matte.kind !== 'array' || matte.items.length !== parent.channels) {
+    return invalid('soft-mask Matte does not match the image colour space');
+  }
   const values = matte.items.map(item => {
     const component = deref(scan, item);
-    if (component?.kind !== 'integer' && component?.kind !== 'real') return invalid('soft-mask Matte entry is not numeric');
-    if (typeof component.value !== 'number') return invalid('soft-mask Matte entry is not numeric');
+    if (component?.kind !== 'integer' && component?.kind !== 'real') {
+      return invalid('soft-mask Matte entry is not numeric');
+    }
+    if (typeof component.value !== 'number') {
+      return invalid('soft-mask Matte entry is not numeric');
+    }
     return component.value;
   });
   const width = imageNumber(scan, mask, WIDTH);
   const height = imageNumber(scan, mask, HEIGHT);
-  if (width !== parent.width || height !== parent.height) return invalid('preblended image and its soft mask differ in size');
+  if (width !== parent.width || height !== parent.height) {
+    return invalid('preblended image and its soft mask differ in size');
+  }
   const bits = imageBits(scan, mask);
   const geometry: ImageGeometry = {
     width,
@@ -334,7 +403,9 @@ class ImageChunkCursor {
     let filled = 0;
     while (filled < length) {
       this.advance();
-      if (this.current.done === true) return invalid('decoded image length does not match its dimensions');
+      if (this.current.done === true) {
+        return invalid('decoded image length does not match its dimensions');
+      }
       const count = Math.min(this.current.value.length - this.position, length - filled);
       output.set(this.current.value.subarray(this.position, this.position + count), filled);
       this.position += count;
@@ -350,8 +421,12 @@ class ImageChunkCursor {
 }
 
 const imageChunks = (image: PdfStream, filters: readonly string[], expected: number): Iterable<Uint8Array> | undefined => {
-  if (filters.length === 1 && filters[0] === 'FlateDecode') return inflateChunks(image.data, { maxOutputBytes: expected, copyInput: false });
-  if (filters.length === 0) return [image.data];
+  if (filters.length === 1 && filters[0] === 'FlateDecode') {
+    return inflateChunks(image.data, { maxOutputBytes: expected, copyInput: false });
+  }
+  if (filters.length === 0) {
+    return [image.data];
+  }
   return undefined;
 };
 
@@ -363,9 +438,15 @@ const imageRows = function* (scan: ImageScan, image: PdfStream, geometry: ImageG
   const chunks = imageChunks(image, filters, expected);
   if (chunks === undefined) {
     const data = decodedData(scan.internals, image);
-    if (typeof data === 'string') throw new ValidationError(`image data cannot be decoded: ${data}`, 'color-space');
-    if (data.length !== geometry.inputRow * geometry.height) invalid('decoded image length does not match its dimensions');
-    for (let row = 0; row < geometry.height; row++) yield data.subarray(row * geometry.inputRow, (row + 1) * geometry.inputRow);
+    if (typeof data === 'string') {
+      throw new ValidationError(`image data cannot be decoded: ${data}`, 'color-space');
+    }
+    if (data.length !== geometry.inputRow * geometry.height) {
+      invalid('decoded image length does not match its dimensions');
+    }
+    for (let row = 0; row < geometry.height; row++) {
+      yield data.subarray(row * geometry.inputRow, (row + 1) * geometry.inputRow);
+    }
     return;
   }
   const cursor = new ImageChunkCursor(chunks);
@@ -378,12 +459,18 @@ const imageRows = function* (scan: ImageScan, image: PdfStream, geometry: ImageG
       pair.set(previous, 1);
       pair.set(encoded, geometry.inputRow + 1);
       decoded = undoPredictor(pair, settings).subarray(geometry.inputRow);
-    } else if (settings.predictor !== 1) decoded = undoPredictor(encoded, settings);
-    if (decoded.length !== geometry.inputRow) invalid('decoded image row has the wrong width');
+    } else if (settings.predictor !== 1) {
+      decoded = undoPredictor(encoded, settings);
+    }
+    if (decoded.length !== geometry.inputRow) {
+      invalid('decoded image row has the wrong width');
+    }
     previous = decoded;
     yield decoded;
   }
-  if (cursor.hasMore()) invalid('decoded image length does not match its dimensions');
+  if (cursor.hasMore()) {
+    invalid('decoded image length does not match its dimensions');
+  }
 };
 
 const alphaRow = (row: Uint8Array, matte: SoftMaskMatte): Float64Array => {
@@ -398,31 +485,43 @@ const alphaRow = (row: Uint8Array, matte: SoftMaskMatte): Float64Array => {
 /** Pairs each image row with the matte and alpha its samples were preblended with. */
 const withMatte = function* (scan: ImageScan, rows: Iterable<Uint8Array>, matte: SoftMaskMatte | undefined): Generator<[Uint8Array, RowMatte | undefined]> {
   if (matte === undefined) {
-    for (const row of rows) yield [row, undefined];
+    for (const row of rows) {
+      yield [row, undefined];
+    }
     return;
   }
   const alphas = imageRows(scan, matte.mask, matte.geometry);
   for (const row of rows) {
     const alpha = alphas.next();
-    if (alpha.done === true) throw new ValidationError('soft-mask data is shorter than its image', 'color-space');
+    if (alpha.done === true) {
+      throw new ValidationError('soft-mask data is shorter than its image', 'color-space');
+    }
     yield [row, { values: matte.values, alpha: alphaRow(alpha.value, matte) }];
   }
 };
 
 const checkSoftMaskRows = (scan: ImageScan, matte: SoftMaskMatte | undefined): void => {
-  if (matte === undefined) return;
+  if (matte === undefined) {
+    return;
+  }
   const rows = imageRows(scan, matte.mask, matte.geometry);
-  while (rows.next().done !== true);
+  while (rows.next().done !== true) {
+    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
+  }
 };
 
 const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: SourceSpace; reference: PdfReference }): EncodedImageData => {
   const { space, reference } = target;
   const source = colorSource(space);
-  if (source === undefined) return invalid('image colour space cannot be converted');
+  if (source === undefined) {
+    return invalid('image colour space cannot be converted');
+  }
   const geometry = imageGeometry(scan, image, space);
   const { width, bits, channels, outputBits, ranges, matte } = geometry;
   const rows = imageRows(scan, image, geometry);
-  while (rows.next().done !== true);
+  while (rows.next().done !== true) {
+    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
+  }
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source, reference });
   const decode = decodeArray(scan, image, channels);
@@ -438,7 +537,9 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
       ? undefined
       : function* () {
           const deflater = createDeflateStream();
-          for (const input of imageRows(scan, image, geometry)) yield* deflater.push(stencilRow(input, { width, channels, bits, ranges }));
+          for (const input of imageRows(scan, image, geometry)) {
+            yield* deflater.push(stencilRow(input, { width, channels, bits, ranges }));
+          }
           yield deflater.finish();
         };
   return { data, bits: outputBits, stencil, matte };
@@ -447,11 +548,19 @@ const convertPixels = (scan: ImageScan, image: PdfStream, target: { space: Sourc
 const jpegColorTransform = (scan: ImageScan, image: PdfStream): 0 | 1 | undefined => {
   const parameters = deref(scan, image.dictionary.get(DECODE_PARMS));
   const dictionary = parameters?.kind === 'array' ? deref(scan, parameters.items[0]) : parameters;
-  if (dictionary === undefined || dictionary.kind === 'null') return undefined;
-  if (dictionary.kind !== 'dictionary') throw new ParseError('JPEG DecodeParms must be a dictionary', 0);
+  if (dictionary === undefined || dictionary.kind === 'null') {
+    return undefined;
+  }
+  if (dictionary.kind !== 'dictionary') {
+    throw new ParseError('JPEG DecodeParms must be a dictionary', 0);
+  }
   const value = deref(scan, dictionary.entries.get(COLOR_TRANSFORM));
-  if (value === undefined) return undefined;
-  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) throw new ParseError('JPEG ColorTransform must be 0 or 1', 0);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) {
+    throw new ParseError('JPEG ColorTransform must be 0 or 1', 0);
+  }
   return value.value;
 };
 
@@ -460,9 +569,13 @@ const transcodeJpegImage = (
   input: { readonly reference: PdfReference; readonly image: PdfStream; readonly space: SourceSpace },
 ): EncodedImageData => {
   const { reference, image, space } = input;
-  if (space.kind !== 'rgb') throw new UnsupportedFeatureError('compressed non-RGB JPEG conversion is unavailable', 'compressed-rgb-image');
+  if (space.kind !== 'rgb') {
+    throw new UnsupportedFeatureError('compressed non-RGB JPEG conversion is unavailable', 'compressed-rgb-image');
+  }
   const geometry = imageGeometry(scan, image, space);
-  if (geometry.bits !== 8) return invalid('JPEG image BitsPerComponent must be 8');
+  if (geometry.bits !== 8) {
+    return invalid('JPEG image BitsPerComponent must be 8');
+  }
   // ISO 32000-1:2008, 7.4.8, Table 13: DecodeParms ColorTransform applies only when Adobe APP14 does not override it.
   const maxRowBytes = Math.min(scan.internals.maxDecodedBytes, MAX_IMAGE_WORKING_BYTES);
   const colorTransform = jpegColorTransform(scan, image);
@@ -472,7 +585,9 @@ const transcodeJpegImage = (
     return invalid('JPEG frame geometry differs from the image dictionary');
   }
   const rows = jpeg.rows();
-  while (rows.next().done !== true);
+  while (rows.next().done !== true) {
+    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
+  }
   const { matte } = geometry;
   checkSoftMaskRows(scan, matte);
   const transform = transformFor(scan, image, { source: space.source, reference });
@@ -490,7 +605,9 @@ const transcodeJpegImage = (
       ? undefined
       : function* () {
           const deflater = createDeflateStream();
-          for (const row of jpeg.rows()) yield* deflater.push(stencilRow(row, { width: geometry.width, channels: 3, bits: 8, ranges }));
+          for (const row of jpeg.rows()) {
+            yield* deflater.push(stencilRow(row, { width: geometry.width, channels: 3, bits: 8, ranges }));
+          }
           yield deflater.finish();
         };
   return { data, bits: 8, stencil, matte };
@@ -573,7 +690,9 @@ const planImage = (scan: ImageScan, target: { reference: PdfReference; image: Pd
   const { reference, image } = target;
   // ISO 32000-1:2008, 8.9.5 Table 89: ColorSpace is required except for JPXDecode images and forbidden for image masks.
   const masked = deref(scan, image.dictionary.get(IMAGE_MASK));
-  if (masked?.kind === 'boolean' && masked.value) return;
+  if (masked?.kind === 'boolean' && masked.value) {
+    return;
+  }
   const filters = filterNames(scan, image);
   const compressed = compressedFilter(filters);
   const color = image.dictionary.get(COLOR_SPACE);
@@ -589,11 +708,17 @@ const planImage = (scan: ImageScan, target: { reference: PdfReference; image: Pd
     sourceRgbProfile: scan.options.sourceRgbProfile,
     options: { iccGray: scan.options.iccGray ?? 'convert' },
   });
-  if (space.kind !== 'rgb' && space.kind !== 'gray') return;
+  if (space.kind !== 'rgb' && space.kind !== 'gray') {
+    return;
+  }
   const key = sourceKey(space);
   const previous = scan.seen.get(reference.objectNumber);
-  if (previous !== undefined && previous !== key) throw new ValidationError('shared image has conflicting source colour spaces', 'color-space');
-  if (previous !== undefined) return;
+  if (previous !== undefined && previous !== key) {
+    throw new ValidationError('shared image has conflicting source colour spaces', 'color-space');
+  }
+  if (previous !== undefined) {
+    return;
+  }
   scan.seen.set(reference.objectNumber, key);
   if (compressed !== undefined) {
     planCompressedRgb(scan, { reference, image, space, filter: compressed, color, resources, filters });
@@ -615,26 +740,40 @@ const planImage = (scan: ImageScan, target: { reference: PdfReference; image: Pd
 
 const scanResources = (scan: ImageScan, visit: ResourceVisit): void => {
   const category = deref(scan, visit.resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of category.entries.entries()) {
     const image = deref(scan, value);
-    if (image?.kind !== 'stream') continue;
+    if (image?.kind !== 'stream') {
+      continue;
+    }
     const subtype = deref(scan, image.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Image') continue;
-    if (value.kind !== 'reference') return invalid('image XObject must be indirect');
+    if (subtype?.kind !== 'name' || new TextDecoder('latin1').decode(subtype.bytes) !== 'Image') {
+      continue;
+    }
+    if (value.kind !== 'reference') {
+      return invalid('image XObject must be indirect');
+    }
     planImage(scan, { reference: value, image }, visit.resources);
   }
 };
 
 const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: readonly FormUse[]): void => {
   const category = deref(scan, resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const use of uses) {
     const value = category.entries.get(use.name);
     const stream = deref(scan, value);
-    if (stream?.kind !== 'stream' || value?.kind !== 'reference') continue;
+    if (stream?.kind !== 'stream' || value?.kind !== 'reference') {
+      continue;
+    }
     const subtype = deref(scan, stream.dictionary.get(SUBTYPE));
-    if (subtype?.kind !== 'name') continue;
+    if (subtype?.kind !== 'name') {
+      continue;
+    }
     const kind = new TextDecoder('latin1').decode(subtype.bytes);
     if (kind === 'Image' && stream.dictionary.get(INTENT) === undefined) {
       const previous = scan.uses.get(value.objectNumber);
@@ -643,12 +782,18 @@ const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: readon
       }
       scan.uses.set(value.objectNumber, use.entry.intent);
     }
-    if (kind !== 'Form') continue;
-    if (scan.activeForms.has(value.objectNumber)) throw new ResourceLimitError('recursive form image walk is unsupported');
+    if (kind !== 'Form') {
+      continue;
+    }
+    if (scan.activeForms.has(value.objectNumber)) {
+      throw new ResourceLimitError('recursive form image walk is unsupported');
+    }
     const own = deref(scan, stream.dictionary.get(pdfName('Resources').bytes));
     const formResources = own?.kind === 'dictionary' ? own.entries : resources;
     const bytes = decodedData(scan.internals, stream);
-    if (typeof bytes === 'string') throw new ValidationError(`form content cannot be read: ${bytes}`, 'color-operator');
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`form content cannot be read: ${bytes}`, 'color-operator');
+    }
     scan.activeForms.add(value.objectNumber);
     try {
       const rewritten = rewriteContentColors(scan.document, bytes, {
@@ -666,9 +811,13 @@ const scanUses = (scan: ImageScan, resources: PdfDictionaryEntries, uses: readon
 
 const scanPageUses = (scan: ImageScan, page: number): void => {
   const entry = scan.internals.pages[page];
-  if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+  if (entry === undefined) {
+    throw new ValidationError('page entry is missing', 'color-space');
+  }
   const content = pageContent(scan.internals, entry);
-  if (content.problems.length > 0) throw new ValidationError(`page content cannot be read: ${content.problems.join('; ')}`, 'color-operator');
+  if (content.problems.length > 0) {
+    throw new ValidationError(`page content cannot be read: ${content.problems.join('; ')}`, 'color-operator');
+  }
   const resources = scan.document.page(page).resources();
   const rewritten = rewriteContentColors(scan.document, combineContentStreams(content.streams), {
     resources,
@@ -679,7 +828,9 @@ const scanPageUses = (scan: ImageScan, page: number): void => {
 };
 
 const addStencil = (scan: ImageScan, plan: ImagePlan): PdfReference | undefined => {
-  if (plan.stencil === undefined) return undefined;
+  if (plan.stencil === undefined) {
+    return undefined;
+  }
   const dictionary = new PdfDictionaryEntries([
     [TYPE, pdfName('XObject')],
     [SUBTYPE, pdfName('Image')],
@@ -695,7 +846,9 @@ const addStencil = (scan: ImageScan, plan: ImagePlan): PdfReference | undefined 
 // ISO 32000-1:2008, 11.6.5.3, Table 146: without Matte the image data is not preblended. A converted image holds unblended samples, so it gets a copy of its soft mask without Matte; the original stays for any image that still needs it.
 const unblendedSoftMask = (scan: ImageScan, matte: SoftMaskMatte, copies: Map<number, PdfReference>): PdfReference => {
   const existing = copies.get(matte.reference.objectNumber);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    return existing;
+  }
   const dictionary = new PdfDictionaryEntries(matte.mask.dictionary.entries());
   dictionary.delete(MATTE);
   const copy = scan.document.object({ kind: 'stream', dictionary, data: matte.mask.data });
@@ -732,18 +885,24 @@ const applyPlans = (scan: ImageScan): ImageConversionReport => {
         changed = true;
         tagged = 'added';
       }
-      if (dictionary.get(COLOR_SPACE) === undefined) tagged = 'jpx-colr';
+      if (dictionary.get(COLOR_SPACE) === undefined) {
+        tagged = 'jpx-colr';
+      }
       keptRgbImages.push({ ref: plan.reference, filter: plan.filter, tagged });
       continue;
     }
-    if (plan.converted === undefined || plan.outputBits === undefined) throw new ValidationError('converted image has no data', 'color-space');
+    if (plan.converted === undefined || plan.outputBits === undefined) {
+      throw new ValidationError('converted image has no data', 'color-space');
+    }
     dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
     dictionary.set(BITS, pdfInteger(plan.outputBits));
     dictionary.set(FILTER, pdfName('FlateDecode'));
     dictionary.delete(DECODE_PARMS);
     dictionary.delete(DECODE);
     const stencil = addStencil(scan, plan);
-    if (stencil !== undefined) dictionary.set(MASK, stencil);
+    if (stencil !== undefined) {
+      dictionary.set(MASK, stencil);
+    }
     if (plan.matte !== undefined) {
       dictionary.set(SOFT_MASK, unblendedSoftMask(scan, plan.matte, softMaskCopies));
       discarded.push(plan.matte.reference);
@@ -752,8 +911,12 @@ const applyPlans = (scan: ImageScan): ImageConversionReport => {
     converted++;
     changed = true;
   }
-  if (discarded.length > 0) deleteDiscarded(scan.document, scan.internals, discarded);
-  if (changed) scan.internals.objects.requireFullRewrite('color-conversion');
+  if (discarded.length > 0) {
+    deleteDiscarded(scan.document, scan.internals, discarded);
+  }
+  if (changed) {
+    scan.internals.objects.requireFullRewrite('color-conversion');
+  }
   return { converted, keptRgbImages };
 };
 
@@ -761,14 +924,20 @@ const applyPlans = (scan: ImageScan): ImageConversionReport => {
 export const convertImages = (document: LoadedDocument, options: RewriteColorOptions): ImageConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const scan: ImageScan = { document, internals, options, plans: [], seen: new Map(), uses: new Map(), transforms: new Map(), activeForms: new Set() };
   if (options.intent === undefined || options.intent === 'document') {
-    for (let page = 0; page < document.pageCount; page++) scanPageUses(scan, page);
+    for (let page = 0; page < document.pageCount; page++) {
+      scanPageUses(scan, page);
+    }
   }
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+    if (entry === undefined) {
+      throw new ValidationError('page entry is missing', 'color-space');
+    }
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -776,7 +945,9 @@ export const convertImages = (document: LoadedDocument, options: RewriteColorOpt
         scanResources(scan, visit);
       },
     });
-    if (unreadable.length > 0) throw new ValidationError('image resources cannot be read', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('image resources cannot be read', 'unreadable-resource');
+    }
   }
   const report = applyPlans(scan);
   scan.plans.length = 0;

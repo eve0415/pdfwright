@@ -39,7 +39,9 @@ export const pieceInfoRecord = (lastModified: PdfDate, data: PieceDataEntries): 
   for (const [app, appData] of dataEntries(data)) {
     const name = pdfNameFromBytes(typeof app === 'string' ? new TextEncoder().encode(app) : app);
     const dictionary = new PdfDictionaryEntries([[pdfName('LastModified').bytes, pdfDateObject(lastModified)]]);
-    if (appData.private !== undefined) dictionary.set(pdfName('Private').bytes, appData.private);
+    if (appData.private !== undefined) {
+      dictionary.set(pdfName('Private').bytes, appData.private);
+    }
     entries.set(name.bytes, pdfDictionary(dictionary));
   }
   return { lastModified, value: pdfDictionary(entries) };

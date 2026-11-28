@@ -115,7 +115,9 @@ const EXTERNAL_FILE = pdfName('F').bytes;
 
 const count = (value: number | undefined, fallback: number, name: string): number => {
   const result = value ?? fallback;
-  if (!Number.isSafeInteger(result) || result < 0) throw new InvalidArgumentError(`${name} must be a non-negative integer`);
+  if (!Number.isSafeInteger(result) || result < 0) {
+    throw new InvalidArgumentError(`${name} must be a non-negative integer`);
+  }
   return result;
 };
 
@@ -252,8 +254,12 @@ class LoadedPdf implements LoadedDocument {
 
   replaceStreamData(reference: PdfReference, data: Uint8Array, options: { readonly filter: 'FlateDecode' }): void {
     const stream = this.objects.get(reference);
-    if (stream.kind !== 'stream') throw new InvalidArgumentError('replaceStreamData requires a stream object');
-    if (stream.dictionary.has(EXTERNAL_FILE)) throw new InvalidArgumentError('an external-file stream cannot have its local data replaced');
+    if (stream.kind !== 'stream') {
+      throw new InvalidArgumentError('replaceStreamData requires a stream object');
+    }
+    if (stream.dictionary.has(EXTERNAL_FILE)) {
+      throw new InvalidArgumentError('an external-file stream cannot have its local data replaced');
+    }
     if (data.length > this.maxDecodedBytes) {
       throw new ResourceLimitError(`replacement stream exceeds maxDecodedBytes (${String(this.maxDecodedBytes)} bytes)`);
     }
@@ -278,12 +284,18 @@ class LoadedPdf implements LoadedDocument {
     const needsTransparency =
       this.features.transparency || this.placed.groupNumbers.size > 0 || [...this.placed.imageNumbers.values()].some(numbers => numbers.mask !== undefined);
     const root = this.read.trailer.get(ROOT);
-    if (!needsTransparency || root?.kind !== 'reference') return;
+    if (!needsTransparency || root?.kind !== 'reference') {
+      return;
+    }
     const catalog = this.get(root);
-    if (catalog.kind !== 'dictionary') return;
+    if (catalog.kind !== 'dictionary') {
+      return;
+    }
     const declared = catalog.entries.get(VERSION);
     const effective = Math.max(versionNumber(this.read.headerVersion), declared?.kind === 'name' ? versionNumber(new TextDecoder().decode(declared.bytes)) : 0);
-    if (effective >= 14) return;
+    if (effective >= 14) {
+      return;
+    }
     catalog.entries.set(VERSION, pdfName('1.4'));
     changes.set(root.objectNumber, { generation: root.generation, value: catalog });
     warnings.push({ code: 'version-raised', detail: 'the catalog Version is set to 1.4 for the transparency the new content uses' });
@@ -298,14 +310,18 @@ class LoadedPdf implements LoadedDocument {
         rewriteReason,
       );
     }
-    if (mode === 'auto') mode = this.read.status === 'intact' && rewriteReason === undefined ? 'incremental' : 'full';
+    if (mode === 'auto') {
+      mode = this.read.status === 'intact' && rewriteReason === undefined ? 'incremental' : 'full';
+    }
     if (mode === 'full' && this.objects.needsIncrementalSave && options.invalidateSignatures !== true) {
       throw new InvalidArgumentError('a full rewrite would invalidate signatures; set invalidateSignatures to true to allow it', 'signed-document');
     }
     const changes = new Map(this.objects.changes);
     const warnings: SaveWarning[] = recoverySaveWarnings(this.log);
     const lowerVersion = this.pdfx4Version && versionNumber(this.read.headerVersion) > 16;
-    if (lowerVersion || this.pdfx4CatalogLowered) warnings.push({ code: 'version-lowered', detail: 'the PDF version was lowered to 1.6 for PDF/X-4 output' });
+    if (lowerVersion || this.pdfx4CatalogLowered) {
+      warnings.push({ code: 'version-lowered', detail: 'the PDF version was lowered to 1.6 for PDF/X-4 output' });
+    }
     this.versionChange(changes, warnings);
     const fractionDigits = options.fractionDigits ?? DEFAULT_FRACTION_DIGITS;
     this.objects.saveHook?.(changes, { fractionDigits });
@@ -332,7 +348,9 @@ class LoadedPdf implements LoadedDocument {
   catalog(): PdfDictionaryEntries {
     const root = this.read.trailer.get(ROOT);
     const catalog = root?.kind === 'reference' ? this.get(root) : undefined;
-    if (catalog?.kind !== 'dictionary') throw new ParseError('the document catalog is not a dictionary', 0);
+    if (catalog?.kind !== 'dictionary') {
+      throw new ParseError('the document catalog is not a dictionary', 0);
+    }
     return catalog.entries;
   }
 }
@@ -357,7 +375,9 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
       read = readFromChain(session, header);
     } catch (error: unknown) {
       // Only damage leads to a reconstruction; pdfwright propagates encryption, resource limits, unsupported features and generation mismatches.
-      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError) throw error;
+      if (!(error instanceof ParseError) || error instanceof GenerationMismatchError) {
+        throw error;
+      }
       reason = error.message;
     }
   }
@@ -368,7 +388,9 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
   };
   const root = read.structure.trailer.get(ROOT);
   const catalog = root?.kind === 'reference' ? store.resolve(root.objectNumber, root.generation) : undefined;
-  if (catalog?.kind !== 'dictionary') throw new ParseError('the document catalog is not a dictionary', 0);
+  if (catalog?.kind !== 'dictionary') {
+    throw new ParseError('the document catalog is not a dictionary', 0);
+  }
   const pages = enumeratePages(store, catalog.entries.get(PAGES), {
     pageCountMismatch: options.pageCountMismatch ?? 'error',
     maxPageTreeDepth: count(options.maxPageTreeDepth, 256, 'maxPageTreeDepth'),
@@ -387,7 +409,9 @@ export const loadDocument = (input: Uint8Array | readonly Uint8Array[], options:
     }
   }
   let { status } = read.structure;
-  if (status === 'intact' && log.tolerated) status = 'tolerated';
+  if (status === 'intact' && log.tolerated) {
+    status = 'tolerated';
+  }
   return new LoadedPdf({
     read: { ...read, structure: { ...read.structure, status } },
     warnings: log.warnings,

@@ -23,7 +23,9 @@ const paeth = (left: number, above: number, upperLeft: number): number => {
   const toLeft = Math.abs(estimate - left);
   const toAbove = Math.abs(estimate - above);
   const toUpperLeft = Math.abs(estimate - upperLeft);
-  if (toLeft <= toAbove && toLeft <= toUpperLeft) return left;
+  if (toLeft <= toAbove && toLeft <= toUpperLeft) {
+    return left;
+  }
   return toAbove <= toUpperLeft ? above : upperLeft;
 };
 
@@ -37,7 +39,9 @@ const undoPng = (data: Uint8Array, parameters: PredictorParameters): Uint8Array 
   for (let row = 0; row < rowCount; row++) {
     const input = row * (rowBytes + 1);
     const tag = data[input] ?? 0;
-    if (tag > 4) throw new ParseError(`unknown PNG predictor tag ${String(tag)}`, input);
+    if (tag > 4) {
+      throw new ParseError(`unknown PNG predictor tag ${String(tag)}`, input);
+    }
     const start = row * rowBytes;
     const width = Math.min(rowBytes, data.length - input - 1);
     for (let index = 0; index < width; index++) {
@@ -46,10 +50,15 @@ const undoPng = (data: Uint8Array, parameters: PredictorParameters): Uint8Array 
       const above = previous >= 0 ? (output[previous + index] ?? 0) : 0;
       const upperLeft = previous >= 0 && index >= bytesPerPixel ? (output[previous + index - bytesPerPixel] ?? 0) : 0;
       let prediction = 0;
-      if (tag === 1) prediction = left;
-      else if (tag === 2) prediction = above;
-      else if (tag === 3) prediction = Math.floor((left + above) / 2);
-      else if (tag === 4) prediction = paeth(left, above, upperLeft);
+      if (tag === 1) {
+        prediction = left;
+      } else if (tag === 2) {
+        prediction = above;
+      } else if (tag === 3) {
+        prediction = Math.floor((left + above) / 2);
+      } else if (tag === 4) {
+        prediction = paeth(left, above, upperLeft);
+      }
       output[start + index] = ((data[input + 1 + index] ?? 0) + prediction) % 256;
     }
     previous = start;
@@ -63,8 +72,12 @@ interface Component {
 }
 
 const readComponent = (row: Uint8Array, { index, bits }: Component): number => {
-  if (bits === 8) return row[index] ?? 0;
-  if (bits === 16) return (row[index * 2] ?? 0) * 256 + (row[index * 2 + 1] ?? 0);
+  if (bits === 8) {
+    return row[index] ?? 0;
+  }
+  if (bits === 16) {
+    return (row[index * 2] ?? 0) * 256 + (row[index * 2 + 1] ?? 0);
+  }
   // "Samples and their components shall be packed into bytes from high-order to low-order bits."
   const bit = index * bits;
   const shift = 8 - bits - (bit % 8);
@@ -72,8 +85,9 @@ const readComponent = (row: Uint8Array, { index, bits }: Component): number => {
 };
 
 const writeComponent = (row: Uint8Array, { index, bits }: Component, value: number): void => {
-  if (bits === 8) row[index] = value;
-  else if (bits === 16) {
+  if (bits === 8) {
+    row[index] = value;
+  } else if (bits === 16) {
     row[index * 2] = Math.floor(value / 256);
     row[index * 2 + 1] = value % 256;
   } else {
@@ -104,10 +118,16 @@ const undoTiff = (data: Uint8Array, parameters: PredictorParameters): Uint8Array
 
 /** Reverses the predictor an LZWDecode or FlateDecode stream was encoded with (ISO 32000-1:2008, 7.4.4.4, Table 10). */
 export const undoPredictor = (data: Uint8Array, parameters: PredictorParameters): Uint8Array => {
-  if (parameters.predictor === 1) return data;
+  if (parameters.predictor === 1) {
+    return data;
+  }
   validate(parameters);
   // Table 10 gives 2 for TIFF Predictor 2; 7.4.4.4: "For LZWDecode and FlateDecode, a Predictor value greater than or equal to 10 shall indicate that a PNG predictor is in use".
-  if (parameters.predictor === 2) return undoTiff(data, parameters);
-  if (parameters.predictor >= 10) return undoPng(data, parameters);
+  if (parameters.predictor === 2) {
+    return undoTiff(data, parameters);
+  }
+  if (parameters.predictor >= 10) {
+    return undoPng(data, parameters);
+  }
   throw new UnsupportedFeatureError(`predictor ${String(parameters.predictor)} is not defined by ISO 32000-1 Table 10`);
 };

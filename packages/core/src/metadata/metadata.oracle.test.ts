@@ -53,14 +53,20 @@ const isRecord = (value: unknown): value is object => typeof value === 'object' 
 // qpdf --json lists every object under qpdf[1]; each stream's dictionary is under stream.dict.
 const metadataStreams = (json: string): readonly (readonly [string, boolean])[] => {
   const parsed: unknown = JSON.parse(json);
-  if (!isRecord(parsed) || !('qpdf' in parsed) || !Array.isArray(parsed.qpdf)) return [];
+  if (!isRecord(parsed) || !('qpdf' in parsed) || !Array.isArray(parsed.qpdf)) {
+    return [];
+  }
   const objects: unknown = parsed.qpdf[1];
-  if (!isRecord(objects)) return [];
+  if (!isRecord(objects)) {
+    return [];
+  }
   const streams: (readonly [string, boolean])[] = [];
   for (const [key, value] of new Map<string, unknown>(Object.entries(objects))) {
     const stream: unknown = isRecord(value) && 'stream' in value ? value.stream : undefined;
     const dictionary: unknown = isRecord(stream) && 'dict' in stream ? stream.dict : undefined;
-    if (isRecord(dictionary) && '/Type' in dictionary && dictionary['/Type'] === '/Metadata') streams.push([key, '/Filter' in dictionary]);
+    if (isRecord(dictionary) && '/Type' in dictionary && dictionary['/Type'] === '/Metadata') {
+      streams.push([key, '/Filter' in dictionary]);
+    }
   }
   return streams;
 };
@@ -168,9 +174,13 @@ describe('metadata saves against qpdf and poppler', () => {
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
   for (const [file, entry] of Object.entries(parsed)) {
-    if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
   }
   return failing;
 };
@@ -180,10 +190,14 @@ const corpusFiles = async (directory: string): Promise<readonly string[]> => {
   try {
     const names = await readdir(directory);
     const files = names.filter(name => name.endsWith('.pdf')).toSorted();
-    if (directory === GOVDOCS && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+    if (directory === GOVDOCS && env['CI'] !== undefined && files.length === 0) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return files;
   } catch {
-    if (directory === GOVDOCS && env['CI'] !== undefined) throw new Error('govdocs1 corpus is missing');
+    if (directory === GOVDOCS && env['CI'] !== undefined) {
+      throw new Error('govdocs1 corpus is missing');
+    }
     return [];
   }
 };
@@ -227,10 +241,14 @@ const corpusSummary = async (): Promise<CorpusSummary> => {
   const files: Record<string, FileSummary> = {};
   const readFrom = async (index: number): Promise<Record<string, FileSummary>> => {
     const item = queue[index];
-    if (item === undefined) return files;
+    if (item === undefined) {
+      return files;
+    }
     const bytes = await readFile(item.file);
     const summary = summarize(loadDocument(bytes));
-    if (summary.orphans > 0 || summary.superseded > 0 || summary.mismatches.length > 0) files[item.key] = summary;
+    if (summary.orphans > 0 || summary.superseded > 0 || summary.mismatches.length > 0) {
+      files[item.key] = summary;
+    }
     return readFrom(index + 1);
   };
   await readFrom(0);
@@ -240,7 +258,9 @@ const corpusSummary = async (): Promise<CorpusSummary> => {
 // The summary entries of the sets that are present.
 const recordedSummary = async (sets: readonly string[]): Promise<ReadonlyMap<string, unknown>> => {
   const recorded: unknown = JSON.parse(await readFile(SUMMARY, 'utf8'));
-  if (typeof recorded !== 'object' || recorded === null) return new Map();
+  if (typeof recorded !== 'object' || recorded === null) {
+    return new Map();
+  }
   return new Map([...new Map<string, unknown>(Object.entries(recorded))].filter(([file]) => sets.some(set => file.startsWith(`${set}/`))));
 };
 

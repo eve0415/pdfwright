@@ -159,7 +159,9 @@ describe('illustrator document validation', () => {
 
   it('reports deeply nested groups as a validation error', () => {
     let item: Item = path;
-    for (let index = 0; index < 20_000; index++) item = { kind: 'group', items: [item] };
+    for (let index = 0; index < 20_000; index++) {
+      item = { kind: 'group', items: [item] };
+    }
     expect(validates({ ...document, layers: [{ name: 'A', items: [item] }] })).toThrow(ValidationError);
   });
 

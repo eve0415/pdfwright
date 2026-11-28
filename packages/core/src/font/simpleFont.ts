@@ -38,10 +38,16 @@ export interface SimpleGlyphNames {
  * ISO 32000-1:2008, 9.6.6.2: "A Type 1 font’s built-in encoding shall be defined by an Encoding array that is part of the font program", which pdfwright does not parse.
  */
 const builtInEncoding = (subtype: FontSubtype, baseFont: string | undefined, descriptor: Descriptor): EncodingTable | undefined => {
-  if (subtype === 'Type3') return undefined;
+  if (subtype === 'Type3') {
+    return undefined;
+  }
   const name = baseFont === undefined ? undefined : withoutSubsetTag(baseFont);
-  if (subtype !== 'TrueType' && name === 'Symbol') return SYMBOL_ENCODING;
-  if (subtype !== 'TrueType' && name === 'ZapfDingbats') return ZAPF_DINGBATS_ENCODING;
+  if (subtype !== 'TrueType' && name === 'Symbol') {
+    return SYMBOL_ENCODING;
+  }
+  if (subtype !== 'TrueType' && name === 'ZapfDingbats') {
+    return ZAPF_DINGBATS_ENCODING;
+  }
   const standard14 = descriptor.dictionary === undefined && baseFont !== undefined && STANDARD_14.has(baseFont);
   return descriptor.nonsymbolic || standard14 ? STANDARD_ENCODING : undefined;
 };
@@ -56,18 +62,27 @@ const applyDifferences = (source: FontSource, value: PdfDictionaryEntries, names
   const differences = source.objects.deref(value.get(DIFFERENCES));
   const problems: string[] = [];
   const listed: string[] = [];
-  if (differences === undefined) return { listed, problems };
-  if (differences.kind !== 'array') return { listed, problems: ['the Differences entry is not an array'] };
+  if (differences === undefined) {
+    return { listed, problems };
+  }
+  if (differences.kind !== 'array') {
+    return { listed, problems: ['the Differences entry is not an array'] };
+  }
   let code: number | undefined;
   for (const item of differences.items) {
     const resolved = source.objects.deref(item);
-    if (resolved?.kind === 'integer') code = resolved.value;
-    else if (resolved?.kind === 'name' && code !== undefined) {
+    if (resolved?.kind === 'integer') {
+      code = resolved.value;
+    } else if (resolved?.kind === 'name' && code !== undefined) {
       const name = latin1(resolved.bytes);
       listed.push(name);
-      if (code >= 0 && code <= 255) names[code] = name;
+      if (code >= 0 && code <= 255) {
+        names[code] = name;
+      }
       code++;
-    } else problems.push('the Differences array holds a value that is not a code or a name after a code');
+    } else {
+      problems.push('the Differences array holds a value that is not a code or a name after a code');
+    }
   }
   return { listed, problems };
 };
@@ -87,22 +102,36 @@ export const simpleGlyphNames = ({ source, font, subtype, descriptor }: SimpleFo
   if (encoding?.kind === 'name') {
     const name = latin1(encoding.bytes);
     base = namedEncoding(name) ?? builtIn;
-    if (namedEncoding(name) === undefined) problems.push(`the Encoding name ${name} is not a predefined encoding`);
+    if (namedEncoding(name) === undefined) {
+      problems.push(`the Encoding name ${name} is not a predefined encoding`);
+    }
   } else if (encoding?.kind === 'dictionary') {
     const baseName = nameOf(source.objects.deref(encoding.entries.get(BASE_ENCODING)));
     const named = baseName === undefined ? undefined : namedEncoding(baseName);
-    if (baseName !== undefined && named === undefined) problems.push(`the BaseEncoding name ${baseName} is not a predefined encoding`);
+    if (baseName !== undefined && named === undefined) {
+      problems.push(`the BaseEncoding name ${baseName} is not a predefined encoding`);
+    }
     base = named ?? builtIn;
-    for (const [code, name] of (base ?? []).entries()) names[code] = name;
+    for (const [code, name] of (base ?? []).entries()) {
+      names[code] = name;
+    }
     const applied = applyDifferences(source, encoding.entries, names);
     differences = applied.listed;
     problems.push(...applied.problems);
     base = undefined;
-  } else if (encoding !== undefined) problems.push('the Encoding entry is not a name or a dictionary');
-  if (base !== undefined) for (const [code, name] of base.entries()) names[code] = name;
+  } else if (encoding !== undefined) {
+    problems.push('the Encoding entry is not a name or a dictionary');
+  }
+  if (base !== undefined) {
+    for (const [code, name] of base.entries()) {
+      names[code] = name;
+    }
+  }
   // 9.6.6.4: "Finally, any undefined entries in the table shall be filled using StandardEncoding."
   if (subtype === 'TrueType' && descriptor.nonsymbolic) {
-    for (const [code, name] of STANDARD_ENCODING.entries()) names[code] ??= name;
+    for (const [code, name] of STANDARD_ENCODING.entries()) {
+      names[code] ??= name;
+    }
   }
   return { names, differences, problems };
 };
@@ -116,7 +145,9 @@ export type SimpleWidths = ((code: number) => number | undefined) | undefined;
 export const simpleWidths = ({ source, font, subtype, descriptor }: SimpleFontInput): SimpleWidths => {
   const widths = numbersOf(source, font.get(WIDTHS));
   const first = numberOf(source.objects.deref(font.get(FIRST_CHAR)));
-  if (widths === undefined || first === undefined) return undefined;
+  if (widths === undefined || first === undefined) {
+    return undefined;
+  }
   const lastChar = numberOf(source.objects.deref(font.get(LAST_CHAR))) ?? Number.POSITIVE_INFINITY;
   const last = Math.min(lastChar, first + widths.length - 1);
   const outside = subtype === 'Type3' ? 0 : descriptor.missingWidth;

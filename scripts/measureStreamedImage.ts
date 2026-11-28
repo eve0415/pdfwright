@@ -14,12 +14,16 @@ const row = new Uint8Array(width * 3);
 const compressed: Uint8Array[] = [];
 const rows = Readable.from(
   (function* (): Generator<Uint8Array> {
-    for (let index = 0; index < height; index++) yield row;
+    for (let index = 0; index < height; index++) {
+      yield row;
+    }
   })(),
 );
 for await (const value of rows.pipe(createDeflate())) {
   const chunk: unknown = value;
-  if (!(chunk instanceof Uint8Array)) throw new TypeError('deflate returned non-byte data');
+  if (!(chunk instanceof Uint8Array)) {
+    throw new TypeError('deflate returned non-byte data');
+  }
   compressed.push(Uint8Array.from(chunk));
 }
 const sourceBytes = new Uint8Array(compressed.reduce((sum, chunk) => sum + chunk.length, 0));

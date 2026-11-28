@@ -11,7 +11,9 @@ import { readXrefStream } from './xrefStream.ts';
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -40,7 +42,9 @@ const upRows = (rows: readonly number[][]): number[] => {
   let previous: readonly number[] = [];
   for (const row of rows) {
     encoded.push(2);
-    for (const [index, byte] of row.entries()) encoded.push((byte - (previous[index] ?? 0) + 256) % 256);
+    for (const [index, byte] of row.entries()) {
+      encoded.push((byte - (previous[index] ?? 0) + 256) % 256);
+    }
     previous = row;
   }
   return encoded;

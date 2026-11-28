@@ -76,7 +76,9 @@ const mesh = (colors: readonly (readonly number[])[]): Uint8Array => {
     writer.write(2, 0);
     writer.write(8, x ?? 0);
     writer.write(8, y ?? 0);
-    for (const value of colors[index] ?? []) writer.write(8, value);
+    for (const value of colors[index] ?? []) {
+      writer.write(8, value);
+    }
     writer.alignByte();
   }
   return writer.finish(1024);
@@ -171,11 +173,17 @@ const convertedMeshBytes = (pdf: Uint8Array): MeshBytes => {
   const document = loadDocument(pdf);
   const shading = document.get(pdfReference(5, 0));
   const internals = internalsOf(document);
-  if (shading.kind !== 'stream' || internals === undefined) throw new Error('mesh is missing');
+  if (shading.kind !== 'stream' || internals === undefined) {
+    throw new Error('mesh is missing');
+  }
   const type = shading.dictionary.get(pdfName('ShadingType').bytes);
-  if (type?.kind !== 'integer' || type.value !== 4) throw new Error('converted mesh is not Type 4');
+  if (type?.kind !== 'integer' || type.value !== 4) {
+    throw new Error('converted mesh is not Type 4');
+  }
   const data = decodedData(internals, shading);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return { data, compressedBytes: shading.data.length };
 };
 
@@ -186,7 +194,9 @@ interface MeshVertex {
 }
 
 const verticesOf = (data: Uint8Array): readonly MeshVertex[] => {
-  if (data.length % 9 !== 0) throw new Error('converted mesh record size is invalid');
+  if (data.length % 9 !== 0) {
+    throw new Error('converted mesh record size is invalid');
+  }
   const vertices: MeshVertex[] = [];
   for (let offset = 0; offset < data.length; offset += 9) {
     const x = (((data[offset + 1] ?? 0) * 256 + (data[offset + 2] ?? 0)) / 65535) * 100;
@@ -219,23 +229,33 @@ const interpolationError = (data: Uint8Array, width: number, height: number): nu
   let maximum = 0;
   for (let row = 0; row < height; row++) {
     const y = (height - row - 0.5) * (100 / height);
-    if (y <= 1.5) continue;
+    if (y <= 1.5) {
+      continue;
+    }
     for (let column = 0; column < width; column++) {
       const x = (column + 0.5) * (100 / width);
-      if (x <= 1.5 || x + y >= (100 * 100) / 255 - 1.5 * Math.SQRT2) continue;
+      if (x <= 1.5 || x + y >= (100 * 100) / 255 - 1.5 * Math.SQRT2) {
+        continue;
+      }
       const exact = new Float64Array(4);
       transform.convert(Float64Array.from(rgbAt(x, y)), exact);
       for (let index = 0; index < vertices.length; index += 3) {
         const a = vertices[index];
         const b = vertices[index + 1];
         const c = vertices[index + 2];
-        if (a === undefined || b === undefined || c === undefined) throw new Error('triangle is incomplete');
+        if (a === undefined || b === undefined || c === undefined) {
+          throw new Error('triangle is incomplete');
+        }
         const determinant = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-        if (Math.abs(determinant) < 1e-9) continue;
+        if (Math.abs(determinant) < 1e-9) {
+          continue;
+        }
         const wa = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / determinant;
         const wb = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / determinant;
         const wc = 1 - wa - wb;
-        if (wa < -1e-5 || wb < -1e-5 || wc < -1e-5) continue;
+        if (wa < -1e-5 || wb < -1e-5 || wc < -1e-5) {
+          continue;
+        }
         const interpolated = Array.from(
           { length: 4 },
           (_, channel) => wa * (a.color[channel] ?? 0) + wb * (b.color[channel] ?? 0) + wc * (c.color[channel] ?? 0),
@@ -277,7 +297,9 @@ const render = async (directory: string, config: { name: string; bytes: Uint8Arr
   const data = Uint8Array.from(await readFile(output));
   const header = new TextDecoder('ascii').decode(data.subarray(0, Math.min(data.length, 512)));
   const end = header.indexOf('ENDHDR\n');
-  if (end === -1) throw new Error('Ghostscript did not write a PAM header');
+  if (end === -1) {
+    throw new Error('Ghostscript did not write a PAM header');
+  }
   const width = Number(/WIDTH (\d+)/u.exec(header)?.[1]);
   const height = Number(/HEIGHT (\d+)/u.exec(header)?.[1]);
   return { width, height, samples: data.subarray(end + 7) };
@@ -295,15 +317,23 @@ const measure = (before: Raster, after: Raster, interior = false) => {
       const pixel = offset / 4;
       const x = ((pixel % before.width) + 0.5) * (100 / before.width);
       const y = (before.height - Math.floor(pixel / before.width) - 0.5) * (100 / before.height);
-      if (x <= 1.5 || y <= 1.5 || x + y >= (100 * 100) / 255 - 1.5 * Math.SQRT2) continue;
+      if (x <= 1.5 || y <= 1.5 || x + y >= (100 * 100) / 255 - 1.5 * Math.SQRT2) {
+        continue;
+      }
     }
     const first = [...before.samples.subarray(offset, offset + 4)].map(value => value / 255);
     const second = [...after.samples.subarray(offset, offset + 4)].map(value => value / 255);
     const firstPainted = first.some(value => value >= 0.01);
     const secondPainted = second.some(value => value >= 0.01);
-    if (firstPainted) sourcePixels++;
-    if (secondPainted) convertedPixels++;
-    if (!firstPainted && !secondPainted) continue;
+    if (firstPainted) {
+      sourcePixels++;
+    }
+    if (secondPainted) {
+      convertedPixels++;
+    }
+    if (!firstPainted && !secondPainted) {
+      continue;
+    }
     differences.push(deltaE2000(lab(first), lab(second)));
   }
   differences.sort((left, right) => left - right);
@@ -325,14 +355,20 @@ const measureRegion = (before: Raster, after: Raster, box: readonly [number, num
   let maximum = 0;
   for (let row = 0; row < before.height; row++) {
     const y = 100 - ((row + 0.5) * 100) / before.height;
-    if (y < bottom || y > top) continue;
+    if (y < bottom || y > top) {
+      continue;
+    }
     for (let column = 0; column < before.width; column++) {
       const x = ((column + 0.5) * 100) / before.width;
-      if (x < left || x > right) continue;
+      if (x < left || x > right) {
+        continue;
+      }
       const offset = (row * before.width + column) * 4;
       const first = [...before.samples.subarray(offset, offset + 4)].map(value => value / 255);
       const second = [...after.samples.subarray(offset, offset + 4)].map(value => value / 255);
-      if (first.every(value => value === 0) && second.every(value => value === 0)) continue;
+      if (first.every(value => value === 0) && second.every(value => value === 0)) {
+        continue;
+      }
       pixels++;
       maximum = Math.max(maximum, deltaE2000(lab(first), lab(second)));
     }
@@ -358,8 +394,12 @@ const convertTransparencyToPdfX4 = (bytes: Uint8Array): Uint8Array => {
 };
 
 const diffLabel = (difference: PdfDifference): string => {
-  if (difference.kind === 'page-box') return `page-box:${difference.box}`;
-  if (difference.kind === 'page-content') return 'page-content';
+  if (difference.kind === 'page-box') {
+    return `page-box:${difference.box}`;
+  }
+  if (difference.kind === 'page-content') {
+    return 'page-content';
+  }
   if (difference.kind === 'page-attribute' || difference.kind === 'page-resources' || difference.kind === 'document-attribute') {
     return `${difference.kind}:${difference.path.join('/')}`;
   }
@@ -370,9 +410,13 @@ const operations = (bytes: Uint8Array) => {
   const document = loadDocument(bytes);
   const internals = internalsOf(document);
   const entry = internals?.pages[0];
-  if (internals === undefined || entry === undefined) throw new Error('page is missing');
+  if (internals === undefined || entry === undefined) {
+    throw new Error('page is missing');
+  }
   const content = pageContent(internals, entry);
-  if (content.problems.length > 0) throw new Error('page content is unreadable');
+  if (content.problems.length > 0) {
+    throw new Error('page content is unreadable');
+  }
   return [...readContent(content.streams, internals.maxNesting)].map(operation => ({ operator: operation.operator, operands: operation.operands }));
 };
 const convertedOperator = (operation: ReturnType<typeof operations>[number]): string => (operation.operator === 'rg' ? 'k' : operation.operator);
@@ -429,7 +473,9 @@ describe('converted rendering', () => {
       ] as const;
       const differences = regions.map(region => ({ name: region.name, bound: region.bound, result: measureRegion(before, after, region.box) }));
       expect(differences.map(({ result }) => result.pixels > 0)).toStrictEqual([true, true, true, true, true]);
-      for (const difference of differences) expect(difference.result.maximum).toBeLessThanOrEqual(difference.bound);
+      for (const difference of differences) {
+        expect(difference.result.maximum).toBeLessThanOrEqual(difference.bound);
+      }
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

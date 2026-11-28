@@ -41,7 +41,9 @@ describe('calculator operators', () => {
     const view = new DataView(bytes.buffer);
     for (let index = 0; index < 4096; index++) {
       const input = (index + 0.5) / 4096;
-      for (const [channel, evaluate] of functions.entries()) view.setFloat64((index * functions.length + channel) * 8, Number(evaluate([input])[0]), true);
+      for (const [channel, evaluate] of functions.entries()) {
+        view.setFloat64((index * functions.length + channel) * 8, Number(evaluate([input])[0]), true);
+      }
     }
     const digest = [...md5(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(digest).toBe('886dc811f48572f70702244c2ff18ab3');

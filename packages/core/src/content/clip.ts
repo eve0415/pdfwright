@@ -62,7 +62,9 @@ const edgesOf = function* (polygons: readonly (readonly Point[])[]): Generator<r
   for (const polygon of polygons) {
     for (const [index, point] of polygon.entries()) {
       const next = polygon[(index + 1) % polygon.length];
-      if (next !== undefined && polygon.length > 1) yield [point, next];
+      if (next !== undefined && polygon.length > 1) {
+        yield [point, next];
+      }
     }
   }
 };
@@ -75,10 +77,16 @@ const insidePath = (path: ClipPath, p: Point): boolean => {
   }
   let winding = 0;
   for (const [a, b] of edgesOf(path.polygons)) {
-    if (onSegment(a, b, p)) return true;
+    if (onSegment(a, b, p)) {
+      return true;
+    }
     if (a[1] <= p[1]) {
-      if (b[1] > p[1] && cross(a, b, p) > 0) winding++;
-    } else if (b[1] <= p[1] && cross(a, b, p) < 0) winding--;
+      if (b[1] > p[1] && cross(a, b, p) > 0) {
+        winding++;
+      }
+    } else if (b[1] <= p[1] && cross(a, b, p) < 0) {
+      winding--;
+    }
   }
   return path.rule === 'nonzero' ? winding !== 0 : Math.abs(winding) % 2 === 1;
 };
@@ -96,18 +104,24 @@ const strictlyInsideQuad = (corners: readonly Point[], p: Point): boolean => {
 };
 
 const classifyAgainst = (path: ClipPath, corners: readonly Point[], quadBounds: Bounds): 'inside' | 'outside' | 'partial' => {
-  if (!overlaps(path.bounds, quadBounds)) return 'outside';
+  if (!overlaps(path.bounds, quadBounds)) {
+    return 'outside';
+  }
   const [x0, y0] = corners[0] ?? [0, 0];
   const [x2, y2] = corners[2] ?? [0, 0];
   const samples = [...corners, [(x0 + x2) / 2, (y0 + y2) / 2] as const];
   const inside = samples.filter(sample => insidePath(path, sample)).length;
-  if (inside !== 0 && inside !== samples.length) return 'partial';
+  if (inside !== 0 && inside !== samples.length) {
+    return 'partial';
+  }
   // All samples agree, but the boundary may still pass through the quad: an edge crossing one of its sides, a vertex within it, or an edge between two points of its boundary, whose midpoint is then within it.
   const sides = corners.map((corner, index) => [corner, corners[(index + 1) % corners.length] ?? corner] as const);
   for (const edge of edgesOf(path.polygons)) {
     const [[ax, ay], [bx, by]] = edge;
     const midpoint = [(ax + bx) / 2, (ay + by) / 2] as const;
-    if (sides.some(side => crosses(side, edge)) || strictlyInsideQuad(corners, edge[0]) || strictlyInsideQuad(corners, midpoint)) return 'partial';
+    if (sides.some(side => crosses(side, edge)) || strictlyInsideQuad(corners, edge[0]) || strictlyInsideQuad(corners, midpoint)) {
+      return 'partial';
+    }
   }
   return inside === 0 ? 'outside' : 'inside';
 };
@@ -153,7 +167,9 @@ export class Clip {
   intersect(path: PathBuilder, rule: FillRule): Clip {
     const vertices = this.vertices + path.vertices;
     // Past the limit the clip is only ever classified `unknown`, so no path of it is kept.
-    if (vertices > MAX_CLIP_VERTICES) return new Clip(undefined, undefined, vertices);
+    if (vertices > MAX_CLIP_VERTICES) {
+      return new Clip(undefined, undefined, vertices);
+    }
     const polygons = path.polygons();
     return new Clip(this, { polygons, rule, bounds: boundsOf(polygons.flat()) }, vertices);
   }
@@ -164,14 +180,26 @@ export class Clip {
   }
 
   private *paths(): Generator<ClipPath> {
-    if (this.path !== undefined) yield this.path;
-    for (let clip = this.parent; clip !== undefined; clip = clip.parent) if (clip.path !== undefined) yield clip.path;
+    if (this.path !== undefined) {
+      yield this.path;
+    }
+    for (let clip = this.parent; clip !== undefined; clip = clip.parent) {
+      if (clip.path !== undefined) {
+        yield clip.path;
+      }
+    }
   }
 
   /** Whether a point in page space is inside the clip; `unknown` past MAX_CLIP_VERTICES. */
   classifyPoint(x: number, y: number): 'inside' | 'outside' | 'unknown' {
-    if (this.vertices > MAX_CLIP_VERTICES) return 'unknown';
-    for (const path of this.paths()) if (!insidePath(path, [x, y])) return 'outside';
+    if (this.vertices > MAX_CLIP_VERTICES) {
+      return 'unknown';
+    }
+    for (const path of this.paths()) {
+      if (!insidePath(path, [x, y])) {
+        return 'outside';
+      }
+    }
     return 'inside';
   }
 
@@ -180,7 +208,9 @@ export class Clip {
    * A quad that crosses two or more of the clip's paths is classified against their intersection by a grid of points over it: when none lies inside every path, it is outside, so a sliver of the intersection narrower than the grid's spacing reads as outside.
    */
   classifyQuad(quad: Quad): ClipClass {
-    if (this.vertices > MAX_CLIP_VERTICES) return 'unknown';
+    if (this.vertices > MAX_CLIP_VERTICES) {
+      return 'unknown';
+    }
     const [x0, y0, x1, y1, x2, y2, x3, y3] = quad;
     const corners: Point[] = [
       [x0, y0],
@@ -192,11 +222,17 @@ export class Clip {
     let result: ClipClass = 'inside';
     for (const path of this.paths()) {
       const found = classifyAgainst(path, corners, quadBounds);
-      if (found === 'outside') return 'outside';
-      if (found === 'partial') result = 'partial';
+      if (found === 'outside') {
+        return 'outside';
+      }
+      if (found === 'partial') {
+        result = 'partial';
+      }
     }
     const crossed = result === 'partial' && [...this.paths()].length > 1;
-    if (crossed && !gridPoints(corners).some(([x, y]) => this.classifyPoint(x, y) === 'inside')) return 'outside';
+    if (crossed && !gridPoints(corners).some(([x, y]) => this.classifyPoint(x, y) === 'inside')) {
+      return 'outside';
+    }
     return result;
   }
 }

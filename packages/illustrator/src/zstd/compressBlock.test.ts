@@ -20,10 +20,14 @@ const frameWithBlock = (body: Uint8Array): Uint8Array => {
 const manySequences = () => {
   const sequences = Array.from({ length: 128 }, (_, index) => ({ literalLength: index === 0 ? 5000 : 0, matchLength: 4, offset: 4 }));
   const literals = new Uint8Array(5000);
-  for (let index = 0; index < literals.length; index++) literals[index] = (index * 37) % 256;
+  for (let index = 0; index < literals.length; index++) {
+    literals[index] = (index * 37) % 256;
+  }
   const input = new Uint8Array(5000 + 128 * 4);
   input.set(literals);
-  for (let index = 5000; index < input.length; index++) input[index] = input[index - 4] ?? 0;
+  for (let index = 5000; index < input.length; index++) {
+    input[index] = input[index - 4] ?? 0;
+  }
   return { sequences, literals, input };
 };
 const sizeFormat = (body: Uint8Array): number => (body[0] ?? 0) & 12;

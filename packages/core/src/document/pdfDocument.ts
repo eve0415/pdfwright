@@ -109,7 +109,9 @@ const validateBox = (box: PdfRect, mediaBox: PdfRect, fractionDigits: number): v
   ) {
     throw new ValidationError('page box has missing coordinates');
   }
-  if (left >= right || bottom >= top) throw new ValidationError('page box has zero area after rounding; writer policy requires non-zero area');
+  if (left >= right || bottom >= top) {
+    throw new ValidationError('page box has zero area after rounding; writer policy requires non-zero area');
+  }
   if (left < mediaLeft || bottom < mediaBottom || right > mediaRight || top > mediaTop) {
     throw new ValidationError('page box extends beyond MediaBox; writer policy requires every effective box to fit inside it');
   }
@@ -145,7 +147,9 @@ const allocateImageNumbers = (images: readonly ImageRecord[], firstNumber: numbe
         numbers.mask = nextNumber++;
         candidates.push({ ...mask, number: numbers.mask });
         masks.set(key, candidates);
-      } else numbers.mask = shared.number;
+      } else {
+        numbers.mask = shared.number;
+      }
       numbers.parent = nextNumber;
     }
     nextNumber++;
@@ -158,9 +162,13 @@ const appendImageObjects = (objects: IndirectObject[], images: readonly ImageRec
   const emittedMasks = new Set<number>();
   for (const image of images) {
     const numbers = numbersByImage.get(image);
-    if (numbers === undefined) throw new ValidationError('image reference is missing');
+    if (numbers === undefined) {
+      throw new ValidationError('image reference is missing');
+    }
     if (image.softMask !== undefined) {
-      if (numbers.mask === undefined) throw new ValidationError('soft mask reference is missing');
+      if (numbers.mask === undefined) {
+        throw new ValidationError('soft mask reference is missing');
+      }
       if (!emittedMasks.has(numbers.mask)) {
         objects.push({ objectNumber: numbers.mask, generation: 0, value: softMaskObject(image.softMask) });
         emittedMasks.add(numbers.mask);
@@ -173,7 +181,9 @@ const appendImageObjects = (objects: IndirectObject[], images: readonly ImageRec
 const allocateGroupNumbers = (groups: readonly GroupRecord[], firstNumber: number): Map<GroupRecord, number> => {
   let nextNumber = firstNumber;
   const numbers = new Map<GroupRecord, number>();
-  for (const group of groups) numbers.set(group, nextNumber++);
+  for (const group of groups) {
+    numbers.set(group, nextNumber++);
+  }
   return numbers;
 };
 
@@ -199,27 +209,37 @@ const pageObject = (record: PageRecord, context: PageBuildContext): PdfDirectObj
     entries.set(pdfName('Group').bytes, pdfDictionary(group));
   }
   const resources = resourceDictionary(record, context.resourceNumbers);
-  if (resources !== undefined) entries.set(pdfName('Resources').bytes, resources);
+  if (resources !== undefined) {
+    entries.set(pdfName('Resources').bytes, resources);
+  }
   for (const [key, box] of [
     ['CropBox', page.cropBox],
     ['BleedBox', page.bleedBox],
     ['TrimBox', page.trimBox],
     ['ArtBox', page.artBox],
   ] as const) {
-    if (box !== undefined) entries.set(pdfName(key).bytes, pdfArray(box.map(length => pdfReal(length))));
+    if (box !== undefined) {
+      entries.set(pdfName(key).bytes, pdfArray(box.map(length => pdfReal(length))));
+    }
   }
   const references = record.contents.map((_, index) => pdfReference(context.contentStart + index, 0));
   if (references.length === 1) {
     const [reference] = references;
-    if (reference !== undefined) entries.set(pdfName('Contents').bytes, reference);
-  } else if (references.length > 1) entries.set(pdfName('Contents').bytes, pdfArray(references));
+    if (reference !== undefined) {
+      entries.set(pdfName('Contents').bytes, reference);
+    }
+  } else if (references.length > 1) {
+    entries.set(pdfName('Contents').bytes, pdfArray(references));
+  }
   return pdfDictionary(entries);
 };
 
 /** Creates a new PDF document with pages and resources supplied by the caller. */
 export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
   const metadata = options.metadata ?? (options.info === undefined ? undefined : ({ xmp: true } as const));
-  if (metadata?.xmp === true) validateCreatedMetadata(options.info, metadata);
+  if (metadata?.xmp === true) {
+    validateCreatedMetadata(options.info, metadata);
+  }
   const pages: PageRecord[] = [];
   const callerObjects: PdfObject[] = [];
   let documentPieceInfo: PieceInfoRecord | undefined;
@@ -235,7 +255,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
     },
     pieceInfo: (input): void => {
       const modificationDate = options.info?.modificationDate;
-      if (modificationDate === undefined) throw new ValidationError('document PieceInfo requires info.modificationDate');
+      if (modificationDate === undefined) {
+        throw new ValidationError('document PieceInfo requires info.modificationDate');
+      }
       documentPieceInfo = pieceInfoRecord(modificationDate, input.data);
     },
     group: handles.group,
@@ -243,11 +265,21 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
     separation: handles.separation,
     addPage: (page: PageOptions): PdfPage => {
       const normalized: PageOptions = { mediaBox: normalize(page.mediaBox) };
-      if (page.cropBox !== undefined) normalized.cropBox = normalize(page.cropBox);
-      if (page.bleedBox !== undefined) normalized.bleedBox = normalize(page.bleedBox);
-      if (page.trimBox !== undefined) normalized.trimBox = normalize(page.trimBox);
-      if (page.artBox !== undefined) normalized.artBox = normalize(page.artBox);
-      if (page.group !== undefined) normalized.group = { ...page.group };
+      if (page.cropBox !== undefined) {
+        normalized.cropBox = normalize(page.cropBox);
+      }
+      if (page.bleedBox !== undefined) {
+        normalized.bleedBox = normalize(page.bleedBox);
+      }
+      if (page.trimBox !== undefined) {
+        normalized.trimBox = normalize(page.trimBox);
+      }
+      if (page.artBox !== undefined) {
+        normalized.artBox = normalize(page.artBox);
+      }
+      if (page.group !== undefined) {
+        normalized.group = { ...page.group };
+      }
       // ISO 32000-1:2008, 7.7.3.3, Table 30 defaults CropBox to MediaBox and the other production boxes to CropBox.
       const cropBox = normalized.cropBox ?? normalized.mediaBox;
       for (const box of [normalized.mediaBox, cropBox, normalized.bleedBox ?? cropBox, normalized.trimBox ?? cropBox, normalized.artBox ?? cropBox]) {
@@ -274,7 +306,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         [pdfName('Type').bytes, pdfName('Catalog')],
         [pdfName('Pages').bytes, pdfReference(2, 0)],
       ]);
-      if (documentPieceInfo !== undefined) catalog.set(pdfName('PieceInfo').bytes, documentPieceInfo.value);
+      if (documentPieceInfo !== undefined) {
+        catalog.set(pdfName('PieceInfo').bytes, documentPieceInfo.value);
+      }
       const pageStart = callerObjects.length + 3;
       const kids = pages.map((_, index) => pdfReference(index + pageStart, 0));
       const pageTree = new PdfDictionaryEntries([
@@ -289,7 +323,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       ];
       for (let index = 0; index < callerObjects.length; index++) {
         const value = callerObjects[index];
-        if (value !== undefined) objects.push({ objectNumber: index + 3, generation: 0, value });
+        if (value !== undefined) {
+          objects.push({ objectNumber: index + 3, generation: 0, value });
+        }
       }
       const contentStart = pageStart + pages.length;
       const imageStart = contentStart + pages.reduce((sum, page) => sum + page.contents.length, 0);
@@ -300,7 +336,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       let nextContentNumber = contentStart;
       for (let index = 0; index < pages.length; index++) {
         const record = pages[index];
-        if (record === undefined) continue;
+        if (record === undefined) {
+          continue;
+        }
         const value = pageObject(record, { fractionDigits, contentStart: nextContentNumber, resourceNumbers });
         objects.push({ objectNumber: index + pageStart, generation: 0, value });
         nextContentNumber += record.contents.length;
@@ -315,7 +353,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
       appendImageObjects(objects, images, imageNumbers);
       for (const record of groups) {
         const number = groupNumbers.get(record);
-        if (number === undefined) throw new ValidationError('group reference is missing');
+        if (number === undefined) {
+          throw new ValidationError('group reference is missing');
+        }
         const resources = resourceDictionary(record, resourceNumbers) ?? pdfDictionary();
         objects.push({ objectNumber: number, generation: 0, value: groupObject(record.attributes, record.content, resources, record.pieceInfo) });
       }
@@ -329,7 +369,9 @@ export const createDocument = (options: DocumentOptions = {}): PdfDocument => {
         }
       }
       const { info } = options;
-      if (metadata?.xmp !== true || info === undefined) return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
+      if (metadata?.xmp !== true || info === undefined) {
+        return writeDocument(objects, trailer, { fractionDigits, fileIdentifier: options.fileIdentifier });
+      }
       // ISO 32000-1:2008, Table 28, Metadata: the catalog names the document packet, the last object.
       const packetNumber = objects.length + 1;
       catalog.set(pdfName('Metadata').bytes, pdfReference(packetNumber, 0));

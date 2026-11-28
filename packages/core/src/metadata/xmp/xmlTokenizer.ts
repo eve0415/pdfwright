@@ -62,7 +62,9 @@ const isCharacter = (code: number): boolean => !INVALID_CHARACTER.test(String.fr
 // XML 1.0, 4.1, production [66] CharRef: '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';', so any number of leading zeros, and the number must name a Char.
 const characterReference = (name: string): number | undefined => {
   const decimal = /^#(\d+)$/u.exec(name);
-  if (decimal !== null) return Number(decimal[1]);
+  if (decimal !== null) {
+    return Number(decimal[1]);
+  }
   const hex = /^#x([\dA-Fa-f]+)$/u.exec(name);
   return hex === null ? undefined : Number.parseInt(hex[1] ?? '', 16);
 };
@@ -74,15 +76,21 @@ const expandReferences = (raw: string, offset: number): string => {
   for (let at = raw.indexOf('&'); at !== -1; at = raw.indexOf('&', from)) {
     result += raw.slice(from, at);
     const end = raw.indexOf(';', at);
-    if (end === -1) throw new RefusalError('not-well-formed', offset + at);
+    if (end === -1) {
+      throw new RefusalError('not-well-formed', offset + at);
+    }
     const name = raw.slice(at + 1, end);
     const code = characterReference(name);
     if (code === undefined) {
       const replacement = PREDEFINED.get(name);
-      if (replacement === undefined) throw new RefusalError(/^[A-Za-z_:]/u.test(name) ? 'undefined-entity' : 'not-well-formed', offset + at);
+      if (replacement === undefined) {
+        throw new RefusalError(/^[A-Za-z_:]/u.test(name) ? 'undefined-entity' : 'not-well-formed', offset + at);
+      }
       result += replacement;
     } else {
-      if (code > 0x10ffff || !isCharacter(code)) throw new RefusalError('invalid-character', offset + at);
+      if (code > 0x10ffff || !isCharacter(code)) {
+        throw new RefusalError('invalid-character', offset + at);
+      }
       result += String.fromCodePoint(code);
     }
     from = end + 1;
@@ -118,25 +126,33 @@ class Tokenizer {
   private match(pattern: RegExp): string | undefined {
     pattern.lastIndex = this.position;
     const found = pattern.exec(this.text);
-    if (found === null) return undefined;
+    if (found === null) {
+      return undefined;
+    }
     this.position = pattern.lastIndex;
     return found[0];
   }
 
   private expect(literal: string): void {
-    if (!this.text.startsWith(literal, this.position)) throw new RefusalError('not-well-formed', this.position);
+    if (!this.text.startsWith(literal, this.position)) {
+      throw new RefusalError('not-well-formed', this.position);
+    }
     this.position += literal.length;
   }
 
   private name(): string {
     const name = this.match(NAME);
-    if (name === undefined || name === '') throw new RefusalError('not-well-formed', this.position);
+    if (name === undefined || name === '') {
+      throw new RefusalError('not-well-formed', this.position);
+    }
     return name;
   }
 
   private until(terminator: string): number {
     const end = this.text.indexOf(terminator, this.position);
-    if (end === -1) throw new RefusalError('not-well-formed', this.position);
+    if (end === -1) {
+      throw new RefusalError('not-well-formed', this.position);
+    }
     return end;
   }
 
@@ -147,11 +163,15 @@ class Tokenizer {
     this.expect('=');
     this.match(SPACE);
     const quote = this.text[this.position];
-    if (quote !== '"' && quote !== "'") throw new RefusalError('not-well-formed', this.position);
+    if (quote !== '"' && quote !== "'") {
+      throw new RefusalError('not-well-formed', this.position);
+    }
     this.position++;
     const end = this.until(quote);
     const raw = this.text.slice(this.position, end);
-    if (raw.includes('<')) throw new RefusalError('not-well-formed', this.position + raw.indexOf('<'));
+    if (raw.includes('<')) {
+      throw new RefusalError('not-well-formed', this.position + raw.indexOf('<'));
+    }
     // XML 1.0, 3.3.3: each literal white space character of an attribute value reads as a space.
     const value = expandReferences(raw.replaceAll(/\r\n|[\t\n\r]/gu, ' '), this.position);
     this.position = end + 1;
@@ -160,30 +180,44 @@ class Tokenizer {
 
   private startTag(): void {
     const start = this.position;
-    if (this.rootClosed) throw new RefusalError('not-well-formed', start);
+    if (this.rootClosed) {
+      throw new RefusalError('not-well-formed', start);
+    }
     this.position++;
     const name = this.name();
     const attributes: XmlAttribute[] = [];
     for (;;) {
       const space = this.match(SPACE) ?? '';
-      if (this.text.startsWith('/>', this.position) || this.text.startsWith('>', this.position)) break;
-      if (space === '') throw new RefusalError('not-well-formed', this.position);
+      if (this.text.startsWith('/>', this.position) || this.text.startsWith('>', this.position)) {
+        break;
+      }
+      if (space === '') {
+        throw new RefusalError('not-well-formed', this.position);
+      }
       const attribute = this.attribute();
       // XML 1.0, 3.1, well-formedness constraint Unique Att Spec.
-      if (attributes.some(other => other.name === attribute.name)) throw new RefusalError('not-well-formed', attribute.span.start);
+      if (attributes.some(other => other.name === attribute.name)) {
+        throw new RefusalError('not-well-formed', attribute.span.start);
+      }
       attributes.push(attribute);
-      if (attributes.length > this.limits.maxAttributes) throw new RefusalError('too-many-attributes', attribute.span.start);
+      if (attributes.length > this.limits.maxAttributes) {
+        throw new RefusalError('too-many-attributes', attribute.span.start);
+      }
     }
     const selfClosing = this.text.startsWith('/>', this.position);
     this.position += selfClosing ? 2 : 1;
     this.emit({ kind: 'start', name, attributes, selfClosing, span: { start, end: this.position } });
     this.rootSeen = true;
     if (selfClosing) {
-      if (this.open.length === 0) this.rootClosed = true;
+      if (this.open.length === 0) {
+        this.rootClosed = true;
+      }
       return;
     }
     this.open.push(name);
-    if (this.open.length > this.limits.maxDepth) throw new RefusalError('too-deep', start);
+    if (this.open.length > this.limits.maxDepth) {
+      throw new RefusalError('too-deep', start);
+    }
   }
 
   private endTag(): void {
@@ -193,8 +227,12 @@ class Tokenizer {
     this.match(SPACE);
     this.expect('>');
     // XML 1.0, 3, well-formedness constraint Element Type Match.
-    if (this.open.pop() !== name) throw new RefusalError('not-well-formed', start);
-    if (this.open.length === 0) this.rootClosed = true;
+    if (this.open.pop() !== name) {
+      throw new RefusalError('not-well-formed', start);
+    }
+    if (this.open.length === 0) {
+      this.rootClosed = true;
+    }
     this.emit({ kind: 'end', name, span: { start, end: this.position } });
   }
 
@@ -206,11 +244,15 @@ class Tokenizer {
       const end = this.until('-->');
       // XML 1.0, 2.5, production [15] Comment: '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->', so the content holds no "--" and does not end with a hyphen ("the grammar does not allow a comment ending in --->").
       const content = text.slice(this.position, end);
-      if (content.includes('--') || content.endsWith('-')) throw new RefusalError('not-well-formed', start);
+      if (content.includes('--') || content.endsWith('-')) {
+        throw new RefusalError('not-well-formed', start);
+      }
       this.position = end + 3;
       this.emit({ kind: 'comment', span: { start, end: this.position } });
     } else if (text.startsWith('<![CDATA[', start)) {
-      if (this.open.length === 0) throw new RefusalError('not-well-formed', start);
+      if (this.open.length === 0) {
+        throw new RefusalError('not-well-formed', start);
+      }
       this.position += 9;
       const end = this.until(']]>');
       const data = normalizeLineEnds(text.slice(this.position, end));
@@ -228,9 +270,13 @@ class Tokenizer {
       this.emit({ kind: 'pi', target, content, span: { start, end: this.position } });
       // XMP Part 1 7.3.2: a wrapped packet is "a header PI, the serialized XMP data model (the XMP packet) with optional white-space padding, and a trailer PI", so the trailer after the root element ends the packet.
       this.trailerSeen = this.rootClosed && target === 'xpacket' && content.startsWith('end=');
-    } else if (text.startsWith('</', start)) this.endTag();
-    else if (text.startsWith('<!', start)) throw new RefusalError('not-well-formed', start);
-    else this.startTag();
+    } else if (text.startsWith('</', start)) {
+      this.endTag();
+    } else if (text.startsWith('<!', start)) {
+      throw new RefusalError('not-well-formed', start);
+    } else {
+      this.startTag();
+    }
   }
 
   private characterData(): void {
@@ -241,10 +287,14 @@ class Tokenizer {
     // XML 1.0, 2.8 and 2.1: only white space (and a leading byte-order mark) may stand outside the root element.
     if (this.open.length === 0) {
       const blank = start === 0 ? raw.replace(/^\u{FEFF}/u, '') : raw;
-      if (!/^[ \t\r\n]*$/u.test(blank)) throw new RefusalError('not-well-formed', start);
+      if (!/^[ \t\r\n]*$/u.test(blank)) {
+        throw new RefusalError('not-well-formed', start);
+      }
       return;
     }
-    if (raw.includes(']]>')) throw new RefusalError('not-well-formed', start + raw.indexOf(']]>'));
+    if (raw.includes(']]>')) {
+      throw new RefusalError('not-well-formed', start + raw.indexOf(']]>'));
+    }
     this.emit({ kind: 'text', text: expandReferences(normalizeLineEnds(raw), start), span: { start, end: this.position } });
   }
 
@@ -253,18 +303,29 @@ class Tokenizer {
     const invalid = INVALID_CHARACTER.exec(this.text)?.index ?? this.text.length;
     while (!this.trailerSeen && this.position < invalid) {
       try {
-        if (this.text[this.position] === '<') this.markup();
-        else this.characterData();
+        if (this.text[this.position] === '<') {
+          this.markup();
+        } else {
+          this.characterData();
+        }
       } catch (error: unknown) {
         // Markup that runs into the invalid character is refused for that character.
         const intoInvalid = error instanceof RefusalError && error.reason === 'not-well-formed' && error.offset >= invalid;
         throw intoInvalid ? new RefusalError('invalid-character', invalid) : error;
       }
-      if (this.position > invalid) throw new RefusalError('invalid-character', invalid);
-      if (this.tokenCount > this.limits.maxTokens) throw new RefusalError('too-many-tokens', this.position);
+      if (this.position > invalid) {
+        throw new RefusalError('invalid-character', invalid);
+      }
+      if (this.tokenCount > this.limits.maxTokens) {
+        throw new RefusalError('too-many-tokens', this.position);
+      }
     }
-    if (!this.trailerSeen && invalid < this.text.length) throw new RefusalError('invalid-character', invalid);
-    if (this.open.length > 0 || !this.rootSeen) throw new RefusalError('not-well-formed', this.text.length);
+    if (!this.trailerSeen && invalid < this.text.length) {
+      throw new RefusalError('invalid-character', invalid);
+    }
+    if (this.open.length > 0 || !this.rootSeen) {
+      throw new RefusalError('not-well-formed', this.text.length);
+    }
   }
 }
 
@@ -278,7 +339,9 @@ export const visitXml = (text: string, visit: (token: XmlToken) => void, limits:
     new Tokenizer(text, limits, visit).run();
     return { ok: true };
   } catch (error: unknown) {
-    if (error instanceof RefusalError) return { ok: false, reason: error.reason, offset: error.offset };
+    if (error instanceof RefusalError) {
+      return { ok: false, reason: error.reason, offset: error.offset };
+    }
     throw error;
   }
 };
@@ -304,21 +367,33 @@ const startsWith = (bytes: Uint8Array, prefix: readonly number[]): boolean => pr
 
 // XML 1.0, Appendix F.1: a byte-order mark, or else the bytes of "<" in each encoding, tell the encoding; anything else reads as UTF-8.
 const detectEncoding = (bytes: Uint8Array): XmlEncoding => {
-  if (startsWith(bytes, [0x00, 0x00, 0xfe, 0xff]) || startsWith(bytes, [0x00, 0x00, 0x00, 0x3c])) return 'utf-32be';
-  if (startsWith(bytes, [0xff, 0xfe, 0x00, 0x00]) || startsWith(bytes, [0x3c, 0x00, 0x00, 0x00])) return 'utf-32le';
-  if (startsWith(bytes, [0xfe, 0xff]) || startsWith(bytes, [0x00, 0x3c, 0x00, 0x3f])) return 'utf-16be';
-  if (startsWith(bytes, [0xff, 0xfe]) || startsWith(bytes, [0x3c, 0x00, 0x3f, 0x00])) return 'utf-16le';
+  if (startsWith(bytes, [0x00, 0x00, 0xfe, 0xff]) || startsWith(bytes, [0x00, 0x00, 0x00, 0x3c])) {
+    return 'utf-32be';
+  }
+  if (startsWith(bytes, [0xff, 0xfe, 0x00, 0x00]) || startsWith(bytes, [0x3c, 0x00, 0x00, 0x00])) {
+    return 'utf-32le';
+  }
+  if (startsWith(bytes, [0xfe, 0xff]) || startsWith(bytes, [0x00, 0x3c, 0x00, 0x3f])) {
+    return 'utf-16be';
+  }
+  if (startsWith(bytes, [0xff, 0xfe]) || startsWith(bytes, [0x3c, 0x00, 0x3f, 0x00])) {
+    return 'utf-16le';
+  }
   return 'utf8';
 };
 
 // The WHATWG Encoding Standard defines no UTF-32 decoder, and TextDecoder('utf-32') throws on every runtime, so UTF-32 is decoded here.
 const decodeUtf32 = (bytes: Uint8Array, bigEndian: boolean): string | undefined => {
-  if (bytes.length % 4 !== 0) return undefined;
+  if (bytes.length % 4 !== 0) {
+    return undefined;
+  }
   let text = '';
   for (let index = 0; index < bytes.length; index += 4) {
     const [first = 0, second = 0, third = 0, fourth = 0] = bigEndian ? bytes.subarray(index, index + 4) : bytes.subarray(index, index + 4).toReversed();
     const code = ((first * 256 + second) * 256 + third) * 256 + fourth;
-    if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return undefined;
+    if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+      return undefined;
+    }
     text += String.fromCodePoint(code);
   }
   return text;
@@ -337,7 +412,9 @@ export const decodeXml = (bytes: Uint8Array): DecodedXml => {
   try {
     return { ok: true, text: new TextDecoder(encoding, { fatal: true, ignoreBOM: true }).decode(bytes), encoding };
   } catch (error: unknown) {
-    if (error instanceof TypeError) return { ok: false, reason: 'undecodable' };
+    if (error instanceof TypeError) {
+      return { ok: false, reason: 'undecodable' };
+    }
     throw error;
   }
 };

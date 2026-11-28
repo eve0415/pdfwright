@@ -86,18 +86,26 @@ const invalid = (detail: string): never => {
 };
 
 const integer = (value: PdfDirectObject | undefined, name: string): number => {
-  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value)) return invalid(`mesh ${name} is not an integer`);
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value)) {
+    return invalid(`mesh ${name} is not an integer`);
+  }
   return value.value;
 };
 
 const numeric = (value: PdfDirectObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real') return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind === 'real') {
+    return typeof value.value === 'number' ? value.value : Number(value.value.numerator) / Number(value.value.denominator);
+  }
   return invalid('mesh Decode has a nonnumeric entry');
 };
 
 const arrayNumbers = (value: PdfDirectObject | undefined, length: number): number[] => {
-  if (value?.kind !== 'array' || value.items.length !== length) return invalid('mesh array has the wrong length');
+  if (value?.kind !== 'array' || value.items.length !== length) {
+    return invalid('mesh array has the wrong length');
+  }
   return value.items.map(item => numeric(item));
 };
 
@@ -111,7 +119,9 @@ const colorTransform = (source: ColorSource, options: RewriteColorOptions): Colo
 };
 
 const backgroundFor = (value: PdfDirectObject | undefined, channels: number, transform: ColorTransform): PdfDirectObject | undefined => {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   const input = arrayNumbers(value, channels);
   const output = new Float64Array(4);
   transform.convert(Float64Array.from(input), output);
@@ -119,10 +129,18 @@ const backgroundFor = (value: PdfDirectObject | undefined, channels: number, tra
 };
 
 const meshKind = (value: number): 4 | 5 | 6 | 7 | undefined => {
-  if (value === 4) return 4;
-  if (value === 5) return 5;
-  if (value === 6) return 6;
-  if (value === 7) return 7;
+  if (value === 4) {
+    return 4;
+  }
+  if (value === 5) {
+    return 5;
+  }
+  if (value === 6) {
+    return 6;
+  }
+  if (value === 7) {
+    return 7;
+  }
   return undefined;
 };
 
@@ -162,20 +180,32 @@ const meshParameters = (config: {
 
 const outputDecode = (shading: PdfStream): PdfDirectObject => {
   const source = shading.dictionary.get(DECODE);
-  if (source?.kind !== 'array') return invalid('mesh Decode is missing');
+  if (source?.kind !== 'array') {
+    return invalid('mesh Decode is missing');
+  }
   const ranges: PdfDirectObject[] = source.items.slice(0, 4);
-  for (let channel = 0; channel < 4; channel++) ranges.push({ kind: 'integer', value: 0 }, { kind: 'integer', value: 1 });
+  for (let channel = 0; channel < 4; channel++) {
+    ranges.push({ kind: 'integer', value: 0 }, { kind: 'integer', value: 1 });
+  }
   return pdfArray(ranges);
 };
 
 const decodedFunction = (scan: MeshScan, value: PdfObject): PdfObject => {
   const internals = internalsOf(scan.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const object = value.kind === 'stream' ? value : internals.objects.deref(value);
-  if (object === undefined) return invalid('mesh Function is missing');
-  if (object.kind !== 'stream') return object;
+  if (object === undefined) {
+    return invalid('mesh Function is missing');
+  }
+  if (object.kind !== 'stream') {
+    return object;
+  }
   const data = decodedData(internals, object);
-  if (typeof data === 'string') return invalid(`mesh Function cannot be decoded: ${data}`);
+  if (typeof data === 'string') {
+    return invalid(`mesh Function cannot be decoded: ${data}`);
+  }
   return { kind: 'stream', dictionary: object.dictionary, data };
 };
 
@@ -183,8 +213,12 @@ const functionReader = (scan: MeshScan): PdfFunctionReader => createPdfFunctionR
 
 const functionEvaluator = (scan: MeshScan, value: PdfDirectObject, channels: number): ((input: readonly number[]) => number[]) => {
   const read = functionReader(scan);
-  if (value.kind !== 'array') return read(value);
-  if (value.items.length !== channels) return invalid('mesh Function array disagrees with its colour space');
+  if (value.kind !== 'array') {
+    return read(value);
+  }
+  if (value.items.length !== channels) {
+    return invalid('mesh Function array disagrees with its colour space');
+  }
   const functions = value.items.map(item => read(item));
   return input => functions.map(fn => fn(input)[0] ?? 0);
 };
@@ -201,10 +235,14 @@ const convertedMeshFunction = (
       const read = functionReader(scan);
       return stitchCmykFunction(scan.document, original, child => {
         const decoded = decodedFunction(scan, child);
-        if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') return invalid('mesh stitching subfunction is invalid');
+        if (decoded.kind !== 'dictionary' && decoded.kind !== 'stream') {
+          return invalid('mesh stitching subfunction is invalid');
+        }
         const fn = read(decoded);
         const childDomain = fn.domain;
-        if (childDomain.length !== 2) return invalid('mesh stitching subfunction must take one input');
+        if (childDomain.length !== 2) {
+          return invalid('mesh stitching subfunction must take one input');
+        }
         const evaluate = (input: readonly number[]): Float64Array => {
           const output = new Float64Array(4);
           transform.convert(Float64Array.from(fn(input)), output);
@@ -236,16 +274,24 @@ const functionMesh = (
 ): MeshPlan => {
   const { reference, shading, color, channels, transform, background } = input;
   const functionValue = shading.dictionary.get(FUNCTION);
-  if (functionValue === undefined) return invalid('function-driven mesh has no Function');
+  if (functionValue === undefined) {
+    return invalid('function-driven mesh has no Function');
+  }
   const decode = arrayNumbers(shading.dictionary.get(DECODE), 6);
   const sampled = convertedMeshFunction(scan, { value: functionValue, channels, transform, domain: decode.slice(4, 6) });
   const discarded: PdfReference[] = [];
-  if (color.kind === 'reference') discarded.push(color);
+  if (color.kind === 'reference') {
+    discarded.push(color);
+  }
   const internals = internalsOf(scan.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   discarded.push(...discardedFunctionObjects(internals, functionValue));
   const originalDecode = shading.dictionary.get(DECODE);
-  if (originalDecode === undefined) return invalid('function-driven mesh Decode is missing');
+  if (originalDecode === undefined) {
+    return invalid('function-driven mesh Decode is missing');
+  }
   return {
     reference,
     shading,
@@ -263,7 +309,9 @@ const functionMesh = (
 };
 
 const validateLattice = (type: 4 | 5 | 6 | 7, verticesPerRow: number | undefined, records: number | undefined): void => {
-  if (type !== 5) return;
+  if (type !== 5) {
+    return;
+  }
   if (verticesPerRow === undefined || verticesPerRow < 2 || (records !== undefined && records % verticesPerRow !== 0)) {
     invalid('lattice mesh vertex rows are incomplete');
   }
@@ -272,9 +320,13 @@ const validateLattice = (type: 4 | 5 | 6 | 7, verticesPerRow: number | undefined
 const encodedMesh = (config: { scan: MeshScan; shading: PdfStream; type: 4 | 5 | 6 | 7; channels: number; transform: ColorTransform }): EncodedMesh => {
   const { scan, shading, type, channels, transform } = config;
   const internals = internalsOf(scan.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const data = decodedData(internals, shading);
-  if (typeof data === 'string') return invalid(`mesh stream cannot be decoded: ${data}`);
+  if (typeof data === 'string') {
+    return invalid(`mesh stream cannot be decoded: ${data}`);
+  }
   const parameters = meshParameters({ shading, type, channels, transform, maxBytes: Math.min(internals.maxDecodedBytes, MAX_MESH_WORKING_BYTES) });
   const verticesPerRow = type === 5 ? integer(shading.dictionary.get(VERTICES_PER_ROW), 'VerticesPerRow') : undefined;
   const refined =
@@ -306,19 +358,27 @@ const encodedMesh = (config: { scan: MeshScan; shading: PdfStream; type: 4 | 5 |
 const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: PdfStream }, resources: PdfDictionaryEntries): MeshPlan | undefined => {
   const { reference, shading } = target;
   const type = meshKind(integer(shading.dictionary.get(SHADING_TYPE), 'ShadingType'));
-  if (type === undefined) return undefined;
+  if (type === undefined) {
+    return undefined;
+  }
   const color = shading.dictionary.get(COLOR_SPACE);
-  if (color === undefined) return invalid('mesh ColorSpace is missing');
+  if (color === undefined) {
+    return invalid('mesh ColorSpace is missing');
+  }
   const space = resolveSourceSpace(scan.document, color, {
     resources,
     sourceRgbProfile: scan.options.sourceRgbProfile,
     options: { iccGray: scan.options.iccGray ?? 'convert' },
   });
-  if (space.kind !== 'rgb' && space.kind !== 'gray') return undefined;
+  if (space.kind !== 'rgb' && space.kind !== 'gray') {
+    return undefined;
+  }
   const channels = sourceChannels(space.kind);
   const transform = colorTransform(space.source, scan.options);
   const background = backgroundFor(shading.dictionary.get(BACKGROUND), channels, transform);
-  if (shading.dictionary.get(FUNCTION) !== undefined) return functionMesh(scan, { reference, shading, color, channels, transform, background });
+  if (shading.dictionary.get(FUNCTION) !== undefined) {
+    return functionMesh(scan, { reference, shading, color, channels, transform, background });
+  }
   const converted = encodedMesh({ scan, shading, type, channels, transform });
   return {
     reference,
@@ -338,25 +398,45 @@ const meshPlan = (scan: MeshScan, target: { reference: PdfReference; shading: Pd
 
 const scanResources = (scan: MeshScan, visit: ResourceVisit): void => {
   const internals = internalsOf(scan.document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const planReference = (value: PdfDirectObject): void => {
-    if (value.kind !== 'reference' || scan.plans.has(value.objectNumber)) return;
+    if (value.kind !== 'reference' || scan.plans.has(value.objectNumber)) {
+      return;
+    }
     const shading = internals.objects.deref(value);
-    if (shading?.kind !== 'stream') return;
+    if (shading?.kind !== 'stream') {
+      return;
+    }
     const plan = meshPlan(scan, { reference: value, shading }, visit.resources);
-    if (plan !== undefined) scan.plans.set(value.objectNumber, plan);
+    if (plan !== undefined) {
+      scan.plans.set(value.objectNumber, plan);
+    }
   };
   const category = internals.objects.deref(visit.resources.get(SHADING));
-  if (category?.kind === 'dictionary') for (const [, value] of category.entries.entries()) planReference(value);
+  if (category?.kind === 'dictionary') {
+    for (const [, value] of category.entries.entries()) {
+      planReference(value);
+    }
+  }
   const patterns = internals.objects.deref(visit.resources.get(PATTERN));
-  if (patterns?.kind !== 'dictionary') return;
+  if (patterns?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of patterns.entries.entries()) {
     const pattern = internals.objects.deref(value);
-    if (pattern?.kind !== 'dictionary') continue;
+    if (pattern?.kind !== 'dictionary') {
+      continue;
+    }
     const type = pattern.entries.get(PATTERN_TYPE);
-    if (type?.kind !== 'integer' || type.value !== 2) continue;
+    if (type?.kind !== 'integer' || type.value !== 2) {
+      continue;
+    }
     const shading = pattern.entries.get(SHADING);
-    if (shading !== undefined) planReference(shading);
+    if (shading !== undefined) {
+      planReference(shading);
+    }
   }
 };
 
@@ -364,11 +444,15 @@ const scanResources = (scan: MeshScan, visit: ResourceVisit): void => {
 export const convertMeshShadings = (document: LoadedDocument, options: RewriteColorOptions): MeshConversionReport => {
   checkConversionRefusals(document, options.outputProfile);
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const scan: MeshScan = { document, options, plans: new Map() };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) return invalid('page entry is missing');
+    if (entry === undefined) {
+      return invalid('page entry is missing');
+    }
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, {
       resources,
@@ -376,7 +460,9 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
         scanResources(scan, visit);
       },
     });
-    if (unreadable.length > 0) throw new ValidationError('mesh shading resources cannot be read', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('mesh shading resources cannot be read', 'unreadable-resource');
+    }
   }
   const discarded: PdfReference[] = [];
   for (const plan of scan.plans.values()) {
@@ -384,8 +470,12 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
     dictionary.set(COLOR_SPACE, pdfName('DeviceCMYK'));
     if (plan.function === undefined) {
       dictionary.set(DECODE, plan.decode);
-      if (plan.outputComponentBits !== undefined) dictionary.set(BITS_PER_COMPONENT, { kind: 'integer', value: plan.outputComponentBits });
-      if (plan.outputCoordinateBits !== undefined) dictionary.set(BITS_PER_COORDINATE, { kind: 'integer', value: plan.outputCoordinateBits });
+      if (plan.outputComponentBits !== undefined) {
+        dictionary.set(BITS_PER_COMPONENT, { kind: 'integer', value: plan.outputComponentBits });
+      }
+      if (plan.outputCoordinateBits !== undefined) {
+        dictionary.set(BITS_PER_COORDINATE, { kind: 'integer', value: plan.outputCoordinateBits });
+      }
       if (plan.outputType !== undefined) {
         dictionary.set(SHADING_TYPE, { kind: 'integer', value: plan.outputType });
         dictionary.set(BITS_PER_FLAG, { kind: 'integer', value: 8 });
@@ -393,8 +483,12 @@ export const convertMeshShadings = (document: LoadedDocument, options: RewriteCo
       }
       dictionary.set(FILTER, pdfName('FlateDecode'));
       dictionary.delete(DECODE_PARMS);
-    } else dictionary.set(FUNCTION, writeCmykFunction(document, plan.function));
-    if (plan.background !== undefined) dictionary.set(BACKGROUND, plan.background);
+    } else {
+      dictionary.set(FUNCTION, writeCmykFunction(document, plan.function));
+    }
+    if (plan.background !== undefined) {
+      dictionary.set(BACKGROUND, plan.background);
+    }
     document.set(plan.reference, { kind: 'stream', dictionary, data: plan.data });
     discarded.push(...plan.discarded);
   }

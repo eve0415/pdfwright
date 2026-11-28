@@ -49,12 +49,16 @@ const origins = (shown: readonly PageGlyph[]): number[][] => shown.map(glyph => 
 
 const at = (shown: readonly PageGlyph[], index: number): PageGlyph => {
   const glyph = shown[index];
-  if (glyph === undefined) throw new Error(`no glyph ${String(index)} among ${String(shown.length)}`);
+  if (glyph === undefined) {
+    throw new Error(`no glyph ${String(index)} among ${String(shown.length)}`);
+  }
   return glyph;
 };
 
 const one = (shown: readonly PageGlyph[]): PageGlyph => {
-  if (shown.length !== 1) throw new Error(`expected one glyph, found ${String(shown.length)}`);
+  if (shown.length !== 1) {
+    throw new Error(`expected one glyph, found ${String(shown.length)}`);
+  }
   return at(shown, 0);
 };
 

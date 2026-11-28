@@ -4,7 +4,9 @@ import { buildCodeLengths } from './huffmanEncoder.ts';
 
 const fibonacci = (count: number): number[] => {
   const values = [1, 1];
-  while (values.length < count) values.push((values.at(-1) ?? 0) + (values.at(-2) ?? 0));
+  while (values.length < count) {
+    values.push((values.at(-1) ?? 0) + (values.at(-2) ?? 0));
+  }
   return values;
 };
 

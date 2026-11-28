@@ -60,27 +60,39 @@ const invalid = (detail: string): never => {
 const parameters = (image: InlineImage): Map<string, PdfDirectObject> => {
   // ISO 32000-1:2008, 8.9.7, Table 93: inline image keys have the meanings of image dictionary keys and may use the listed abbreviations.
   const values = new Map<string, PdfDirectObject>();
-  if (image.parameters.length % 2 !== 0) return invalid('inline image parameters are unpaired');
+  if (image.parameters.length % 2 !== 0) {
+    return invalid('inline image parameters are unpaired');
+  }
   for (let index = 0; index < image.parameters.length; index += 2) {
     const key = image.parameters[index];
     const value = image.parameters[index + 1];
-    if (key?.kind !== 'name' || value === undefined || value.kind === 'stray-delimiter') return invalid('inline image parameter is malformed');
+    if (key?.kind !== 'name' || value === undefined || value.kind === 'stray-delimiter') {
+      return invalid('inline image parameter is malformed');
+    }
     values.set(new TextDecoder('latin1').decode(key.bytes), value);
   }
   return values;
 };
 
 const number = (value: PdfDirectObject | undefined, name: string): number => {
-  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) return invalid(`inline image ${name} is invalid`);
+  if (value?.kind !== 'integer' || !Number.isSafeInteger(value.value) || value.value < 1) {
+    return invalid(`inline image ${name} is invalid`);
+  }
   return value.value;
 };
 
 const decodeValues = (value: PdfDirectObject | undefined): number[] | undefined => {
-  if (value === undefined) return undefined;
-  if (value.kind !== 'array' || value.items.length !== 6) return invalid('inline RGB image Decode array is invalid');
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.kind !== 'array' || value.items.length !== 6) {
+    return invalid('inline RGB image Decode array is invalid');
+  }
   const values: number[] = [];
   for (const item of value.items) {
-    if ((item.kind !== 'integer' && item.kind !== 'real') || typeof item.value !== 'number') return invalid('inline RGB image Decode entry is invalid');
+    if ((item.kind !== 'integer' && item.kind !== 'real') || typeof item.value !== 'number') {
+      return invalid('inline RGB image Decode entry is invalid');
+    }
     values.push(item.value);
   }
   return values;
@@ -88,7 +100,9 @@ const decodeValues = (value: PdfDirectObject | undefined): number[] | undefined 
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -96,8 +110,12 @@ const filterDictionary = (values: ReadonlyMap<string, PdfDirectObject>): PdfDict
   const dictionary = new PdfDictionaryEntries();
   const filter = values.get('F') ?? values.get('Filter');
   const decodeParameters = values.get('DP') ?? values.get('DecodeParms');
-  if (filter !== undefined) dictionary.set(pdfName('Filter').bytes, filter);
-  if (decodeParameters !== undefined) dictionary.set(pdfName('DecodeParms').bytes, decodeParameters);
+  if (filter !== undefined) {
+    dictionary.set(pdfName('Filter').bytes, filter);
+  }
+  if (decodeParameters !== undefined) {
+    dictionary.set(pdfName('DecodeParms').bytes, decodeParameters);
+  }
   return dictionary;
 };
 
@@ -105,7 +123,9 @@ const geometry = (values: ReadonlyMap<string, PdfDirectObject>, ceiling: number)
   const width = number(values.get('W') ?? values.get('Width'), 'Width');
   const height = number(values.get('H') ?? values.get('Height'), 'Height');
   const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
-  if (![1, 2, 4, 8, 16].includes(bits)) return invalid('inline RGB image bit depth is unsupported');
+  if (![1, 2, 4, 8, 16].includes(bits)) {
+    return invalid('inline RGB image bit depth is unsupported');
+  }
   const inputRow = Math.ceil((width * 3 * bits) / 8);
   const outputBits = bits === 16 ? 16 : 8;
   const outputRow = width * 4 * (outputBits / 8);
@@ -117,7 +137,9 @@ const geometry = (values: ReadonlyMap<string, PdfDirectObject>, ceiling: number)
 
 const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirectObject>, color: PdfDirectObject): ConvertedInlineImage | undefined => {
   const converted = convertIndexedColorSpace({ document: config.document, resources: config.resources, options: config.options }, color);
-  if (converted === undefined) return undefined;
+  if (converted === undefined) {
+    return undefined;
+  }
   const width = number(values.get('W') ?? values.get('Width'), 'Width');
   const height = number(values.get('H') ?? values.get('Height'), 'Height');
   const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
@@ -125,7 +147,9 @@ const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirec
   for (let index = 0; index < config.image.parameters.length; index += 2) {
     const key = config.image.parameters[index];
     const value = config.image.parameters[index + 1];
-    if (key?.kind !== 'name' || value === undefined || value.kind === 'stray-delimiter') return invalid('inline Indexed parameters are malformed');
+    if (key?.kind !== 'name' || value === undefined || value.kind === 'stray-delimiter') {
+      return invalid('inline Indexed parameters are malformed');
+    }
     const name = new TextDecoder('latin1').decode(key.bytes);
     const entry = name === 'CS' || name === 'ColorSpace' ? converted : value;
     tokens.push(latin1(serializeObject(key, { fractionDigits: 5 })), latin1(serializeObject(entry, { fractionDigits: 5 })));
@@ -136,11 +160,19 @@ const indexedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDirec
 const inlineColorTransform = (values: ReadonlyMap<string, PdfDirectObject>): 0 | 1 | undefined => {
   const decodeParameters = values.get('DP') ?? values.get('DecodeParms');
   const dictionary = decodeParameters?.kind === 'array' ? decodeParameters.items[0] : decodeParameters;
-  if (dictionary === undefined || dictionary.kind === 'null') return undefined;
-  if (dictionary.kind !== 'dictionary') throw new ParseError('inline JPEG DecodeParms must be a dictionary', 0);
+  if (dictionary === undefined || dictionary.kind === 'null') {
+    return undefined;
+  }
+  if (dictionary.kind !== 'dictionary') {
+    throw new ParseError('inline JPEG DecodeParms must be a dictionary', 0);
+  }
   const value = dictionary.entries.get(pdfName('ColorTransform').bytes);
-  if (value === undefined) return undefined;
-  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) throw new ParseError('inline JPEG ColorTransform must be 0 or 1', 0);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value.kind !== 'integer' || (value.value !== 0 && value.value !== 1)) {
+    throw new ParseError('inline JPEG ColorTransform must be 0 or 1', 0);
+  }
   return value.value;
 };
 
@@ -149,19 +181,29 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
   const width = number(values.get('W') ?? values.get('Width'), 'Width');
   const height = number(values.get('H') ?? values.get('Height'), 'Height');
   const bits = number(values.get('BPC') ?? values.get('BitsPerComponent'), 'BitsPerComponent');
-  if (bits !== 8) return invalid('inline JPEG BitsPerComponent must be 8');
+  if (bits !== 8) {
+    return invalid('inline JPEG BitsPerComponent must be 8');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const maxRowBytes = Math.min(internals.maxDecodedBytes, 4 * 1024 * 1024);
   const colorTransform = inlineColorTransform(values);
   // ISO 32000-1:2008, 7.4.8, Table 13: APP14 overrides an inline image's DecodeParms ColorTransform.
   const { maxDecodedBytes } = internals;
   const jpeg = decodeJpeg(image.data, colorTransform === undefined ? { maxRowBytes, maxDecodedBytes } : { maxRowBytes, maxDecodedBytes, colorTransform });
-  if (jpeg.components !== 3 || jpeg.width !== width || jpeg.height !== height) return invalid('inline JPEG frame geometry differs from its dictionary');
+  if (jpeg.components !== 3 || jpeg.width !== width || jpeg.height !== height) {
+    return invalid('inline JPEG frame geometry differs from its dictionary');
+  }
   const rows = jpeg.rows();
-  while (rows.next().done !== true);
+  while (rows.next().done !== true) {
+    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
+  }
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
-  if (space.kind !== 'rgb') return invalid('DefaultRGB is not RGB');
+  if (space.kind !== 'rgb') {
+    return invalid('DefaultRGB is not RGB');
+  }
   const intent = options.intent === undefined || options.intent === 'document' ? config.intent : options.intent;
   const decode = decodeValues(values.get('D') ?? values.get('Decode'));
   const produce: StreamProducer = function* () {
@@ -171,7 +213,9 @@ const transcodeCompressedInline = (config: InlineConfig, values: ReadonlyMap<str
       lut8LabEncoding: options.lut8LabEncoding ?? 'icc',
     });
     const deflater = createDeflateStream();
-    for (const row of jpeg.rows()) yield* deflater.push(convertImageRow(row, { width, channels: 3, bits: 8, transform, decode }));
+    for (const row of jpeg.rows()) {
+      yield* deflater.push(convertImageRow(row, { width, channels: 3, bits: 8, transform, decode }));
+    }
     yield deflater.finish();
   };
   return { replacement: `/${config.xObjectName} Do`, width, height, bits: 8, data: new Uint8Array(), asXObject: true, produce };
@@ -181,10 +225,15 @@ const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDi
   const { document, image, resources, options } = config;
   const filter = values.get('F') ?? values.get('Filter');
   let filters: readonly PdfDirectObject[] = [];
-  if (filter?.kind === 'array') filters = filter.items;
-  else if (filter !== undefined) filters = [filter];
+  if (filter?.kind === 'array') {
+    filters = filter.items;
+  } else if (filter !== undefined) {
+    filters = [filter];
+  }
   const compressed = filters.find(item => item.kind === 'name' && ['DCT', 'DCTDecode', 'JPXDecode'].includes(latin1(item.bytes)));
-  if (compressed?.kind !== 'name') return undefined;
+  if (compressed?.kind !== 'name') {
+    return undefined;
+  }
   if (options.compressedRgbImages === 'refuse') {
     throw new UnsupportedFeatureError('compressed RGB inline image conversion is unavailable', 'compressed-rgb-image');
   }
@@ -212,7 +261,9 @@ const compressedImage = (config: InlineConfig, values: ReadonlyMap<string, PdfDi
     ['DCT', 'DCTDecode'],
   ]);
   const expanded = filters.map(item => {
-    if (item.kind !== 'name') return invalid('compressed inline image Filter must contain names');
+    if (item.kind !== 'name') {
+      return invalid('compressed inline image Filter must contain names');
+    }
     const name = latin1(item.bytes);
     return pdfName(aliases.get(name) ?? name);
   });
@@ -235,22 +286,40 @@ export const convertInlineImage = (config: InlineConfig): ConvertedInlineImage |
   const { document, image, resources, options } = config;
   const values = parameters(image);
   const color = values.get('CS') ?? values.get('ColorSpace');
-  if (color?.kind === 'array') return indexedImage(config, values, color);
-  if (color === undefined) return invalid('inline image ColorSpace is missing');
-  if (color.kind !== 'name') return undefined;
+  if (color?.kind === 'array') {
+    return indexedImage(config, values, color);
+  }
+  if (color === undefined) {
+    return invalid('inline image ColorSpace is missing');
+  }
+  if (color.kind !== 'name') {
+    return undefined;
+  }
   const family = new TextDecoder('latin1').decode(color.bytes);
-  if (family !== 'RGB' && family !== 'DeviceRGB') return undefined;
+  if (family !== 'RGB' && family !== 'DeviceRGB') {
+    return undefined;
+  }
   const kept = compressedImage(config, values);
-  if (kept !== undefined) return kept;
+  if (kept !== undefined) {
+    return kept;
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) return invalid('document internals are unavailable');
+  if (internals === undefined) {
+    return invalid('document internals are unavailable');
+  }
   const ceiling = Math.min(internals.maxDecodedBytes, 4 * 1024 * 1024);
   const { width, height, bits, inputRow, outputBits } = geometry(values, ceiling);
   const data = decodedData(internals, { kind: 'stream', dictionary: filterDictionary(values), data: image.data });
-  if (typeof data === 'string') return invalid(`inline image cannot be decoded: ${data}`);
-  if (data.length !== inputRow * height) return invalid('inline image data length does not match its dimensions');
+  if (typeof data === 'string') {
+    return invalid(`inline image cannot be decoded: ${data}`);
+  }
+  if (data.length !== inputRow * height) {
+    return invalid('inline image data length does not match its dimensions');
+  }
   const space = resolveSourceSpace(document, pdfName('DeviceRGB'), { resources, sourceRgbProfile: options.sourceRgbProfile });
-  if (space.kind !== 'rgb') return invalid('DefaultRGB is not RGB');
+  if (space.kind !== 'rgb') {
+    return invalid('DefaultRGB is not RGB');
+  }
   const intent = options.intent === undefined || options.intent === 'document' ? config.intent : options.intent;
   const transform = createColorTransform(space.source, options.outputProfile, {
     intent,

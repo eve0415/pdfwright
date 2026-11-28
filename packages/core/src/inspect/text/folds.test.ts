@@ -57,7 +57,9 @@ const folded = (fold: TextFold): [number, string][] => {
   const result: [number, string][] = [];
   for (let codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
     const to = foldOf(fold, codePoint);
-    if (to !== undefined) result.push([codePoint, to]);
+    if (to !== undefined) {
+      result.push([codePoint, to]);
+    }
   }
   return result;
 };

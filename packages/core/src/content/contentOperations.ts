@@ -52,7 +52,9 @@ const isStray = (token: Token): boolean =>
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -85,7 +87,9 @@ class OperationReader {
   }
 
   private append(operand: ContentOperand, stream: number, offset: number): void {
-    if (this.operands.length >= MAX_CONTENT_OPERANDS) throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
+    if (this.operands.length >= MAX_CONTENT_OPERANDS) {
+      throw new ResourceLimitError(`content has more than ${String(MAX_CONTENT_OPERANDS)} pending operands`);
+    }
     this.firstOperand ??= { stream, offset };
     this.operands.push(operand);
   }
@@ -128,8 +132,9 @@ class OperationReader {
         // Without ID the parameters stay on the operand stack for the operator that follows them.
         yield { operator: 'BI', operands: image.operands, stream: image.stream, offset: image.offset, start: image.offset, end: image.offset + 2 };
       }
-      if (operator === 'BI') this.image = { operands: this.take(), stream, offset: token.start };
-      else {
+      if (operator === 'BI') {
+        this.image = { operands: this.take(), stream, offset: token.start };
+      } else {
         const start = this.firstOperand?.stream === stream ? this.firstOperand.offset : token.start;
         yield { operator, operands: this.take(), stream, offset: token.start, start, end: token.end };
       }
@@ -158,7 +163,9 @@ export const readContentSpans = function* (
 ): Generator<SpannedContentOperation, readonly ContentOperand[]> {
   const reader = new OperationReader(maxNesting);
   const streams = content instanceof Uint8Array ? [content] : content;
-  for (const [index, bytes] of streams.entries()) yield* reader.read(bytes, index);
+  for (const [index, bytes] of streams.entries()) {
+    yield* reader.read(bytes, index);
+  }
   return yield* reader.finish();
 };
 
@@ -166,7 +173,9 @@ export const readContentSpans = function* (
 export const readContent = function* (content: Uint8Array | readonly Uint8Array[], maxNesting: number): Generator<ContentOperation, readonly ContentOperand[]> {
   const reader = readContentSpans(content, maxNesting);
   for (let step = reader.next(); ; step = reader.next()) {
-    if (step.done === true) return step.value;
+    if (step.done === true) {
+      return step.value;
+    }
     const { start: _start, end: _end, ...operation } = step.value;
     yield operation;
   }

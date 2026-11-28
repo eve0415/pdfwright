@@ -66,7 +66,9 @@ describe('path flattening', () => {
   it('stops keeping points past the clip vertex limit but goes on counting them', () => {
     const path = new PathBuilder(IDENTITY);
     path.moveTo(0, 0);
-    for (let index = 0; index < 4000; index++) path.curveTo([100_000, 100_000, -100_000, 100_000, 0, 0]);
+    for (let index = 0; index < 4000; index++) {
+      path.curveTo([100_000, 100_000, -100_000, 100_000, 0, 0]);
+    }
     const kept = path.polygons().flat().length;
     expect([
       kept <= MAX_CLIP_VERTICES + 1,
@@ -159,7 +161,9 @@ describe('clip classification', () => {
   it('gives up past 10,000 clip vertices', () => {
     const path = new PathBuilder(IDENTITY);
     path.moveTo(0, 0);
-    for (let index = 1; index <= 10_001; index++) path.lineTo(index / 100, index % 2);
+    for (let index = 1; index <= 10_001; index++) {
+      path.lineTo(index / 100, index % 2);
+    }
     expect([Clip.NONE.intersect(path, 'nonzero').classifyQuad(quad([0, 0, 1, 1])), Clip.NONE.intersect(path, 'nonzero').classifyPoint(0, 0)]).toStrictEqual([
       'unknown',
       'unknown',

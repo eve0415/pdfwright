@@ -37,9 +37,13 @@ const XREF = [0x78, 0x72, 0x65, 0x66];
 
 const offsetEntry = (section: XrefSection, key: Uint8Array, name: string): number | undefined => {
   const value = section.trailer.get(key);
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   // ISO 32000-1:2008, Table 15 gives Prev as a byte offset; 7.5.8.2 requires the values of cross-reference stream entries to be direct, and an indirect one cannot be resolved before the index exists.
-  if (value.kind !== 'integer' || value.value < 0) throw new ParseError(`the ${name} entry is not a byte offset`, section.trailerStart);
+  if (value.kind !== 'integer' || value.value < 0) {
+    throw new ParseError(`the ${name} entry is not a byte offset`, section.trailerStart);
+  }
   return value.value;
 };
 
@@ -54,7 +58,9 @@ const readSection = (source: ByteSource, offset: number, context: XrefContext): 
  */
 export const readSectionChain = (source: ByteSource, start: ChainStart, context: XrefContext): SectionChain => {
   const first = sectionStartNear(source, start.startxref + start.shift);
-  if (first === undefined) throw new ParseError('startxref does not point at a cross-reference section', start.startxref + start.shift);
+  if (first === undefined) {
+    throw new ParseError('startxref does not point at a cross-reference section', start.startxref + start.shift);
+  }
   if (first.corrected) {
     context.warn({
       code: 'startxref-corrected',
@@ -67,7 +73,9 @@ export const readSectionChain = (source: ByteSource, start: ChainStart, context:
   let mixed = false;
   for (let offset: number | undefined = first.offset; offset !== undefined;) {
     const located = sectionStartNear(source, offset);
-    if (located?.corrected !== false) throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    if (located?.corrected !== false) {
+      throw new ParseError('a Prev entry does not point at a cross-reference section', offset);
+    }
     // Sections are recognised by where they start, so offsets that differ only by the white space before a section are the same section.
     if (visited.has(located.offset)) {
       context.warn({ code: 'prev-cycle', detail: 'a Prev entry points back at a section already read', offset });

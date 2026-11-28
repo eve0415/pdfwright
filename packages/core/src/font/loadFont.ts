@@ -117,7 +117,9 @@ export const graphicsStateFontOwner = (
   owner: string,
   name: Uint8Array,
 ): FontOwner => {
-  if (state?.kind === 'reference') return { owner: `${referenceKey(state)}:ExtGState`, name: NO_NAME };
+  if (state?.kind === 'reference') {
+    return { owner: `${referenceKey(state)}:ExtGState`, name: NO_NAME };
+  }
   return { owner: `${category?.kind === 'reference' ? referenceKey(category) : owner}:ExtGState`, name };
 };
 
@@ -140,7 +142,9 @@ interface Loaded {
 // ISO 32000-1:2008, 9.10.3: a ToUnicode CMap is a stream; any other value is not defined there and reads as unreadable.
 const readToUnicode = (context: LoadContext, dictionary: PdfDictionaryEntries): Pick<Loaded, 'toUnicode' | 'toUnicodeState'> => {
   const value = dictionary.get(TO_UNICODE);
-  if (value === undefined) return { toUnicode: undefined, toUnicodeState: 'absent' };
+  if (value === undefined) {
+    return { toUnicode: undefined, toUnicodeState: 'absent' };
+  }
   const result = context.cmaps.stream(value);
   if (result.kind !== 'cmap') {
     context.warnings.push({ code: 'to-unicode-unreadable', detail: result.kind === 'unreadable' ? result.reason : `the CMap ${result.name} is not available` });
@@ -156,7 +160,9 @@ const fontMatrixOf = (context: LoadContext, dictionary: PdfDictionaryEntries): M
   const numbers = numbersOf(context.source, dictionary.get(FONT_MATRIX));
   const [a, b, c, d, e, f] = numbers ?? [];
   const complete = numbers?.length === 6 && a !== undefined && b !== undefined && c !== undefined && d !== undefined && e !== undefined && f !== undefined;
-  if (complete) return [a, b, c, d, e, f];
+  if (complete) {
+    return [a, b, c, d, e, f];
+  }
   context.warnings.push({ code: 'font-unreadable', detail: 'the Type 3 FontMatrix is not an array of six numbers' });
   return THOUSANDTH;
 };
@@ -173,7 +179,9 @@ const chromiumType3 = (differences: readonly string[], hasDescriptor: boolean): 
   hasDescriptor && differences.length > 0 && differences.every(name => /^g[0-9A-F]+$/u.test(name));
 
 const standardWidths = (metrics: Standard14Metrics | undefined, names: EncodingTable): SimpleWidths => {
-  if (metrics === undefined) return undefined;
+  if (metrics === undefined) {
+    return undefined;
+  }
   return code => {
     const name = names[code];
     return name === undefined ? undefined : metrics.width(name);
@@ -202,12 +210,16 @@ const embeddedTablesOf = (source: FontSource, descriptor?: PdfDictionaryEntries)
   return {
     embeddedCmap: once((): CmapReading | undefined => {
       const data = program();
-      if (data === undefined) return undefined;
+      if (data === undefined) {
+        return undefined;
+      }
       return typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeCmap(data);
     }),
     embeddedGlyphBounds: once((): GlyphBoundsReading | undefined => {
       const data = program();
-      if (data === undefined) return undefined;
+      if (data === undefined) {
+        return undefined;
+      }
       return typeof data === 'string' ? { kind: 'unreadable', reason: data } : readTrueTypeGlyphBounds(data);
     }),
   };
@@ -216,13 +228,17 @@ const embeddedTablesOf = (source: FontSource, descriptor?: PdfDictionaryEntries)
 // ISO 32000-1:2008, Table 111, Encoding: "a name or dictionary"; Table 114 gives the dictionary's BaseEncoding and Differences.
 const simpleEncoding = (source: FontSource, value: PdfDirectObject | undefined, differences: number): FontEncodingSummary => {
   const encoding = source.objects.deref(value);
-  if (encoding === undefined || encoding.kind === 'null') return { kind: 'font-program' };
+  if (encoding === undefined || encoding.kind === 'null') {
+    return { kind: 'font-program' };
+  }
   if (encoding.kind === 'name') {
     const text = latin1(encoding.bytes);
     const name = text === 'StandardEncoding' || text === 'MacRomanEncoding' || text === 'WinAnsiEncoding' || text === 'MacExpertEncoding' ? text : 'other';
     return { kind: 'named', name, bytes: encoding.bytes };
   }
-  if (encoding.kind !== 'dictionary') return { kind: 'unreadable', reason: 'the Encoding entry is not a name or a dictionary' };
+  if (encoding.kind !== 'dictionary') {
+    return { kind: 'unreadable', reason: 'the Encoding entry is not a name or a dictionary' };
+  }
   const base = source.objects.deref(encoding.entries.get(BASE_ENCODING));
   return { kind: 'differences', base: base?.kind === 'name' ? base.bytes : undefined, differences };
 };
@@ -233,11 +249,15 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
   const descriptor = readDescriptor(source, dictionary);
   const input = { source, font: dictionary, subtype, descriptor };
   const { names, differences, problems } = simpleGlyphNames(input);
-  for (const detail of problems) context.warnings.push({ code: 'font-unreadable', detail });
+  for (const detail of problems) {
+    context.warnings.push({ code: 'font-unreadable', detail });
+  }
   // Table 111 exempts the standard 14 fonts from Widths, and their widths then come from the bundled AFM metrics by glyph name; a Widths array, when present, is used as it is.
   const standard = subtype === 'Type1' && loaded.baseFont !== undefined ? standard14Metrics(latin1(loaded.baseFont)) : undefined;
   const widths = simpleWidths(input) ?? standardWidths(standard, names);
-  if (widths === undefined) context.warnings.push({ code: 'widths-unknown', detail: 'the font has no Widths array with a FirstChar' });
+  if (widths === undefined) {
+    context.warnings.push({ code: 'widths-unknown', detail: 'the font has no Widths array with a FirstChar' });
+  }
   const glyphMatrix = subtype === 'Type3' ? fontMatrixOf(context, dictionary) : THOUSANDTH;
   const charProcs = dictionaryOf(source.objects.deref(dictionary.get(CHAR_PROCS)));
   const type3: Type3Parts | undefined =
@@ -294,7 +314,9 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
     type3,
     ...embeddedTablesOf(source, subtype === 'TrueType' ? descriptor.dictionary : undefined),
     glyphs: (string, maxGlyphs = Number.POSITIVE_INFINITY): FontString => {
-      if (string.length > maxGlyphs) throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
+      if (string.length > maxGlyphs) {
+        throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
+      }
       return {
         kind: 'glyphs',
         glyphs: [...string].map(code => {
@@ -308,18 +330,25 @@ const simpleModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, keyo
 
 const cmapProblems = (context: LoadContext, result: CMapResult): void => {
   if (result.kind === 'cmap') {
-    for (const problem of result.problems) context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap: ${problem.detail}` });
+    for (const problem of result.problems) {
+      context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap: ${problem.detail}` });
+    }
     const { unavailableParent } = result.cmap;
     if (unavailableParent !== undefined) {
       context.warnings.push({ code: 'cmap-unavailable', detail: `the predefined CMap ${unavailableParent} that the Encoding CMap uses is not available` });
     }
-  } else if (result.kind === 'unavailable') context.warnings.push({ code: 'cmap-unavailable', detail: `the predefined CMap ${result.name} is not available` });
-  else context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap cannot be read: ${result.reason}` });
+  } else if (result.kind === 'unavailable') {
+    context.warnings.push({ code: 'cmap-unavailable', detail: `the predefined CMap ${result.name} is not available` });
+  } else {
+    context.warnings.push({ code: 'font-unreadable', detail: `the Encoding CMap cannot be read: ${result.reason}` });
+  }
 };
 
 // 9.7.5.2, NOTE 1: "CMaps whose names end in H specify horizontal writing mode; those ending in V specify vertical writing mode."
 const writingModeOf = (result: CMapResult, name: string | undefined): 0 | 1 => {
-  if (result.kind === 'cmap') return result.cmap.writingMode;
+  if (result.kind === 'cmap') {
+    return result.cmap.writingMode;
+  }
   return name?.endsWith('V') === true ? 1 : 0;
 };
 
@@ -333,9 +362,13 @@ interface CollectionSources {
 const collectionMapName = (source: FontSource, { result, encodingName, descendant }: CollectionSources): string | undefined => {
   const predefined = encodingName !== undefined && encodingName !== 'Identity-H' && encodingName !== 'Identity-V';
   const info = result.kind === 'cmap' && predefined ? result.cmap.cidSystemInfo : undefined;
-  if (info?.registry !== undefined && info.ordering !== undefined) return `${latin1(info.registry)}-${latin1(info.ordering)}-UCS2`;
+  if (info?.registry !== undefined && info.ordering !== undefined) {
+    return `${latin1(info.registry)}-${latin1(info.ordering)}-UCS2`;
+  }
   const described = collectionOf(source, descendant?.dictionary);
-  if (described === undefined || !(predefined || (described.registry === 'Adobe' && STANDARD_ORDERINGS.has(described.ordering)))) return undefined;
+  if (described === undefined || !(predefined || (described.registry === 'Adobe' && STANDARD_ORDERINGS.has(described.ordering)))) {
+    return undefined;
+  }
   return `${described.registry}-${described.ordering}-UCS2`;
 };
 
@@ -350,9 +383,13 @@ interface CompositeParts {
 
 // A code whose CID depends on a usecmap CMap no provider supplied has no known CID: one the CMap here does not map, or one outside its codespace ranges, which may lie in the other CMap's. 9.7.6.3: an invalid code takes "a substitute glyph …as just described", its notdef mapping or CID 0.
 const cidOf = (cmap: CMap, code: CMapCode, valid: boolean): number | undefined => {
-  if (!valid) return cmap.unavailableParent === undefined ? (cmap.notdef(code) ?? 0) : undefined;
+  if (!valid) {
+    return cmap.unavailableParent === undefined ? (cmap.notdef(code) ?? 0) : undefined;
+  }
   const mapped = cmap.mapped(code) ?? cmap.notdef(code);
-  if (mapped === undefined && cmap.unavailableParent !== undefined) return undefined;
+  if (mapped === undefined && cmap.unavailableParent !== undefined) {
+    return undefined;
+  }
   return mapped ?? 0;
 };
 
@@ -390,7 +427,9 @@ const splitComposite = (
   const { string, maxGlyphs } = input;
   const shown: FontGlyph[] = [];
   for (let offset = 0; offset < string.length;) {
-    if (shown.length >= maxGlyphs) throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
+    if (shown.length >= maxGlyphs) {
+      throw new ResourceLimitError(`the shown string exceeds its remaining glyph budget (${String(maxGlyphs)})`);
+    }
     const { code, valid } = parts.cmap.read(string, offset);
     const key = `${valid ? '' : '!'}${String(code.length)}:${String(code.value)}`;
     let glyph = cache.get(key);
@@ -405,9 +444,13 @@ const splitComposite = (
 };
 
 const gidsOf = (context: LoadContext, descendant: DescendantFont | undefined): ((cid: number) => number) | undefined => {
-  if (descendant?.subtype !== 'CIDFontType2') return undefined;
+  if (descendant?.subtype !== 'CIDFontType2') {
+    return undefined;
+  }
   const gids = cidToGid(context.source, descendant.dictionary);
-  if (typeof gids !== 'string') return gids;
+  if (typeof gids !== 'string') {
+    return gids;
+  }
   context.warnings.push({ code: 'font-unreadable', detail: gids });
   return undefined;
 };
@@ -415,8 +458,12 @@ const gidsOf = (context: LoadContext, descendant: DescendantFont | undefined): (
 // The registry–ordering–UCS2 map from the provider; its absence is worth a warning only when no ToUnicode CMap gives the text first (9.10.2).
 const unicodeMapOf = (context: LoadContext, name: string, toUnicode: FontModel['toUnicode']): CMap | undefined => {
   const map = context.cmaps.named(name);
-  if (map.kind === 'cmap') return map.cmap;
-  if (toUnicode !== 'present') context.warnings.push({ code: 'cmap-unavailable', detail: `the CID-to-Unicode map ${name} is not available` });
+  if (map.kind === 'cmap') {
+    return map.cmap;
+  }
+  if (toUnicode !== 'present') {
+    context.warnings.push({ code: 'cmap-unavailable', detail: `the CID-to-Unicode map ${name} is not available` });
+  }
   return undefined;
 };
 
@@ -425,16 +472,22 @@ const compositeEncoding = (
   source: FontSource,
   { value, result, writingMode }: { value: PdfDirectObject | undefined; result: CMapResult; writingMode: 0 | 1 },
 ): FontEncodingSummary => {
-  if (result.kind === 'unreadable') return { kind: 'unreadable', reason: result.reason };
+  if (result.kind === 'unreadable') {
+    return { kind: 'unreadable', reason: result.reason };
+  }
   const encoding = source.objects.deref(value);
   const available = result.kind === 'cmap' && result.cmap.unavailableParent === undefined;
-  if (encoding?.kind === 'name') return { kind: 'cmap', name: encoding.bytes, predefined: true, embedded: false, writingMode, available };
+  if (encoding?.kind === 'name') {
+    return { kind: 'cmap', name: encoding.bytes, predefined: true, embedded: false, writingMode, available };
+  }
   let stored: PdfObject | undefined;
   try {
     stored = encoding?.kind === 'stream' ? source.objects.deref(encoding.dictionary.get(CMAP_NAME)) : undefined;
   } catch (error: unknown) {
     // The CMap was read from its stream; a CMapName entry that cannot be read leaves the name the program defines.
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
   }
   const parsed = result.kind === 'cmap' ? result.cmap.name : undefined;
   const name = stored?.kind === 'name' ? stored.bytes : latin1Bytes(parsed ?? '');
@@ -449,7 +502,9 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
     encodingValue === undefined ? { kind: 'unreadable', reason: 'the Type 0 font has no Encoding' } : context.cmaps.encoding(encodingValue);
   cmapProblems(context, result);
   const descendant = descendantOf(source, loaded.dictionary);
-  if (descendant === undefined) context.warnings.push({ code: 'font-unreadable', detail: 'the Type 0 font has no descendant CIDFont dictionary' });
+  if (descendant === undefined) {
+    context.warnings.push({ code: 'font-unreadable', detail: 'the Type 0 font has no descendant CIDFont dictionary' });
+  }
   const gids = gidsOf(context, descendant);
   const mapName = collectionMapName(source, { result, encodingName, descendant });
   const ucs2 = mapName === undefined ? undefined : unicodeMapOf(context, mapName, loaded.toUnicodeState);
@@ -477,9 +532,15 @@ const compositeModel = (context: LoadContext, loaded: Loaded): Omit<FontModel, k
     type3: undefined,
     ...embeddedTablesOf(source, descendant?.subtype === 'CIDFontType2' ? descriptorDictionary : undefined),
     glyphs: (string, maxGlyphs = Number.POSITIVE_INFINITY): FontString => {
-      if (result.kind === 'unavailable') return { kind: 'cmap-unavailable', cmap: result.name };
-      if (result.kind === 'unreadable') return { kind: 'undecodable', reason: result.reason };
-      if (parts === undefined) return { kind: 'undecodable', reason: 'the CMap cannot be read' };
+      if (result.kind === 'unavailable') {
+        return { kind: 'cmap-unavailable', cmap: result.name };
+      }
+      if (result.kind === 'unreadable') {
+        return { kind: 'undecodable', reason: result.reason };
+      }
+      if (parts === undefined) {
+        return { kind: 'undecodable', reason: 'the CMap cannot be read' };
+      }
       return { kind: 'glyphs', glyphs: splitComposite(parts, cache, { string, maxGlyphs }) };
     },
   };

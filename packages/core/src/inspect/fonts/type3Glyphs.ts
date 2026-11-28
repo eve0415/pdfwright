@@ -39,10 +39,18 @@ const isName = (operand: ContentOperand | undefined): boolean => operand?.kind =
 
 const namesResource = ({ operator, operands, inlineImage }: ContentOperation): boolean => {
   const [first, second] = operands;
-  if (operator === 'Tf' || operator === 'Do' || operator === 'gs' || operator === 'sh') return true;
-  if (operator === 'CS' || operator === 'cs') return first?.kind === 'name' && !SPACE_FAMILIES.has(latin1(first.bytes));
-  if (operator === 'SCN' || operator === 'scn') return isName(operands.at(-1));
-  if (operator === 'BDC' || operator === 'DP') return isName(second);
+  if (operator === 'Tf' || operator === 'Do' || operator === 'gs' || operator === 'sh') {
+    return true;
+  }
+  if (operator === 'CS' || operator === 'cs') {
+    return first?.kind === 'name' && !SPACE_FAMILIES.has(latin1(first.bytes));
+  }
+  if (operator === 'SCN' || operator === 'scn') {
+    return isName(operands.at(-1));
+  }
+  if (operator === 'BDC' || operator === 'DP') {
+    return isName(second);
+  }
   const parameters = inlineImage?.parameters ?? [];
   return parameters.some((key, index) => {
     const value = parameters[index + 1];
@@ -60,9 +68,13 @@ const UNREADABLE: Procedure = { kind: 'unreadable', coloured: false, namesResour
 
 // 8.9.5 and 8.9.7: an image XObject drawn by Do, or an inline image, paints an image.
 const paintsImage = (document: DocumentInternals, operation: ContentOperation, resources: PdfDictionaryEntries | undefined): boolean => {
-  if (operation.operator === 'BI') return true;
+  if (operation.operator === 'BI') {
+    return true;
+  }
   const [name] = operation.operands;
-  if (operation.operator !== 'Do' || name?.kind !== 'name') return false;
+  if (operation.operator !== 'Do' || name?.kind !== 'name') {
+    return false;
+  }
   const xObjects = dictionaryOf(document.objects.deref(resources?.get(XOBJECT)));
   const xObject = document.objects.deref(xObjects?.get(name.bytes));
   const subtype = xObject?.kind === 'stream' ? document.objects.deref(xObject.dictionary.get(SUBTYPE)) : undefined;
@@ -71,16 +83,22 @@ const paintsImage = (document: DocumentInternals, operation: ContentOperation, r
 
 const readProcedure = (document: DocumentInternals, value: PdfDirectObject, resources: PdfDictionaryEntries | undefined): Procedure => {
   const stream = document.objects.deref(value);
-  if (stream?.kind !== 'stream') return UNREADABLE;
+  if (stream?.kind !== 'stream') {
+    return UNREADABLE;
+  }
   const data = decodedData(document, stream);
-  if (typeof data === 'string') return UNREADABLE;
+  if (typeof data === 'string') {
+    return UNREADABLE;
+  }
   let image = false;
   let coloured = false;
   let names = false;
   let first = true;
   for (const operation of readContent(data, document.maxNesting)) {
     // 9.6.5: a glyph description begins with d0, which sets its own colours, or d1.
-    if (first) coloured = operation.operator === 'd0';
+    if (first) {
+      coloured = operation.operator === 'd0';
+    }
     first = false;
     image ||= paintsImage(document, operation, resources);
     names ||= namesResource(operation);
@@ -98,7 +116,9 @@ export const readType3Glyphs = (document: DocumentInternals, type3: Type3Parts, 
     own = document.objects.deref(type3.resources);
   } catch (error: unknown) {
     // A Resources entry that cannot be read is no resource dictionary; content interpretation then takes the page's, and so does this reading.
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
   }
   // 7.3.7: a null value is an absent entry; a value that is not a dictionary gives no resources either, and content interpretation takes the page's.
   const inheritsPageResources = dictionaryOf(own) === undefined;
@@ -113,14 +133,21 @@ export const readType3Glyphs = (document: DocumentInternals, type3: Type3Parts, 
     try {
       procedure = readProcedure(document, value, resources);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
     }
     kinds.add(procedure.kind);
-    if (procedure.coloured) coloured++;
+    if (procedure.coloured) {
+      coloured++;
+    }
     namesResources ||= procedure.namesResources;
   }
   let glyphs: Type3Glyphs = 'vector';
-  if (kinds.has('unreadable')) glyphs = 'unreadable';
-  else if (kinds.has('image')) glyphs = kinds.has('vector') ? 'mixed' : 'image';
+  if (kinds.has('unreadable')) {
+    glyphs = 'unreadable';
+  } else if (kinds.has('image')) {
+    glyphs = kinds.has('vector') ? 'mixed' : 'image';
+  }
   return { glyphs, procedures, coloured, namesResources, inheritsPageResources };
 };

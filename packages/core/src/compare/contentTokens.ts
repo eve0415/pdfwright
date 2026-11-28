@@ -15,7 +15,9 @@ const quiet = (): LexContext => ({
 
 const hex = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += byte.toString(16).padStart(2, '0');
+  for (const byte of bytes) {
+    text += byte.toString(16).padStart(2, '0');
+  }
   return text;
 };
 
@@ -73,7 +75,9 @@ export const contentOperations = (bytes: Uint8Array, maxNesting: number): string
     if (token.kind === 'keyword' && token.keyword !== 'true' && token.keyword !== 'false' && token.keyword !== 'null') {
       lexer.next();
       const operator = operatorText(lexer, token);
-      if (operator === 'ID') operands.push(`ID${hex(inlineImageData(lexer, imageParameters))}`);
+      if (operator === 'ID') {
+        operands.push(`ID${hex(inlineImageData(lexer, imageParameters))}`);
+      }
       operations.push(`${operands.join(' ')} ${operator}`);
       operands = [];
       imageParameters = [];
@@ -86,7 +90,9 @@ export const contentOperations = (bytes: Uint8Array, maxNesting: number): string
       imageParameters.push(value);
     }
   }
-  if (operands.length > 0) operations.push(operands.join(' '));
+  if (operands.length > 0) {
+    operations.push(operands.join(' '));
+  }
   return operations;
 };
 
@@ -97,7 +103,9 @@ export const readOperations = (bytes: Uint8Array, maxNesting: number): ContentOp
   try {
     return { ok: true, operations: contentOperations(bytes, maxNesting) };
   } catch (error: unknown) {
-    if (error instanceof ParseError) return { ok: false, reason: error.message };
+    if (error instanceof ParseError) {
+      return { ok: false, reason: error.message };
+    }
     throw error;
   }
 };

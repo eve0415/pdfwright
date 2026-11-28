@@ -77,7 +77,9 @@ const signed = (): LoadedDocument =>
 const instanceIds = (extra: readonly PdfDirectObject[]): readonly [string, string] => {
   const document = load('');
   const change = setMetadata(document, INPUT);
-  for (const value of extra) document.object(value);
+  for (const value of extra) {
+    document.object(value);
+  }
   return [change.instanceId, instanceIdOf(saved(document))];
 };
 

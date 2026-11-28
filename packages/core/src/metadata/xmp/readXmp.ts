@@ -119,7 +119,9 @@ const splitName = (name: string): readonly [string, string] => {
 // Namespaces in XML 1.0, 3 and 6: xmlns and xmlns:p attributes declare namespaces for the element and its content; xml is bound to its fixed URI.
 const declarations = (attributes: readonly XmlAttribute[], scope: ReadonlyMap<string, string>): ReadonlyMap<string, string> => {
   const declared = attributes.filter(attribute => attribute.name === 'xmlns' || attribute.name.startsWith('xmlns:'));
-  if (declared.length === 0) return scope;
+  if (declared.length === 0) {
+    return scope;
+  }
   const next = new Map(scope);
   for (const attribute of declared) {
     const prefix = attribute.name === 'xmlns' ? '' : attribute.name.slice(6);
@@ -132,19 +134,29 @@ const declarations = (attributes: readonly XmlAttribute[], scope: ReadonlyMap<st
       throw new UnreadableError('not-well-formed');
     }
     // Namespaces in XML 1.0, 3, Namespace constraint No Prefix Undeclaring: "In a namespace declaration for a prefix (i.e., where the NSAttName is a PrefixedAttName), the attribute value MUST NOT be empty."
-    if (attribute.name !== 'xmlns' && attribute.value === '') throw new UnreadableError('not-well-formed');
+    if (attribute.name !== 'xmlns' && attribute.value === '') {
+      throw new UnreadableError('not-well-formed');
+    }
     next.set(prefix, attribute.value);
   }
   return next;
 };
 
 const resolve = (prefix: string, scope: ReadonlyMap<string, string>, isAttribute: boolean): string | undefined => {
-  if (prefix === 'xml') return XML_NAMESPACE;
-  if (prefix === 'xmlns') return XMLNS_NAMESPACE;
+  if (prefix === 'xml') {
+    return XML_NAMESPACE;
+  }
+  if (prefix === 'xmlns') {
+    return XMLNS_NAMESPACE;
+  }
   // Namespaces in XML 1.0, 6.2: an unprefixed attribute is in no namespace, whatever the default namespace.
-  if (prefix === '' && isAttribute) return undefined;
+  if (prefix === '' && isAttribute) {
+    return undefined;
+  }
   const namespace = scope.get(prefix);
-  if (namespace === undefined && prefix !== '') throw new UnreadableError('unbound-prefix');
+  if (namespace === undefined && prefix !== '') {
+    throw new UnreadableError('unbound-prefix');
+  }
   return namespace === '' ? undefined : namespace;
 };
 
@@ -181,7 +193,9 @@ const isDeclaration = (attribute: Attribute): boolean => attribute.namespace ===
 const language = (value: string | undefined): string | undefined => (value === '' ? undefined : value);
 
 const collectArrayItem = (parent: XmlElement | undefined, item: XmlElement): void => {
-  if (parent?.namespace !== RDF_NAMESPACE || !['Alt', 'Seq', 'Bag'].includes(parent.localName)) return;
+  if (parent?.namespace !== RDF_NAMESPACE || !['Alt', 'Seq', 'Bag'].includes(parent.localName)) {
+    return;
+  }
   parent.children.pop();
   const qualified = item.attributes.some(attribute => !isDeclaration(attribute) && !(attribute.namespace === XML_NAMESPACE && attribute.localName === 'lang'));
   if (item.namespace !== RDF_NAMESPACE || item.localName !== 'li' || item.children.length > 0 || qualified) {
@@ -209,18 +223,26 @@ const createTreeBuilder = (): BuiltTree => {
     const parent = stack.at(-1);
     if (token.kind === 'start') {
       const open = openElement(token, parent);
-      if (open.element.namespace === RDF_NAMESPACE && open.element.localName === 'RDF') rdfs.push(open.element);
-      if (token.selfClosing) collectArrayItem(parent?.element, open.element);
-      else stack.push(open);
+      if (open.element.namespace === RDF_NAMESPACE && open.element.localName === 'RDF') {
+        rdfs.push(open.element);
+      }
+      if (token.selfClosing) {
+        collectArrayItem(parent?.element, open.element);
+      } else {
+        stack.push(open);
+      }
     } else if (token.kind === 'end' && parent !== undefined) {
       parent.element.span.end = token.span.end;
       parent.element.endTagStart = token.span.start;
       stack.pop();
       collectArrayItem(stack.at(-1)?.element, parent.element);
-    } else if ((token.kind === 'text' || token.kind === 'cdata') && parent !== undefined) parent.element.text.push(token.text);
-    else if (token.kind === 'pi' && token.target === 'xpacket') {
+    } else if ((token.kind === 'text' || token.kind === 'cdata') && parent !== undefined) {
+      parent.element.text.push(token.text);
+    } else if (token.kind === 'pi' && token.target === 'xpacket') {
       instructions.push(token.content);
-      if (token.content.startsWith('end=')) packetEnd = token.span.end;
+      if (token.content.startsWith('end=')) {
+        packetEnd = token.span.end;
+      }
     }
   };
   return { rdfs, instructions, packetEnd: () => packetEnd, accept };
@@ -232,7 +254,9 @@ const isBlank = (element: XmlElement): boolean => element.text.every(text => /^[
 // XMP Part 1 7.7: an array is an rdf:Alt, rdf:Seq or rdf:Bag whose items are rdf:li elements; only items with simple, unqualified values are read.
 const arrayValue = (element: XmlElement): XmpValue => {
   const [array] = element.children;
-  if (array === undefined || element.children.length !== 1 || array.attributes.some(attribute => !isDeclaration(attribute))) return { kind: 'opaque' };
+  if (array === undefined || element.children.length !== 1 || array.attributes.some(attribute => !isDeclaration(attribute))) {
+    return { kind: 'opaque' };
+  }
   const type = array.localName;
   if (array.namespace !== RDF_NAMESPACE || (type !== 'Alt' && type !== 'Seq' && type !== 'Bag') || !isBlank(array) || array.arrayInvalid === true) {
     return { kind: 'opaque' };
@@ -244,9 +268,13 @@ const isLanguage = (attribute: Attribute): boolean => attribute.namespace === XM
 
 // XMP Part 1 7.5: a simple value is the element content, "only character data, entity references, character references, and CDATA sections", and "The element content for an XMP property with a URI simple value shall be empty. The value shall be provided as the value of an rdf:resource attribute"; a parseType, other qualifiers or nested elements make the value opaque here.
 const elementValue = (element: XmlElement): XmpValue => {
-  if (element.children.length > 0) return isBlank(element) ? arrayValue(element) : { kind: 'opaque' };
+  if (element.children.length > 0) {
+    return isBlank(element) ? arrayValue(element) : { kind: 'opaque' };
+  }
   const others = element.attributes.filter(attribute => !isDeclaration(attribute) && !isLanguage(attribute));
-  if (others.length === 0) return { kind: 'text', text: element.text.join(''), language: language(element.language) };
+  if (others.length === 0) {
+    return { kind: 'text', text: element.text.join(''), language: language(element.language) };
+  }
   const [resource] = others;
   const uri = others.length === 1 && resource?.namespace === RDF_NAMESPACE && resource.localName === 'resource' && element.text.join('') === '';
   return uri ? { kind: 'uri', uri: resource.value } : { kind: 'opaque' };
@@ -260,7 +288,9 @@ interface Subjects {
 const descriptionProperties = (description: XmlElement, subjects: Subjects): Omit<ReadProperty, 'span'>[] => {
   const properties: Omit<ReadProperty, 'span'>[] = [];
   for (const attribute of description.attributes) {
-    if (isDeclaration(attribute) || attribute.namespace === XML_NAMESPACE) continue;
+    if (isDeclaration(attribute) || attribute.namespace === XML_NAMESPACE) {
+      continue;
+    }
     if (attribute.namespace === undefined) {
       // XMP Part 1 7.4 recommends tolerating early XMP; packets written before 2003 carry about without the rdf prefix.
       if (attribute.localName === 'about') {
@@ -270,7 +300,9 @@ const descriptionProperties = (description: XmlElement, subjects: Subjects): Omi
       continue;
     }
     if (attribute.namespace === RDF_NAMESPACE) {
-      if (attribute.localName === 'about') subjects.values.push(attribute.value);
+      if (attribute.localName === 'about') {
+        subjects.values.push(attribute.value);
+      }
       continue;
     }
     // XMP Part 1 7.9.2.2: a simple unqualified property may be an attribute of the rdf:Description element.
@@ -289,10 +321,18 @@ const descriptionProperties = (description: XmlElement, subjects: Subjects): Omi
 };
 
 const codePointBytes = (code: number, encoding: XmlEncoding): number => {
-  if (encoding === 'utf-32be' || encoding === 'utf-32le') return 4;
-  if (encoding === 'utf-16be' || encoding === 'utf-16le') return code > 0xffff ? 4 : 2;
-  if (code < 0x80) return 1;
-  if (code < 0x800) return 2;
+  if (encoding === 'utf-32be' || encoding === 'utf-32le') {
+    return 4;
+  }
+  if (encoding === 'utf-16be' || encoding === 'utf-16le') {
+    return code > 0xffff ? 4 : 2;
+  }
+  if (code < 0x80) {
+    return 1;
+  }
+  if (code < 0x800) {
+    return 2;
+  }
   return code > 0xffff ? 4 : 3;
 };
 
@@ -321,10 +361,16 @@ const wrapper = (instructions: readonly string[]): XmpPacket['wrapper'] => {
 const findingsOf = (encoding: XmlEncoding, subjects: Subjects, properties: readonly ReadProperty[]): XmpFinding[] => {
   const findings: XmpFinding[] = [];
   // XMP Part 3 1.6.1: "The XMP must be encoded as UTF-8".
-  if (encoding !== 'utf8') findings.push({ code: 'xmp-not-utf8', detail: `the packet is encoded as ${encoding}` });
-  if (subjects.unprefixed) findings.push({ code: 'rdf-about-unprefixed', detail: 'an rdf:Description has an about attribute without the rdf prefix' });
+  if (encoding !== 'utf8') {
+    findings.push({ code: 'xmp-not-utf8', detail: `the packet is encoded as ${encoding}` });
+  }
+  if (subjects.unprefixed) {
+    findings.push({ code: 'rdf-about-unprefixed', detail: 'an rdf:Description has an about attribute without the rdf prefix' });
+  }
   const distinct = new Set(subjects.values.filter(value => value !== ''));
-  if (distinct.size > 1) findings.push({ code: 'rdf-about-mismatch', detail: `the rdf:Description elements name ${String(distinct.size)} different subjects` });
+  if (distinct.size > 1) {
+    findings.push({ code: 'rdf-about-mismatch', detail: `the rdf:Description elements name ${String(distinct.size)} different subjects` });
+  }
   const seen = new Set<string>();
   const reported = new Set<string>();
   for (const property of properties) {
@@ -342,10 +388,16 @@ const readTree = (text: string, encoding: XmlEncoding, tree: BuiltTree): ReadPac
   const { rdfs } = tree;
   // XMP Part 1 7.4: "A single XMP packet shall be serialized using a single rdf:RDF XML element"; 7.3.3: x:xmpmeta or other elements may surround it.
   const [rdf] = rdfs;
-  if (rdf === undefined) throw new UnreadableError('no-rdf');
-  if (rdfs.length > 1) throw new UnreadableError('multiple-rdf');
+  if (rdf === undefined) {
+    throw new UnreadableError('no-rdf');
+  }
+  if (rdfs.length > 1) {
+    throw new UnreadableError('multiple-rdf');
+  }
   // XMP Part 1 7.4: "The rdf:RDF element content shall consist of only zero or more rdf:Description elements."
-  if (!isBlank(rdf) || rdf.children.some(child => !isRdf(child, 'Description'))) throw new UnreadableError('not-xmp');
+  if (!isBlank(rdf) || rdf.children.some(child => !isRdf(child, 'Description'))) {
+    throw new UnreadableError('not-xmp');
+  }
   const subjects: Subjects = { values: [], unprefixed: false };
   const found = rdf.children.flatMap(description => descriptionProperties(description, subjects));
   const offsets = byteOffsets(
@@ -382,7 +434,9 @@ const readTree = (text: string, encoding: XmlEncoding, tree: BuiltTree): ReadPac
  */
 export const readXmp = (bytes: Uint8Array, maxTokens: number = DEFAULT_XML_LIMITS.maxTokens): ReadXmp => {
   const decoded = decodeXml(bytes);
-  if (!decoded.ok) return { ok: false, reason: decoded.reason };
+  if (!decoded.ok) {
+    return { ok: false, reason: decoded.reason };
+  }
   try {
     const tree = createTreeBuilder();
     const scanned = visitXml(
@@ -392,10 +446,14 @@ export const readXmp = (bytes: Uint8Array, maxTokens: number = DEFAULT_XML_LIMIT
       },
       { ...DEFAULT_XML_LIMITS, maxTokens },
     );
-    if (!scanned.ok) return { ok: false, reason: scanned.reason };
+    if (!scanned.ok) {
+      return { ok: false, reason: scanned.reason };
+    }
     return { ok: true, packet: readTree(decoded.text, decoded.encoding, tree) };
   } catch (error: unknown) {
-    if (error instanceof UnreadableError) return { ok: false, reason: error.reason };
+    if (error instanceof UnreadableError) {
+      return { ok: false, reason: error.reason };
+    }
     throw error;
   }
 };

@@ -29,8 +29,11 @@ const against = (table: EncodingTable, label: string): Comparison => {
   const undefinedCodes: number[] = [];
   for (let code = 0x20; code <= 0xff; code++) {
     const name = table[code];
-    if (name === undefined) undefinedCodes.push(code);
-    else if (glyphNameText(name) !== decoder.decode(Uint8Array.of(code))) differ.push(code);
+    if (name === undefined) {
+      undefinedCodes.push(code);
+    } else if (glyphNameText(name) !== decoder.decode(Uint8Array.of(code))) {
+      differ.push(code);
+    }
   }
   return { differ, undefinedCodes };
 };

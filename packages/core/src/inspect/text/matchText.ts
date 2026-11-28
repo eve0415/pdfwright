@@ -144,8 +144,11 @@ const clusters = (text: string, keep: (character: string) => boolean): Cluster[]
   for (const character of text) {
     if (keep(character)) {
       const last = result.at(-1);
-      if (last !== undefined && isSelector(character.codePointAt(0) ?? 0)) last.text += character;
-      else result.push({ text: character, offset });
+      if (last !== undefined && isSelector(character.codePointAt(0) ?? 0)) {
+        last.text += character;
+      } else {
+        result.push({ text: character, offset });
+      }
     }
     offset += character.length;
   }
@@ -172,7 +175,9 @@ type Box = readonly [number, number, number, number];
 
 // ISO 32000-1:2008, 14.11.2.1: "The crop, bleed, trim, and art boxes shall not ordinarily extend beyond the boundaries of the media box. If they do, they are effectively reduced to their intersection with the media box."
 const visibleBox = (cropBox: Box | undefined, mediaBox: Box | undefined): Box | undefined => {
-  if (cropBox === undefined || mediaBox === undefined) return cropBox ?? mediaBox;
+  if (cropBox === undefined || mediaBox === undefined) {
+    return cropBox ?? mediaBox;
+  }
   return [Math.max(cropBox[0], mediaBox[0]), Math.max(cropBox[1], mediaBox[1]), Math.min(cropBox[2], mediaBox[2]), Math.min(cropBox[3], mediaBox[3])];
 };
 
@@ -183,9 +188,15 @@ const visibleBox = (cropBox: Box | undefined, mediaBox: Box | undefined): Box | 
 const defaultSelection = ({ cropBox, mediaBox }: PageText): ((glyph: PageGlyph) => boolean) => {
   const box = visibleBox(cropBox, mediaBox);
   return (glyph: PageGlyph): boolean => {
-    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.coreHidden === 'entirely') return false;
-    if (glyph.clip === 'outside' || glyph.clip === 'unknown') return false;
-    if (box === undefined) return true;
+    if (!(glyph.visible || glyph.invisibleBecause === 'empty-glyph') || glyph.covered || glyph.coreHidden === 'entirely') {
+      return false;
+    }
+    if (glyph.clip === 'outside' || glyph.clip === 'unknown') {
+      return false;
+    }
+    if (box === undefined) {
+      return true;
+    }
     const [x, y] = centre(glyph);
     const [left, bottom, right, top] = box;
     return x >= left && x <= right && y >= bottom && y <= top;
@@ -199,8 +210,12 @@ type GlyphFailure = NonNullable<FoundCluster['failure']>;
 // A glyph that stands for no text: .notdef, or an empty glyph that claims text, is a missing glyph; a glyph without text, or whose text layer maps it to the empty string, is unmapped; an empty glyph without text stands for nothing (null).
 const glyphFailure = (glyph: PageGlyph): GlyphFailure | null | undefined => {
   const { text } = glyph;
-  if (glyph.notdef || (glyph.empty && text !== null && !onlyWhiteSpace(text))) return { kind: 'missing-glyph' };
-  if (text === null || text === '') return glyph.empty ? null : { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' };
+  if (glyph.notdef || (glyph.empty && text !== null && !onlyWhiteSpace(text))) {
+    return { kind: 'missing-glyph' };
+  }
+  if (text === null || text === '') {
+    return glyph.empty ? null : { kind: 'unmapped', reason: glyph.reason ?? 'no-mapping' };
+  }
   return undefined;
 };
 
@@ -214,7 +229,9 @@ const HALF_EM_TOLERANCE = 0.1;
 
 // The ToUnicode character of a composite font's glyph when it is one full-width or wide character.
 const wideCharacter = (glyph: PageGlyph): number | undefined => {
-  if (glyph.cid === undefined || glyph.toUnicode === null) return undefined;
+  if (glyph.cid === undefined || glyph.toUnicode === null) {
+    return undefined;
+  }
   const [character, ...rest] = Array.from(glyph.toUnicode, value => value.codePointAt(0) ?? 0);
   return character !== undefined && rest.length === 0 && isFullWidthOrWide(character) ? character : undefined;
 };
@@ -228,8 +245,12 @@ const proportionalFonts = (glyphs: readonly PageGlyph[]): Set<string> => {
   const fonts = new Set<string>();
   for (const glyph of glyphs) {
     const { width } = glyph;
-    if (wideCharacter(glyph) === undefined || width === undefined) continue;
-    if (Math.abs(width - 1) > FULL_EM_TOLERANCE && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) fonts.add(glyph.font);
+    if (wideCharacter(glyph) === undefined || width === undefined) {
+      continue;
+    }
+    if (Math.abs(width - 1) > FULL_EM_TOLERANCE && Math.abs(width - 0.5) > HALF_EM_TOLERANCE) {
+      fonts.add(glyph.font);
+    }
   }
   return fonts;
 };
@@ -276,20 +297,26 @@ class FoundText {
   private recordFold(fold: FoldApplied['fold'], { from, to }: { from: string; to: string }, glyphs: readonly number[]): void {
     const key = `${fold}\u0000${from}\u0000${to}`;
     const entry = this.folds.get(key) ?? { fold, from, to, glyphs: new Set<number>() };
-    for (const glyph of glyphs) entry.glyphs.add(glyph);
+    for (const glyph of glyphs) {
+      entry.glyphs.add(glyph);
+    }
     this.folds.set(key, entry);
   }
 
   private keep(character: string): boolean {
     const codePoint = character.codePointAt(0) ?? 0;
-    if (this.settings.whitespace === 'ignore' && WHITE_SPACE.test(character)) return false;
+    if (this.settings.whitespace === 'ignore' && WHITE_SPACE.test(character)) {
+      return false;
+    }
     return !(this.settings.selectors === 'ignore' && isSelector(codePoint));
   }
 
   // The page's reading of one glyph's text with folds applied, which is checked against the font's embedded cmap; the caller's equivalents come after.
   private read(glyph: PageGlyph, text: string): string {
     const folded = foldText(text, this.settings.folds);
-    for (const use of folded.uses) this.recordFold(use.fold, use, [glyph.index]);
+    for (const use of folded.uses) {
+      this.recordFold(use.fold, use, [glyph.index]);
+    }
     this.check(glyph, folded.text);
     return folded.text;
   }
@@ -297,7 +324,9 @@ class FoundText {
   // The caller's equivalent of a glyph's folded text, recorded as a fold, or the folded text itself.
   private equivalent(glyph: PageGlyph, folded: string): string {
     const equivalent = this.settings.equivalents.get(folded);
-    if (equivalent === undefined) return folded;
+    if (equivalent === undefined) {
+      return folded;
+    }
     this.recordFold('caller', { from: folded, to: equivalent }, [glyph.index]);
     return equivalent;
   }
@@ -312,22 +341,30 @@ class FoundText {
     }
     if (this.settings.uncheckable.has(glyph.font) && glyph.gid !== undefined && !onlyWhiteSpace(text)) {
       const glyphs = this.unchecked.get(glyph.font);
-      if (glyphs === undefined) this.unchecked.set(glyph.font, [glyph.index]);
-      else glyphs.push(glyph.index);
+      if (glyphs === undefined) {
+        this.unchecked.set(glyph.font, [glyph.index]);
+      } else {
+        glyphs.push(glyph.index);
+      }
       return;
     }
     const cmap = this.settings.cmaps.get(glyph.font);
-    if (cmap === undefined || glyph.gid === undefined) return;
+    if (cmap === undefined || glyph.gid === undefined) {
+      return;
+    }
     const evidence = cmapEvidence(cmap, glyph.gid, text);
     const [character, ...rest] = Array.from(text, value => value.codePointAt(0) ?? 0);
     const single = character !== undefined && rest.length === 0 ? character : undefined;
     const alternate = single !== undefined && hasVerticalAlternate(single);
-    if (evidence.kind === 'confirmed') this.confirmed.add(glyph.index);
-    else if (evidence.kind === 'disagrees') {
+    if (evidence.kind === 'confirmed') {
+      this.confirmed.add(glyph.index);
+    } else if (evidence.kind === 'disagrees') {
       if (!(alternate && this.settings.upright.has(glyph.index))) {
         this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: evidence.expected, drawnGid: glyph.gid, glyphs: [glyph.index] });
       }
-    } else if (single !== undefined && !alternate) this.unlisted(glyph, { text, cmap, character: single });
+    } else if (single !== undefined && !alternate) {
+      this.unlisted(glyph, { text, cmap, character: single });
+    }
   }
 
   /**
@@ -335,7 +372,9 @@ class FoundText {
    * When the glyph is half an em wide while its ToUnicode character is full-width or wide, it is a half-width form, as Chromium's hwid draws without a span, unless its font shows such characters at proportional widths.
    */
   private unlisted(glyph: PageGlyph, { text, cmap, character }: { text: string; cmap: EmbeddedCmap; character: number }): void {
-    if (glyph.gid === undefined) return;
+    if (glyph.gid === undefined) {
+      return;
+    }
     const own = glyph.text !== null && glyph.text !== text && cmapEvidence(cmap, glyph.gid, glyph.text).kind === 'confirmed';
     if (own || cmap.characters(glyph.gid).length > 0 || (halfWidthOfWide(glyph) && !this.settings.proportional.has(glyph.font))) {
       this.notes.push({ kind: 'glyph-disagrees', text, expectedGid: own ? undefined : cmap.glyph(character), drawnGid: glyph.gid, glyphs: [glyph.index] });
@@ -347,7 +386,9 @@ class FoundText {
     const [glyph] = glyphs;
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [base, selector] = Array.from(cluster, character => character.codePointAt(0) ?? 0);
-    if (glyph?.gid === undefined || cmap === undefined || glyphs.length > 1 || base === undefined || selector === undefined) return false;
+    if (glyph?.gid === undefined || cmap === undefined || glyphs.length > 1 || base === undefined || selector === undefined) {
+      return false;
+    }
     return variantConfirmed(cmap, glyph.gid, [base, selector]);
   }
 
@@ -379,8 +420,12 @@ class FoundText {
     const glyph = index === undefined || have.glyphs.length > 1 ? undefined : this.shown.get(index);
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [character, ...rest] = Array.from(want.text, value => value.codePointAt(0) ?? 0);
-    if (have.failure !== undefined || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) return false;
-    if (cmap.glyph(character) !== glyph.gid) return false;
+    if (have.failure !== undefined || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) {
+      return false;
+    }
+    if (cmap.glyph(character) !== glyph.gid) {
+      return false;
+    }
     this.recordFold('embedded-cmap', { from: have.text, to: want.text }, have.glyphs);
     this.displayed.set(have, want.text);
     return true;
@@ -391,8 +436,12 @@ class FoundText {
     const [glyph] = glyphs;
     const cmap = glyph === undefined ? undefined : this.settings.cmaps.get(glyph.font);
     const [character, ...rest] = Array.from(text, value => value.codePointAt(0) ?? 0);
-    if (glyphs.length !== 1 || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) return false;
-    if (cmap.glyph(character) !== glyph.gid) return false;
+    if (glyphs.length !== 1 || glyph?.gid === undefined || cmap === undefined || character === undefined || rest.length > 0) {
+      return false;
+    }
+    if (cmap.glyph(character) !== glyph.gid) {
+      return false;
+    }
     this.recordFold('embedded-cmap', { from: glyphText, to: text }, [glyph.index]);
     return true;
   }
@@ -402,7 +451,9 @@ class FoundText {
     this.shown.set(glyph.index, glyph);
     const glyphs = [glyph.index];
     const failure = glyphFailure(glyph);
-    if (failure === null) return;
+    if (failure === null) {
+      return;
+    }
     if (failure !== undefined) {
       const shown = failure.kind === 'missing-glyph' ? (glyph.text ?? REPLACEMENT) : REPLACEMENT;
       this.clusters.push({ text: shown, plain: shown, glyphs, variantFromActualText: false, failure });
@@ -416,7 +467,9 @@ class FoundText {
    * A missing glyph fails the unit whatever the span claims, and the span's text is compared only when it agrees with the glyphs' folded text.
    */
   addSpan(glyphs: readonly PageGlyph[], { index, text }: { index: number; text: string }): void {
-    for (const glyph of glyphs) this.shown.set(glyph.index, glyph);
+    for (const glyph of glyphs) {
+      this.shown.set(glyph.index, glyph);
+    }
     const indexes = glyphs.map(glyph => glyph.index);
     const failures = glyphs.map(glyph => glyphFailure(glyph)).filter(found => isFailure(found));
     const failure = failures.find(found => found.kind === 'missing-glyph') ?? failures[0];
@@ -452,15 +505,21 @@ class FoundText {
 
   /** Notes a span with no compared glyph between compared glyphs, unless its text is only white space that is ignored. */
   addUnseenSpan({ index, text }: { index: number; text: string }): void {
-    if (this.settings.whitespace === 'ignore' && onlyWhiteSpace(text)) return;
+    if (this.settings.whitespace === 'ignore' && onlyWhiteSpace(text)) {
+      return;
+    }
     this.notes.push({ kind: 'no-glyph-evidence', text, span: index });
   }
 }
 
 // A failure placed against an intended character, or on its own.
 const failureDifference = (found: FoundCluster, intendedIndex?: number): TextDifference | undefined => {
-  if (found.failure?.kind === 'missing-glyph') return { kind: 'missing-glyph', glyphs: found.glyphs, intendedIndex };
-  if (found.failure?.kind === 'unmapped') return { kind: 'unmapped', glyphs: found.glyphs, reason: found.failure.reason };
+  if (found.failure?.kind === 'missing-glyph') {
+    return { kind: 'missing-glyph', glyphs: found.glyphs, intendedIndex };
+  }
+  if (found.failure?.kind === 'unmapped') {
+    return { kind: 'unmapped', glyphs: found.glyphs, reason: found.failure.reason };
+  }
   return undefined;
 };
 
@@ -473,12 +532,16 @@ const gapDifferences = (intended: readonly Cluster[], found: readonly FoundClust
     const have = found[index];
     if (index < paired && want !== undefined && have !== undefined) {
       const failure = failureDifference(have, want.offset);
-      if (failure !== undefined) differences.push(failure);
-      else if (!text.acceptByCmap(want, have)) {
+      if (failure !== undefined) {
+        differences.push(failure);
+      } else if (!text.acceptByCmap(want, have)) {
         differences.push({ kind: 'substituted', intended: want.text, found: have.text, intendedIndex: want.offset, glyphs: have.glyphs });
       }
-    } else if (want !== undefined) differences.push({ kind: 'missing', intended: want.text, intendedIndex: want.offset });
-    else if (have !== undefined) differences.push(failureDifference(have) ?? { kind: 'extra', found: have.text, glyphs: have.glyphs });
+    } else if (want !== undefined) {
+      differences.push({ kind: 'missing', intended: want.text, intendedIndex: want.offset });
+    } else if (have !== undefined) {
+      differences.push(failureDifference(have) ?? { kind: 'extra', found: have.text, glyphs: have.glyphs });
+    }
   }
   return differences;
 };
@@ -489,7 +552,9 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
   let wanted: Cluster[] = [];
   let had: FoundCluster[] = [];
   const flush = (): void => {
-    for (const difference of gapDifferences(wanted, had, text)) differences.push(difference);
+    for (const difference of gapDifferences(wanted, had, text)) {
+      differences.push(difference);
+    }
     wanted = [];
     had = [];
   };
@@ -499,16 +564,21 @@ const differencesOf = (steps: readonly AlignmentStep[], intended: readonly Clust
       const want = intended[step.intended];
       const have = found[step.found];
       // A cluster matched by its text without the selectors only ActualText gives is compared as the glyphs show it.
-      if (have !== undefined && have.text !== want?.text) text.showPlain(have);
-      else if (want !== undefined && have?.variantFromActualText === true) {
+      if (have !== undefined && have.text !== want?.text) {
+        text.showPlain(have);
+      } else if (want !== undefined && have?.variantFromActualText === true) {
         differences.push({ kind: 'variant-unverified', intended: want.text, intendedIndex: want.offset, glyphs: have.glyphs });
       }
     } else if (step.kind === 'missing') {
       const cluster = intended[step.intended];
-      if (cluster !== undefined) wanted.push(cluster);
+      if (cluster !== undefined) {
+        wanted.push(cluster);
+      }
     } else {
       const cluster = found[step.found];
-      if (cluster !== undefined) had.push(cluster);
+      if (cluster !== undefined) {
+        had.push(cluster);
+      }
     }
   }
   flush();
@@ -527,18 +597,26 @@ const sameCode = (a: PageGlyph, b: PageGlyph): boolean =>
 // Whether the runs are copies of the first: the same codes in the same fonts, with origins moved by one translation per copy, shorter than a quarter of the font size and half the run's advance so that the copies overlap.
 const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
   const [first, ...rest] = runs;
-  if (first === undefined) return false;
+  if (first === undefined) {
+    return false;
+  }
   const length = first.reduce((sum, glyph) => sum + Math.hypot(...glyph.advance), 0);
   return rest.every(run => {
     const [head] = run;
     const [base] = first;
-    if (head === undefined || base === undefined) return false;
+    if (head === undefined || base === undefined) {
+      return false;
+    }
     const [dx, dy] = [head.origin[0] - base.origin[0], head.origin[1] - base.origin[1]];
     const distance = Math.hypot(dx, dy);
-    if (distance >= length / 2 || distance >= COPY_DISTANCE * base.fontSize) return false;
+    if (distance >= length / 2 || distance >= COPY_DISTANCE * base.fontSize) {
+      return false;
+    }
     return run.every((glyph, index) => {
       const original = first[index];
-      if (original === undefined || !sameCode(glyph, original) || !glyph.positionKnown || !original.positionKnown) return false;
+      if (original === undefined || !sameCode(glyph, original) || !glyph.positionKnown || !original.positionKnown) {
+        return false;
+      }
       const drift = Math.hypot(glyph.origin[0] - original.origin[0] - dx, glyph.origin[1] - original.origin[1] - dy);
       return drift <= TRANSLATION_TOLERANCE * original.fontSize;
     });
@@ -548,10 +626,14 @@ const copies = (runs: readonly (readonly PageGlyph[])[]): boolean => {
 /** Splits the glyphs into the most consecutive equal-length runs that are copies of the first, when there are two or more. */
 const duplicateRuns = (glyphs: readonly PageGlyph[]): (readonly PageGlyph[])[] | undefined => {
   for (let count = glyphs.length; count >= 2; count--) {
-    if (glyphs.length % count !== 0) continue;
+    if (glyphs.length % count !== 0) {
+      continue;
+    }
     const size = glyphs.length / count;
     const runs = Array.from({ length: count }, (_, index) => glyphs.slice(index * size, (index + 1) * size));
-    if (copies(runs)) return runs;
+    if (copies(runs)) {
+      return runs;
+    }
   }
   return undefined;
 };
@@ -561,11 +643,14 @@ const partlyHidden = (selected: readonly PageGlyph[]): TextDifference[] => {
   const runs: number[][] = [];
   let run: number[] | undefined;
   for (const glyph of selected) {
-    if (glyph.coreHidden !== 'partly') run = undefined;
-    else if (run === undefined) {
+    if (glyph.coreHidden !== 'partly') {
+      run = undefined;
+    } else if (run === undefined) {
       run = [glyph.index];
       runs.push(run);
-    } else run.push(glyph.index);
+    } else {
+      run.push(glyph.index);
+    }
   }
   return runs.map(glyphs => ({ kind: 'partly-hidden', glyphs }));
 };
@@ -596,20 +681,33 @@ const extent = (values: readonly number[]): readonly [number, number] => {
 
 // Units in reading order: a span is taken whole where its first compared glyph is read, when its compared glyphs are read together, and otherwise its glyphs are compared one by one; a span with no compared glyph lies between compared glyphs when compared glyphs come before and after it in content order.
 const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'checked' | 'ignore'): Unit[] => {
-  if (actualText === 'ignore') return selected.map(glyph => ({ kind: 'glyph', glyph }));
+  if (actualText === 'ignore') {
+    return selected.map(glyph => ({ kind: 'glyph', glyph }));
+  }
   const bySpan = new Map<number, PageGlyph[]>();
   for (const glyph of selected) {
-    if (glyph.actualText === undefined) continue;
+    if (glyph.actualText === undefined) {
+      continue;
+    }
     const glyphs = bySpan.get(glyph.actualText);
-    if (glyphs === undefined) bySpan.set(glyph.actualText, [glyph]);
-    else glyphs.push(glyph);
+    if (glyphs === undefined) {
+      bySpan.set(glyph.actualText, [glyph]);
+    } else {
+      glyphs.push(glyph);
+    }
   }
   const positions = new Map(selected.map((glyph, position) => [glyph.index, position]));
-  for (const [index, glyphs] of bySpan) if (!readTogether(glyphs, positions)) bySpan.delete(index);
+  for (const [index, glyphs] of bySpan) {
+    if (!readTogether(glyphs, positions)) {
+      bySpan.delete(index);
+    }
+  }
   const [first, last] = extent(selected.map(glyph => glyph.index));
   const unseen = page.actualText
     .flatMap((span, index) => {
-      if (span.glyphs.some(glyph => positions.has(glyph)) || span.glyphs.length === 0) return [];
+      if (span.glyphs.some(glyph => positions.has(glyph)) || span.glyphs.length === 0) {
+        return [];
+      }
       const [start, end] = extent(span.glyphs);
       return first < start && last > end ? [{ index, start }] : [];
     })
@@ -618,10 +716,13 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
   const taken = new Set<number>();
   let next = 0;
   for (const glyph of selected) {
-    for (let note = unseen[next]; note !== undefined && note.start < glyph.index; note = unseen[++next]) units.push({ kind: 'unseen', index: note.index });
+    for (let note = unseen[next]; note !== undefined && note.start < glyph.index; note = unseen[++next]) {
+      units.push({ kind: 'unseen', index: note.index });
+    }
     const spanIndex = glyph.actualText;
-    if (spanIndex === undefined || !bySpan.has(spanIndex)) units.push({ kind: 'glyph', glyph });
-    else if (!taken.has(spanIndex)) {
+    if (spanIndex === undefined || !bySpan.has(spanIndex)) {
+      units.push({ kind: 'glyph', glyph });
+    } else if (!taken.has(spanIndex)) {
       taken.add(spanIndex);
       units.push({ kind: 'span', index: spanIndex, glyphs: bySpan.get(spanIndex) ?? [glyph] });
     }
@@ -631,8 +732,12 @@ const unitsOf = (page: PageText, selected: readonly PageGlyph[], actualText: 'ch
 
 // An option value outside its type, as a caller without type checking can pass, is refused rather than read as some other value; the first allowed value is the default.
 const choice = <T extends string>(name: string, value: T | undefined, allowed: readonly [T, ...T[]]): T => {
-  if (value === undefined) return allowed[0];
-  if (!allowed.includes(value)) throw new InvalidArgumentError(`matchText: ${name} ${JSON.stringify(value)} is not one of ${allowed.join(', ')}`);
+  if (value === undefined) {
+    return allowed[0];
+  }
+  if (!allowed.includes(value)) {
+    throw new InvalidArgumentError(`matchText: ${name} ${JSON.stringify(value)} is not one of ${allowed.join(', ')}`);
+  }
   return value;
 };
 
@@ -663,12 +768,16 @@ const uprightInColumns = (glyphs: readonly PageGlyph[]): Set<number> => {
   const upright = new Set<number>();
   for (const [position, first] of glyphs.entries()) {
     const next = glyphs[position + 1];
-    if (next === undefined || !first.positionKnown || !next.positionKnown) continue;
+    if (next === undefined || !first.positionKnown || !next.positionKnown) {
+      continue;
+    }
     const { quad } = first;
     const [x0, y0, x1, y1] = quad;
     const [x3, y3] = [quad[6], quad[7]];
     const [up, along] = [direction(x3 - x0, y3 - y0), direction(x1 - x0, y1 - y0)];
-    if (up === undefined || along === undefined) continue;
+    if (up === undefined || along === undefined) {
+      continue;
+    }
     const [dx, dy] = [next.origin[0] - first.origin[0], next.origin[1] - first.origin[1]];
     const down = -(dx * up[0] + dy * up[1]);
     const across = dx * along[0] + dy * along[1];
@@ -683,18 +792,24 @@ const uprightInColumns = (glyphs: readonly PageGlyph[]): Set<number> => {
 
 const readUnits = (found: FoundText, page: PageText, units: readonly Unit[]): void => {
   for (const unit of units) {
-    if (unit.kind === 'glyph') found.add(unit.glyph);
-    else {
+    if (unit.kind === 'glyph') {
+      found.add(unit.glyph);
+    } else {
       const text = page.actualText[unit.index]?.text ?? '';
-      if (unit.kind === 'span') found.addSpan(unit.glyphs, { index: unit.index, text });
-      else found.addUnseenSpan({ index: unit.index, text });
+      if (unit.kind === 'span') {
+        found.addSpan(unit.glyphs, { index: unit.index, text });
+      } else {
+        found.addUnseenSpan({ index: unit.index, text });
+      }
     }
   }
 };
 
 // Font evidence that contradicts the text is a mismatch; incomplete evidence leaves an otherwise agreeing result unverified.
 const statusOf = (differences: readonly TextDifference[]): TextMatch['status'] => {
-  if (differences.some(difference => MISMATCHES.has(difference.kind))) return 'mismatch';
+  if (differences.some(difference => MISMATCHES.has(difference.kind))) {
+    return 'mismatch';
+  }
   return differences.length > 0 ? 'unverified' : 'match';
 };
 

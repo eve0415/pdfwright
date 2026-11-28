@@ -65,13 +65,17 @@ const SUPPLEMENT = pdfName('Supplement').bytes;
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const codeValue = (bytes: Uint8Array): number => {
   let value = 0;
-  for (const byte of bytes) value = value * 256 + byte;
+  for (const byte of bytes) {
+    value = value * 256 + byte;
+  }
   return value;
 };
 
@@ -87,8 +91,12 @@ const integerOf = (operand: ContentOperand | undefined): number | undefined => (
 const utf16Units = (bytes: Uint8Array): number[] => {
   const units: number[] = [];
   const start = bytes.length % 2;
-  if (start === 1) units.push(bytes[0] ?? 0);
-  for (let index = start; index + 1 < bytes.length; index += 2) units.push((bytes[index] ?? 0) * 256 + (bytes[index + 1] ?? 0));
+  if (start === 1) {
+    units.push(bytes[0] ?? 0);
+  }
+  for (let index = start; index + 1 < bytes.length; index += 2) {
+    units.push((bytes[index] ?? 0) * 256 + (bytes[index + 1] ?? 0));
+  }
   return units;
 };
 
@@ -114,7 +122,9 @@ export const utf16Text = (units: readonly number[]): Utf16Text => {
     } else if (isHigh(unit) || isLow(unit)) {
       text += '�';
       unpaired = true;
-    } else text += String.fromCodePoint(unit);
+    } else {
+      text += String.fromCodePoint(unit);
+    }
   }
   return { text, unpaired };
 };
@@ -136,7 +146,9 @@ class CMapReader {
 
   private count(): void {
     this.entries++;
-    if (this.entries > MAX_CMAP_ENTRIES) throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    if (this.entries > MAX_CMAP_ENTRIES) {
+      throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    }
   }
 
   damaged(detail: string): void {
@@ -148,21 +160,32 @@ class CMapReader {
     const ordering = entries.get(ORDERING);
     const supplement = entries.get(SUPPLEMENT);
     this.hasSystemInfo = true;
-    if (registry?.kind === 'string') this.registry = registry.bytes;
-    if (ordering?.kind === 'string') this.ordering = ordering.bytes;
-    if (supplement?.kind === 'integer') this.supplement = supplement.value;
+    if (registry?.kind === 'string') {
+      this.registry = registry.bytes;
+    }
+    if (ordering?.kind === 'string') {
+      this.ordering = ordering.bytes;
+    }
+    if (supplement?.kind === 'integer') {
+      this.supplement = supplement.value;
+    }
   }
 
   // `/Key value def`, at the top level or inside the `3 dict dup begin … end def` form that Adobe's CMap files use for CIDSystemInfo (9.7.5.4, EXAMPLE).
   define(operands: readonly ContentOperand[]): void {
     const key = operands.at(-2);
     const value = operands.at(-1);
-    if (key?.kind !== 'name' || value === undefined) return;
+    if (key?.kind !== 'name' || value === undefined) {
+      return;
+    }
     const name = latin1(key.bytes);
-    if (name === 'CMapName' && value.kind === 'name') this.name = latin1(value.bytes);
-    else if (name === 'WMode' && value.kind === 'integer' && (value.value === 0 || value.value === 1)) this.writingMode = value.value;
-    else if (name === 'CIDSystemInfo' && value.kind === 'dictionary') this.systemInfo(value.entries);
-    else if (name === 'Registry' && value.kind === 'string') {
+    if (name === 'CMapName' && value.kind === 'name') {
+      this.name = latin1(value.bytes);
+    } else if (name === 'WMode' && value.kind === 'integer' && (value.value === 0 || value.value === 1)) {
+      this.writingMode = value.value;
+    } else if (name === 'CIDSystemInfo' && value.kind === 'dictionary') {
+      this.systemInfo(value.entries);
+    } else if (name === 'Registry' && value.kind === 'string') {
       this.hasSystemInfo = true;
       this.registry = value.bytes;
     } else if (name === 'Ordering' && value.kind === 'string') {
@@ -179,10 +202,15 @@ class CMapReader {
       const low = codeBytes(operands[index]);
       const high = codeBytes(operands[index + 1]);
       this.count();
-      if (low === undefined || high === undefined || low.length !== high.length) this.damaged('a codespace range is not two codes of one length');
-      else this.codespaces.push({ low, high });
+      if (low === undefined || high === undefined || low.length !== high.length) {
+        this.damaged('a codespace range is not two codes of one length');
+      } else {
+        this.codespaces.push({ low, high });
+      }
     }
-    if (operands.length % 2 !== 0) this.damaged('a codespace range has no upper bound');
+    if (operands.length % 2 !== 0) {
+      this.damaged('a codespace range has no upper bound');
+    }
   }
 
   // cidchar and notdefchar entries are `code CID`; cidrange and notdefrange entries are `low high CID` (9.7.5.4, EXAMPLE).
@@ -195,15 +223,21 @@ class CMapReader {
       this.count();
       if (low === undefined || high === undefined || cid === undefined || low.length !== high.length || codeValue(low) > codeValue(high)) {
         this.damaged(`a CID mapping at ${hexOf(low ?? new Uint8Array())} is malformed`);
-      } else target.push({ length: low.length, low: codeValue(low), high: codeValue(high), cid });
+      } else {
+        target.push({ length: low.length, low: codeValue(low), high: codeValue(high), cid });
+      }
     }
-    if (operands.length % size !== 0) this.damaged('a CID mapping is incomplete');
+    if (operands.length % size !== 0) {
+      this.damaged('a CID mapping is incomplete');
+    }
   }
 
   private destination(bytes: Uint8Array): Utf16Text & { readonly units: readonly number[] } {
     const units = utf16Units(bytes);
     const decoded = utf16Text(units);
-    if (decoded.unpaired) this.damaged(`the destination ${hexOf(bytes)} has an unpaired surrogate`);
+    if (decoded.unpaired) {
+      this.damaged(`the destination ${hexOf(bytes)} has an unpaired surrogate`);
+    }
     return { ...decoded, units };
   }
 
@@ -212,13 +246,16 @@ class CMapReader {
       const source = codeBytes(operands[index]);
       const target = operands[index + 1];
       this.count();
-      if (source === undefined || target?.kind !== 'string') this.damaged('a bfchar entry is not a code and a string');
-      else {
+      if (source === undefined || target?.kind !== 'string') {
+        this.damaged('a bfchar entry is not a code and a string');
+      } else {
         const value = codeValue(source);
         this.unicode.push({ length: source.length, low: value, high: value, units: this.destination(target.bytes).units });
       }
     }
-    if (operands.length % 2 !== 0) this.damaged('a bfchar entry is incomplete');
+    if (operands.length % 2 !== 0) {
+      this.damaged('a bfchar entry is incomplete');
+    }
   }
 
   // ISO 32000-1:2008, 9.10.3: "the value of the last byte in the string shall be less than or equal to 255 − (srcCode2 − srcCode1)"; "otherwise, the result of mapping is undefined."
@@ -226,7 +263,9 @@ class CMapReader {
     const { units } = this.destination(bytes);
     const last = bytes.at(-1) ?? 0;
     const span = range.high - range.low;
-    if (last + span > 255) this.problems.push({ kind: 'range-overflow', detail: `the bfrange ${hexOf(bytes)} passes byte 255 over ${String(span + 1)} codes` });
+    if (last + span > 255) {
+      this.problems.push({ kind: 'range-overflow', detail: `the bfrange ${hexOf(bytes)} passes byte 255 over ${String(span + 1)} codes` });
+    }
     this.unicode.push({ ...range, units });
   }
 
@@ -234,14 +273,20 @@ class CMapReader {
   private arrayRange(range: CodeRange, items: readonly PdfDirectObject[]): void {
     const count = range.high - range.low + 1;
     this.entries += items.length;
-    if (this.entries > MAX_CMAP_ENTRIES) throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    if (this.entries > MAX_CMAP_ENTRIES) {
+      throw new ResourceLimitError(`a CMap defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    }
     const strings: (string | undefined)[] = [];
     for (let index = 0; index < Math.min(items.length, count); index++) {
       const item = items[index];
       strings.push(item?.kind === 'string' ? this.destination(item.bytes).text : undefined);
     }
-    if (strings.includes(undefined)) this.damaged('a bfrange array holds a value that is not a string');
-    if (items.length < count) this.damaged(`a bfrange array has ${String(items.length)} strings for ${String(count)} codes`);
+    if (strings.includes(undefined)) {
+      this.damaged('a bfrange array holds a value that is not a string');
+    }
+    if (items.length < count) {
+      this.damaged(`a bfrange array has ${String(items.length)} strings for ${String(count)} codes`);
+    }
     this.unicode.push({ ...range, strings });
   }
 
@@ -253,12 +298,19 @@ class CMapReader {
       this.count();
       const range =
         low === undefined || high === undefined || low.length !== high.length ? undefined : { length: low.length, low: codeValue(low), high: codeValue(high) };
-      if (range === undefined || range.low > range.high) this.damaged('a bfrange has malformed bounds');
-      else if (target?.kind === 'string') this.stringRange(range, target.bytes);
-      else if (target?.kind === 'array') this.arrayRange(range, target.items);
-      else this.damaged('a bfrange destination is not a string or an array');
+      if (range === undefined || range.low > range.high) {
+        this.damaged('a bfrange has malformed bounds');
+      } else if (target?.kind === 'string') {
+        this.stringRange(range, target.bytes);
+      } else if (target?.kind === 'array') {
+        this.arrayRange(range, target.items);
+      } else {
+        this.damaged('a bfrange destination is not a string or an array');
+      }
     }
-    if (operands.length % 3 !== 0) this.damaged('a bfrange entry is incomplete');
+    if (operands.length % 3 !== 0) {
+      this.damaged('a bfrange entry is incomplete');
+    }
   }
 
   operation(operator: string, operands: readonly ContentOperand[]): void {
@@ -269,8 +321,11 @@ class CMapReader {
       }
       case 'usecmap': {
         const name = operands.at(-1);
-        if (name?.kind === 'name') this.useCMap = latin1(name.bytes);
-        else this.damaged('usecmap is not preceded by a name');
+        if (name?.kind === 'name') {
+          this.useCMap = latin1(name.bytes);
+        } else {
+          this.damaged('usecmap is not preceded by a name');
+        }
         break;
       }
       case 'endcodespacerange': {
@@ -332,9 +387,13 @@ class CMapReader {
 export const parseCMap = (bytes: Uint8Array, maxNesting: number): ParsedCMap => {
   const reader = new CMapReader();
   try {
-    for (const { operator, operands } of readContent(bytes, maxNesting)) reader.operation(operator, operands);
+    for (const { operator, operands } of readContent(bytes, maxNesting)) {
+      reader.operation(operator, operands);
+    }
   } catch (error) {
-    if (!(error instanceof ParseError)) throw error;
+    if (!(error instanceof ParseError)) {
+      throw error;
+    }
     reader.damaged(`the CMap cannot be read past byte ${String(error.offset)}: ${error.message}`);
   }
   return reader.result();

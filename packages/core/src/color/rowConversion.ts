@@ -27,12 +27,16 @@ export const createRowConverters = (
   };
 
   const lookup = (red: number, green: number, blue: number): number | undefined => {
-    if (keys === undefined || packed === undefined) return undefined;
+    if (keys === undefined || packed === undefined) {
+      return undefined;
+    }
     const slot = cacheSlot(red, green, blue);
     return keys[slot] === cacheKey(red, green, blue) ? packed[slot] : undefined;
   };
   const remember = (key: number, slot: number, value: number): void => {
-    if (keys === undefined || packed === undefined) return;
+    if (keys === undefined || packed === undefined) {
+      return;
+    }
     keys[slot] = key;
     packed[slot] = value;
   };
@@ -54,9 +58,13 @@ export const createRowConverters = (
           output[destination + 3] = cached % 256;
           continue;
         }
-        for (let channel = 0; channel < inputChannels; channel++) inputPixel[channel] = (input[source + channel] ?? 0) / 255;
+        for (let channel = 0; channel < inputChannels; channel++) {
+          inputPixel[channel] = (input[source + channel] ?? 0) / 255;
+        }
         convert(inputPixel, outputPixel);
-        for (let channel = 0; channel < outputChannels; channel++) output[destination + channel] = Math.round((outputPixel[channel] ?? 0) * 255);
+        for (let channel = 0; channel < outputChannels; channel++) {
+          output[destination + channel] = Math.round((outputPixel[channel] ?? 0) * 255);
+        }
         const value =
           (output[destination] ?? 0) * 16777216 +
           (output[destination + 1] ?? 0) * 65536 +
@@ -70,9 +78,13 @@ export const createRowConverters = (
       for (let pixel = 0; pixel < pixels; pixel++) {
         const source = pixel * inputChannels;
         const destination = pixel * outputChannels;
-        for (let channel = 0; channel < inputChannels; channel++) inputPixel[channel] = (input[source + channel] ?? 0) / 65535;
+        for (let channel = 0; channel < inputChannels; channel++) {
+          inputPixel[channel] = (input[source + channel] ?? 0) / 65535;
+        }
         convert(inputPixel, outputPixel);
-        for (let channel = 0; channel < outputChannels; channel++) output[destination + channel] = Math.round((outputPixel[channel] ?? 0) * 65535);
+        for (let channel = 0; channel < outputChannels; channel++) {
+          output[destination + channel] = Math.round((outputPixel[channel] ?? 0) * 65535);
+        }
       }
     },
   };

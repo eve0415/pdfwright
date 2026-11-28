@@ -72,12 +72,16 @@ export const createMd5 = (): Md5 => {
         offset = Math.min(64 - pendingLength, bytes.length);
         pending.set(bytes.subarray(0, offset), pendingLength);
         pendingLength += offset;
-        if (pendingLength < 64) return hash;
+        if (pendingLength < 64) {
+          return hash;
+        }
         processBlocks(state, pendingView, 64);
         pendingLength = 0;
       }
       const whole = Math.floor((bytes.length - offset) / 64) * 64;
-      if (whole > 0) processBlocks(state, new DataView(bytes.buffer, bytes.byteOffset + offset, whole), whole);
+      if (whole > 0) {
+        processBlocks(state, new DataView(bytes.buffer, bytes.byteOffset + offset, whole), whole);
+      }
       pending.set(bytes.subarray(offset + whole));
       pendingLength = bytes.length - offset - whole;
       return hash;
@@ -94,7 +98,9 @@ export const createMd5 = (): Md5 => {
       processBlocks(finalState, view, final.length);
       const result = new Uint8Array(16);
       const output = new DataView(result.buffer);
-      for (let word = 0; word < 4; word++) output.setUint32(word * 4, finalState[word] ?? 0, true);
+      for (let word = 0; word < 4; word++) {
+        output.setUint32(word * 4, finalState[word] ?? 0, true);
+      }
       return result;
     },
   };

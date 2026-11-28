@@ -25,7 +25,9 @@ const document = (objects: readonly TestObject[] = []): DocumentInternals => {
     ]).bytes,
   );
   const parts = internalsOf(loaded);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
@@ -34,7 +36,9 @@ const provider = (files: Readonly<Record<string, string>>): CMapProvider => ({
 });
 
 const cmapOf = (result: CMapResult): CMap => {
-  if (result.kind !== 'cmap') throw new Error(`expected a CMap, got ${result.kind}`);
+  if (result.kind !== 'cmap') {
+    throw new Error(`expected a CMap, got ${result.kind}`);
+  }
   return result.cmap;
 };
 

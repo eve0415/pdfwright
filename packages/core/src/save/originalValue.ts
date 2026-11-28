@@ -33,8 +33,12 @@ export const originalValue = (store: ObjectStore, objectNumber: number, maxNesti
     const member = stream.members[entry.generation];
     return member === undefined ? undefined : annotate(stream.data.subarray(member.start, member.end), maxNesting);
   }
-  if (entry.type !== IN_FILE) return undefined;
+  if (entry.type !== IN_FILE) {
+    return undefined;
+  }
   const source = store.load(objectNumber)?.source;
-  if (source?.kind !== 'file') return undefined;
+  if (source?.kind !== 'file') {
+    return undefined;
+  }
   return annotate(store.source.copy(source.valueStart, source.stream?.dictionaryEnd ?? source.valueEnd).bytes, maxNesting);
 };

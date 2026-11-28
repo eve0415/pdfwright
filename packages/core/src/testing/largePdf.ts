@@ -35,7 +35,9 @@ export const largeFile = (pages: number, imageBytes: number): Uint8Array => {
   }
   const size = 3 + pages * 3;
   let table = `xref\n0 ${String(size)}\n0000000000 65535 f \n`;
-  for (let number = 1; number < size; number++) table += `${String(offsets[number] ?? 0).padStart(10, '0')} 00000 n \n`;
+  for (let number = 1; number < size; number++) {
+    table += `${String(offsets[number] ?? 0).padStart(10, '0')} 00000 n \n`;
+  }
   parts.push(encoder.encode(`${table}trailer\n<</Size ${String(size)}/Root 1 0 R>>\nstartxref\n${String(length)}\n%%EOF\n`));
   const file = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let offset = 0;

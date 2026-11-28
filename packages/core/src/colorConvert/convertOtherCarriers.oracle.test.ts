@@ -66,33 +66,53 @@ const nestedCarrierPdf = buildPdf([
 
 const content = (document: ReturnType<typeof loadDocument>, number: number): string => {
   const object = document.get(pdfReference(number, 0));
-  if (object.kind !== 'stream') throw new Error('content stream is missing');
+  if (object.kind !== 'stream') {
+    throw new Error('content stream is missing');
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new Error('document internals are unavailable');
+  if (internals === undefined) {
+    throw new Error('document internals are unavailable');
+  }
   const data = decodedData(internals, object);
-  if (typeof data === 'string') throw new TypeError(data);
+  if (typeof data === 'string') {
+    throw new TypeError(data);
+  }
   return latin1Text(data);
 };
 
 const color = (document: ReturnType<typeof loadDocument>, key: string): readonly number[] => {
   const annotation = document.get(pdfReference(7, 0));
-  if (annotation.kind !== 'dictionary') throw new Error('annotation is missing');
+  if (annotation.kind !== 'dictionary') {
+    throw new Error('annotation is missing');
+  }
   const value = annotation.entries.get(pdfName(key).bytes);
-  if (value?.kind !== 'array') throw new Error('annotation color is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('annotation color is missing');
+  }
   return value.items.map(item => {
-    if (item.kind === 'integer') return item.value;
-    if (item.kind === 'real' && typeof item.value === 'number') return item.value;
+    if (item.kind === 'integer') {
+      return item.value;
+    }
+    if (item.kind === 'real' && typeof item.value === 'number') {
+      return item.value;
+    }
     return -1;
   });
 };
 
 const widgetColor = (document: ReturnType<typeof loadDocument>, key: string) => {
   const annotation = document.get(pdfReference(7, 0));
-  if (annotation.kind !== 'dictionary') throw new Error('annotation is missing');
+  if (annotation.kind !== 'dictionary') {
+    throw new Error('annotation is missing');
+  }
   const mk = annotation.entries.get(pdfName('MK').bytes);
-  if (mk?.kind !== 'dictionary') throw new Error('widget appearance characteristics are missing');
+  if (mk?.kind !== 'dictionary') {
+    throw new Error('widget appearance characteristics are missing');
+  }
   const value = mk.entries.get(pdfName(key).bytes);
-  if (value?.kind !== 'array') throw new Error('widget colour is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('widget colour is missing');
+  }
   return value.items;
 };
 

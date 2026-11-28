@@ -46,9 +46,15 @@ const reason = (bytes: Uint8Array): string => {
     parseIccProfile(bytes);
     return 'accepted';
   } catch (error) {
-    if (error instanceof InvalidProfileError) return error.reason;
-    if (error instanceof UnsupportedFeatureError) return error.reason ?? 'unsupported';
-    if (error instanceof ResourceLimitError) return 'resource-limit';
+    if (error instanceof InvalidProfileError) {
+      return error.reason;
+    }
+    if (error instanceof UnsupportedFeatureError) {
+      return error.reason ?? 'unsupported';
+    }
+    if (error instanceof ResourceLimitError) {
+      return 'resource-limit';
+    }
     return 'other';
   }
 };

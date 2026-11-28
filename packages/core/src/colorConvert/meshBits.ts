@@ -1,7 +1,9 @@
 import { ParseError } from '../error/parseError.ts';
 
 export const validateMeshBits = (bits: number): void => {
-  if (!Number.isInteger(bits) || bits < 1 || bits > 32) throw new ParseError('mesh field width must be from 1 to 32 bits', 0);
+  if (!Number.isInteger(bits) || bits < 1 || bits > 32) {
+    throw new ParseError('mesh field width must be from 1 to 32 bits', 0);
+  }
 };
 
 // ISO 32000-1:2008, 8.7.4.5.5: a mesh vertex is read from higher-order to lower-order bit positions and padded to a whole byte.
@@ -19,7 +21,9 @@ export class MeshBitReader {
 
   read(bits: number): number {
     validateMeshBits(bits);
-    if (bits > this.remainingBits) throw new ParseError('truncated mesh record', Math.floor(this.position / 8));
+    if (bits > this.remainingBits) {
+      throw new ParseError('truncated mesh record', Math.floor(this.position / 8));
+    }
     let value = 0;
     for (let index = 0; index < bits; index++) {
       const offset = this.position + index;

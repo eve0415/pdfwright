@@ -5,7 +5,9 @@ import { encodeRawFrame, encodeZstandardFrame, normalizeZstandardFrame } from '.
 
 const samples = (length: number): Uint8Array => {
   const output = new Uint8Array(length);
-  for (let index = 0; index < length; index++) output[index] = (index * 37 + Math.floor(index / 127)) % 256;
+  for (let index = 0; index < length; index++) {
+    output[index] = (index * 37 + Math.floor(index / 127)) % 256;
+  }
   return output;
 };
 

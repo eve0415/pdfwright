@@ -52,7 +52,9 @@ const checksum = (data: readonly number[]): number => {
 
 // A rectangle as one clockwise contour of four on-curve points, coordinates as int16 deltas (flag 0x01, no short vectors).
 const glyphData = (box: SyntheticGlyph['box']): number[] => {
-  if (box === undefined) return [];
+  if (box === undefined) {
+    return [];
+  }
   const [xMin, yMin, xMax, yMax] = box;
   const xs = [xMin, 0, xMax - xMin, 0];
   const ys = [yMin, yMax - yMin, 0, yMin - yMax];
@@ -92,10 +94,14 @@ const format14 = (variations: readonly SyntheticVariations[]): number[] => {
   for (const { selector, defaults, glyphs } of variations) {
     const defaultOffset = header + tables.length;
     tables.push(...u32(defaults.length));
-    for (const codePoint of defaults.toSorted((left, right) => left - right)) tables.push(...u24(codePoint), 0);
+    for (const codePoint of defaults.toSorted((left, right) => left - right)) {
+      tables.push(...u24(codePoint), 0);
+    }
     const glyphOffset = header + tables.length;
     tables.push(...u32(glyphs.length));
-    for (const [codePoint, glyph] of glyphs.toSorted(([left], [right]) => left - right)) tables.push(...u24(codePoint), ...u16(glyph));
+    for (const [codePoint, glyph] of glyphs.toSorted(([left], [right]) => left - right)) {
+      tables.push(...u24(codePoint), ...u16(glyph));
+    }
     records.push(...u24(selector), ...u32(defaultOffset, glyphOffset));
   }
   return [...u16(14), ...u32(header + tables.length, variations.length), ...records, ...tables];
@@ -103,8 +109,12 @@ const format14 = (variations: readonly SyntheticVariations[]): number[] => {
 
 const cmapTable = (options: SyntheticFontOptions): number[] => {
   const subtables: (readonly [number, number, number[]])[] = [[3, 1, format4(options.characters)]];
-  if (options.characters.some(([codePoint]) => codePoint > 0xffff)) subtables.push([3, 10, format12(options.characters)]);
-  if (options.variations !== undefined) subtables.push([0, 5, format14(options.variations)]);
+  if (options.characters.some(([codePoint]) => codePoint > 0xffff)) {
+    subtables.push([3, 10, format12(options.characters)]);
+  }
+  if (options.variations !== undefined) {
+    subtables.push([0, 5, format14(options.variations)]);
+  }
   subtables.sort(([leftPlatform, leftEncoding], [rightPlatform, rightEncoding]) => leftPlatform - rightPlatform || leftEncoding - rightEncoding);
   let offset = 4 + 8 * subtables.length;
   const records: number[] = [];
@@ -152,7 +162,9 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   const maxAdvance = Math.max(...glyphs.map(glyph => glyph.advance));
   const outlines = glyphs.map(glyph => glyphData(glyph.box));
   const offsets = [0];
-  for (const outline of outlines) offsets.push((offsets.at(-1) ?? 0) + outline.length);
+  for (const outline of outlines) {
+    offsets.push((offsets.at(-1) ?? 0) + outline.length);
+  }
   const codePoints = options.characters.map(([codePoint]) => codePoint);
   const firstChar = Math.min(0xffff, ...codePoints);
   const lastChar = Math.min(0xffff, Math.max(0, ...codePoints));
@@ -219,7 +231,9 @@ export const syntheticTrueType = (options: SyntheticFontOptions): Uint8Array => 
   const bodies: number[] = [];
   let headOffset = 0;
   for (const [name, data] of sorted) {
-    if (name === 'head') headOffset = offset;
+    if (name === 'head') {
+      headOffset = offset;
+    }
     directory.push(...tag(name), ...u32(checksum(data), offset, data.length));
     const body = padded(data);
     bodies.push(...body);

@@ -42,14 +42,18 @@ const prepared = (page?: string, extra?: readonly TestObject[]) => {
 const attach = (document: ReturnType<typeof loadDocument>, name: string, reference: ReturnType<typeof pdfReference>): void => {
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
-  if (catalog.kind !== 'dictionary') throw new Error('catalog is not a dictionary');
+  if (catalog.kind !== 'dictionary') {
+    throw new Error('catalog is not a dictionary');
+  }
   catalog.entries.set(pdfName(name).bytes, reference);
   document.set(catalogReference, catalog);
 };
 
 const attachContent = (document: ReturnType<typeof loadDocument>, reference: ReturnType<typeof pdfReference>): void => {
   const page = document.get(document.page(0).reference);
-  if (page.kind !== 'dictionary') throw new Error('page is not a dictionary');
+  if (page.kind !== 'dictionary') {
+    throw new Error('page is not a dictionary');
+  }
   page.entries.set(pdfName('Contents').bytes, reference);
   document.set(document.page(0).reference, page);
 };

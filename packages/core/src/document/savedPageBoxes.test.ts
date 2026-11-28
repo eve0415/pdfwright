@@ -20,7 +20,9 @@ const loadPage = (media: 'own' | 'inherited' | 'indirect' = 'own', boxes = '') =
       body: `<</Type/Page/Parent 2 0 R/Resources<<>>${media === 'own' ? '/MediaBox[0 0 100.6 100.6]' : ''}${media === 'indirect' ? '/MediaBox 4 0 R' : ''}${boxes}>>`,
     },
   ];
-  if (media === 'indirect') objects.push({ number: 4, body: '[0 0 5 0 R 5 0 R]' }, { number: 5, body: '100.6' });
+  if (media === 'indirect') {
+    objects.push({ number: 4, body: '[0 0 5 0 R 5 0 R]' }, { number: 5, body: '100.6' });
+  }
   return loadDocument(buildPdf([{ xref: 'classic', objects, trailer: '/Root 1 0 R' }]).bytes);
 };
 

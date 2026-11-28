@@ -11,7 +11,9 @@ const encode = (text: string): Uint8Array => Uint8Array.from(text, character => 
 
 const chunked = (bytes: Uint8Array, size: number): Uint8Array[] => {
   const chunks: Uint8Array[] = [];
-  for (let offset = 0; offset < bytes.length; offset += size) chunks.push(bytes.subarray(offset, offset + size));
+  for (let offset = 0; offset < bytes.length; offset += size) {
+    chunks.push(bytes.subarray(offset, offset + size));
+  }
   return chunks;
 };
 

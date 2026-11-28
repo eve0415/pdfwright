@@ -15,7 +15,9 @@ import { pt } from '../packages/core/src/length/length.ts';
 
 const writeAll = (file: number, bytes: Uint8Array): number => {
   let offset = 0;
-  while (offset < bytes.length) offset += writeSync(file, bytes, offset);
+  while (offset < bytes.length) {
+    offset += writeSync(file, bytes, offset);
+  }
   return bytes.length;
 };
 
@@ -23,7 +25,9 @@ const imageRows = function* (): Generator<Uint8Array> {
   for (let group = 0; group < 500; group++) {
     const row = new Uint8Array(20_000);
     row.set(randomBytes(15_000));
-    for (let repeat = 0; repeat < 10; repeat++) yield row;
+    for (let repeat = 0; repeat < 10; repeat++) {
+      yield row;
+    }
   }
 };
 
@@ -60,24 +64,32 @@ const createFixture = async (filePath: string): Promise<void> => {
       write('stream\n');
       const streamAt = length;
       for await (const chunk of Readable.from(imageRows()).pipe(createDeflate({ level: 1 }))) {
-        if (!(chunk instanceof Uint8Array)) throw new TypeError('deflate returned non-byte data');
+        if (!(chunk instanceof Uint8Array)) {
+          throw new TypeError('deflate returned non-byte data');
+        }
         write(chunk);
       }
       const streamLength = length - streamAt;
       write('\nendstream\nendobj\n');
       const dictionary = `<</Type/XObject/Subtype/Image/Width 5000/Height 5000/ColorSpace/DeviceCMYK/BitsPerComponent 8/Filter/FlateDecode/Length ${String(streamLength)}>>`;
-      if (dictionary.length > 180) throw new Error('image dictionary is too long');
+      if (dictionary.length > 180) {
+        throw new Error('image dictionary is too long');
+      }
       writeSync(file, dictionary.padEnd(180, ' '), dictionaryAt);
     };
     const writePages = async (page: number): Promise<void> => {
-      if (page === 10) return;
+      if (page === 10) {
+        return;
+      }
       await writePage(page);
       await writePages(page + 1);
     };
     await writePages(0);
     const xref = length;
     write(`xref\n0 ${String(offsets.length)}\n0000000000 65535 f \n`);
-    for (const offset of offsets.slice(1)) write(`${String(offset).padStart(10, '0')} 00000 n \n`);
+    for (const offset of offsets.slice(1)) {
+      write(`${String(offset).padStart(10, '0')} 00000 n \n`);
+    }
     write(`trailer<</Size ${String(offsets.length)}/Root 1 0 R>>\nstartxref\n${String(xref)}\n%%EOF\n`);
   } finally {
     closeSync(file);
@@ -138,7 +150,9 @@ const measure = async (filePath: string): Promise<void> => {
 
 if (process.argv[2] === '--measure') {
   const filePath = process.argv.at(3);
-  if (filePath === undefined) throw new Error('fixture path is missing');
+  if (filePath === undefined) {
+    throw new Error('fixture path is missing');
+  }
   await measure(filePath);
 } else {
   const directory = mkdtempSync(path.join(tmpdir(), 'pdfwright-memory-'));
@@ -147,7 +161,9 @@ if (process.argv[2] === '--measure') {
     await createFixture(filePath);
     const child = spawn(process.execPath, [new URL(import.meta.url).pathname, '--measure', filePath]);
     const [output, errors, closed] = await Promise.all([text(child.stdout), text(child.stderr), once(child, 'close')]);
-    if (closed[0] !== 0) throw new Error(errors);
+    if (closed[0] !== 0) {
+      throw new Error(errors);
+    }
     process.stdout.write(output);
   } finally {
     rmSync(directory, { recursive: true, force: true });

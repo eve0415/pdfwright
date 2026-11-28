@@ -107,7 +107,9 @@ describe('icc profile basic tags', () => {
     bytes[152] = 3;
     bytes[153] = 3;
     view.setUint32(156, 32);
-    for (let index = 0; index < 3; index++) bytes.set(new TextEncoder().encode('curv'), 176 + index * 12);
+    for (let index = 0; index < 3; index++) {
+      bytes.set(new TextEncoder().encode('curv'), 176 + index * 12);
+    }
     expect(parseIccProfile(bytes).deviceToPcs[0]?.kind).toBe('lutAtoB');
   });
 });

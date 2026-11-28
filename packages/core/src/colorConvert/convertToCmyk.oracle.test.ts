@@ -37,7 +37,9 @@ const operatorsOf = (bytes: Uint8Array): readonly string[] => {
   const document = loadDocument(bytes);
   const internals = internalsOf(document);
   const entry = internals?.pages[0];
-  if (internals === undefined || entry === undefined) throw new Error('page is unavailable');
+  if (internals === undefined || entry === undefined) {
+    throw new Error('page is unavailable');
+  }
   const content = pageContent(internals, entry);
   return [...readContent(content.streams, internals.maxNesting)].map(operation => operation.operator);
 };

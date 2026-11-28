@@ -15,9 +15,15 @@ export interface NativeWriter {
 const encoder = new TextEncoder();
 
 const tokenBytes = (token: NativeToken): Uint8Array => {
-  if (typeof token === 'string') return encoder.encode(token);
-  if ('utf8' in token) return escapeNativeString(token.utf8);
-  if ('ascii' in token) return escapeNativeString(token.ascii, 'ascii');
+  if (typeof token === 'string') {
+    return encoder.encode(token);
+  }
+  if ('utf8' in token) {
+    return escapeNativeString(token.utf8);
+  }
+  if ('ascii' in token) {
+    return escapeNativeString(token.ascii, 'ascii');
+  }
   return encoder.encode(formatNativeNumber(token.number));
 };
 
@@ -30,7 +36,9 @@ export const createNativeWriter = (): NativeWriter => {
   };
   const line = (...tokens: readonly NativeToken[]): void => {
     for (const [index, token] of tokens.entries()) {
-      if (index > 0) raw(new Uint8Array([32]));
+      if (index > 0) {
+        raw(new Uint8Array([32]));
+      }
       raw(tokenBytes(token));
     }
     raw(new Uint8Array([13]));

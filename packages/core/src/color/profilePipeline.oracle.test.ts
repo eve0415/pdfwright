@@ -16,7 +16,9 @@ const execute = async (file: string, args: readonly string[], input: string): Pr
   const child = spawn(file, [...args]);
   child.stdin.end(input);
   const [stdout, stderr, close] = await Promise.all([streamText(child.stdout), streamText(child.stderr), once(child, 'close')]);
-  if (close[0] !== 0) throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  if (close[0] !== 0) {
+    throw new Error(`${file} exited with ${String(close[0])}: ${stderr}`);
+  }
   return stdout;
 };
 
@@ -62,12 +64,18 @@ const convert = (source: Uint8Array, destination: Uint8Array, colors: readonly (
 
 // The largest absolute component difference between two colour lists, or infinity when their shapes differ.
 const largestDifference = (actual: readonly (readonly number[])[], expected: readonly (readonly number[])[]): number => {
-  if (actual.length !== expected.length) return Number.POSITIVE_INFINITY;
+  if (actual.length !== expected.length) {
+    return Number.POSITIVE_INFINITY;
+  }
   let largest = 0;
   for (const [index, row] of actual.entries()) {
     const reference = expected[index] ?? [];
-    if (row.length !== reference.length) return Number.POSITIVE_INFINITY;
-    for (const [channel, value] of row.entries()) largest = Math.max(largest, Math.abs(value - (reference[channel] ?? Number.NaN)));
+    if (row.length !== reference.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+    for (const [channel, value] of row.entries()) {
+      largest = Math.max(largest, Math.abs(value - (reference[channel] ?? Number.NaN)));
+    }
   }
   return largest;
 };

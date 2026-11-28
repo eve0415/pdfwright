@@ -31,7 +31,9 @@ describe('icc basic tags', () => {
     type(parametric, 'para');
     const paramView = new DataView(parametric.buffer);
     paramView.setUint16(8, 3);
-    for (let index = 0; index < 5; index++) paramView.setInt32(12 + index * 4, (index + 1) * 65536);
+    for (let index = 0; index < 5; index++) {
+      paramView.setInt32(12 + index * 4, (index + 1) * 65536);
+    }
     expect(readCurve(parametric, 0, parametric.length).curve).toStrictEqual({ kind: 'parametric', functionType: 3, params: [1, 2, 3, 4, 5] });
   });
 
@@ -46,7 +48,9 @@ describe('icc basic tags', () => {
     const sf32 = new Uint8Array(44);
     type(sf32, 'sf32');
     const view = new DataView(sf32.buffer);
-    for (let index = 0; index < 9; index++) view.setInt32(8 + index * 4, index * 65536);
+    for (let index = 0; index < 9; index++) {
+      view.setInt32(8 + index * 4, index * 65536);
+    }
     expect(readSf32(sf32, 0, sf32.length)).toStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     expect(() => readCurve(xyz, 0, 11)).toThrow(InvalidProfileError);
   });

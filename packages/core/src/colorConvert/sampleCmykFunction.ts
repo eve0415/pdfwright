@@ -35,7 +35,9 @@ interface TintSamples {
 const gridValues = (config: CmykFunctionConfig, grid: number): Float64Array => {
   const { dimensions, domain, evaluate } = config;
   const count = grid ** dimensions;
-  if (!Number.isSafeInteger(count) || count > 100_000) throw new ResourceLimitError('colour function table exceeds the sampling limit');
+  if (!Number.isSafeInteger(count) || count > 100_000) {
+    throw new ResourceLimitError('colour function table exceeds the sampling limit');
+  }
   const values = new Float64Array(count * 4);
   for (let index = 0; index < count; index++) {
     const inputs: number[] = [];
@@ -73,7 +75,9 @@ const samples = (config: CmykFunctionConfig): TintSamples => {
   for (let grid = config.minimumGrid ?? 256; ; grid *= 2) {
     const values = gridValues(config, grid);
     const maxDeltaE2000 = midpointError(config, values, grid);
-    if (maxDeltaE2000 <= (config.midpointTolerance ?? 0.1) || grid >= 4096) return { grid, values, maxDeltaE2000 };
+    if (maxDeltaE2000 <= (config.midpointTolerance ?? 0.1) || grid >= 4096) {
+      return { grid, values, maxDeltaE2000 };
+    }
   }
 };
 

@@ -39,24 +39,35 @@ const chop = (value: number): number => {
 };
 
 const pow2 = (exponent: number): number => {
-  if (exponent > 1023) return Infinity;
-  if (exponent < -1074) return 0;
+  if (exponent > 1023) {
+    return Infinity;
+  }
+  if (exponent < -1074) {
+    return 0;
+  }
   bits.setFloat64(0, 0);
-  if (exponent >= -1022) bits.setUint32(0, (exponent + 1023) * 0x100000);
-  else if (exponent >= -1042) {
+  if (exponent >= -1022) {
+    bits.setUint32(0, (exponent + 1023) * 0x100000);
+  } else if (exponent >= -1042) {
     let mantissa = 1;
-    for (let index = 0; index < exponent + 1042; index++) mantissa *= 2;
+    for (let index = 0; index < exponent + 1042; index++) {
+      mantissa *= 2;
+    }
     bits.setUint32(0, mantissa);
   } else {
     let mantissa = 1;
-    for (let index = 0; index < exponent + 1074; index++) mantissa *= 2;
+    for (let index = 0; index < exponent + 1074; index++) {
+      mantissa *= 2;
+    }
     bits.setUint32(4, mantissa);
   }
   return bits.getFloat64(0);
 };
 
 export const deterministicCbrt = (value: number): number => {
-  if (value === 0 || !Number.isFinite(value)) return value;
+  if (value === 0 || !Number.isFinite(value)) {
+    return value;
+  }
   const sign = value < 0 ? -1 : 1;
   const x = Math.abs(value);
   const h = high(x);
@@ -83,19 +94,35 @@ const EXP_COEFFICIENTS = [
 
 /** Computes positive-base powers with the fdlibm split-logarithm and exponential polynomials. */
 const specialPower = (base: number, exponent: number): number | undefined => {
-  if (exponent === 0 || base === 1) return 1;
-  if (base === 0) return exponent > 0 ? 0 : Infinity;
-  if (Number.isNaN(base) || Number.isNaN(exponent) || base < 0) return Number.NaN;
-  if (exponent === 1) return base;
-  if (exponent === 2) return base * base;
-  if (exponent === 0.5) return Math.sqrt(base);
-  if (!Number.isFinite(base) || !Number.isFinite(exponent)) return base > 1 === exponent > 0 ? Infinity : 0;
+  if (exponent === 0 || base === 1) {
+    return 1;
+  }
+  if (base === 0) {
+    return exponent > 0 ? 0 : Infinity;
+  }
+  if (Number.isNaN(base) || Number.isNaN(exponent) || base < 0) {
+    return Number.NaN;
+  }
+  if (exponent === 1) {
+    return base;
+  }
+  if (exponent === 2) {
+    return base * base;
+  }
+  if (exponent === 0.5) {
+    return Math.sqrt(base);
+  }
+  if (!Number.isFinite(base) || !Number.isFinite(exponent)) {
+    return base > 1 === exponent > 0 ? Infinity : 0;
+  }
   return undefined;
 };
 
 export const deterministicPow = (base: number, exponent: number): number => {
   const special = specialPower(base, exponent);
-  if (special !== undefined) return special;
+  if (special !== undefined) {
+    return special;
+  }
 
   let scaled = base;
   let h = high(scaled);
@@ -109,8 +136,9 @@ export const deterministicPow = (base: number, exponent: number): number => {
   const fraction = h % 1048576;
   let interval = 0;
   let normalizedHigh = fraction + 0x3ff00000;
-  if (fraction > 0x3988e && fraction < 0xbb67a) interval = 1;
-  else if (fraction >= 0xbb67a) {
+  if (fraction > 0x3988e && fraction < 0xbb67a) {
+    interval = 1;
+  } else if (fraction >= 0xbb67a) {
     n++;
     normalizedHigh -= 0x00100000;
   }
@@ -146,8 +174,12 @@ export const deterministicPow = (base: number, exponent: number): number => {
   const productLow = (exponent - y1) * t1 + exponent * t2;
   let productHigh = y1 * t1;
   const product = productHigh + productLow;
-  if (product >= 1024) return Infinity;
-  if (product <= -1075) return 0;
+  if (product >= 1024) {
+    return Infinity;
+  }
+  if (product <= -1075) {
+    return 0;
+  }
   const whole = Math.round(product);
   productHigh -= whole;
   const t = chop(productHigh + productLow);

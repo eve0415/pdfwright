@@ -22,7 +22,9 @@ const utf16 = (text: string): string => {
   for (const character of text) {
     const codePoint = character.codePointAt(0) ?? 0;
     const units = codePoint < 0x10000 ? [codePoint] : [0xd800 + Math.floor((codePoint - 0x10000) / 0x400), 0xdc00 + ((codePoint - 0x10000) % 0x400)];
-    for (const unit of units) bytes.push(Math.floor(unit / 256), unit % 256);
+    for (const unit of units) {
+      bytes.push(Math.floor(unit / 256), unit % 256);
+    }
   }
   return hex(bytes);
 };
@@ -99,7 +101,9 @@ const withoutCmap = (program: Uint8Array): Uint8Array => {
   const copy = Uint8Array.from(program);
   const tables = (copy[4] ?? 0) * 256 + (copy[5] ?? 0);
   for (let record = 12; record < 12 + 16 * tables; record += 16) {
-    if (String.fromCodePoint(...copy.subarray(record, record + 4)) === 'cmap') copy[record + 3] = 0x71;
+    if (String.fromCodePoint(...copy.subarray(record, record + 4)) === 'cmap') {
+      copy[record + 3] = 0x71;
+    }
   }
   return copy;
 };

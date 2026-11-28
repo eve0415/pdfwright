@@ -51,7 +51,9 @@ export const latin1Bytes = (text: string): Uint8Array => Uint8Array.from(text, c
 
 export const latin1Text = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -74,7 +76,9 @@ const classicTable = (entries: ReadonlyMap<number, Entry>, first: boolean): stri
   let text = 'xref\n';
   for (let index = 0; index < numbers.length;) {
     let end = index;
-    while (end + 1 < numbers.length && numbers[end + 1] === (numbers[end] ?? 0) + 1) end++;
+    while (end + 1 < numbers.length && numbers[end + 1] === (numbers[end] ?? 0) + 1) {
+      end++;
+    }
     text += `${String(numbers[index])} ${String(end - index + 1)}\n`;
     for (let run = index; run <= end; run++) {
       const entry = entries.get(numbers[run] ?? 0);
@@ -96,8 +100,11 @@ const streamTable = (entries: ReadonlyMap<number, Entry>): StreamTable => {
   const pairs: number[] = [];
   for (const number of numbers) {
     const last = pairs.length - 2;
-    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === number) pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
-    else pairs.push(number, 1);
+    if (last >= 0 && (pairs[last] ?? 0) + (pairs[last + 1] ?? 0) === number) {
+      pairs[last + 1] = (pairs[last + 1] ?? 0) + 1;
+    } else {
+      pairs.push(number, 1);
+    }
     const entry = entries.get(number) ?? { type: 0, second: 0, third: 0 };
     const second = [24, 16, 8, 0].map(shift => Math.floor(entry.second / 2 ** shift) % 256);
     data += String.fromCodePoint(entry.type, ...second, Math.floor(entry.third / 256), entry.third % 256);
@@ -108,8 +115,14 @@ const streamTable = (entries: ReadonlyMap<number, Entry>): StreamTable => {
 const highestNumber = (sections: readonly TestSection[]): number => {
   let highest = 0;
   for (const section of sections) {
-    for (const object of [...section.objects, ...(section.objectStreams ?? [])]) highest = Math.max(highest, object.number);
-    for (const stream of section.objectStreams ?? []) for (const member of stream.members) highest = Math.max(highest, member.number);
+    for (const object of [...section.objects, ...(section.objectStreams ?? [])]) {
+      highest = Math.max(highest, object.number);
+    }
+    for (const stream of section.objectStreams ?? []) {
+      for (const member of stream.members) {
+        highest = Math.max(highest, member.number);
+      }
+    }
   }
   return highest;
 };
@@ -179,7 +192,9 @@ class TestPdfWriter {
     } else {
       const number = this.streamNumber(section);
       entries.set(number, { type: 1, second: offset, third: 0 });
-      if (first) entries.set(0, { type: 0, second: 0, third: 65535 });
+      if (first) {
+        entries.set(0, { type: 0, second: 0, third: 65535 });
+      }
       this.xrefStream(number, entries, `${prev}${trailer}`);
     }
     this.text += `startxref\n${String(offset)}\n%%EOF\n`;
@@ -190,6 +205,8 @@ class TestPdfWriter {
 /** Writes one PDF: the first section is the original file and each further section an incremental update whose Prev points at the one before. */
 export const buildPdf = (sections: readonly TestSection[], options: BuildOptions = {}): TestPdf => {
   const writer = new TestPdfWriter(sections, options);
-  for (const [index, section] of sections.entries()) writer.section(section, index === 0);
+  for (const [index, section] of sections.entries()) {
+    writer.section(section, index === 0);
+  }
   return { bytes: latin1Bytes(writer.text), text: writer.text, offsets: writer.offsets, sections: writer.sections, size: writer.size };
 };

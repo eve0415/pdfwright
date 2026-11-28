@@ -24,15 +24,23 @@ export const evaluateLut = (tag: LutTag, input: readonly number[] | Float64Array
   if (tag.kind === 'lutAtoB') {
     // ICC.1:2022, 10.12.1: A → CLUT → M → matrix → B.
     let values = curves(input, tag.a);
-    if (tag.clut !== undefined) values = evaluateClut(tag.clut, values, mode);
+    if (tag.clut !== undefined) {
+      values = evaluateClut(tag.clut, values, mode);
+    }
     values = curves(values, tag.m);
-    if (tag.matrix !== undefined) values = applyMatrix(values, tag.matrix.m, tag.matrix.offset).map(value => clip(value));
+    if (tag.matrix !== undefined) {
+      values = applyMatrix(values, tag.matrix.m, tag.matrix.offset).map(value => clip(value));
+    }
     return curves(values, tag.b);
   }
   // ICC.1:2022, 10.13.1: B → matrix → M → CLUT → A.
   let values = curves(input, tag.b);
-  if (tag.matrix !== undefined) values = applyMatrix(values, tag.matrix.m, tag.matrix.offset).map(value => clip(value));
+  if (tag.matrix !== undefined) {
+    values = applyMatrix(values, tag.matrix.m, tag.matrix.offset).map(value => clip(value));
+  }
   values = curves(values, tag.m);
-  if (tag.clut !== undefined) values = evaluateClut(tag.clut, values, mode);
+  if (tag.clut !== undefined) {
+    values = evaluateClut(tag.clut, values, mode);
+  }
   return curves(values, tag.a);
 };

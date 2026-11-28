@@ -81,9 +81,13 @@ const directShadingPatternPdf = buildPdf([
 
 const directPatternColor = (document: ReturnType<typeof loadDocument>): PdfObject | undefined => {
   const pattern = document.get(pdfReference(7, 0));
-  if (pattern.kind !== 'dictionary') throw new Error('shading pattern is missing');
+  if (pattern.kind !== 'dictionary') {
+    throw new Error('shading pattern is missing');
+  }
   const shading = pattern.entries.get(pdfName('Shading').bytes);
-  if (shading?.kind !== 'dictionary') throw new Error('direct shading is missing');
+  if (shading?.kind !== 'dictionary') {
+    throw new Error('direct shading is missing');
+  }
   return shading.entries.get(pdfName('ColorSpace').bytes);
 };
 
@@ -207,8 +211,12 @@ interface ConvertedShading {
 }
 
 const numberValue = (value: PdfObject): number => {
-  if (value.kind === 'integer') return value.value;
-  if (value.kind === 'real' && typeof value.value === 'number') return value.value;
+  if (value.kind === 'integer') {
+    return value.value;
+  }
+  if (value.kind === 'real' && typeof value.value === 'number') {
+    return value.value;
+  }
   throw new Error('shading number is invalid');
 };
 
@@ -217,106 +225,166 @@ const closeChannels = (actual: readonly number[], expected: Float64Array): boole
 
 const shadingFunction = (document: ReturnType<typeof loadDocument>): ((input: readonly number[]) => number[]) => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   const reference = shading.entries.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('converted shading function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('converted shading function is missing');
+  }
   const functionStream = document.get(reference);
   const internals = internalsOf(document);
-  if (functionStream.kind !== 'stream' || internals === undefined) throw new Error('shading function stream is missing');
+  if (functionStream.kind !== 'stream' || internals === undefined) {
+    throw new Error('shading function stream is missing');
+  }
   const bytes = decodedData(internals, functionStream);
-  if (typeof bytes === 'string') throw new TypeError(bytes);
+  if (typeof bytes === 'string') {
+    throw new TypeError(bytes);
+  }
   return createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data: bytes });
 };
 
 const sampledGrid = (document: ReturnType<typeof loadDocument>, reference: PdfReference): number => {
   const object = document.get(reference);
-  if (object.kind !== 'stream') throw new Error('sampled function is missing');
+  if (object.kind !== 'stream') {
+    throw new Error('sampled function is missing');
+  }
   const size = object.dictionary.get(pdfName('Size').bytes);
   const first = size?.kind === 'array' ? size.items[0] : undefined;
-  if (first?.kind !== 'integer') throw new Error('sample grid is missing');
+  if (first?.kind !== 'integer') {
+    throw new Error('sample grid is missing');
+  }
   return first.value;
 };
 
 const shadingGrid = (document: ReturnType<typeof loadDocument>): number => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   const functionValue = shading.entries.get(pdfName('Function').bytes);
-  if (functionValue?.kind !== 'reference') throw new Error('function is missing');
+  if (functionValue?.kind !== 'reference') {
+    throw new Error('function is missing');
+  }
   return sampledGrid(document, functionValue);
 };
 
 const stitchedGrids = (document: ReturnType<typeof loadDocument>): readonly number[] => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   const functionReference = shading.entries.get(pdfName('Function').bytes);
-  if (functionReference?.kind !== 'reference') throw new Error('stitched function is missing');
+  if (functionReference?.kind !== 'reference') {
+    throw new Error('stitched function is missing');
+  }
   const stitched = document.get(functionReference);
-  if (stitched.kind !== 'dictionary') throw new Error('stitched function is invalid');
+  if (stitched.kind !== 'dictionary') {
+    throw new Error('stitched function is invalid');
+  }
   const children = stitched.entries.get(pdfName('Functions').bytes);
-  if (children?.kind !== 'array') throw new Error('stitched children are missing');
+  if (children?.kind !== 'array') {
+    throw new Error('stitched children are missing');
+  }
   return children.items.map(child => {
-    if (child.kind !== 'reference') throw new Error('stitched child reference is missing');
+    if (child.kind !== 'reference') {
+      throw new Error('stitched child reference is missing');
+    }
     return sampledGrid(document, child);
   });
 };
 
 const shadingStop = (document: ReturnType<typeof loadDocument>): number => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   const reference = shading.entries.get(pdfName('Function').bytes);
-  if (reference?.kind !== 'reference') throw new Error('shading function is missing');
+  if (reference?.kind !== 'reference') {
+    throw new Error('shading function is missing');
+  }
   const functionObject = document.get(reference);
-  if (functionObject.kind !== 'dictionary') throw new Error('stitching function is missing');
+  if (functionObject.kind !== 'dictionary') {
+    throw new Error('stitching function is missing');
+  }
   const type = functionObject.entries.get(pdfName('FunctionType').bytes);
   const bounds = functionObject.entries.get(pdfName('Bounds').bytes);
-  if (type?.kind !== 'integer' || type.value !== 3 || bounds?.kind !== 'array') throw new Error('shading hard stop was lost');
+  if (type?.kind !== 'integer' || type.value !== 3 || bounds?.kind !== 'array') {
+    throw new Error('shading hard stop was lost');
+  }
   const [stop] = bounds.items;
   return stop === undefined ? -1 : numberValue(stop);
 };
 
 const shadingCoordsKind = (document: ReturnType<typeof loadDocument>): string | undefined => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   return shading.entries.get(pdfName('Coords').bytes)?.kind;
 };
 
 const directShadingSpace = (document: ReturnType<typeof loadDocument>): string => {
   const resources = document.page(0).resources();
   const category = resources.get(pdfName('Shading').bytes);
-  if (category?.kind !== 'dictionary') throw new Error('Shading resources are missing');
+  if (category?.kind !== 'dictionary') {
+    throw new Error('Shading resources are missing');
+  }
   const shading = category.entries.get(pdfName('Sh1').bytes);
-  if (shading?.kind !== 'dictionary') throw new Error('direct shading is missing');
+  if (shading?.kind !== 'dictionary') {
+    throw new Error('direct shading is missing');
+  }
   const color = shading.entries.get(pdfName('ColorSpace').bytes);
-  if (color?.kind !== 'name') throw new Error('shading colour space is missing');
+  if (color?.kind !== 'name') {
+    throw new Error('shading colour space is missing');
+  }
   return new TextDecoder('latin1').decode(color.bytes);
 };
 
 const formShadingSpace = (document: ReturnType<typeof loadDocument>): string => {
   const form = document.get(pdfReference(5, 0));
-  if (form.kind !== 'stream') throw new Error('form is missing');
+  if (form.kind !== 'stream') {
+    throw new Error('form is missing');
+  }
   const resources = form.dictionary.get(pdfName('Resources').bytes);
-  if (resources?.kind !== 'dictionary') throw new Error('form resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('form resources are missing');
+  }
   const category = resources.entries.get(pdfName('Shading').bytes);
-  if (category?.kind !== 'dictionary') throw new Error('form Shading resources are missing');
+  if (category?.kind !== 'dictionary') {
+    throw new Error('form Shading resources are missing');
+  }
   const shading = category.entries.get(pdfName('Sh1').bytes);
-  if (shading?.kind !== 'dictionary') throw new Error('form shading is missing');
+  if (shading?.kind !== 'dictionary') {
+    throw new Error('form shading is missing');
+  }
   const color = shading.entries.get(pdfName('ColorSpace').bytes);
-  if (color?.kind !== 'name') throw new Error('form shading ColorSpace is missing');
+  if (color?.kind !== 'name') {
+    throw new Error('form shading ColorSpace is missing');
+  }
   return new TextDecoder('latin1').decode(color.bytes);
 };
 
 const convertedShading = (document: ReturnType<typeof loadDocument>): ConvertedShading => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('shading is missing');
+  }
   const color = shading.entries.get(pdfName('ColorSpace').bytes);
   const background = shading.entries.get(pdfName('Background').bytes);
   const functionReference = shading.entries.get(pdfName('Function').bytes);
-  if (color?.kind !== 'name' || background?.kind !== 'array' || functionReference?.kind !== 'reference') throw new Error('converted shading is invalid');
+  if (color?.kind !== 'name' || background?.kind !== 'array' || functionReference?.kind !== 'reference') {
+    throw new Error('converted shading is invalid');
+  }
   const functionStream = document.get(functionReference);
   const internals = internalsOf(document);
-  if (functionStream.kind !== 'stream' || internals === undefined) throw new Error('shading function is missing');
+  if (functionStream.kind !== 'stream' || internals === undefined) {
+    throw new Error('shading function is missing');
+  }
   const bytes = decodedData(internals, functionStream);
-  if (typeof bytes === 'string') throw new TypeError(bytes);
+  if (typeof bytes === 'string') {
+    throw new TypeError(bytes);
+  }
   const evaluate = createPdfFunction({ kind: 'stream', dictionary: functionStream.dictionary, data: bytes });
   return {
     space: new TextDecoder('latin1').decode(color.bytes),
@@ -327,7 +395,9 @@ const convertedShading = (document: ReturnType<typeof loadDocument>): ConvertedS
 
 const patternShadingColor = (document: ReturnType<typeof loadDocument>) => {
   const shading = document.get(pdfReference(5, 0));
-  if (shading.kind !== 'dictionary') throw new Error('pattern shading is missing');
+  if (shading.kind !== 'dictionary') {
+    throw new Error('pattern shading is missing');
+  }
   return shading.entries.get(pdfName('ColorSpace').bytes);
 };
 

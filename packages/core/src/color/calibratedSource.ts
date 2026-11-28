@@ -37,7 +37,9 @@ const validWhite = (white: Xyz): void => {
 };
 
 const validGamma = (value: number): void => {
-  if (!Number.isFinite(value) || value <= 0) throw new InvalidArgumentError('calibrated gamma must be positive');
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new InvalidArgumentError('calibrated gamma must be positive');
+  }
 };
 
 const adapt = (value: readonly number[], from: Xyz): number[] => {
@@ -59,8 +61,14 @@ const calibration = (source: CalRgbSource | CalGraySource): Calibration => {
     validGamma(source.gamma);
     return { colorants: undefined, trc: { gray: { kind: 'gamma', gamma: source.gamma } } };
   }
-  for (const gamma of source.gamma) validGamma(gamma);
-  for (const value of source.matrix) if (!Number.isFinite(value)) throw new InvalidArgumentError('calibrated matrix entries must be finite');
+  for (const gamma of source.gamma) {
+    validGamma(gamma);
+  }
+  for (const value of source.matrix) {
+    if (!Number.isFinite(value)) {
+      throw new InvalidArgumentError('calibrated matrix entries must be finite');
+    }
+  }
   const { matrix } = source;
   return {
     colorants: {

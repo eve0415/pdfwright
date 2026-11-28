@@ -57,8 +57,11 @@ export const savedPdf = (input: readonly Uint8Array[], details: SaveDetails = WR
       return new ReadableStream<Uint8Array>({
         pull: controller => {
           const chunk = chunks[index++];
-          if (chunk === undefined) controller.close();
-          else controller.enqueue(chunk);
+          if (chunk === undefined) {
+            controller.close();
+          } else {
+            controller.enqueue(chunk);
+          }
         },
       });
     },
@@ -75,7 +78,9 @@ export const streamedPdf = (produce: () => Generator<Uint8Array>, details: SaveD
   },
   get byteLength(): number {
     let length = 0;
-    for (const chunk of produce()) length += chunk.length;
+    for (const chunk of produce()) {
+      length += chunk.length;
+    }
     return length;
   },
   toBytes: (): Uint8Array => {
@@ -93,14 +98,19 @@ export const streamedPdf = (produce: () => Generator<Uint8Array>, details: SaveD
     return new ReadableStream<Uint8Array>({
       pull: controller => {
         const next = iterator.next();
-        if (next.done === true) controller.close();
-        else controller.enqueue(next.value);
+        if (next.done === true) {
+          controller.close();
+        } else {
+          controller.enqueue(next.value);
+        }
       },
     });
   },
   measureByteLength: (): number => {
     let length = 0;
-    for (const chunk of produce()) length += chunk.length;
+    for (const chunk of produce()) {
+      length += chunk.length;
+    }
     return length;
   },
 });

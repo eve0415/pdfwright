@@ -59,7 +59,9 @@ const decodeReason = (jpeg: Uint8Array): ParseReason | undefined => {
   try {
     decodeJpeg(jpeg);
   } catch (error: unknown) {
-    if (error instanceof ParseError) return error.reason;
+    if (error instanceof ParseError) {
+      return error.reason;
+    }
     throw error;
   }
   throw new Error('JPEG was accepted');
@@ -69,7 +71,9 @@ const orientationOf = (extra: readonly number[]): ExifOrientation | undefined =>
 
 const profileOf = (jpeg: Uint8Array): Uint8Array => {
   const profile = decodeJpeg(jpeg).iccProfile;
-  if (profile === undefined) throw new Error('JPEG has no ICC profile');
+  if (profile === undefined) {
+    throw new Error('JPEG has no ICC profile');
+  }
   return profile;
 };
 
@@ -132,7 +136,9 @@ describe('decodeJpeg public surface', () => {
       segment(0xe1, [...ascii('Exif'), 0, 0, ...ascii('II'), 42, 0, 255, 255, 0, 0]),
       segment(0xe1, [...ascii('http://ns.adobe.com/xap/1.0/'), 0]),
     ];
-    for (const extra of unreadable) expect(orientationOf(extra)).toBeUndefined();
+    for (const extra of unreadable) {
+      expect(orientationOf(extra)).toBeUndefined();
+    }
   });
 
   it('refuses images past its limits and invalid limits', () => {

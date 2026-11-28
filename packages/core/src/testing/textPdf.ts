@@ -58,6 +58,8 @@ export const textPdfBytes = ({ pages, objects = [], root = '', catalog = '' }: T
 /** Loads a composed PDF and returns what the library reads from it. */
 export const textPdf = (input: TextPdf): DocumentInternals => {
   const parts = internalsOf(loadDocument(textPdfBytes(input)));
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };

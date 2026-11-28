@@ -151,7 +151,9 @@ const PROBLEM_OF_WARNING: Readonly<Record<FontWarningCode, FontProblemCode>> = {
 
 const internals = (document: LoadedDocument): DocumentInternals => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  if (parts === undefined) {
+    throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  }
   return parts;
 };
 
@@ -173,7 +175,9 @@ class EntryReader {
     try {
       return this.document.objects.deref(value);
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       this.problems.push({ code: 'font-unreadable', detail: `${what} cannot be read: ${error.message}` });
       return UNREAD;
     }
@@ -196,8 +200,12 @@ const programOf = (reader: EntryReader, font: FontModel, descriptor: PdfDictiona
   const standard14 = font.subtype === 'Type1' && font.baseFont !== undefined && STANDARD_14.has(latin1(font.baseFont));
   for (const file of FONT_FILES) {
     const stream = reader.read(descriptor?.get(pdfName(file).bytes), `the ${file} program`);
-    if (stream === UNREAD) return { embedding: { state: 'unreadable', file }, identity: undefined };
-    if (stream?.kind !== 'stream') continue;
+    if (stream === UNREAD) {
+      return { embedding: { state: 'unreadable', file }, identity: undefined };
+    }
+    if (stream?.kind !== 'stream') {
+      continue;
+    }
     const subtype = file === 'FontFile3' ? reader.object(stream.dictionary.get(SUBTYPE), 'the FontFile3 Subtype') : undefined;
     const fileSubtype = subtype?.kind === 'name' ? subtype.bytes : undefined;
     const type = font.subtype === 'Type0' ? font.descendant?.subtype : font.subtype;
@@ -220,13 +228,17 @@ const subsetOf = (name: Uint8Array | undefined, type3: boolean): SubsetReading =
   const tag = text.length > 6 && text[6] === '+' ? text.slice(0, 6) : undefined;
   const valid = tag !== undefined && /^[A-Z]{6}$/u.test(tag);
   const malformed = tag !== undefined && !valid;
-  if (type3) return { subset: { state: 'not-applicable', tag: valid ? tag : undefined }, malformed };
+  if (type3) {
+    return { subset: { state: 'not-applicable', tag: valid ? tag : undefined }, malformed };
+  }
   return { subset: valid ? { state: 'subset', tag } : { state: 'not-subset' }, malformed };
 };
 
 const descendantOf = (reader: EntryReader, font: FontModel): FontDescendant | undefined => {
   const { descendant } = font;
-  if (descendant === undefined) return undefined;
+  if (descendant === undefined) {
+    return undefined;
+  }
   const info = dictionaryOf(reader.object(descendant.dictionary.get(CID_SYSTEM_INFO), 'the CIDSystemInfo'));
   const registry = reader.object(info?.get(REGISTRY), 'the CIDSystemInfo Registry');
   const ordering = reader.object(info?.get(ORDERING), 'the CIDSystemInfo Ordering');
@@ -255,11 +267,15 @@ const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described
       detail: `${program.embedding.file} is not a program ISO 32000-1:2008, Table 126 allows for this font type`,
     });
   }
-  if (malformed) problems.push({ code: 'subset-tag-malformed', detail: 'the name has a plus sign after six characters that are not all uppercase letters' });
+  if (malformed) {
+    problems.push({ code: 'subset-tag-malformed', detail: 'the name has a plus sign after six characters that are not all uppercase letters' });
+  }
   // Table 111, FontDescriptor: "Required except for the standard 14 fonts", which 9.6.2.2 names as Type 1 fonts; Table 117 requires it of every CIDFont; ISO 32000-1:2008, Table 112 only in Tagged PDF.
   const standard14 = model.baseFont !== undefined && STANDARD_14.has(latin1(model.baseFont)) && model.subtype === 'Type1';
   const required = model.subtype === 'Type0' ? model.descendant !== undefined : model.subtype !== 'Type3' && !standard14;
-  if (descriptor === undefined && required) problems.push({ code: 'descriptor-missing', detail: 'the font has no font descriptor' });
+  if (descriptor === undefined && required) {
+    problems.push({ code: 'descriptor-missing', detail: 'the font has no font descriptor' });
+  }
   // ISO 32000-1:2008, Table 112, Resources: "If any glyph descriptions refer to named resources but this dictionary is absent, the names shall be looked up in the resource dictionary of the page on which the font is used."
   if (glyphs?.namesResources === true && glyphs.inheritsPageResources) {
     problems.push({
@@ -267,7 +283,9 @@ const problemsOf = ({ model, descriptor, program, malformed, glyphs }: Described
       detail: 'the glyph procedures name resources and the font has no Resources, so the page resources are used',
     });
   }
-  for (const warning of model.warnings) problems.push({ code: PROBLEM_OF_WARNING[warning.code], detail: warning.detail });
+  for (const warning of model.warnings) {
+    problems.push({ code: PROBLEM_OF_WARNING[warning.code], detail: warning.detail });
+  }
   return problems;
 };
 
@@ -315,14 +333,18 @@ const buildEntry = (document: DocumentInternals, { model, pages, shownOn, pageRe
 const reusedTags = (built: readonly Built[]): FontEntry[] => {
   const programs = new Map<string, Set<string>>();
   for (const { entry, identity } of built) {
-    if (entry.subset.state !== 'subset' || identity === undefined) continue;
+    if (entry.subset.state !== 'subset' || identity === undefined) {
+      continue;
+    }
     const known = programs.get(entry.subset.tag) ?? new Set<string>();
     known.add(identity);
     programs.set(entry.subset.tag, known);
   }
   return built.map(({ entry, identity }) => {
     const reused = entry.subset.state === 'subset' && identity !== undefined && (programs.get(entry.subset.tag)?.size ?? 0) > 1;
-    if (!reused) return entry;
+    if (!reused) {
+      return entry;
+    }
     return {
       ...entry,
       problems: [...entry.problems, { code: 'subset-tag-reused', detail: `other fonts with the tag ${entry.subset.tag} embed different programs` }],
@@ -339,12 +361,20 @@ const firstPage = (entry: FontEntry): number => Math.min(entry.pages[0] ?? Numbe
 
 const order = (left: FontEntry, right: FontEntry): number => {
   const pages = firstPage(left) - firstPage(right);
-  if (pages !== 0) return pages;
+  if (pages !== 0) {
+    return pages;
+  }
   const [leftNumber, leftGeneration] = referenceOrder(left);
   const [rightNumber, rightGeneration] = referenceOrder(right);
-  if (leftNumber !== rightNumber) return leftNumber < rightNumber ? -1 : 1;
-  if (leftGeneration !== rightGeneration) return leftGeneration - rightGeneration;
-  if (left.key === right.key) return 0;
+  if (leftNumber !== rightNumber) {
+    return leftNumber < rightNumber ? -1 : 1;
+  }
+  if (leftGeneration !== rightGeneration) {
+    return leftGeneration - rightGeneration;
+  }
+  if (left.key === right.key) {
+    return 0;
+  }
   return left.key < right.key ? -1 : 1;
 };
 
@@ -377,7 +407,9 @@ const walkPage = (listing: Listing, index: number, page: PageEntry): void => {
     resources = inherited(document.objects, page, { key: RESOURCES, cache: listing.cache });
     listing.pageResources[index] = dictionaryOf(document.objects.deref(resources?.value));
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     problems.push({ page: index, reason: `the Resources of the page cannot be read: ${error.message}` });
   }
   const unread = walkResources(document, page, {
@@ -388,12 +420,16 @@ const walkPage = (listing: Listing, index: number, page: PageEntry): void => {
       try {
         reach(listing, index, listing.fonts.font(visit.value, key)).pages.add(index);
       } catch (error: unknown) {
-        if (!unreadable(error)) throw error;
+        if (!unreadable(error)) {
+          throw error;
+        }
         problems.push({ page: index, reason: `font ${key} cannot be read: ${error.message}` });
       }
     },
   });
-  for (const object of unread) problems.push({ page: index, reason: object.reason });
+  for (const object of unread) {
+    problems.push({ page: index, reason: object.reason });
+  }
 };
 
 const walkAcroForm = (listing: Listing): void => {
@@ -404,31 +440,45 @@ const walkAcroForm = (listing: Listing): void => {
       try {
         reach(listing, 0, listing.fonts.font(visit.value, key));
       } catch (error: unknown) {
-        if (!unreadable(error)) throw error;
+        if (!unreadable(error)) {
+          throw error;
+        }
         listing.problems.push({ page: -1, reason: `font ${key} cannot be read: ${error.message}` });
       }
     },
   });
-  for (const object of unread) listing.problems.push({ page: -1, reason: object.reason });
+  for (const object of unread) {
+    listing.problems.push({ page: -1, reason: object.reason });
+  }
 };
 
 // Text of the page, of its printable annotations' appearances, and text a Type 3 glyph procedure shows, which paints the glyph.
 const showPage = (listing: Listing, index: number): void => {
   const shown = (font: FontModel | undefined): void => {
-    if (font !== undefined) reach(listing, index, font).shownOn.add(index);
+    if (font !== undefined) {
+      reach(listing, index, font).shownOn.add(index);
+    }
   };
   const result = interpretPage(listing.document, index, {
     fonts: listing.fonts,
     inheritance: listing.cache,
     annotations: 'printable',
     text: event => {
-      if (event.string.length > 0) shown(event.font);
+      if (event.string.length > 0) {
+        shown(event.font);
+      }
     },
     paint: event => {
-      if (event.kind === 'text' && event.context.sources.some(source => source.kind === 'type3-glyph')) shown(event.state.font);
+      if (event.kind === 'text' && event.context.sources.some(source => source.kind === 'type3-glyph')) {
+        shown(event.state.font);
+      }
     },
   });
-  for (const warning of result.warnings) if (INCOMPLETE.has(warning.code)) listing.problems.push({ page: index, reason: warning.detail });
+  for (const warning of result.warnings) {
+    if (INCOMPLETE.has(warning.code)) {
+      listing.problems.push({ page: index, reason: warning.detail });
+    }
+  }
 };
 
 /**
@@ -449,15 +499,23 @@ export const listFonts = (document: LoadedDocument, options: ListFontsOptions = 
     pageResources: [],
     problems: [],
   };
-  for (const [index, page] of parts.pages.entries()) walkPage(listing, index, page);
+  for (const [index, page] of parts.pages.entries()) {
+    walkPage(listing, index, page);
+  }
   walkAcroForm(listing);
-  if (options.shownOn !== false) for (const index of parts.pages.keys()) showPage(listing, index);
+  if (options.shownOn !== false) {
+    for (const index of parts.pages.keys()) {
+      showPage(listing, index);
+    }
+  }
   const built: Built[] = [];
   for (const font of listing.found.values()) {
     try {
       built.push(buildEntry(parts, font));
     } catch (error: unknown) {
-      if (!unreadable(error)) throw error;
+      if (!unreadable(error)) {
+        throw error;
+      }
       listing.problems.push({ page: Math.min(...font.pages, ...font.shownOn), reason: `font ${font.model.key} cannot be read: ${error.message}` });
     }
   }

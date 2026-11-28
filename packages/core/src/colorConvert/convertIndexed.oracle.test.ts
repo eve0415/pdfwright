@@ -77,35 +77,57 @@ interface IndexedLookup {
 
 const indexed = (document: ReturnType<typeof loadDocument>): IndexedLookup => {
   const spaces = document.page(0).resources().get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('missing ColorSpace resources');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('missing ColorSpace resources');
+  }
   const value = spaces.entries.get(pdfName('CS1').bytes);
-  if (value?.kind !== 'array') throw new Error('missing Indexed space');
+  if (value?.kind !== 'array') {
+    throw new Error('missing Indexed space');
+  }
   const [, base, , lookup] = value.items;
-  if (base?.kind !== 'name' || lookup?.kind !== 'string') throw new Error('invalid Indexed space');
+  if (base?.kind !== 'name' || lookup?.kind !== 'string') {
+    throw new Error('invalid Indexed space');
+  }
   return { base: new TextDecoder('latin1').decode(base.bytes), lookup: lookup.bytes };
 };
 
 const imageIndexed = (document: ReturnType<typeof loadDocument>): IndexedLookup & { readonly data: Uint8Array } => {
   const image = document.get(pdfReference(5, 0));
-  if (image.kind !== 'stream') throw new Error('image is missing');
+  if (image.kind !== 'stream') {
+    throw new Error('image is missing');
+  }
   const value = image.dictionary.get(pdfName('ColorSpace').bytes);
-  if (value?.kind !== 'array') throw new Error('Indexed image colour space is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('Indexed image colour space is missing');
+  }
   const [, base, , lookup] = value.items;
-  if (base?.kind !== 'name' || lookup?.kind !== 'string') throw new Error('Indexed image colour space is invalid');
+  if (base?.kind !== 'name' || lookup?.kind !== 'string') {
+    throw new Error('Indexed image colour space is invalid');
+  }
   return { base: new TextDecoder('latin1').decode(base.bytes), lookup: lookup.bytes, data: image.data };
 };
 
 const formIndexed = (document: ReturnType<typeof loadDocument>): IndexedLookup => {
   const form = document.get(pdfReference(5, 0));
-  if (form.kind !== 'stream') throw new Error('form is missing');
+  if (form.kind !== 'stream') {
+    throw new Error('form is missing');
+  }
   const resources = form.dictionary.get(pdfName('Resources').bytes);
-  if (resources?.kind !== 'dictionary') throw new Error('form resources are missing');
+  if (resources?.kind !== 'dictionary') {
+    throw new Error('form resources are missing');
+  }
   const spaces = resources.entries.get(pdfName('ColorSpace').bytes);
-  if (spaces?.kind !== 'dictionary') throw new Error('form ColorSpace resources are missing');
+  if (spaces?.kind !== 'dictionary') {
+    throw new Error('form ColorSpace resources are missing');
+  }
   const value = spaces.entries.get(pdfName('CS1').bytes);
-  if (value?.kind !== 'array') throw new Error('form Indexed space is missing');
+  if (value?.kind !== 'array') {
+    throw new Error('form Indexed space is missing');
+  }
   const [, base, , lookup] = value.items;
-  if (base?.kind !== 'name' || lookup?.kind !== 'string') throw new Error('form Indexed space is invalid');
+  if (base?.kind !== 'name' || lookup?.kind !== 'string') {
+    throw new Error('form Indexed space is invalid');
+  }
   return { base: new TextDecoder('latin1').decode(base.bytes), lookup: lookup.bytes };
 };
 

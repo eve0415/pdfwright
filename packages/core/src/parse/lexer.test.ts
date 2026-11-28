@@ -30,16 +30,28 @@ const lex = (text: string): Lexed => {
     names: new Map(),
   });
   const tokens: Token[] = [];
-  for (let token = source.next(); token.kind !== 'eof'; token = source.next()) tokens.push(token);
+  for (let token = source.next(); token.kind !== 'eof'; token = source.next()) {
+    tokens.push(token);
+  }
   return { tokens, warnings };
 };
 
 const summary = (token: Token): number | string => {
-  if (token.kind === 'integer' || token.kind === 'real') return token.value;
-  if (token.kind === 'invalid') return token.reason;
-  if (token.kind === 'keyword') return token.keyword;
-  if (token.kind === 'name') return `/${String.fromCodePoint(...token.bytes)}`;
-  if (token.kind === 'string') return token.encoding;
+  if (token.kind === 'integer' || token.kind === 'real') {
+    return token.value;
+  }
+  if (token.kind === 'invalid') {
+    return token.reason;
+  }
+  if (token.kind === 'keyword') {
+    return token.keyword;
+  }
+  if (token.kind === 'name') {
+    return `/${String.fromCodePoint(...token.bytes)}`;
+  }
+  if (token.kind === 'string') {
+    return token.encoding;
+  }
   return token.kind;
 };
 
@@ -47,7 +59,11 @@ const summaries = (text: string): (number | string)[] => lex(text).tokens.map(to
 
 const stringBytes = (text: string): number[][] => {
   const strings: number[][] = [];
-  for (const token of lex(text).tokens) if (token.kind === 'string') strings.push([...token.bytes]);
+  for (const token of lex(text).tokens) {
+    if (token.kind === 'string') {
+      strings.push([...token.bytes]);
+    }
+  }
   return strings;
 };
 

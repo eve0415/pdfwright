@@ -75,7 +75,9 @@ export class ObjectStore {
     this.cache.set(object.objectNumber, object);
     this.cached += cost(object, this.source);
     for (const [number, oldest] of this.cache) {
-      if (this.cached <= this.context.parsedObjectCacheBytes || number === object.objectNumber) break;
+      if (this.cached <= this.context.parsedObjectCacheBytes || number === object.objectNumber) {
+        break;
+      }
       this.cache.delete(number);
       this.cached -= cost(oldest, this.source);
     }
@@ -85,8 +87,12 @@ export class ObjectStore {
   private resolveLength(objectNumber: number, generation: number): number | undefined {
     const entry = this.index.get(objectNumber);
     // ISO 32000-1:2008, 7.5.7 forbids storing "An object representing the value of the Length entry in an object stream dictionary" in an object stream; such a Length is read as unresolvable.
-    if (this.resolving.has(objectNumber) || (entry.type === COMPRESSED && this.resolving.has(entry.location))) return undefined;
-    if ((entry.type !== IN_FILE && entry.type !== COMPRESSED) || (entry.type === IN_FILE && entry.generation !== generation)) return undefined;
+    if (this.resolving.has(objectNumber) || (entry.type === COMPRESSED && this.resolving.has(entry.location))) {
+      return undefined;
+    }
+    if ((entry.type !== IN_FILE && entry.type !== COMPRESSED) || (entry.type === IN_FILE && entry.generation !== generation)) {
+      return undefined;
+    }
     const value = this.load(objectNumber)?.value;
     return value?.kind === 'integer' && value.value >= 0 ? value.value : undefined;
   }
@@ -114,7 +120,9 @@ export class ObjectStore {
       const stream = decodeObjectStream(objectNumber, object?.value ?? { kind: 'null' }, { ...this.context, deref: value => this.deref(value) });
       this.decoded.set(objectNumber, stream);
       for (const number of this.decoded.keys()) {
-        if (this.decoded.size <= DECODED_STREAMS) break;
+        if (this.decoded.size <= DECODED_STREAMS) {
+          break;
+        }
         this.decoded.delete(number);
       }
       return stream;
@@ -144,7 +152,9 @@ export class ObjectStore {
   }
 
   private noteDuplicateKey(objectNumber: number, warning: LoadWarning): void {
-    if (warning.code === 'duplicate-key') this.duplicateKeys.add(objectNumber);
+    if (warning.code === 'duplicate-key') {
+      this.duplicateKeys.add(objectNumber);
+    }
   }
 
   private endstreamHint(): number {
@@ -160,8 +170,12 @@ export class ObjectStore {
   /** Parses an object from its span, bypassing the cache; undefined for free and absent object numbers. */
   parse(objectNumber: number): StoredObject | undefined {
     const entry = this.index.get(objectNumber);
-    if (entry.type === COMPRESSED) return this.parseCompressed(objectNumber, entry.location, entry.generation);
-    if (entry.type !== IN_FILE) return undefined;
+    if (entry.type === COMPRESSED) {
+      return this.parseCompressed(objectNumber, entry.location, entry.generation);
+    }
+    if (entry.type !== IN_FILE) {
+      return undefined;
+    }
     this.resolving.add(objectNumber);
     try {
       const context = {
@@ -197,7 +211,9 @@ export class ObjectStore {
       return hit;
     }
     const object = this.parse(objectNumber);
-    if (object !== undefined) this.remember(object);
+    if (object !== undefined) {
+      this.remember(object);
+    }
     return object;
   }
 
@@ -218,7 +234,9 @@ export class ObjectStore {
     const expected = entry.type === IN_FILE ? entry.generation : 0;
     if (generation !== expected) {
       const detail = `reference ${String(objectNumber)} ${String(generation)} R names generation ${String(generation)}, but the in-use entry has generation ${String(expected)}`;
-      if (this.context.generationMismatch === 'error') throw new GenerationMismatchError(detail, entry.type === IN_FILE ? entry.location : 0);
+      if (this.context.generationMismatch === 'error') {
+        throw new GenerationMismatchError(detail, entry.type === IN_FILE ? entry.location : 0);
+      }
       this.context.warn({ code: 'generation-mismatch', detail, objectNumber });
       return { kind: 'null' };
     }
@@ -227,7 +245,9 @@ export class ObjectStore {
 
   /** Follows a reference to its object; other values are returned unchanged. */
   deref(value: PdfDirectObject | undefined): PdfObject | undefined {
-    if (value?.kind !== 'reference') return value;
+    if (value?.kind !== 'reference') {
+      return value;
+    }
     return this.resolve(value.objectNumber, value.generation);
   }
 }

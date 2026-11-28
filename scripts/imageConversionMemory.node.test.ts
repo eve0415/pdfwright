@@ -12,7 +12,9 @@ interface MemoryResult {
 }
 
 const measured = (value: unknown): MemoryResult => {
-  if (typeof value !== 'object' || value === null) throw new TypeError('memory result is missing');
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('memory result is missing');
+  }
   if (!('baselineBytes' in value) || !('peakBytes' in value) || !('elapsedMs' in value) || !('savedBytes' in value)) {
     throw new Error('memory result is incomplete');
   }

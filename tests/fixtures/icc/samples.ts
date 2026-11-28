@@ -6,7 +6,9 @@ const xor64 = (left: bigint, right: bigint): bigint => {
   let result = 0n;
   let place = 1n;
   for (let index = 0; index < 64; index++) {
-    if (a % 2n !== b % 2n) result += place;
+    if (a % 2n !== b % 2n) {
+      result += place;
+    }
     a /= 2n;
     b /= 2n;
     place *= 2n;
@@ -18,10 +20,14 @@ export const samples = (): Rgb[] => {
   const result: Rgb[] = [];
   for (let red = 0; red < 17; red++) {
     for (let green = 0; green < 17; green++) {
-      for (let blue = 0; blue < 17; blue++) result.push([Math.round((red * 255) / 16), Math.round((green * 255) / 16), Math.round((blue * 255) / 16)]);
+      for (let blue = 0; blue < 17; blue++) {
+        result.push([Math.round((red * 255) / 16), Math.round((green * 255) / 16), Math.round((blue * 255) / 16)]);
+      }
     }
   }
-  for (let value = 0; value < 256; value++) result.push([value, value, value]);
+  for (let value = 0; value < 256; value++) {
+    result.push([value, value, value]);
+  }
   result.push(
     [1, 0, 0],
     [0, 1, 0],

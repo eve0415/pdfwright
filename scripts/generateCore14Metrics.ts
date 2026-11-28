@@ -37,7 +37,9 @@ interface Metrics {
 
 const lineValue = (lines: readonly string[], key: string): string => {
   const line = lines.find(candidate => candidate.startsWith(`${key} `));
-  if (line === undefined) throw new Error(`the AFM file has no ${key} line`);
+  if (line === undefined) {
+    throw new Error(`the AFM file has no ${key} line`);
+  }
   return line.slice(key.length + 1).trim();
 };
 
@@ -47,15 +49,21 @@ const readMetrics = (text: string): Metrics => {
   const names: string[] = [];
   const widths: number[] = [];
   for (const line of lines) {
-    if (!line.startsWith('C ')) continue;
+    if (!line.startsWith('C ')) {
+      continue;
+    }
     const match = /^C -?\d+ ; WX (\d+) ; N (\S+) ;/u.exec(line);
-    if (match === null) throw new Error(`unexpected character metrics line: ${line}`);
+    if (match === null) {
+      throw new Error(`unexpected character metrics line: ${line}`);
+    }
     const [, width = '', name = ''] = match;
     widths.push(Number(width));
     names.push(name);
   }
   const bbox = lineValue(lines, 'FontBBox').split(/\s+/u).map(Number);
-  if (bbox.length !== 4 || bbox.some(value => !Number.isInteger(value))) throw new Error('the FontBBox line is not four integers');
+  if (bbox.length !== 4 || bbox.some(value => !Number.isInteger(value))) {
+    throw new Error('the FontBBox line is not four integers');
+  }
   return { names, widths, bbox, copyright: lineValue(lines, 'Comment Copyright'), notice: lineValue(lines, 'Notice') };
 };
 
@@ -74,13 +82,17 @@ const sameNames = (left: readonly string[], right: readonly string[]): boolean =
 
 const main = async (): Promise<void> => {
   const [directory] = process.argv.slice(2);
-  if (directory === undefined) throw new Error('usage: node scripts/generateCore14Metrics.ts <AFM directory>');
+  if (directory === undefined) {
+    throw new Error('usage: node scripts/generateCore14Metrics.ts <AFM directory>');
+  }
   const metrics = new Map<string, Metrics>();
   const files = await Promise.all(
     Object.entries(FONTS).map(async ([font, sha256]) => [font, sha256, await readFile(path.join(directory, `${font}.afm`))] as const),
   );
   for (const [font, sha256, bytes] of files) {
-    if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new Error(`${font}.afm does not have the sha256 of the file in the zip`);
+    if (createHash('sha256').update(bytes).digest('hex') !== sha256) {
+      throw new Error(`${font}.afm does not have the sha256 of the file in the zip`);
+    }
     metrics.set(font, readMetrics(bytes.toString('latin1')));
   }
   const latin = metrics.get('Helvetica')?.names ?? [];

@@ -29,7 +29,9 @@ export const normalised = ([x1, y1, x2, y2]: readonly [number, number, number, n
  */
 export const readProcedure = (source: FontSource, procedure: PdfStream): ProcedureSummary => {
   const data = decodedData(source, procedure);
-  if (typeof data === 'string') return { paints: undefined, box: undefined };
+  if (typeof data === 'string') {
+    return { paints: undefined, box: undefined };
+  }
   let box: Rectangle | undefined;
   let first = true;
   try {
@@ -37,13 +39,19 @@ export const readProcedure = (source: FontSource, procedure: PdfStream): Procedu
       if (first && operator === 'd1') {
         const numbers = operands.slice(-4).map(operand => (operand.kind === 'stray-delimiter' ? undefined : numberOf(operand)));
         const [llx, lly, urx, ury] = numbers;
-        if (operands.length >= 6 && llx !== undefined && lly !== undefined && urx !== undefined && ury !== undefined) box = normalised([llx, lly, urx, ury]);
+        if (operands.length >= 6 && llx !== undefined && lly !== undefined && urx !== undefined && ury !== undefined) {
+          box = normalised([llx, lly, urx, ury]);
+        }
       }
       first = false;
-      if (PAINTING.has(operator)) return { paints: true, box };
+      if (PAINTING.has(operator)) {
+        return { paints: true, box };
+      }
     }
   } catch (error) {
-    if (error instanceof ParseError) return { paints: undefined, box };
+    if (error instanceof ParseError) {
+      return { paints: undefined, box };
+    }
     throw error;
   }
   return { paints: false, box };

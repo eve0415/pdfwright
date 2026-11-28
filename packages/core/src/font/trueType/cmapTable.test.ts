@@ -55,7 +55,9 @@ const format4 = (segments: readonly TestSegment[]): number[] => {
   const count = all.length;
   const glyphArrays: number[] = [];
   const rangeOffsets = all.map(({ glyphs }, index) => {
-    if (glyphs === undefined) return 0;
+    if (glyphs === undefined) {
+      return 0;
+    }
     // idRangeOffset counts bytes from its own position to the glyph in glyphIdArray.
     const offset = 2 * (count - index) + 2 * glyphArrays.length;
     glyphArrays.push(...glyphs);
@@ -94,7 +96,9 @@ const format14 = (selector: number, ranges: readonly (readonly [number, number])
 };
 
 const cmapOf = (reading: CmapReading): TrueTypeCmap => {
-  if (reading.kind !== 'cmap') throw new Error(`expected a cmap, got ${reading.kind}`);
+  if (reading.kind !== 'cmap') {
+    throw new Error(`expected a cmap, got ${reading.kind}`);
+  }
   return reading.cmap;
 };
 
@@ -107,8 +111,12 @@ const countReads = (input: Uint8Array) => {
   const counted = (data: Uint8Array): Uint8Array =>
     new Proxy(data, {
       get(target, property): number | Uint8Array['subarray'] | undefined {
-        if (property === 'subarray') return (start?: number, end?: number): Uint8Array => counted(target.subarray(start, end));
-        if (property === 'length') return target.length;
+        if (property === 'subarray') {
+          return (start?: number, end?: number): Uint8Array => counted(target.subarray(start, end));
+        }
+        if (property === 'length') {
+          return target.length;
+        }
         if (typeof property === 'string' && /^\d+$/u.test(property)) {
           reads++;
           return target[Number(property)];

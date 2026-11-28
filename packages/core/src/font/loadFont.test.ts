@@ -24,7 +24,9 @@ const documentWith = (objects: readonly TestObject[]): DocumentInternals => {
     ]).bytes,
   );
   const parts = internalsOf(loaded);
-  if (parts === undefined) throw new Error('the document has no internals');
+  if (parts === undefined) {
+    throw new Error('the document has no internals');
+  }
   return parts;
 };
 
@@ -34,7 +36,9 @@ const fontOf = (font: string, objects: readonly TestObject[] = [], provider?: CM
 
 const glyphsOf = (font: FontModel, string: Uint8Array | string): readonly FontGlyph[] => {
   const result = font.glyphs(typeof string === 'string' ? latin1Bytes(string) : string);
-  if (result.kind !== 'glyphs') throw new Error(`the string does not split: ${result.kind}`);
+  if (result.kind !== 'glyphs') {
+    throw new Error(`the string does not split: ${result.kind}`);
+  }
   return result.glyphs;
 };
 
@@ -311,7 +315,9 @@ const PROGRAM =
 
 const embeddedGlyphs = (font: FontModel): readonly (number | undefined)[] | string => {
   const reading = font.embeddedCmap();
-  if (reading?.kind !== 'cmap') return reading?.kind ?? 'none';
+  if (reading?.kind !== 'cmap') {
+    return reading?.kind ?? 'none';
+  }
   return [reading.cmap.glyph(0x41), reading.cmap.glyph(0x3042), reading.cmap.glyph(0x42)];
 };
 

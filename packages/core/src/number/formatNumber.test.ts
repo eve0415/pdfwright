@@ -54,8 +54,12 @@ describe('number formatting', () => {
 
   it('rejects invalid values and integer tokens outside the PDF range', () => {
     expect(DEFAULT_FRACTION_DIGITS).toBe(5);
-    for (const value of [Number.NaN, Infinity, -Infinity]) expect(() => formatNumber(value, 5)).toThrow(InvalidArgumentError);
-    for (const digits of [-1, 11, 0.5, Number.NaN]) expect(() => formatNumber(1, digits)).toThrow(InvalidArgumentError);
+    for (const value of [Number.NaN, Infinity, -Infinity]) {
+      expect(() => formatNumber(value, 5)).toThrow(InvalidArgumentError);
+    }
+    for (const digits of [-1, 11, 0.5, Number.NaN]) {
+      expect(() => formatNumber(1, digits)).toThrow(InvalidArgumentError);
+    }
     expect(() => formatNumber(3.404e38, 5)).toThrow(InvalidArgumentError);
     expect(formatInteger(2147483647)).toBe('2147483647');
     expect(formatInteger(-2147483647)).toBe('-2147483647');

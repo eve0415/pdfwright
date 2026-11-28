@@ -18,7 +18,9 @@ const gcd = (left: bigint, right: bigint): bigint => {
 };
 
 const makeLength = (numerator: bigint, denominator: bigint): Length => {
-  if (numerator === 0n) return Object.freeze({ numerator: 0n, denominator: 1n });
+  if (numerator === 0n) {
+    return Object.freeze({ numerator: 0n, denominator: 1n });
+  }
   const divisor = gcd(numerator, denominator);
   return Object.freeze({ numerator: numerator / divisor, denominator: denominator / divisor });
 };
@@ -62,8 +64,12 @@ export const negate = (length: Length): Length => makeLength(-length.numerator, 
 /** Compares two exact rational lengths without rounding. */
 export const compare = (left: Length, right: Length): -1 | 0 | 1 => {
   const difference = left.numerator * right.denominator - right.numerator * left.denominator;
-  if (difference < 0n) return -1;
-  if (difference > 0n) return 1;
+  if (difference < 0n) {
+    return -1;
+  }
+  if (difference > 0n) {
+    return 1;
+  }
   return 0;
 };
 

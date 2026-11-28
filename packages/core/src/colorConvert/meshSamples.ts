@@ -35,18 +35,24 @@ const writeColor = (reader: MeshBitReader, writer: MeshBitWriter, options: MeshS
   }
   const output = new Float64Array(options.outputChannels);
   options.transform.convert(input, output);
-  for (const value of output) writer.write(options.outputComponentBits, Math.round(value * (2 ** options.outputComponentBits - 1)));
+  for (const value of output) {
+    writer.write(options.outputComponentBits, Math.round(value * (2 ** options.outputComponentBits - 1)));
+  }
 };
 
 const copyCoordinates = (reader: MeshBitReader, writer: MeshBitWriter, config: { pairs: number; bits: number }): void => {
-  for (let coordinate = 0; coordinate < config.pairs * 2; coordinate++) writer.write(config.bits, reader.read(config.bits));
+  for (let coordinate = 0; coordinate < config.pairs * 2; coordinate++) {
+    writer.write(config.bits, reader.read(config.bits));
+  }
 };
 
 const vertexRecord = (reader: MeshBitReader, writer: MeshBitWriter, options: MeshSampleOptions): void => {
   // ISO 32000-1:2008, 8.7.4.5.5–6, Tables 82–83: mesh vertices carry coordinates and colour fields, with an edge flag in Type 4.
   if (options.type === 4) {
     const flag = reader.read(options.flagBits);
-    if (flag % 4 > 2) throw new ParseError('Type 4 mesh edge flag is invalid', 0);
+    if (flag % 4 > 2) {
+      throw new ParseError('Type 4 mesh edge flag is invalid', 0);
+    }
     writer.write(options.flagBits, flag);
   }
   copyCoordinates(reader, writer, { pairs: 1, bits: options.coordinateBits });
@@ -60,26 +66,37 @@ const patchRecord = (reader: MeshBitReader, writer: MeshBitWriter, config: { opt
   const { options, first } = config;
   const flag = reader.read(options.flagBits);
   const edge = flag % 4;
-  if (first && edge !== 0) throw new ParseError('the first mesh patch must start a new patch', 0);
+  if (first && edge !== 0) {
+    throw new ParseError('the first mesh patch must start a new patch', 0);
+  }
   writer.write(options.flagBits, flag);
   let coordinates = options.type === 6 ? 8 : 12;
-  if (edge === 0) coordinates = options.type === 6 ? 12 : 16;
+  if (edge === 0) {
+    coordinates = options.type === 6 ? 12 : 16;
+  }
   const colors = edge === 0 ? 4 : 2;
   copyCoordinates(reader, writer, { pairs: coordinates, bits: options.coordinateBits });
-  for (let corner = 0; corner < colors; corner++) writeColor(reader, writer, options);
+  for (let corner = 0; corner < colors; corner++) {
+    writeColor(reader, writer, options);
+  }
   reader.alignByte();
   writer.alignByte();
 };
 
 /** Rewrites only mesh colour fields; flags and coordinate bit fields retain their original encoded values. */
 export const convertMeshSamples = (data: Uint8Array, options: MeshSampleOptions): MeshSamples => {
-  if (data.length * 2 > options.maxBytes) throw new ResourceLimitError(`mesh conversion exceeds the in-memory ceiling (${String(options.maxBytes)} bytes)`);
+  if (data.length * 2 > options.maxBytes) {
+    throw new ResourceLimitError(`mesh conversion exceeds the in-memory ceiling (${String(options.maxBytes)} bytes)`);
+  }
   const reader = new MeshBitReader(data);
   const writer = new MeshBitWriter();
   let records = 0;
   while (reader.remainingBits > 0) {
-    if (options.type === 4 || options.type === 5) vertexRecord(reader, writer, options);
-    else patchRecord(reader, writer, { options, first: records === 0 });
+    if (options.type === 4 || options.type === 5) {
+      vertexRecord(reader, writer, options);
+    } else {
+      patchRecord(reader, writer, { options, first: records === 0 });
+    }
     records++;
   }
   return { data: writer.finish(options.maxBytes), records };

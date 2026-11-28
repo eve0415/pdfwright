@@ -121,8 +121,12 @@ const ENTITIES: ReadonlyMap<string, string> = new Map([
 // XML character references and the five predefined entities.
 const unescapeXml = (text: string): string =>
   text.replaceAll(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/giu, (_, reference: string) => {
-    if (reference.startsWith('#x') || reference.startsWith('#X')) return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
-    if (reference.startsWith('#')) return String.fromCodePoint(Number(reference.slice(1)));
+    if (reference.startsWith('#x') || reference.startsWith('#X')) {
+      return String.fromCodePoint(Number.parseInt(reference.slice(2), 16));
+    }
+    if (reference.startsWith('#')) {
+      return String.fromCodePoint(Number(reference.slice(1)));
+    }
     return ENTITIES.get(reference) ?? '';
   });
 
@@ -172,10 +176,14 @@ const near = (a: number, b: number, tolerance: number): boolean => Math.abs(a - 
 
 // Each glyph against the MuPDF char at the same position in content order: its origin, its text, and, for upright text, its box's left and right edges.
 const mupdfDifferences = (glyphs: readonly PageGlyph[], chars: readonly Char[], edges: boolean): string[] => {
-  if (glyphs.length !== chars.length) return [`${String(glyphs.length)} glyphs against ${String(chars.length)} MuPDF chars`];
+  if (glyphs.length !== chars.length) {
+    return [`${String(glyphs.length)} glyphs against ${String(chars.length)} MuPDF chars`];
+  }
   return glyphs.flatMap((glyph, index) => {
     const char = chars[index];
-    if (char === undefined) return [];
+    if (char === undefined) {
+      return [];
+    }
     const [x, y] = [glyph.origin[0], PAGE_HEIGHT - glyph.origin[1]];
     const problems = [
       near(x, char.x, ORIGIN_TOLERANCE) && near(y, char.y, ORIGIN_TOLERANCE)
@@ -198,11 +206,15 @@ const popplerDifferences = (glyphs: readonly PageGlyph[], words: readonly Word[]
     const part: PageGlyph[] = [];
     while (part.map(glyph => glyph.text).join('').length < word.text.length && next < shown.length) {
       const glyph = shown[next++];
-      if (glyph !== undefined) part.push(glyph);
+      if (glyph !== undefined) {
+        part.push(glyph);
+      }
     }
     const [first] = part;
     const last = part.at(-1);
-    if (first === undefined || last === undefined || part.map(glyph => glyph.text).join('') !== word.text) return [`word ${word.text} has no glyphs`];
+    if (first === undefined || last === undefined || part.map(glyph => glyph.text).join('') !== word.text) {
+      return [`word ${word.text} has no glyphs`];
+    }
     const size = first.fontSize * EXTENT_FRACTION;
     const top = Math.min(...part.flatMap(glyph => ys(glyph)));
     const bottom = Math.max(...part.flatMap(glyph => ys(glyph)));
@@ -237,7 +249,9 @@ const INK_TOLERANCE = 0.01;
 const inkInsideBox = async (content: string): Promise<{ readonly inside: boolean; readonly ink: readonly number[]; readonly box: readonly number[] }> => {
   const bytes = textPdfBytes({ pages: [{ resources: RESOURCES, content }], objects: FONTS });
   const [glyph] = extractText(loadDocument(bytes), 0).glyphs;
-  if (glyph === undefined) return { inside: false, ink: [], box: [] };
+  if (glyph === undefined) {
+    return { inside: false, ink: [], box: [] };
+  }
   const box = [
     Math.min(...xs(glyph)),
     Math.min(glyph.quad[1], glyph.quad[3], glyph.quad[5], glyph.quad[7]),
@@ -255,10 +269,14 @@ const hexCid = (value: number): string => value.toString(16).padStart(4, '0').to
 
 const realVerticalCids = (program: Uint8Array): readonly [number, number] => {
   const reading = readTrueTypeCmap(program);
-  if (reading.kind !== 'cmap') throw new Error('IPAGothic has no readable Unicode cmap');
+  if (reading.kind !== 'cmap') {
+    throw new Error('IPAGothic has no readable Unicode cmap');
+  }
   const first = reading.cmap.glyph(0x4e00);
   const second = reading.cmap.glyph(0x4e8c);
-  if (first === undefined || second === undefined) throw new Error('IPAGothic lacks the test glyphs');
+  if (first === undefined || second === undefined) {
+    throw new Error('IPAGothic lacks the test glyphs');
+  }
   return [first, second];
 };
 
@@ -297,7 +315,9 @@ const realVerticalInk = async (
 ): Promise<{ readonly text: string | null; readonly inside: boolean }> => {
   const single = realVerticalPdf(program, cids, `BT /V 20 Tf 300 400 Td <${hexCid(cid)}> Tj ET`);
   const [glyph] = extractText(loadDocument(single), 0).glyphs;
-  if (glyph === undefined) throw new Error('vertical glyph was not extracted');
+  if (glyph === undefined) {
+    throw new Error('vertical glyph was not extracted');
+  }
   const ink = await withFile(single, inkBounds);
   const box = [
     Math.min(...xs(glyph)),
@@ -317,9 +337,13 @@ const realVerticalInk = async (
 const expectedErrors = async (): Promise<ReadonlySet<string>> => {
   const parsed: unknown = JSON.parse(await readFile(path.join(CORPUS, 'expected-failures.json'), 'utf8'));
   const failing = new Set<string>();
-  if (typeof parsed !== 'object' || parsed === null) return failing;
+  if (typeof parsed !== 'object' || parsed === null) {
+    return failing;
+  }
   for (const [file, entry] of Object.entries(parsed)) {
-    if (typeof entry === 'object' && entry !== null && 'error' in entry) failing.add(file);
+    if (typeof entry === 'object' && entry !== null && 'error' in entry) {
+      failing.add(file);
+    }
   }
   return failing;
 };
@@ -329,7 +353,9 @@ const extractionFailure = async (file: string): Promise<string | undefined> => {
   try {
     const bytes = await readFile(file);
     const document = loadDocument(new Uint8Array(bytes));
-    for (let page = 0; page < document.pageCount; page++) extractText(document, page);
+    for (let page = 0; page < document.pageCount; page++) {
+      extractText(document, page);
+    }
     return undefined;
   } catch (error: unknown) {
     return error instanceof Error ? error.message : String(error);
@@ -341,13 +367,19 @@ const extractionFailures = async (set: string, directory: string): Promise<strin
   const failing = await expectedErrors();
   const names = await readdir(directory).catch((): string[] => []);
   const files = names.filter(name => name.endsWith('.pdf') && !failing.has(`${set}/${name}`)).toSorted();
-  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) throw new Error('govdocs1 corpus is missing');
+  if (set === 'govdocs1' && env['CI'] !== undefined && files.length === 0) {
+    throw new Error('govdocs1 corpus is missing');
+  }
   const thrown: string[] = [];
   const next = async (index: number): Promise<string[]> => {
     const name = files[index];
-    if (name === undefined) return thrown;
+    if (name === undefined) {
+      return thrown;
+    }
     const failure = await extractionFailure(path.join(directory, name));
-    if (failure !== undefined) thrown.push(`${set}/${name}: ${failure}`);
+    if (failure !== undefined) {
+      thrown.push(`${set}/${name}: ${failure}`);
+    }
     return next(index + 1);
   };
   return next(0);

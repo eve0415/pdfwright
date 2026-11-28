@@ -21,9 +21,13 @@ const variantGlyph = (cmap: EmbeddedCmap, base: number, selector: number): numbe
 export const cmapEvidence = (cmap: EmbeddedCmap, drawn: number, text: string): CmapEvidence => {
   const codePoints = Array.from(text, character => character.codePointAt(0) ?? 0);
   const [base, selector, ...rest] = codePoints;
-  if (base === undefined || rest.length > 0 || (selector !== undefined && !isSelector(selector))) return { kind: 'silent' };
+  if (base === undefined || rest.length > 0 || (selector !== undefined && !isSelector(selector))) {
+    return { kind: 'silent' };
+  }
   const expected = selector === undefined ? cmap.glyph(base) : variantGlyph(cmap, base, selector);
-  if (expected === undefined) return { kind: 'silent' };
+  if (expected === undefined) {
+    return { kind: 'silent' };
+  }
   return expected === drawn ? { kind: 'confirmed' } : { kind: 'disagrees', expected };
 };
 

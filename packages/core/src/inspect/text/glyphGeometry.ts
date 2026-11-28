@@ -125,9 +125,15 @@ const textBoxOf = (font: FontModel, [left, bottom, right, top]: Rectangle): Text
  * Undefined for a glyph that paints nothing, a d0 glyph, a font without such a program, and a program or entry that cannot be read.
  */
 const inkOf = (font: FontModel, glyph: FontGlyph | undefined): TextRectangle | undefined => {
-  if (glyph === undefined || glyph.empty) return undefined;
-  if (font.type3 !== undefined) return glyph.type3Box !== undefined && hasArea(glyph.type3Box) ? textBoxOf(font, glyph.type3Box) : undefined;
-  if (glyph.gid === undefined) return undefined;
+  if (glyph === undefined || glyph.empty) {
+    return undefined;
+  }
+  if (font.type3 !== undefined) {
+    return glyph.type3Box !== undefined && hasArea(glyph.type3Box) ? textBoxOf(font, glyph.type3Box) : undefined;
+  }
+  if (glyph.gid === undefined) {
+    return undefined;
+  }
   const reading = font.embeddedGlyphBounds();
   const bounds = reading?.kind === 'bounds' ? reading.bounds.bounds(glyph.gid) : undefined;
   return bounds === undefined || bounds === 'empty' ? undefined : bounds;

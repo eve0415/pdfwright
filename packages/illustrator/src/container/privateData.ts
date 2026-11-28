@@ -31,8 +31,12 @@ export interface PrivateDataLayout {
 const ZSTANDARD_WRAPPER = new TextEncoder().encode('%AI24_ZStandard_Data');
 const CHUNK_SIZE = 65536;
 const compress = (bytes: Uint8Array, compression: NativeCompression): Uint8Array => {
-  if (compression === 'zstandard') return encodeZstandardFrame(bytes);
-  if (compression === 'zstandard-raw-blocks') return encodeRawFrame(bytes);
+  if (compression === 'zstandard') {
+    return encodeZstandardFrame(bytes);
+  }
+  if (compression === 'zstandard-raw-blocks') {
+    return encodeRawFrame(bytes);
+  }
   return normalizeZstandardFrame(compression.zstandard(bytes));
 };
 
@@ -59,7 +63,9 @@ export const attachPrivateData = (document: PdfDocument, page: PdfPage, input: P
   }
   entries.set(pdfName('ContainerVersion').bytes, pdfInteger(9));
   entries.set(pdfName('CreatorVersion').bytes, pdfInteger(30));
-  if (blockLengths.length > 1) entries.set(pdfName('NumBlock').bytes, pdfInteger(blockLengths.length));
+  if (blockLengths.length > 1) {
+    entries.set(pdfName('NumBlock').bytes, pdfInteger(blockLengths.length));
+  }
   entries.set(pdfName('RoundtripStreamType').bytes, pdfInteger(2));
   entries.set(pdfName('RoundtripVersion').bytes, pdfInteger(30));
 

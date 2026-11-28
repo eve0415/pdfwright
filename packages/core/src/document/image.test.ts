@@ -43,7 +43,9 @@ describe('image XObjects', () => {
     });
     const bytes = document.save().toBytes();
     const pdf = ascii(bytes);
-    for (const fragment of ['/XObject<</Im1', '/Subtype/Image', '/ColorSpace/DeviceGray', '/ColorSpace/DeviceRGB', '/SMask']) expect(pdf).toContain(fragment);
+    for (const fragment of ['/XObject<</Im1', '/Subtype/Image', '/ColorSpace/DeviceGray', '/ColorSpace/DeviceRGB', '/SMask']) {
+      expect(pdf).toContain(fragment);
+    }
     const streams = [...pdf.matchAll(/\nstream\n/gu)].map(match => match.index + 8);
     const decoded = streams.map(start => {
       const compressed = bytes.subarray(start, pdf.indexOf('\nendstream', start));

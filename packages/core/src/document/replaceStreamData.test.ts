@@ -23,7 +23,9 @@ const source = buildPdf([
 ]);
 
 const streamValue = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
-  if (value.kind !== 'stream') throw new Error('expected a stream object');
+  if (value.kind !== 'stream') {
+    throw new Error('expected a stream object');
+  }
   return value;
 };
 

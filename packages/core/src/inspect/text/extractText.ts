@@ -169,10 +169,18 @@ const MAX_GLYPHS = 1_000_000;
 // The innermost content stream other than the page's own.
 const sourceOf = (sources: readonly ContentSource[]): GlyphSource => {
   for (const source of sources.toReversed()) {
-    if (source.kind === 'form') return { kind: 'form', reference: source.reference };
-    if (source.kind === 'tiling-pattern') return { kind: 'pattern', reference: source.reference };
-    if (source.kind === 'annotation') return { kind: 'annotation', index: source.index };
-    if (source.kind === 'soft-mask') return { kind: 'soft-mask', group: source.group };
+    if (source.kind === 'form') {
+      return { kind: 'form', reference: source.reference };
+    }
+    if (source.kind === 'tiling-pattern') {
+      return { kind: 'pattern', reference: source.reference };
+    }
+    if (source.kind === 'annotation') {
+      return { kind: 'annotation', index: source.index };
+    }
+    if (source.kind === 'soft-mask') {
+      return { kind: 'soft-mask', group: source.group };
+    }
   }
   return { kind: 'page' };
 };
@@ -183,7 +191,9 @@ const mcidOf = (document: DocumentInternals, properties: MarkedContent['properti
     const mcid = numberOf(document.objects.deref(properties?.get(MCID)));
     return mcid !== undefined && Number.isInteger(mcid) ? mcid : undefined;
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     return undefined;
   }
 };
@@ -197,10 +207,16 @@ const markedContentOf = (document: DocumentInternals, sequences: readonly Marked
  */
 const glyphText = (font: FontModel, glyph: FontGlyph): Pick<PageGlyph, 'text' | 'reason'> => {
   // ISO 32000-1:2008, 9.7.6.2 and Table 120, UseCMap: a code the Encoding CMap leaves to a CMap no provider supplied selects a glyph that is not known, whatever its ToUnicode text.
-  if (glyph.cmapUnavailable !== undefined) return { text: null, reason: 'predefined-cmap-unavailable' };
+  if (glyph.cmapUnavailable !== undefined) {
+    return { text: null, reason: 'predefined-cmap-unavailable' };
+  }
   const text = glyph.toUnicode ?? glyph.encodingText ?? null;
-  if (glyph.notdef) return { text, reason: 'notdef' };
-  if (text !== null) return { text, reason: undefined };
+  if (glyph.notdef) {
+    return { text, reason: 'notdef' };
+  }
+  if (text !== null) {
+    return { text, reason: undefined };
+  }
   return { text, reason: font.collectionMap?.available === false ? 'predefined-cmap-unavailable' : 'no-mapping' };
 };
 
@@ -218,11 +234,19 @@ const invisibility = (
   const { renderMode } = state;
   const fills = FILLING_MODES.has(renderMode);
   const strokes = STROKING_MODES.has(renderMode);
-  if (!fills && !strokes) return 'render-mode';
+  if (!fills && !strokes) {
+    return 'render-mode';
+  }
   const seen = (fills && state.fillAlpha * state.group.alpha > 0) || (strokes && state.strokeAlpha * state.group.alpha > 0);
-  if (!seen) return 'alpha';
-  if (sources.some(source => source.kind === 'soft-mask')) return 'soft-mask-group';
-  if (degenerate) return 'degenerate';
+  if (!seen) {
+    return 'alpha';
+  }
+  if (sources.some(source => source.kind === 'soft-mask')) {
+    return 'soft-mask-group';
+  }
+  if (degenerate) {
+    return 'degenerate';
+  }
   return empty ? 'empty-glyph' : undefined;
 };
 
@@ -257,19 +281,27 @@ const coveredBy = (covers: CoverIndex, { quad, clip }: { quad: Quad; clip: Clip 
 // The core box is entirely hidden when every point is; partly when a point of the box inset by CORE_BOX_TOLERANCE is, so that a cut must reach that deep from some side.
 const hiddenPart = (covers: CoverIndex, { core, inner, clip }: { core: Quad; inner: Quad; clip: Clip }): PageGlyph['coreHidden'] => {
   const hidden = ([x, y]: readonly [number, number]): boolean => clip.classifyPoint(x, y) === 'outside' || covers.hides(x, y);
-  if (samples(core).every(point => hidden(point))) return 'entirely';
+  if (samples(core).every(point => hidden(point))) {
+    return 'entirely';
+  }
   return samples(inner).some(point => hidden(point)) ? 'partly' : 'none';
 };
 
 // The embedded cmap of a CIDFontType2 font, and whether it embeds a TrueType program without a usable one; a program that cannot be read has none.
 const embeddedCmapOf = (font: FontModel): Pick<TextFont, 'cmap' | 'cmapMissing'> => {
-  if (font.descendant?.subtype !== 'CIDFontType2') return { cmap: undefined, cmapMissing: false };
+  if (font.descendant?.subtype !== 'CIDFontType2') {
+    return { cmap: undefined, cmapMissing: false };
+  }
   try {
     const reading = font.embeddedCmap();
-    if (reading === undefined) return { cmap: undefined, cmapMissing: false };
+    if (reading === undefined) {
+      return { cmap: undefined, cmapMissing: false };
+    }
     return reading.kind === 'cmap' ? { cmap: reading.cmap, cmapMissing: false } : { cmap: undefined, cmapMissing: true };
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     return { cmap: undefined, cmapMissing: true };
   }
 };
@@ -299,7 +331,9 @@ class TextCollector {
     if (this.glyphs.length + event.glyphs.length + (event.unsplit === undefined ? 0 : 1) > this.maxGlyphs) {
       throw new ResourceLimitError(`the page shows more than maxGlyphs (${String(this.maxGlyphs)}) glyphs`);
     }
-    if (!this.fontModels.has(font.key)) this.fontModels.set(font.key, font);
+    if (!this.fontModels.has(font.key)) {
+      this.fontModels.set(font.key, font);
+    }
     const source = sourceOf(event.context.sources);
     const markedContent = markedContentOf(this.document, event.markedContent);
     const { unsplit } = event;
@@ -350,8 +384,12 @@ class TextCollector {
         markedContent,
       });
     };
-    if (unsplit !== undefined) push(undefined, event, unsplitText(unsplit));
-    for (const shown of event.glyphs) push(shown.glyph, shown, glyphText(font, shown.glyph));
+    if (unsplit !== undefined) {
+      push(undefined, event, unsplitText(unsplit));
+    }
+    for (const shown of event.glyphs) {
+      push(shown.glyph, shown, glyphText(font, shown.glyph));
+    }
   }
 
   fonts(): TextFont[] {
@@ -364,7 +402,9 @@ class TextCollector {
   /** The glyphs, each marked covered when opaque rectangle fills after it cover its box, and with how much of its core box the clip and those fills hide; covers come in content order. */
   hidden(covers: readonly CoverEvent[]): PageGlyph[] {
     const bounds = quadBounds(this.glyphs.map(glyph => glyph.quad));
-    if (bounds === undefined) return this.glyphs;
+    if (bounds === undefined) {
+      return this.glyphs;
+    }
     const index = new CoverIndex(bounds, this.glyphs.length);
     const result = [...this.glyphs];
     let next = covers.length - 1;
@@ -372,13 +412,19 @@ class TextCollector {
     for (let at = result.length - 1; at >= 0; at--) {
       const glyph = result[at];
       const sequence = this.sequences[at] ?? Infinity;
-      for (let cover = covers[next]; cover !== undefined && cover.sequence > sequence; cover = covers[--next]) index.add(cover);
+      for (let cover = covers[next]; cover !== undefined && cover.sequence > sequence; cover = covers[--next]) {
+        index.add(cover);
+      }
       const clip = this.clips[at] ?? Clip.NONE;
       const [core, inner] = this.cores[at] ?? [];
-      if (glyph === undefined || core === undefined || inner === undefined) continue;
+      if (glyph === undefined || core === undefined || inner === undefined) {
+        continue;
+      }
       const covered = coveredBy(index, { quad: glyph.quad, clip });
       const coreHidden = hiddenPart(index, { core, inner, clip });
-      if (covered || coreHidden !== 'none') result[at] = { ...glyph, covered, coreHidden };
+      if (covered || coreHidden !== 'none') {
+        result[at] = { ...glyph, covered, coreHidden };
+      }
     }
     return result;
   }
@@ -387,12 +433,16 @@ class TextCollector {
 // ISO 32000-1:2008, 14.11.2.1: "The crop box defines the region to which the contents of the page shall be clipped (cropped) when displayed or printed".
 const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: InspectWarning[]): Pick<PageText, 'cropBox' | 'mediaBox'> => {
   const page = document.pages[pageIndex];
-  if (page === undefined) return { cropBox: undefined, mediaBox: undefined };
+  if (page === undefined) {
+    return { cropBox: undefined, mediaBox: undefined };
+  }
   try {
     const boxes = effectiveBoxes(document.objects, page, createInheritedCache());
     return { cropBox: boxes.CropBox.rect, mediaBox: boxes.MediaBox.rect };
   } catch (error: unknown) {
-    if (!unreadable(error)) throw error;
+    if (!unreadable(error)) {
+      throw error;
+    }
     warnings.push({ code: 'content-unreadable', detail: `the page boxes cannot be read: ${error.message}` });
     return { cropBox: undefined, mediaBox: undefined };
   }
@@ -404,7 +454,9 @@ const boxesOf = (document: DocumentInternals, pageIndex: number, warnings: Inspe
  */
 export const extractText = (document: LoadedDocument, pageIndex: number, options: ExtractTextOptions = {}): PageText => {
   const parts = internalsOf(document);
-  if (parts === undefined) throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  if (parts === undefined) {
+    throw new InvalidArgumentError('the document was not loaded by loadDocument');
+  }
   const maxGlyphs = options.maxGlyphs ?? MAX_GLYPHS;
   // A limit that is not a count is refused rather than compared: no glyph count is ever past NaN.
   if (!Number.isSafeInteger(maxGlyphs) || maxGlyphs < 0) {

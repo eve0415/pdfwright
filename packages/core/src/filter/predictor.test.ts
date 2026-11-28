@@ -9,15 +9,25 @@ const paeth = (left: number, above: number, upperLeft: number): number => {
   const estimate = left + above - upperLeft;
   const distances = [Math.abs(estimate - left), Math.abs(estimate - above), Math.abs(estimate - upperLeft)];
   const smallest = Math.min(...distances);
-  if (distances[0] === smallest) return left;
+  if (distances[0] === smallest) {
+    return left;
+  }
   return distances[1] === smallest ? above : upperLeft;
 };
 
 const predict = (tag: number, [left, above, upperLeft]: readonly [number, number, number]): number => {
-  if (tag === 1) return left;
-  if (tag === 2) return above;
-  if (tag === 3) return Math.floor((left + above) / 2);
-  if (tag === 4) return paeth(left, above, upperLeft);
+  if (tag === 1) {
+    return left;
+  }
+  if (tag === 2) {
+    return above;
+  }
+  if (tag === 3) {
+    return Math.floor((left + above) / 2);
+  }
+  if (tag === 4) {
+    return paeth(left, above, upperLeft);
+  }
   return 0;
 };
 

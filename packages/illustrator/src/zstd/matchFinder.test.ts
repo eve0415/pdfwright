@@ -9,10 +9,16 @@ const reconstruct = (parse: MatchParse, history: Uint8Array = new Uint8Array()):
   const output: number[] = [...history];
   let literalPosition = 0;
   for (const sequence of sequences) {
-    for (let index = 0; index < sequence.literalLength; index++) output.push(literals[literalPosition++] ?? 0);
-    for (let index = 0; index < sequence.matchLength; index++) output.push(output[output.length - sequence.offset] ?? 0);
+    for (let index = 0; index < sequence.literalLength; index++) {
+      output.push(literals[literalPosition++] ?? 0);
+    }
+    for (let index = 0; index < sequence.matchLength; index++) {
+      output.push(output[output.length - sequence.offset] ?? 0);
+    }
   }
-  for (let index = 0; index < trailingLiterals; index++) output.push(literals[literalPosition++] ?? 0);
+  for (let index = 0; index < trailingLiterals; index++) {
+    output.push(literals[literalPosition++] ?? 0);
+  }
   return new Uint8Array(output.slice(history.length));
 };
 

@@ -60,7 +60,9 @@ const cursorFrom = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
   const takeRecord = (): LineRecord => {
     const offset = at();
     const record = records[index++];
-    if (record?.kind !== 'line') throw unsupported('expected a native text line', offset);
+    if (record?.kind !== 'line') {
+      throw unsupported('expected a native text line', offset);
+    }
     return record;
   };
   return {
@@ -71,7 +73,9 @@ const cursorFrom = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
     takeData: () => {
       const offset = at();
       const record = records[index++];
-      if (record?.kind !== 'rasterData') throw unsupported('expected a raster payload', offset);
+      if (record?.kind !== 'rasterData') {
+        throw unsupported('expected a raster payload', offset);
+      }
       return record;
     },
     done: () => index >= records.length,
@@ -87,12 +91,16 @@ const peekLine = (cursor: Cursor): string | undefined => {
 
 const expectLine = (cursor: Cursor, expected: string): void => {
   const { text, offset } = cursor.takeRecord();
-  if (text !== expected) throw unsupported(`expected native line ${expected}, got ${text}`, offset);
+  if (text !== expected) {
+    throw unsupported(`expected native line ${expected}, got ${text}`, offset);
+  }
 };
 
 const real = (token: string | undefined, offset: number): number => {
   const value = Number(token);
-  if (token === undefined || token === '' || !Number.isFinite(value)) throw new ParseError(`expected a native number, got ${token ?? 'nothing'}`, offset);
+  if (token === undefined || token === '' || !Number.isFinite(value)) {
+    throw new ParseError(`expected a native number, got ${token ?? 'nothing'}`, offset);
+  }
   return value;
 };
 
@@ -100,19 +108,25 @@ const numbers = (tokens: readonly string[], offset: number): number[] => tokens.
 
 const modelPoint = (cursor: Cursor, values: readonly number[], offset: number): Point => {
   const [x, y] = values;
-  if (x === undefined || y === undefined) throw new ParseError('native point is missing coordinates', offset);
+  if (x === undefined || y === undefined) {
+    throw new ParseError('native point is missing coordinates', offset);
+  }
   return [x, cursor.modelY(y, offset)];
 };
 
 const parseSubpath = (cursor: Cursor): Subpath => {
   const first = cursor.takeRecord();
   const firstTokens = first.text.split(' ');
-  if (firstTokens.at(-1) !== 'm') throw unsupported(`native path must start with m, got ${first.text}`, first.offset);
+  if (firstTokens.at(-1) !== 'm') {
+    throw unsupported(`native path must start with m, got ${first.text}`, first.offset);
+  }
   const start = modelPoint(cursor, numbers(firstTokens.slice(0, 2), first.offset), first.offset);
   const segments: Segment[] = [];
   while (!cursor.done()) {
     const line = peekLine(cursor);
-    if (line === undefined) break;
+    if (line === undefined) {
+      break;
+    }
     const offset = cursor.at();
     const tokens = line.split(' ');
     const operator = tokens.at(-1);
@@ -130,7 +144,9 @@ const parseSubpath = (cursor: Cursor): Subpath => {
         to: modelPoint(cursor, coordinates.slice(4, 6), offset),
         anchor: operator === 'c' ? 'smooth' : 'corner',
       });
-    } else break;
+    } else {
+      break;
+    }
   }
   return { start, segments };
 };
@@ -141,7 +157,9 @@ const parsePaint = ({ text, offset }: LineRecord): Paint => {
     return { kind: 'process', cmyk: [real(process[1], offset), real(process[2], offset), real(process[3], offset), real(process[4], offset)] };
   }
   const spot = /^(\S+) (\S+) (\S+) (\S+) (\(.*\)) (\S+) [xX]$/u.exec(text);
-  if (spot === null) throw unsupported(`unsupported native paint ${text}`, offset);
+  if (spot === null) {
+    throw unsupported(`unsupported native paint ${text}`, offset);
+  }
   const color: SpotColor = {
     name: parseNativeLiteral(spot[5] ?? '', offset),
     alternate: [real(spot[1], offset), real(spot[2], offset), real(spot[3], offset), real(spot[4], offset)],
@@ -165,29 +183,42 @@ const isStrokePaint = (line: string): boolean => line.endsWith(' K') || line.end
 
 // A line that selects the fill rule reports it; any other line reports undefined.
 const fillRuleOf = (line: string): FillRule | undefined => {
-  if (line === '0 XR') return 'nonzero';
-  if (line === '1 XR') return 'evenodd';
+  if (line === '0 XR') {
+    return 'nonzero';
+  }
+  if (line === '1 XR') {
+    return 'evenodd';
+  }
   return undefined;
 };
 
 const readPathState = (cursor: Cursor, state: PaintState): void => {
   while (!cursor.done()) {
     const line = peekLine(cursor);
-    if (line === undefined) break;
+    if (line === undefined) {
+      break;
+    }
     const offset = cursor.at();
     const width = /^0 J 0 j (\S+) w 10 M \[\]0 d$/u.exec(line);
     const shortWidth = /^(\S+) w$/u.exec(line);
     const rule = fillRuleOf(line);
-    if (/^[01] O$/u.test(line)) state.overprintFill = cursor.takeLine() === '1 O';
-    else if (/^[01] R$/u.test(line)) state.overprintStroke = cursor.takeLine() === '1 R';
-    else if (isFillPaint(line)) state.fillPaint = parsePaint(cursor.takeRecord());
-    else if (isStrokePaint(line)) state.strokePaint = parsePaint(cursor.takeRecord());
-    else if (rule !== undefined) {
+    if (/^[01] O$/u.test(line)) {
+      state.overprintFill = cursor.takeLine() === '1 O';
+    } else if (/^[01] R$/u.test(line)) {
+      state.overprintStroke = cursor.takeLine() === '1 R';
+    } else if (isFillPaint(line)) {
+      state.fillPaint = parsePaint(cursor.takeRecord());
+    } else if (isStrokePaint(line)) {
+      state.strokePaint = parsePaint(cursor.takeRecord());
+    } else if (rule !== undefined) {
       state.fillRuleState.value = rule;
       cursor.takeLine();
-    } else if (/^0 \S+ [01] \S+ 0 Xy$/u.test(line) || /^[01] D$/u.test(line)) cursor.takeLine();
-    else if (width === null) {
-      if (shortWidth === null) break;
+    } else if (/^0 \S+ [01] \S+ 0 Xy$/u.test(line) || /^[01] D$/u.test(line)) {
+      cursor.takeLine();
+    } else if (width === null) {
+      if (shortWidth === null) {
+        break;
+      }
       state.strokeWidth = real(shortWidth[1], offset);
       cursor.takeLine();
     } else {
@@ -204,14 +235,18 @@ interface PathObject {
 
 const parsePathObject = (cursor: Cursor, state: PaintState): PathObject => {
   const count = cursor.takeRecord();
-  if (!/^\d+ As$/u.test(count.text)) throw unsupported('path anchor count is missing', count.offset);
+  if (!/^\d+ As$/u.test(count.text)) {
+    throw unsupported('path anchor count is missing', count.offset);
+  }
   readPathState(cursor, state);
   const subpath = parseSubpath(cursor);
   return { subpath, operator: cursor.takeRecord() };
 };
 
 const paintedPath = (geometry: PathGeometry, { text: operator, offset }: LineRecord, state: PaintState): PathItem => {
-  if (operator !== 'f' && operator !== 's' && operator !== 'b') throw unsupported(`unsupported native path operator ${operator}`, offset);
+  if (operator !== 'f' && operator !== 's' && operator !== 'b') {
+    throw unsupported(`unsupported native path operator ${operator}`, offset);
+  }
   const fill: Fill | undefined =
     (operator === 'f' || operator === 'b') && state.fillPaint !== undefined ? { paint: state.fillPaint, overprint: state.overprintFill } : undefined;
   const stroke: Stroke | undefined =
@@ -219,9 +254,15 @@ const paintedPath = (geometry: PathGeometry, { text: operator, offset }: LineRec
       ? { paint: state.strokePaint, width: state.strokeWidth, overprint: state.overprintStroke }
       : undefined;
   const locked = state.lockState.value;
-  if (fill !== undefined && stroke !== undefined) return { kind: 'path', locked, geometry, fill, stroke };
-  if (fill !== undefined) return { kind: 'path', locked, geometry, fill };
-  if (stroke !== undefined) return { kind: 'path', locked, geometry, stroke };
+  if (fill !== undefined && stroke !== undefined) {
+    return { kind: 'path', locked, geometry, fill, stroke };
+  }
+  if (fill !== undefined) {
+    return { kind: 'path', locked, geometry, fill };
+  }
+  if (stroke !== undefined) {
+    return { kind: 'path', locked, geometry, stroke };
+  }
   throw unsupported('native path has no paint', offset);
 };
 
@@ -233,19 +274,27 @@ const parsePath = (cursor: Cursor, state: PaintState): PathItem => {
 // Follows 0 Ae and *u; every member of the compound path ends with the same paint operator.
 const parseCompoundPath = (cursor: Cursor, state: PaintState): PathItem => {
   const objects: PathObject[] = [];
-  while (peekLine(cursor) !== '*U') objects.push(parsePathObject(cursor, state));
+  while (peekLine(cursor) !== '*U') {
+    objects.push(parsePathObject(cursor, state));
+  }
   const closing = cursor.at();
   expectLine(cursor, '*U');
   const [first] = objects;
-  if (first === undefined) throw unsupported('compound path has no members', closing);
+  if (first === undefined) {
+    throw unsupported('compound path has no members', closing);
+  }
   const mismatch = objects.find(object => object.operator.text !== first.operator.text);
-  if (mismatch !== undefined) throw unsupported('compound path members end with different operators', mismatch.operator.offset);
+  if (mismatch !== undefined) {
+    throw unsupported('compound path members end with different operators', mismatch.operator.offset);
+  }
   return paintedPath({ subpaths: objects.map(object => object.subpath), fillRule: state.fillRuleState.value }, first.operator, state);
 };
 
 const skipArtDictionary = (cursor: Cursor): void => {
   expectLine(cursor, '%_/ArtDictionary :');
-  while (!cursor.done() && peekLine(cursor) !== '%_;') cursor.takeLine();
+  while (!cursor.done() && peekLine(cursor) !== '%_;') {
+    cursor.takeLine();
+  }
   expectLine(cursor, '%_;');
   expectLine(cursor, '%_');
 };
@@ -257,8 +306,12 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
     spotPaint = parsePaint(cursor.takeRecord());
     state.fillPaint = spotPaint;
   }
-  if (peekLine(cursor) === '0 1 0 0 0 Xy') cursor.takeLine();
-  if (peekLine(cursor) === '0 J 0 j 1 w 10 M []0 d') cursor.takeLine();
+  if (peekLine(cursor) === '0 1 0 0 0 Xy') {
+    cursor.takeLine();
+  }
+  if (peekLine(cursor) === '0 J 0 j 1 w 10 M []0 d') {
+    cursor.takeLine();
+  }
   if (peekLine(cursor) === '0 XR') {
     cursor.takeLine();
     state.fillRuleState.value = 'nonzero';
@@ -266,11 +319,15 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
   expectLine(cursor, '%AI5_File:');
   expectLine(cursor, '%AI5_BeginRaster');
   const source = cursor.takeRecord();
-  if (!/^\(.*\) [01] XG$/u.test(source.text)) throw unsupported('unsupported raster source', source.offset);
+  if (!/^\(.*\) [01] XG$/u.test(source.text)) {
+    throw unsupported('unsupported raster source', source.offset);
+  }
   const colorDeclaration = cursor.takeLine();
   const matrixLine = cursor.takeRecord();
   const matrix = /^\[ (\S+) 0 0 (\S+) (\S+) (\S+) \] (\d+) (\d+) [03] Xh$/u.exec(matrixLine.text);
-  if (matrix === null) throw unsupported('unsupported native raster matrix', matrixLine.offset);
+  if (matrix === null) {
+    throw unsupported('unsupported native raster matrix', matrixLine.offset);
+  }
   const at = matrixLine.offset;
   const width = real(matrix[5], at);
   const height = real(matrix[6], at);
@@ -281,7 +338,9 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
   const y = cursor.modelY(real(matrix[4], at), at) - scaleY * height;
   cursor.takeLine();
   const count = cursor.takeRecord();
-  if (!/^%%BeginData: \d+$/u.test(count.text)) throw unsupported('raster data count is missing', count.offset);
+  if (!/^%%BeginData: \d+$/u.test(count.text)) {
+    throw unsupported('raster data count is missing', count.offset);
+  }
   const data = cursor.takeData();
   expectLine(cursor, '%%EndData');
   expectLine(cursor, 'XH');
@@ -295,7 +354,9 @@ const parseRaster = (cursor: Cursor, state: PaintState): RasterItem => {
   if (colorDeclaration === '/DeviceCMYK XN' && ending.text === 'N') {
     return { kind: 'raster', locked: state.lockState.value, width, height, bounds, color: { space: 'cmyk', samples: data.color }, alpha: data.alpha };
   }
-  if (spotPaint?.kind !== 'spot' || ending.text !== 'F') throw unsupported('unsupported native spot raster', ending.offset);
+  if (spotPaint?.kind !== 'spot' || ending.text !== 'F') {
+    throw unsupported('unsupported native spot raster', ending.offset);
+  }
   return {
     kind: 'raster',
     locked: state.lockState.value,
@@ -313,11 +374,17 @@ const isClipPath = (cursor: Cursor): boolean => {
   const line = peekLine(cursor);
   const opener = cursor.peekOffset(1);
   const compound = line === '0 Ae' && opener?.kind === 'line' && opener.text === '*u';
-  if (!compound && (line === undefined || !/^\d+ As$/u.test(line))) return false;
+  if (!compound && (line === undefined || !/^\d+ As$/u.test(line))) {
+    return false;
+  }
   for (let offset = compound ? 2 : 1; ; offset++) {
     const record = cursor.peekOffset(offset);
-    if (record?.kind !== 'line') return false;
-    if (record.text === 'f' || record.text === 's' || record.text === 'b') return false;
+    if (record?.kind !== 'line') {
+      return false;
+    }
+    if (record.text === 'f' || record.text === 's' || record.text === 'b') {
+      return false;
+    }
     if (record.text === 'h') {
       const next = cursor.peekOffset(offset + 1);
       return next?.kind === 'line' && next.text === 'W';
@@ -329,7 +396,9 @@ const isLayerTrailer = (line: string | undefined): boolean => /^0 \S+ 0 2 0 Xy$/
 
 const parseClipObject = (cursor: Cursor, state: PaintState): Subpath => {
   const count = cursor.takeRecord();
-  if (!/^\d+ As$/u.test(count.text)) throw unsupported('clipping path anchor count is missing', count.offset);
+  if (!/^\d+ As$/u.test(count.text)) {
+    throw unsupported('clipping path anchor count is missing', count.offset);
+  }
   for (let line = peekLine(cursor) ?? ''; /^\S+ w$/u.test(line) || fillRuleOf(line) !== undefined; line = peekLine(cursor) ?? '') {
     state.fillRuleState.value = fillRuleOf(cursor.takeLine()) ?? state.fillRuleState.value;
   }
@@ -346,9 +415,13 @@ const finishClip = (cursor: Cursor, state: PaintState): PathGeometry => {
   if (peekLine(cursor) === '0 Ae') {
     expectLine(cursor, '0 Ae');
     expectLine(cursor, '*u');
-    while (peekLine(cursor) !== '*U') subpaths.push(parseClipObject(cursor, state));
+    while (peekLine(cursor) !== '*U') {
+      subpaths.push(parseClipObject(cursor, state));
+    }
     expectLine(cursor, '*U');
-  } else subpaths.push(parseClipObject(cursor, state));
+  } else {
+    subpaths.push(parseClipObject(cursor, state));
+  }
   expectLine(cursor, 'Q');
   expectLine(cursor, '9 () XW');
   return { subpaths, fillRule: state.fillRuleState.value };
@@ -393,8 +466,12 @@ interface ItemScope {
 }
 
 const endsScope = (cursor: Cursor, ending: ItemScope['ending'], line: string): boolean => {
-  if (ending === 'layer') return line === 'LB' || isLayerTrailer(line);
-  if (ending === 'group') return line === 'U';
+  if (ending === 'layer') {
+    return line === 'LB' || isLayerTrailer(line);
+  }
+  if (ending === 'group') {
+    return line === 'U';
+  }
   return isClipPath(cursor);
 };
 
@@ -406,10 +483,18 @@ const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintSt
   while (!cursor.done()) {
     const line = peekLine(cursor);
     const offset = cursor.at();
-    if (line === undefined) throw unsupported('unexpected raster bytes in layer', offset);
-    if (endsScope(cursor, ending, line)) break;
-    if (consumeItemState(cursor, state, line)) continue;
-    if (line === '%AI5_BeginLayer') throw unsupported('sublayers are unsupported', offset);
+    if (line === undefined) {
+      throw unsupported('unexpected raster bytes in layer', offset);
+    }
+    if (endsScope(cursor, ending, line)) {
+      break;
+    }
+    if (consumeItemState(cursor, state, line)) {
+      continue;
+    }
+    if (line === '%AI5_BeginLayer') {
+      throw unsupported('sublayers are unsupported', offset);
+    }
     if (line === '0 Ae') {
       cursor.takeLine();
       const opening = cursor.takeRecord();
@@ -418,9 +503,13 @@ const parseItems = (cursor: Cursor, { ending, depth }: ItemScope, state: PaintSt
       if (opening.text === 'q') {
         const clipped = parseItems(cursor, { ending: 'clip', depth: inner }, { ...state });
         items.push({ kind: 'clipGroup', locked, clip: finishClip(cursor, state), items: clipped });
-      } else if (opening.text === 'u') items.push(finishGroup(cursor, parseItems(cursor, { ending: 'group', depth: inner }, { ...state }), locked));
-      else if (opening.text === '*u') items.push(parseCompoundPath(cursor, state));
-      else throw unsupported(`unknown native group opener ${opening.text}`, opening.offset);
+      } else if (opening.text === 'u') {
+        items.push(finishGroup(cursor, parseItems(cursor, { ending: 'group', depth: inner }, { ...state }), locked));
+      } else if (opening.text === '*u') {
+        items.push(parseCompoundPath(cursor, state));
+      } else {
+        throw unsupported(`unknown native group opener ${opening.text}`, opening.offset);
+      }
     } else if (/^\d+ As$/u.test(line)) {
       items.push(parsePath(cursor, state));
     } else if (line === '0 O' || line === '0 1 0 0 0 Xy' || line === '%AI5_File:') {
@@ -453,13 +542,19 @@ const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
     throw unsupported(`unsupported layer state ${lbLine.text}`, lbLine.offset);
   }
   const nameLine = cursor.takeRecord();
-  if (!nameLine.text.endsWith(' Ln')) throw unsupported('layer name is missing', nameLine.offset);
+  if (!nameLine.text.endsWith(' Ln')) {
+    throw unsupported('layer name is missing', nameLine.offset);
+  }
   const name = parseNativeLiteral(nameLine.text.slice(0, -3), nameLine.offset);
   const activation = cursor.takeRecord();
-  if (activation.text !== '0 AE' && activation.text !== '1 AE') throw unsupported('layer activation is missing', activation.offset);
+  if (activation.text !== '0 AE' && activation.text !== '1 AE') {
+    throw unsupported('layer activation is missing', activation.offset);
+  }
   skipArtDictionary(cursor);
   expectLine(cursor, lb[2] === '0' ? '1 A' : '0 A');
-  if (lb[0] === '0') expectLine(cursor, '1 Xw');
+  if (lb[0] === '0') {
+    expectLine(cursor, '1 Xw');
+  }
   let itemLock = lb[2] === '0';
   if (peekLine(cursor) === '0 A') {
     cursor.takeLine();
@@ -492,11 +587,16 @@ const parseLayer = (records: readonly NativeRecord[], modelY: Cursor['modelY']):
 const parseHeader = (records: readonly NativeRecord[]): Map<string, LineRecord> => {
   const header = new Map<string, LineRecord>();
   for (const record of records) {
-    if (record.kind !== 'line') continue;
-    if (record.text === '%%EndComments') break;
+    if (record.kind !== 'line') {
+      continue;
+    }
+    if (record.text === '%%EndComments') {
+      break;
+    }
     const colon = record.text.indexOf(':');
-    if (colon > 0) header.set(record.text.slice(0, colon), { text: record.text.slice(colon + 1).trimStart(), offset: record.offset });
-    else if (record.text.startsWith('%AI5_FileFormat ')) {
+    if (colon > 0) {
+      header.set(record.text.slice(0, colon), { text: record.text.slice(colon + 1).trimStart(), offset: record.offset });
+    } else if (record.text.startsWith('%AI5_FileFormat ')) {
       header.set('%AI5_FileFormat', { text: record.text.slice('%AI5_FileFormat '.length), offset: record.offset });
     }
   }
@@ -516,18 +616,26 @@ const NATIVE_LIMIT = 1e15;
 // %AI3_Cropmarks gives the artboard as left, bottom, right, top in native coordinates; the writer's two origins put its lower-left or upper-left corner at 0 0.
 const nativeFrame = (header: ReadonlyMap<string, LineRecord>): NativeFrame => {
   const crop = header.get('%AI3_Cropmarks');
-  if (crop === undefined) throw new UnsupportedFeatureError('native header has no %AI3_Cropmarks');
+  if (crop === undefined) {
+    throw new UnsupportedFeatureError('native header has no %AI3_Cropmarks');
+  }
   const [left, bottom, right, top, ...rest] = numbers(crop.text.split(' '), crop.offset);
   if (left !== 0 || bottom === undefined || right === undefined || top === undefined || rest.length > 0 || right <= 0) {
     throw unsupported(`unsupported artboard cropmarks ${crop.text}`, crop.offset);
   }
-  if (bottom === 0 && top > 0) return { width: right, height: top, origin: 'artboard-bottom-left', modelY: y => y };
-  if (top !== 0 || bottom >= 0) throw unsupported(`unsupported artboard cropmarks ${crop.text}`, crop.offset);
+  if (bottom === 0 && top > 0) {
+    return { width: right, height: top, origin: 'artboard-bottom-left', modelY: y => y };
+  }
+  if (top !== 0 || bottom >= 0) {
+    throw unsupported(`unsupported artboard cropmarks ${crop.text}`, crop.offset);
+  }
   const height = -bottom;
   // The writer moves every y down by the artboard height and rounds the result to native precision, so the read rounds the restored value the same way.
   const modelY = (y: number, offset: number): number => {
     const shifted = y + height;
-    if (Math.abs(shifted) >= NATIVE_LIMIT) throw new ParseError('native coordinate is out of range', offset);
+    if (Math.abs(shifted) >= NATIVE_LIMIT) {
+      throw new ParseError('native coordinate is out of range', offset);
+    }
     return Number(formatNativeNumber(shifted));
   };
   return { width: right, height, origin: 'artboard-top-left', modelY };
@@ -552,12 +660,18 @@ const unknownSetupBlocks = (records: readonly NativeRecord[]): string[] => {
   const blocks = new Set<string>();
   let inSetup = false;
   for (const record of records) {
-    if (record.kind !== 'line') continue;
-    if (record.text === '%%BeginSetup') inSetup = true;
-    else if (record.text === '%%EndSetup') inSetup = false;
-    else if (inSetup) {
+    if (record.kind !== 'line') {
+      continue;
+    }
+    if (record.text === '%%BeginSetup') {
+      inSetup = true;
+    } else if (record.text === '%%EndSetup') {
+      inSetup = false;
+    } else if (inSetup) {
       const marker = /^%AI\d+_Begin\S*/u.exec(record.text)?.[0];
-      if (marker !== undefined && marker !== '%AI5_BeginPalette' && marker !== '%AI9_BeginDocumentData') blocks.add(marker);
+      if (marker !== undefined && marker !== '%AI5_BeginPalette' && marker !== '%AI9_BeginDocumentData') {
+        blocks.add(marker);
+      }
     }
   }
   return [...blocks];
@@ -575,9 +689,13 @@ export const readNative = (native: Uint8Array, lastModified: PdfDate): NativeRea
   const layers: Layer[] = [];
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
-    if (record?.kind !== 'line' || record.text !== '%AI5_BeginLayer') continue;
+    if (record?.kind !== 'line' || record.text !== '%AI5_BeginLayer') {
+      continue;
+    }
     const end = records.findIndex((entry, position) => position > index && entry.kind === 'line' && entry.text === '%AI5_EndLayer--');
-    if (end === -1) throw new ParseError('native layer is unterminated', record.offset);
+    if (end === -1) {
+      throw new ParseError('native layer is unterminated', record.offset);
+    }
     layers.push(parseLayer(records.slice(index, end + 1), frame.modelY));
     index = end;
   }

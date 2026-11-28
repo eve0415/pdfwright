@@ -43,12 +43,16 @@ const CATALOG_COMPARED_ELSEWHERE = new Set(['Pages', 'PieceInfo', 'LastModified'
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const dictionaryOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
   return value?.kind === 'stream' ? value.dictionary : undefined;
 };
 
@@ -98,7 +102,9 @@ export const comparePageAttributes = (
 ): void => {
   const left = pageDictionary(sides.a, pages.a);
   const right = pageDictionary(sides.b, pages.b);
-  if (left === undefined || right === undefined) return;
+  if (left === undefined || right === undefined) {
+    return;
+  }
   const push = (path: ValuePath, { a, b }: Summaries): void => {
     differences.push({ kind: 'page-attribute', page: pages.page, path, a, b });
   };
@@ -113,7 +119,9 @@ export const compareDocumentAttributes = (sides: GraphContext, differences: PdfD
   const left = catalogDictionary(sides.a);
   const right = catalogDictionary(sides.b);
   const values = graph(sides, { differences, within: [], push });
-  if (left !== undefined && right !== undefined) values.entries({ left, right, path: ['Root'], skip: CATALOG_COMPARED_ELSEWHERE });
+  if (left !== undefined && right !== undefined) {
+    values.entries({ left, right, path: ['Root'], skip: CATALOG_COMPARED_ELSEWHERE });
+  }
   values.compare(sides.a.structure.trailer.get(INFO), sides.b.structure.trailer.get(INFO), ['Info']);
 };
 
@@ -148,7 +156,9 @@ export const formOwners = (
     try {
       return sides[side].objects.deref(value);
     } catch (error: unknown) {
-      if (!(error instanceof ParseError)) throw error;
+      if (!(error instanceof ParseError)) {
+        throw error;
+      }
       unreadable(['page', start.page, ...where], side, error.message);
       return undefined;
     }
@@ -172,11 +182,15 @@ export const formOwners = (
       const valueB = formsB?.get(key);
       const formPath = [...next.path, 'XObject', latin1(key)];
       const pair = `${JSON.stringify(valueA)}|${JSON.stringify(valueB)}`;
-      if (visited.has(pair)) continue;
+      if (visited.has(pair)) {
+        continue;
+      }
       visited.add(pair);
       const formA = isForm('a', valueA, formPath);
       const formB = isForm('b', valueB, formPath);
-      if (formA === undefined || formB === undefined) continue;
+      if (formA === undefined || formB === undefined) {
+        continue;
+      }
       owners.push({
         owner: { kind: 'form', page: start.page, path: formPath },
         a: formA,

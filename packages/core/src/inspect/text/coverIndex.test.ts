@@ -33,7 +33,9 @@ describe('cover index', () => {
       index.add({ rectangle: [0, 0, 100 + sequence / 1_000_000, 100], clip, sequence, context: { sources: [{ kind: 'page' }], colour: 'used' } });
     }
     expect(() => {
-      for (let query = 0; query < 2001; query++) index.hides(0, 0);
+      for (let query = 0; query < 2001; query++) {
+        index.hides(0, 0);
+      }
     }).toThrow(ResourceLimitError);
   });
 });

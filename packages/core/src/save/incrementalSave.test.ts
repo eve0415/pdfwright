@@ -44,13 +44,17 @@ const editedBytes = (): Uint8Array => {
 const lastTrailer = (bytes: Uint8Array): string => latin1Text(bytes).split('trailer').at(-1) ?? '';
 
 const producedObject = (value: PdfObject): Extract<PdfObject, { kind: 'stream' }> => {
-  if (value.kind !== 'stream') throw new Error('missing produced stream');
+  if (value.kind !== 'stream') {
+    throw new Error('missing produced stream');
+  }
   return value;
 };
 
 const addProduced = (document: LoadedDocument): void => {
   const edited = internalsOf(document)?.objects;
-  if (edited === undefined) throw new Error('missing document internals');
+  if (edited === undefined) {
+    throw new Error('missing document internals');
+  }
   edited.setProduced(pdfReference(5, 0), new PdfDictionaryEntries([[pdfName('Type').bytes, pdfName('Example')]]), function* () {
     yield latin1Bytes('first');
     yield latin1Bytes('second');
@@ -181,7 +185,9 @@ describe('incremental save', () => {
     addProduced(document);
     const saved = document.save({ mode: 'incremental' });
     const parts: Uint8Array[] = [];
-    for await (const part of saved.toStream()) parts.push(part);
+    for await (const part of saved.toStream()) {
+      parts.push(part);
+    }
     const updated = loadDocument(parts);
     const value = producedObject(updated.get(pdfReference(5, 0)));
     expect(latin1Text(value.data)).toBe('firstsecond');

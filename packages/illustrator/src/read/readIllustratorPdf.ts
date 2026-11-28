@@ -45,7 +45,9 @@ const decoder = new TextDecoder();
 
 const pageDate = (bytes: Uint8Array): PdfDate => {
   const parsed = parsePdfDate(decoder.decode(bytes));
-  if (parsed === undefined) throw new ParseError('the page LastModified is not a PDF date', 0);
+  if (parsed === undefined) {
+    throw new ParseError('the page LastModified is not a PDF date', 0);
+  }
   return parsed.date;
 };
 

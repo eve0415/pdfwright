@@ -44,7 +44,9 @@ describe('message digest', () => {
     }
     for (const size of [1, 55, 56, 63, 64, 65, 200, 4096]) {
       const hash = createMd5();
-      for (let offset = 0; offset < bytes.length; offset += size) hash.update(bytes.subarray(offset, offset + size));
+      for (let offset = 0; offset < bytes.length; offset += size) {
+        hash.update(bytes.subarray(offset, offset + size));
+      }
       expect(hex(hash.digest()), `chunk size ${String(size)}`).toBe(hex(md5(bytes)));
     }
     const empty = createMd5().update(new Uint8Array()).digest();

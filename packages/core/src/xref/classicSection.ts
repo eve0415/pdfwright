@@ -18,9 +18,13 @@ export interface ClassicSection extends XrefSection {
 const isKeyword = (token: Token, keyword: string): boolean => token.kind === 'keyword' && token.keyword === keyword;
 
 const entryType = (lexer: Lexer, token: Token): 'free' | 'file' | undefined => {
-  if (token.kind !== 'keyword' || token.keyword !== 'other' || token.end - token.start !== 1) return undefined;
+  if (token.kind !== 'keyword' || token.keyword !== 'other' || token.end - token.start !== 1) {
+    return undefined;
+  }
   const letter = lexer.bytes[token.start];
-  if (letter === 0x6e) return 'file';
+  if (letter === 0x6e) {
+    return 'file';
+  }
   return letter === 0x66 ? 'free' : undefined;
 };
 
@@ -29,7 +33,9 @@ const entryType = (lexer: Lexer, token: Token): 'free' | 'file' | undefined => {
 const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   lexer.skipWhitespace();
   const offset = lexer.base + lexer.position;
-  if (!isKeyword(lexer.next(), 'xref')) throw new ParseError('expected the keyword xref', offset);
+  if (!isKeyword(lexer.next(), 'xref')) {
+    throw new ParseError('expected the keyword xref', offset);
+  }
   const entries: XrefEntry[] = [];
   const lengths = new Set<number>();
   let previousStart: number | undefined;
@@ -38,7 +44,9 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
     if (token.kind !== 'integer' || count.kind !== 'integer' || token.value < 0 || count.value < 0 || token.value + count.value - 1 > MAX_OBJECT_NUMBER) {
       throw new ParseError('malformed cross-reference subsection header', lexer.base + token.start);
     }
-    if (previousStart !== undefined) lengths.add(token.start - previousStart);
+    if (previousStart !== undefined) {
+      lengths.add(token.start - previousStart);
+    }
     previousStart = undefined;
     for (let index = 0; index < count.value; index++) {
       const location = lexer.next();
@@ -54,7 +62,9 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
       ) {
         throw new ParseError('malformed cross-reference entry', lexer.base + location.start);
       }
-      if (previousStart !== undefined) lengths.add(location.start - previousStart);
+      if (previousStart !== undefined) {
+        lengths.add(location.start - previousStart);
+      }
       previousStart = location.start;
       entries.push({ objectNumber: token.value + index, type, location: location.value, generation: generation.value });
     }
@@ -66,7 +76,9 @@ const parseSection = (lexer: Lexer, maxNesting: number): ClassicSection => {
   }
   const trailerToken = lexer.peek();
   const trailer = parseObject(lexer, maxNesting);
-  if (trailer.kind !== 'dictionary') throw new ParseError('the trailer is not a dictionary', lexer.base + trailerToken.start);
+  if (trailer.kind !== 'dictionary') {
+    throw new ParseError('the trailer is not a dictionary', lexer.base + trailerToken.start);
+  }
   return {
     kind: 'classic',
     offset,

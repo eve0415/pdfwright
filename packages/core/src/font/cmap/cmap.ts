@@ -19,7 +19,9 @@ const matchesPrefix = (range: CodespaceRange, bytes: Uint8Array, offset: number)
   let matched = 0;
   while (matched < range.low.length && offset + matched < bytes.length) {
     const byte = bytes[offset + matched] ?? 0;
-    if (byte < (range.low[matched] ?? 0) || byte > (range.high[matched] ?? 0)) break;
+    if (byte < (range.low[matched] ?? 0) || byte > (range.high[matched] ?? 0)) {
+      break;
+    }
     matched++;
   }
   return matched;
@@ -29,15 +31,21 @@ const rangeKey = ({ low, high }: CodespaceRange): string => `${[...low].join(','
 
 const readValue = (bytes: Uint8Array, offset: number, length: number): number => {
   let value = 0;
-  for (let index = offset; index < offset + length; index++) value = value * 256 + (bytes[index] ?? 0);
+  for (let index = offset; index < offset + length; index++) {
+    value = value * 256 + (bytes[index] ?? 0);
+  }
   return value;
 };
 
 const unicodeOf = (mapping: UnicodeMapping, value: number): string | undefined => {
-  if ('strings' in mapping) return mapping.strings[value - mapping.low];
+  if ('strings' in mapping) {
+    return mapping.strings[value - mapping.low];
+  }
   const units = [...mapping.units];
   // ISO 32000-1:2008, 9.10.3: "the last byte of the string shall be incremented for each consecutive code in the source code range"; the last UTF-16 code unit is incremented as an integer, which gives the same result wherever the clause defines one.
-  if (units.length > 0) units[units.length - 1] = (units.at(-1) ?? 0) + (value - mapping.low);
+  if (units.length > 0) {
+    units[units.length - 1] = (units.at(-1) ?? 0) + (value - mapping.low);
+  }
   return utf16Text(units.map(unit => (unit > 0xffff ? 0xfffd : unit))).text;
 };
 
@@ -70,7 +78,9 @@ export class CMap {
     const keys = new Set(parent?.codespaceKeys);
     const local = parsed.codespaces.filter(range => {
       const key = rangeKey(range);
-      if (keys.has(key)) return false;
+      if (keys.has(key)) {
+        return false;
+      }
       keys.add(key);
       return true;
     });
@@ -83,7 +93,9 @@ export class CMap {
       parsed.notdefs.length +
       parsed.unicode.reduce((count, mapping) => count + ('strings' in mapping ? mapping.strings.length : 1), 0) +
       (parent?.entryCount ?? 0);
-    if (this.entryCount > MAX_CMAP_ENTRIES) throw new ResourceLimitError(`a usecmap chain defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    if (this.entryCount > MAX_CMAP_ENTRIES) {
+      throw new ResourceLimitError(`a usecmap chain defines more than ${String(MAX_CMAP_ENTRIES)} entries`);
+    }
     this.unavailableParent = used === undefined || used instanceof CMap ? parent?.unavailableParent : used.unavailable;
     this.parent = parent;
     this.cids = new MappingTable(parsed.cids);
@@ -127,7 +139,9 @@ export class CMap {
       for (const ranges of this.codespaceChain) {
         for (const range of ranges) {
           const valid = range.low.length === length && this.match(range, bytes, offset) === length;
-          if (valid) return { code: { value: readValue(bytes, offset, length), length }, valid };
+          if (valid) {
+            return { code: { value: readValue(bytes, offset, length), length }, valid };
+          }
         }
       }
     }
@@ -138,7 +152,9 @@ export class CMap {
   /** The CID a character mapping gives the code, here or in the CMap usecmap names, or undefined when none does. */
   mapped(code: CMapCode): number | undefined {
     const mapping = this.cids.find(code);
-    if (mapping !== undefined) return mapping.cid + (code.value - mapping.low);
+    if (mapping !== undefined) {
+      return mapping.cid + (code.value - mapping.low);
+    }
     return this.parent?.mapped(code);
   }
 
@@ -148,7 +164,9 @@ export class CMap {
    */
   notdef(code: CMapCode): number | undefined {
     const mapping = this.notdefs.find(code);
-    if (mapping !== undefined) return mapping.cid;
+    if (mapping !== undefined) {
+      return mapping.cid;
+    }
     return this.parent?.notdef(code);
   }
 
@@ -163,7 +181,9 @@ export class CMap {
   /** The text a ToUnicode CMap maps the code to (ISO 32000-1:2008, 9.10.3), or undefined when it has no mapping for it. */
   unicode(code: CMapCode): string | undefined {
     const mapping = this.unicodes.find(code);
-    if (mapping !== undefined) return unicodeOf(mapping, code.value);
+    if (mapping !== undefined) {
+      return unicodeOf(mapping, code.value);
+    }
     return this.parent?.unicode(code);
   }
 }

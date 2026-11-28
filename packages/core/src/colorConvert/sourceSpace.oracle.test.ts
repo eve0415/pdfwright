@@ -20,7 +20,9 @@ const grayProfile = (): Uint8Array => {
   const bytes = new Uint8Array(160);
   const view = new DataView(bytes.buffer);
   const signature = (offset: number, name: string): void => {
-    for (let index = 0; index < name.length; index++) bytes[offset + index] = name.codePointAt(index) ?? 0;
+    for (let index = 0; index < name.length; index++) {
+      bytes[offset + index] = name.codePointAt(index) ?? 0;
+    }
   };
   view.setUint32(0, bytes.length);
   bytes[8] = 4;
@@ -62,12 +64,16 @@ const resolveIn = (test: ReturnType<typeof context>, value: PdfDirectObject, opt
   resolveSourceSpace(test.document, value, { resources: test.resources, sourceRgbProfile: fallback, options });
 
 const rgbSource = (space: SourceSpace): Extract<SourceSpace, { kind: 'rgb' }> => {
-  if (space.kind !== 'rgb') throw new Error('expected RGB');
+  if (space.kind !== 'rgb') {
+    throw new Error('expected RGB');
+  }
   return space;
 };
 
 const specialSpace = (space: SourceSpace): Extract<SourceSpace, { kind: 'separation' | 'deviceN' }> => {
-  if (space.kind !== 'separation' && space.kind !== 'deviceN') throw new Error('expected Separation or DeviceN');
+  if (space.kind !== 'separation' && space.kind !== 'deviceN') {
+    throw new Error('expected Separation or DeviceN');
+  }
   return space;
 };
 

@@ -28,8 +28,12 @@ export interface SeparationRecord {
 }
 
 const copyColor = (color: DeviceColor): DeviceColor => {
-  if (color.kind === 'DeviceCMYK') return cmyk(...color.components);
-  if (color.kind === 'DeviceRGB') return rgb(...color.components);
+  if (color.kind === 'DeviceCMYK') {
+    return cmyk(...color.components);
+  }
+  if (color.kind === 'DeviceRGB') {
+    return rgb(...color.components);
+  }
   return gray(color.components[0]);
 };
 
@@ -47,7 +51,9 @@ export const createSeparationRecord = (options: SeparationOptions, asciiOnly: bo
   if ((text === 'All' || text === 'None') && options.allow !== text) {
     throw new ValidationError(`${text} requires an explicit allow option`, 'reserved-colorant');
   }
-  if (options.allow !== undefined && text !== options.allow) throw new ValidationError('allow must match the special colorant name', 'reserved-colorant');
+  if (options.allow !== undefined && text !== options.allow) {
+    throw new ValidationError('allow must match the special colorant name', 'reserved-colorant');
+  }
   return { name, alternate: copyColor(options.alternate) };
 };
 

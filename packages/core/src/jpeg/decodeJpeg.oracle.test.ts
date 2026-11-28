@@ -16,7 +16,9 @@ const magick = async (args: readonly string[], input: Uint8Array): Promise<Uint8
   const child = spawn('magick', args);
   child.stdin.end(input);
   const [output, errors, closed] = await Promise.all([arrayBuffer(child.stdout), text(child.stderr), once(child, 'close')]);
-  if (closed[0] !== 0) throw new Error(errors);
+  if (closed[0] !== 0) {
+    throw new Error(errors);
+  }
   return new Uint8Array(output);
 };
 
@@ -47,12 +49,18 @@ const decoded = (bytes: Uint8Array): Uint8Array => {
 
 const maximumDifference = (actual: Uint8Array, reference: Uint8Array): number => {
   let maximum = 0;
-  for (let index = 0; index < actual.length; index++) maximum = Math.max(maximum, Math.abs((actual[index] ?? 0) - (reference[index] ?? 0)));
+  for (let index = 0; index < actual.length; index++) {
+    maximum = Math.max(maximum, Math.abs((actual[index] ?? 0) - (reference[index] ?? 0)));
+  }
   return maximum;
 };
 
 const markerOffset = (bytes: Uint8Array, marker: number): number => {
-  for (let index = 0; index < bytes.length - 1; index++) if (bytes[index] === 0xff && bytes[index + 1] === marker) return index;
+  for (let index = 0; index < bytes.length - 1; index++) {
+    if (bytes[index] === 0xff && bytes[index + 1] === marker) {
+      return index;
+    }
+  }
   throw new Error(`marker ${String(marker)} is missing`);
 };
 
@@ -63,7 +71,9 @@ const gray = (): Uint8Array => Uint8Array.from(Array.from({ length: 32 * 32 }, (
 
 const fullyDecode = (jpeg: Uint8Array): void => {
   const rows = decodeJpeg(jpeg).rows();
-  while (rows.next().done !== true);
+  while (rows.next().done !== true) {
+    // Decoding each row is the check: a malformed row throws, and the rows themselves are not kept.
+  }
 };
 
 const rowsWith = (jpeg: Uint8Array, colorTransform: 0 | 1): Uint8Array => {

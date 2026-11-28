@@ -40,8 +40,9 @@ export const writeRaster = (writer: NativeWriter, item: RasterItem, options: Nat
   writer.line('%AI5_File:');
   writer.line('%AI5_BeginRaster');
   writer.line(spot ? '() 1 XG' : '() 0 XG');
-  if (item.color.space === 'cmyk') writer.line('/DeviceCMYK XN');
-  else {
+  if (item.color.space === 'cmyk') {
+    writer.line('/DeviceCMYK XN');
+  } else {
     writer.raw(encoder.encode(`1 [${item.color.spot.alternate.map(component => formatNativeNumber(component)).join(' ')} /DeviceCMYK `));
     writer.raw(escapeNativeString(item.color.spot.name));
     writer.line(' /Separation] XC');

@@ -14,11 +14,15 @@ describe('minimal PDF document', () => {
     const document = createDocument();
     const page = document.addPage({ mediaBox: [pt(0), pt(0), pt(20), pt(20)] });
     page.draw(content => {
-      for (let index = 0; index < 27; index++) content.save();
+      for (let index = 0; index < 27; index++) {
+        content.save();
+      }
       expect(() => {
         content.save();
       }).toThrow(ValidationError);
-      for (let index = 0; index < 27; index++) content.restore();
+      for (let index = 0; index < 27; index++) {
+        content.restore();
+      }
     });
   });
 

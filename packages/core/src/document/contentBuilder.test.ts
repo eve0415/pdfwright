@@ -63,11 +63,15 @@ describe('content builder', () => {
     }).toThrow(ValidationError);
     builder.save();
     expect(() => finish()).toThrow(ValidationError);
-    for (let index = 1; index < 28; index++) builder.save();
+    for (let index = 1; index < 28; index++) {
+      builder.save();
+    }
     expect(() => {
       builder.save();
     }).toThrow(ValidationError);
-    for (let index = 0; index < 28; index++) builder.restore();
+    for (let index = 0; index < 28; index++) {
+      builder.restore();
+    }
     expect(() => finish()).not.toThrow();
   });
 

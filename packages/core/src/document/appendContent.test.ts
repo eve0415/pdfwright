@@ -32,7 +32,9 @@ const object = (document: LoadedDocument, number: number): string => text(docume
 // The content of a stream object, inflated when it is compressed.
 const content = (document: LoadedDocument, number: number): string => {
   const value = document.get(pdfReference(number, 0));
-  if (value.kind !== 'stream') return '';
+  if (value.kind !== 'stream') {
+    return '';
+  }
   return latin1Text(value.dictionary.has(pdfName('Filter').bytes) ? inflateZlib(value.data).data : value.data);
 };
 

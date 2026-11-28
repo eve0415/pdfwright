@@ -43,7 +43,9 @@ export const createMatchFinder = (input: Uint8Array): MatchFinder => {
     return (Math.imul(word, 0x9e3779b1) >>> 16) & 0xffff;
   };
   const insert = (position: number): void => {
-    if (position + MIN_MATCH > input.length) return;
+    if (position + MIN_MATCH > input.length) {
+      return;
+    }
     const hash = hashAt(position);
     previous[position] = head[hash] ?? -1;
     head[hash] = position;
@@ -56,11 +58,15 @@ export const createMatchFinder = (input: Uint8Array): MatchFinder => {
     const limit = Math.min(end - position, MAX_MATCH);
     while (candidate >= 0 && position - candidate <= WINDOW && steps < MAX_CHAIN) {
       let length = 0;
-      while (length < limit && input[candidate + length] === input[position + length]) length++;
+      while (length < limit && input[candidate + length] === input[position + length]) {
+        length++;
+      }
       if (length > bestLength) {
         bestLength = length;
         bestOffset = position - candidate;
-        if (length === limit) break;
+        if (length === limit) {
+          break;
+        }
       }
       candidate = previous[candidate] ?? -1;
       steps++;
@@ -82,13 +88,17 @@ export const createMatchFinder = (input: Uint8Array): MatchFinder => {
           parts.push(input.subarray(literalStart, position));
           sequences.push({ literalLength: position - literalStart, matchLength: match.length, offset: match.offset });
           const matchEnd = position + match.length;
-          while (position < matchEnd) insert(position++);
+          while (position < matchEnd) {
+            insert(position++);
+          }
           literalStart = position;
         } else {
           insert(position++);
         }
       }
-      while (position < end) insert(position++);
+      while (position < end) {
+        insert(position++);
+      }
       parts.push(input.subarray(literalStart, end));
       nextStart = end;
       return { literals: join(parts), sequences, trailingLiterals: end - literalStart };

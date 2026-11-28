@@ -73,7 +73,9 @@ const packRow = (values: readonly number[], depth: number): Uint8Array => {
 const paeth = (left: number, above: number, upperLeft: number): number => {
   const estimate = left + above - upperLeft;
   const [toLeft, toAbove, toUpperLeft] = [Math.abs(estimate - left), Math.abs(estimate - above), Math.abs(estimate - upperLeft)];
-  if (toLeft <= toAbove && toLeft <= toUpperLeft) return left;
+  if (toLeft <= toAbove && toLeft <= toUpperLeft) {
+    return left;
+  }
   return toAbove <= toUpperLeft ? above : upperLeft;
 };
 
@@ -107,9 +109,13 @@ export const filteredImageData = (image: TestPng): Uint8Array => {
     for (let y = y0; y < image.height; y += stepY) {
       const values: number[] = [];
       for (let x = x0; x < image.width; x += stepX) {
-        for (let channel = 0; channel < channels; channel++) values.push(image.samples[(y * image.width + x) * channels + channel] ?? 0);
+        for (let channel = 0; channel < channels; channel++) {
+          values.push(image.samples[(y * image.width + x) * channels + channel] ?? 0);
+        }
       }
-      if (values.length > 0) rows.push(packRow(values, image.bitDepth));
+      if (values.length > 0) {
+        rows.push(packRow(values, image.bitDepth));
+      }
     }
     output.push(...filterRows(rows, bytesPerPixel, passIndex));
   }

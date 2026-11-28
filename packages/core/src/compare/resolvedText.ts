@@ -9,7 +9,9 @@ import { pdfName } from '../object/pdfObject.ts';
 
 const hex = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += byte.toString(16).padStart(2, '0');
+  for (const byte of bytes) {
+    text += byte.toString(16).padStart(2, '0');
+  }
   return text;
 };
 
@@ -68,7 +70,9 @@ const dictionaryText = (keys: readonly Uint8Array[], parts: readonly string[], d
   const texts: string[] = [];
   for (const [index, key] of keys.entries()) {
     const text = parts[index] ?? 'null';
-    if (text !== 'null') texts.push(`/${hex(key)} ${text}`);
+    if (text !== 'null') {
+      texts.push(`/${hex(key)} ${text}`);
+    }
   }
   const dictionary = `<<${texts.toSorted().join(' ')}>>`;
   return dataDigest === undefined ? dictionary : `${dictionary}stream${hex(dataDigest)}`;
@@ -76,7 +80,9 @@ const dictionaryText = (keys: readonly Uint8Array[], parts: readonly string[], d
 
 const producedDigest = (produce: StreamProducer): Uint8Array => {
   const hash = createMd5();
-  for (const chunk of produce()) hash.update(chunk);
+  for (const chunk of produce()) {
+    hash.update(chunk);
+  }
   return hash.digest();
 };
 
@@ -85,7 +91,9 @@ const readable = (read: () => string): string | undefined => {
   try {
     return read();
   } catch (error: unknown) {
-    if (error instanceof ParseError) return undefined;
+    if (error instanceof ParseError) {
+      return undefined;
+    }
     throw error;
   }
 };
@@ -109,8 +117,9 @@ export class ResolvedTexts {
     const results: string[] = [];
     const path = new Set<string>();
     for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
-      if (task.kind === 'visit') this.visit(task.value, task.producer, { tasks, results, path });
-      else if (task.kind === 'reference') {
+      if (task.kind === 'visit') {
+        this.visit(task.value, task.producer, { tasks, results, path });
+      } else if (task.kind === 'reference') {
         path.delete(task.key);
         const text = results.pop() ?? 'null';
         const kept = text.length > DIGEST_ABOVE ? `#${hex(md5(latin1Bytes(text)))}` : text;
@@ -141,7 +150,9 @@ export class ResolvedTexts {
         results.push(known ?? 'cycle');
         return;
       }
-      if (path.size >= MAX_DEPTH) throw new ResourceLimitError(`a compared value leads through more than ${String(MAX_DEPTH)} references`);
+      if (path.size >= MAX_DEPTH) {
+        throw new ResourceLimitError(`a compared value leads through more than ${String(MAX_DEPTH)} references`);
+      }
       path.add(key);
       tasks.push(
         { kind: 'reference', key },

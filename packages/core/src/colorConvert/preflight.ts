@@ -27,8 +27,12 @@ const DEFAULT_GRAY = pdfName('DefaultGray').bytes;
 const DEFAULT_CMYK = pdfName('DefaultCMYK').bytes;
 
 const entriesOf = (value: PdfObject | undefined): PdfDictionaryEntries | undefined => {
-  if (value?.kind === 'dictionary') return value.entries;
-  if (value?.kind === 'stream') return value.dictionary;
+  if (value?.kind === 'dictionary') {
+    return value.entries;
+  }
+  if (value?.kind === 'stream') {
+    return value.dictionary;
+  }
   return undefined;
 };
 
@@ -36,39 +40,63 @@ const sameIdentity = (first: IccProfile, second: IccProfile): boolean => first.i
 
 /** Checks every reachable owner because ISO 32000-1:2008, 14.5 permits private PieceInfo on the catalog, pages and form XObjects. */
 const checkApplicationData = (document: LoadedDocument, policy: ConversionPreflightPolicy): void => {
-  if (policy.applicationData !== undefined && policy.applicationData !== 'refuse') return;
+  if (policy.applicationData !== undefined && policy.applicationData !== 'refuse') {
+    return;
+  }
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const reachable = reachableObjects(internals);
-  if (reachable.unreadable.length > 0) throw new ValidationError('reachable objects could not be checked for PieceInfo', 'unreadable-resource');
+  if (reachable.unreadable.length > 0) {
+    throw new ValidationError('reachable objects could not be checked for PieceInfo', 'unreadable-resource');
+  }
   for (const [number, generation] of reachable.objects) {
     const entries = entriesOf(internals.objects.resolve(number, generation));
-    if (entries?.has(PIECE_INFO) === true) throw new ValidationError('PieceInfo would be invalidated by colour conversion', 'application-data');
+    if (entries?.has(PIECE_INFO) === true) {
+      throw new ValidationError('PieceInfo would be invalidated by colour conversion', 'application-data');
+    }
   }
 };
 
 const profileIn = (document: LoadedDocument, value: PdfDirectObject | undefined): IccProfile | undefined => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const stream = internals.objects.deref(value);
-  if (stream?.kind !== 'stream') return undefined;
+  if (stream?.kind !== 'stream') {
+    return undefined;
+  }
   const bytes = decodedData(internals, stream);
-  if (typeof bytes === 'string') throw new ValidationError(`ICC profile stream cannot be read: ${bytes}`, 'unreadable-resource');
+  if (typeof bytes === 'string') {
+    throw new ValidationError(`ICC profile stream cannot be read: ${bytes}`, 'unreadable-resource');
+  }
   return parseIccProfile(bytes);
 };
 
 /** ISO 32000-1:2008, 14.11.5 Table 365 permits output intents of several subtypes; each existing profile is checked. */
 const checkOutputIntents = (document: LoadedDocument, destination: IccProfile, policy: ConversionPreflightPolicy): void => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const value = internals.objects.deref(document.catalog().get(OUTPUT_INTENTS));
-  if (value === undefined) return;
-  if (value.kind !== 'array') throw new ValidationError('OutputIntents is not an array', 'output-intent-conflict');
+  if (value === undefined) {
+    return;
+  }
+  if (value.kind !== 'array') {
+    throw new ValidationError('OutputIntents is not an array', 'output-intent-conflict');
+  }
   for (const item of value.items) {
     const entries = entriesOf(internals.objects.deref(item));
     const existing = profileIn(document, entries?.get(DEST_OUTPUT_PROFILE));
-    if (existing !== undefined && sameIdentity(existing, destination)) continue;
-    if (policy.outputIntent?.existing === 'replace') continue;
+    if (existing !== undefined && sameIdentity(existing, destination)) {
+      continue;
+    }
+    if (policy.outputIntent?.existing === 'replace') {
+      continue;
+    }
     throw new ValidationError('an existing output intent names a different printing condition', 'output-intent-conflict');
   }
 };
@@ -76,15 +104,21 @@ const checkOutputIntents = (document: LoadedDocument, destination: IccProfile, p
 /** ISO 32000-1:2008, 8.6.5.6 remaps device colours through DefaultGray and DefaultCMYK in the current resources. */
 const checkResources = (document: LoadedDocument, destination: IccProfile, policy: ConversionPreflightPolicy): void => {
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const visit = (resource: ResourceVisit): void => {
     const colorSpaces = entriesOf(internals.objects.deref(resource.resources.get(COLOR_SPACE)));
-    if (colorSpaces === undefined) return;
+    if (colorSpaces === undefined) {
+      return;
+    }
     if (colorSpaces.has(DEFAULT_GRAY) && policy.removeDefaultGray !== true) {
       throw new ValidationError('DefaultGray would remap DeviceGray colours', 'default-gray');
     }
     const defaultCmyk = internals.objects.deref(colorSpaces.get(DEFAULT_CMYK));
-    if (defaultCmyk === undefined) return;
+    if (defaultCmyk === undefined) {
+      return;
+    }
     const profileReference = defaultCmyk.kind === 'array' && defaultCmyk.items[0]?.kind === 'name' ? defaultCmyk.items[1] : undefined;
     const name = defaultCmyk.kind === 'array' ? defaultCmyk.items[0] : undefined;
     const profile = name?.kind === 'name' && new TextDecoder('latin1').decode(name.bytes) === 'ICCBased' ? profileIn(document, profileReference) : undefined;
@@ -94,10 +128,14 @@ const checkResources = (document: LoadedDocument, destination: IccProfile, polic
   };
   for (let page = 0; page < document.pageCount; page++) {
     const entry = internals.pages[page];
-    if (entry === undefined) throw new ValidationError('page entry is missing', 'unreadable-resource');
+    if (entry === undefined) {
+      throw new ValidationError('page entry is missing', 'unreadable-resource');
+    }
     const resources: PdfDirectObject = { kind: 'dictionary', entries: document.page(page).resources() };
     const unreadable = walkResources(internals, entry, { resources, visit });
-    if (unreadable.length > 0) throw new ValidationError('page resources could not be checked for default colour spaces', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('page resources could not be checked for default colour spaces', 'unreadable-resource');
+    }
   }
 };
 

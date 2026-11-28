@@ -64,14 +64,20 @@ const AP = pdfName('AP').bytes;
 const nameOf = (value: PdfObject | undefined): string | undefined => (value?.kind === 'name' ? new TextDecoder('latin1').decode(value.bytes) : undefined);
 
 const numberOf = (value: PdfObject | undefined): number | undefined => {
-  if (value?.kind === 'integer') return value.value;
-  if (value?.kind === 'real' && typeof value.value === 'number') return value.value;
+  if (value?.kind === 'integer') {
+    return value.value;
+  }
+  if (value?.kind === 'real' && typeof value.value === 'number') {
+    return value.value;
+  }
   return undefined;
 };
 
 const usedState = (scan: Scan, resources: PdfDictionaryEntries, name: Uint8Array): PdfDictionaryEntries | undefined => {
   const category = scan.internals.objects.deref(resources.get(EXT_G_STATE));
-  if (category?.kind !== 'dictionary') return undefined;
+  if (category?.kind !== 'dictionary') {
+    return undefined;
+  }
   const state = scan.internals.objects.deref(category.entries.get(name));
   return state?.kind === 'dictionary' ? state.entries : undefined;
 };
@@ -96,11 +102,17 @@ const compositing = (scan: Scan, bytes: Uint8Array | readonly Uint8Array[], reso
   let alpha = false;
   let softMask = false;
   for (const operation of readContent(bytes, scan.internals.maxNesting)) {
-    if (operation.operator !== 'gs') continue;
+    if (operation.operator !== 'gs') {
+      continue;
+    }
     const [operand] = operation.operands;
-    if (operand?.kind !== 'name') continue;
+    if (operand?.kind !== 'name') {
+      continue;
+    }
     const state = usedState(scan, resources, operand.bytes);
-    if (state === undefined) continue;
+    if (state === undefined) {
+      continue;
+    }
     const flags = stateFlags(scan, state);
     blendMode ||= flags.blendMode;
     alpha ||= flags.alpha;
@@ -111,19 +123,31 @@ const compositing = (scan: Scan, bytes: Uint8Array | readonly Uint8Array[], reso
 
 const planGroup = (scan: Scan, input: { owner: PdfReference; dictionary: PdfDictionaryEntries; resources: PdfDictionaryEntries; flags: Compositing }): void => {
   const { owner, dictionary, resources, flags } = input;
-  if (scan.seenCarriers.has(owner.objectNumber)) return;
+  if (scan.seenCarriers.has(owner.objectNumber)) {
+    return;
+  }
   scan.seenCarriers.add(owner.objectNumber);
-  if (scan.luminosityGroups.has(owner.objectNumber)) return;
+  if (scan.luminosityGroups.has(owner.objectNumber)) {
+    return;
+  }
   const entry = dictionary.get(GROUP);
   const value = scan.internals.objects.deref(entry);
-  if (value?.kind !== 'dictionary') return;
+  if (value?.kind !== 'dictionary') {
+    return;
+  }
   const subtypeValue = scan.internals.objects.deref(value.entries.get(GROUP_SUBTYPE));
   const subtype = nameOf(subtypeValue);
-  if (subtype !== 'Transparency') return;
+  if (subtype !== 'Transparency') {
+    return;
+  }
   const color = value.entries.get(COLOR_SPACE);
-  if (color === undefined) return;
+  if (color === undefined) {
+    return;
+  }
   const source = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
-  if (source.kind !== 'rgb') return;
+  if (source.kind !== 'rgb') {
+    return;
+  }
   if (scan.options.blendingSpace === 'refuse' && (flags.blendMode || flags.alpha || flags.softMask)) {
     throw new ValidationError('RGB group compositing would change in DeviceCMYK', 'blend-space-change');
   }
@@ -132,84 +156,138 @@ const planGroup = (scan: Scan, input: { owner: PdfReference; dictionary: PdfDict
 
 const scanForms = (scan: Scan, resources: PdfDictionaryEntries): void => {
   const category = scan.internals.objects.deref(resources.get(XOBJECT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference' || scan.seenForms.has(value.objectNumber)) continue;
+    if (value.kind !== 'reference' || scan.seenForms.has(value.objectNumber)) {
+      continue;
+    }
     const form = scan.internals.objects.deref(value);
-    if (form?.kind !== 'stream') continue;
-    if (nameOf(scan.internals.objects.deref(form.dictionary.get(SUBTYPE))) !== 'Form') continue;
+    if (form?.kind !== 'stream') {
+      continue;
+    }
+    if (nameOf(scan.internals.objects.deref(form.dictionary.get(SUBTYPE))) !== 'Form') {
+      continue;
+    }
     scan.seenForms.add(value.objectNumber);
     const own = scan.internals.objects.deref(form.dictionary.get(RESOURCES));
     const formResources = own?.kind === 'dictionary' ? own.entries : resources;
     const bytes = decodedData(scan.internals, form);
-    if (typeof bytes === 'string') throw new ValidationError(`form content cannot be read: ${bytes}`, 'color-operator');
+    if (typeof bytes === 'string') {
+      throw new ValidationError(`form content cannot be read: ${bytes}`, 'color-operator');
+    }
     planGroup(scan, { owner: value, dictionary: form.dictionary, resources: formResources, flags: compositing(scan, bytes, formResources) });
     scanForms(scan, formResources);
   }
 };
 
 const scanCarrier = (scan: Scan, reference: PdfReference, fallback: PdfDictionaryEntries): void => {
-  if (scan.seenCarriers.has(reference.objectNumber)) return;
+  if (scan.seenCarriers.has(reference.objectNumber)) {
+    return;
+  }
   const stream = scan.internals.objects.deref(reference);
-  if (stream?.kind !== 'stream') return;
+  if (stream?.kind !== 'stream') {
+    return;
+  }
   const own = scan.internals.objects.deref(stream.dictionary.get(RESOURCES));
   const resources = own?.kind === 'dictionary' ? own.entries : fallback;
   const bytes = decodedData(scan.internals, stream);
-  if (typeof bytes === 'string') throw new ValidationError(`carrier content cannot be read: ${bytes}`, 'color-operator');
+  if (typeof bytes === 'string') {
+    throw new ValidationError(`carrier content cannot be read: ${bytes}`, 'color-operator');
+  }
   planGroup(scan, { owner: reference, dictionary: stream.dictionary, resources, flags: compositing(scan, bytes, resources) });
   scanForms(scan, resources);
 };
 
 const scanPatterns = (scan: Scan, resources: PdfDictionaryEntries): void => {
   const category = scan.internals.objects.deref(resources.get(PATTERN));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of category.entries.entries()) {
-    if (value.kind !== 'reference') continue;
+    if (value.kind !== 'reference') {
+      continue;
+    }
     const pattern = scan.internals.objects.deref(value);
-    if (pattern?.kind !== 'stream') continue;
+    if (pattern?.kind !== 'stream') {
+      continue;
+    }
     const type = pattern.dictionary.get(PATTERN_TYPE);
-    if (type?.kind === 'integer' && type.value === 1) scanCarrier(scan, value, resources);
+    if (type?.kind === 'integer' && type.value === 1) {
+      scanCarrier(scan, value, resources);
+    }
   }
 };
 
 const scanGlyphs = (scan: Scan, resources: PdfDictionaryEntries): void => {
   const category = scan.internals.objects.deref(resources.get(FONT));
-  if (category?.kind !== 'dictionary') return;
+  if (category?.kind !== 'dictionary') {
+    return;
+  }
   for (const [, value] of category.entries.entries()) {
     const font = scan.internals.objects.deref(value);
-    if (font?.kind !== 'dictionary' || nameOf(scan.internals.objects.deref(font.entries.get(SUBTYPE))) !== 'Type3') continue;
+    if (font?.kind !== 'dictionary' || nameOf(scan.internals.objects.deref(font.entries.get(SUBTYPE))) !== 'Type3') {
+      continue;
+    }
     const own = scan.internals.objects.deref(font.entries.get(RESOURCES));
     const effective = own?.kind === 'dictionary' ? own.entries : resources;
     const glyphs = scan.internals.objects.deref(font.entries.get(CHAR_PROCS));
-    if (glyphs?.kind !== 'dictionary') continue;
+    if (glyphs?.kind !== 'dictionary') {
+      continue;
+    }
     for (const [, glyph] of glyphs.entries.entries()) {
-      if (glyph.kind !== 'reference') continue;
+      if (glyph.kind !== 'reference') {
+        continue;
+      }
       const stream = scan.internals.objects.deref(glyph);
-      if (stream?.kind !== 'stream') continue;
+      if (stream?.kind !== 'stream') {
+        continue;
+      }
       const bytes = decodedData(scan.internals, stream);
-      if (typeof bytes === 'string') throw new ValidationError(`glyph content cannot be read: ${bytes}`, 'color-operator');
+      if (typeof bytes === 'string') {
+        throw new ValidationError(`glyph content cannot be read: ${bytes}`, 'color-operator');
+      }
       const [first] = readContent(bytes, scan.internals.maxNesting);
-      if (first?.operator === 'd0') scanCarrier(scan, glyph, effective);
+      if (first?.operator === 'd0') {
+        scanCarrier(scan, glyph, effective);
+      }
     }
   }
 };
 
 const scanAppearances = (scan: Scan, page: PdfReference, resources: PdfDictionaryEntries): void => {
   const owner = scan.internals.objects.deref(page);
-  if (owner?.kind !== 'dictionary') return;
+  if (owner?.kind !== 'dictionary') {
+    return;
+  }
   const annotations = scan.internals.objects.deref(owner.entries.get(ANNOTS));
-  if (annotations?.kind !== 'array') return;
+  if (annotations?.kind !== 'array') {
+    return;
+  }
   for (const annotation of annotations.items) {
     const item = scan.internals.objects.deref(annotation);
-    if (item?.kind !== 'dictionary') continue;
+    if (item?.kind !== 'dictionary') {
+      continue;
+    }
     const appearances = scan.internals.objects.deref(item.entries.get(AP));
-    if (appearances?.kind !== 'dictionary') continue;
+    if (appearances?.kind !== 'dictionary') {
+      continue;
+    }
     for (const state of ['N', 'R', 'D']) {
       const entry = appearances.entries.get(pdfName(state).bytes);
-      if (entry?.kind === 'reference') scanCarrier(scan, entry, resources);
+      if (entry?.kind === 'reference') {
+        scanCarrier(scan, entry, resources);
+      }
       const variants = scan.internals.objects.deref(entry);
-      if (variants?.kind !== 'dictionary') continue;
-      for (const [, value] of variants.entries.entries()) if (value.kind === 'reference') scanCarrier(scan, value, resources);
+      if (variants?.kind !== 'dictionary') {
+        continue;
+      }
+      for (const [, value] of variants.entries.entries()) {
+        if (value.kind === 'reference') {
+          scanCarrier(scan, value, resources);
+        }
+      }
     }
   }
 };
@@ -238,17 +316,25 @@ export const convertTransparencyGroups = (document: LoadedDocument, options: Rew
   checkConversionRefusals(document, options.outputProfile);
   const masks = prepareLuminosityMasks(document, options);
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const scan: Scan = { document, internals, options, plans: [], seenForms: new Set(), seenCarriers: new Set(), luminosityGroups: masks.groupNumbers };
   for (let page = 0; page < document.pageCount; page++) {
     const { reference } = document.page(page);
     const owner = document.get(reference);
-    if (owner.kind !== 'dictionary') throw new ValidationError('page is not a dictionary', 'color-space');
+    if (owner.kind !== 'dictionary') {
+      throw new ValidationError('page is not a dictionary', 'color-space');
+    }
     const resources = document.page(page).resources();
     const entry = internals.pages[page];
-    if (entry === undefined) throw new ValidationError('page entry is missing', 'color-space');
+    if (entry === undefined) {
+      throw new ValidationError('page entry is missing', 'color-space');
+    }
     const content = pageContent(internals, entry);
-    if (content.problems.length > 0) throw new ValidationError('page content cannot be read', 'color-operator');
+    if (content.problems.length > 0) {
+      throw new ValidationError('page content cannot be read', 'color-operator');
+    }
     planGroup(scan, { owner: reference, dictionary: owner.entries, resources, flags: compositing(scan, content.streams, resources) });
     scanForms(scan, resources);
     scanPatterns(scan, resources);
@@ -263,11 +349,17 @@ export const convertTransparencyGroups = (document: LoadedDocument, options: Rew
         scanGlyphs(scan, visit.resources);
       },
     });
-    if (unreadable.length > 0) throw new ValidationError('group carriers cannot be read', 'unreadable-resource');
+    if (unreadable.length > 0) {
+      throw new ValidationError('group carriers cannot be read', 'unreadable-resource');
+    }
   }
-  for (const plan of scan.plans) applyGroup(scan, plan);
+  for (const plan of scan.plans) {
+    applyGroup(scan, plan);
+  }
   masks.apply();
-  if (scan.plans.length > 0) internals.objects.requireFullRewrite('color-conversion');
+  if (scan.plans.length > 0) {
+    internals.objects.requireFullRewrite('color-conversion');
+  }
   return {
     groups: scan.plans.length + masks.changed,
     blendingSpaceChanges: {

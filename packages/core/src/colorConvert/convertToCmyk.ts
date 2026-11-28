@@ -64,13 +64,17 @@ export interface ConversionReport {
 export const convertToCmyk = (document: LoadedDocument, options: ConvertToCmykOptions): ConversionReport => {
   const sourceRgbProfile = parseIccProfile(options.sourceRgbProfile);
   const outputProfile = parseIccProfile(options.outputProfile);
-  if (sourceRgbProfile.header.colorSpace !== 'RGB') throw new ValidationError('sourceRgbProfile must be an RGB ICC profile', 'color-space');
+  if (sourceRgbProfile.header.colorSpace !== 'RGB') {
+    throw new ValidationError('sourceRgbProfile must be an RGB ICC profile', 'color-space');
+  }
   const policy = options.outputIntent.existing === undefined ? {} : { existing: options.outputIntent.existing };
   checkConversionRefusals(document, outputProfile, { outputIntent: policy });
   const conversion: RewriteColorOptions = { ...options, sourceRgbProfile, outputProfile };
   const pdfx = options.pdfx !== undefined && options.pdfx !== false;
   const internals = internalsOf(document);
-  if (internals === undefined) throw new ValidationError('document internals are unavailable');
+  if (internals === undefined) {
+    throw new ValidationError('document internals are unavailable');
+  }
   const previous = internals.objects.fork();
   const version = internals.pdfX4VersionState();
   try {

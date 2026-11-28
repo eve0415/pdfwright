@@ -6,7 +6,9 @@ import { pdfName } from '../object/pdfObject.ts';
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
@@ -21,8 +23,11 @@ const STREAM_EXCLUDED = new Set([...CLASSIC_EXCLUDED, 'Length', 'Filter', 'Decod
 export const withTrailerChanges = (entries: PdfDictionaryEntries, changes: readonly TrailerChange[]): PdfDictionaryEntries => {
   const result = parsedDictionaryEntries([...entries.entries()]);
   for (const change of changes) {
-    if (change.value === undefined) result.delete(change.key);
-    else result.set(change.key, change.value);
+    if (change.value === undefined) {
+      result.delete(change.key);
+    } else {
+      result.set(change.key, change.value);
+    }
   }
   return result;
 };

@@ -54,7 +54,9 @@ const entriesOf = (parsed: Parsed): PdfDictionaryEntries => {
 
 const edited = (parsed: Parsed, edit: (entries: Extract<PdfDirectObject, { kind: 'dictionary' }>['entries']) => void): PdfObject => {
   const copy = cloneObject(parsed.node.value);
-  if (copy.kind === 'dictionary') edit(copy.entries);
+  if (copy.kind === 'dictionary') {
+    edit(copy.entries);
+  }
   return copy;
 };
 

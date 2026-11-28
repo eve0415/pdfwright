@@ -8,18 +8,26 @@ import { attachPrivateData } from './privateData.ts';
 const date = pdfDate({ year: 2026, month: 9, day: 28, hour: 12, minute: 34, second: 56, offset: 'Z' });
 const key = (name: string): Uint8Array => pdfName(name).bytes;
 const dictionary = (value: PdfObject | undefined): PdfDictionaryEntries => {
-  if (value?.kind !== 'dictionary') throw new Error('expected dictionary');
+  if (value?.kind !== 'dictionary') {
+    throw new Error('expected dictionary');
+  }
   return value.entries;
 };
 const reference = (value: PdfObject | undefined): PdfReference => {
-  if (value?.kind !== 'reference') throw new Error('expected reference');
+  if (value?.kind !== 'reference') {
+    throw new Error('expected reference');
+  }
   return value;
 };
 const streamData = (loaded: LoadedDocument, entries: PdfDictionaryEntries, name: string): Uint8Array => {
   const entry = entries.get(key(name));
   const value = loaded.get(reference(entry));
-  if (value.kind !== 'stream') throw new Error('expected stream');
-  if (value.dictionary.get(key('Filter')) !== undefined) throw new Error('unexpected stream filter');
+  if (value.kind !== 'stream') {
+    throw new Error('expected stream');
+  }
+  if (value.dictionary.get(key('Filter')) !== undefined) {
+    throw new Error('unexpected stream filter');
+  }
   return value.data;
 };
 const privateData = (loaded: LoadedDocument) => {
@@ -60,7 +68,9 @@ describe('illustrator private-data container', () => {
 
   it('splits wrapped data every 65536 bytes and sets NumBlock only for multiple streams', () => {
     const bytes = new Uint8Array(70000);
-    for (let index = 0; index < bytes.length; index++) bytes[index] = index % 256;
+    for (let index = 0; index < bytes.length; index++) {
+      bytes[index] = index % 256;
+    }
     const document = createDocument();
     const page = document.addPage({ mediaBox: rect(pt(0), pt(0), pt(10), pt(10)) });
     const layout = attachPrivateData(document, page, {

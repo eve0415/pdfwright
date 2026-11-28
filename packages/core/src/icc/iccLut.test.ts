@@ -5,7 +5,9 @@ import { InvalidProfileError } from '../error/invalidProfileError.ts';
 import { readLut } from './iccLut.ts';
 
 const matrix = (view: DataView): void => {
-  for (let index = 0; index < 9; index++) view.setInt32(12 + index * 4, index % 4 === 0 ? 65536 : 0);
+  for (let index = 0; index < 9; index++) {
+    view.setInt32(12 + index * 4, index % 4 === 0 ? 65536 : 0);
+  }
 };
 
 describe('icc lut8 and lut16 tags', () => {

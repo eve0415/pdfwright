@@ -15,7 +15,9 @@ const digest = (bytes: Uint8Array): string => hex(md5(bytes));
 
 const largeData = (): Uint8Array => {
   const data = new Uint8Array(10 * 1024 * 1024);
-  for (let index = 0; index < data.length; index++) data[index] = 65 + (index % 4);
+  for (let index = 0; index < data.length; index++) {
+    data[index] = 65 + (index % 4);
+  }
   return data;
 };
 
@@ -24,7 +26,9 @@ const randomData = (): Uint8Array => {
   let state = 0x12345678;
   for (let index = 0; index < random.length; index++) {
     state = (Math.imul(state, 1664525) + 1013904223) % 4294967296;
-    if (state < 0) state += 4294967296;
+    if (state < 0) {
+      state += 4294967296;
+    }
     random[index] = Math.floor(state / 16777216);
   }
   return random;
@@ -38,7 +42,9 @@ const corpus = (includeLarge: boolean): [string, Uint8Array][] => {
     ['text', text],
     ['random', randomData()],
   ];
-  if (includeLarge) items.push(['compressible', largeData()]);
+  if (includeLarge) {
+    items.push(['compressible', largeData()]);
+  }
   return items;
 };
 
@@ -85,7 +91,9 @@ describe('deterministic deflate encoding', () => {
       const whole = digest(deflateZlib(data, { level }));
       for (const piece of [1000, 1024 * 1024, 3 * 1024 * 1024]) {
         const deflater = new ZlibDeflater({ level });
-        for (let offset = 0; offset < data.length; offset += piece) deflater.write(data.subarray(offset, offset + piece));
+        for (let offset = 0; offset < data.length; offset += piece) {
+          deflater.write(data.subarray(offset, offset + piece));
+        }
         const encoded = deflater.finish();
         pieced.push(digest(encoded));
         joined.push(whole);
@@ -143,7 +151,9 @@ describe('incremental deflate output', () => {
     for (const level of [0, 6, 9] as const) {
       const stream = createDeflateStream({ level });
       const parts: Uint8Array[] = [];
-      for (let offset = 0; offset < input.length; offset += 19_871) parts.push(...stream.push(input.subarray(offset, offset + 19_871)));
+      for (let offset = 0; offset < input.length; offset += 19_871) {
+        parts.push(...stream.push(input.subarray(offset, offset + 19_871)));
+      }
       parts.push(stream.finish());
       const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
       let offset = 0;

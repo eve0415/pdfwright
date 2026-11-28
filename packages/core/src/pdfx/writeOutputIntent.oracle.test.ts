@@ -32,9 +32,13 @@ const other = Uint8Array.from(await readFile(new URL('../../../../tests/fixtures
 
 const intentOf = (document: ReturnType<typeof loadDocument>) => {
   const intents = document.catalog().get(pdfName('OutputIntents').bytes);
-  if (intents?.kind !== 'array' || intents.items[0]?.kind !== 'reference') throw new Error('missing output intent');
+  if (intents?.kind !== 'array' || intents.items[0]?.kind !== 'reference') {
+    throw new Error('missing output intent');
+  }
   const intent = document.get(intents.items[0]);
-  if (intent.kind !== 'dictionary') throw new Error('output intent is not a dictionary');
+  if (intent.kind !== 'dictionary') {
+    throw new Error('output intent is not a dictionary');
+  }
   return intent.entries;
 };
 
@@ -45,9 +49,13 @@ const textOf = (value: ReturnType<typeof intentOf>, key: string): string | undef
 
 const profileStream = (document: ReturnType<typeof loadDocument>) => {
   const reference = intentOf(document).get(pdfName('DestOutputProfile').bytes);
-  if (reference?.kind !== 'reference') throw new Error('missing profile');
+  if (reference?.kind !== 'reference') {
+    throw new Error('missing profile');
+  }
   const stream = document.get(reference);
-  if (stream.kind !== 'stream') throw new Error('profile is not a stream');
+  if (stream.kind !== 'stream') {
+    throw new Error('profile is not a stream');
+  }
   return stream;
 };
 
@@ -61,7 +69,9 @@ const withIntent = (bytes: Uint8Array) => {
   const intentReference = document.object(pdfDictionary(entries));
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
-  if (catalog.kind !== 'dictionary') throw new Error('missing catalog');
+  if (catalog.kind !== 'dictionary') {
+    throw new Error('missing catalog');
+  }
   catalog.entries.set(pdfName('OutputIntents').bytes, pdfArray([intentReference]));
   document.set(catalogReference, catalog);
   return { document, profileReference };
@@ -69,7 +79,9 @@ const withIntent = (bytes: Uint8Array) => {
 
 const subtypesOf = (document: ReturnType<typeof loadDocument>): (string | undefined)[] => {
   const intents = document.catalog().get(pdfName('OutputIntents').bytes);
-  if (intents?.kind !== 'array') throw new Error('missing output intents');
+  if (intents?.kind !== 'array') {
+    throw new Error('missing output intents');
+  }
   return intents.items.map(item => {
     const intent = item.kind === 'reference' ? document.get(item) : item;
     const subtype = intent.kind === 'dictionary' ? intent.entries.get(pdfName('S').bytes) : undefined;
@@ -84,7 +96,9 @@ const setCatalogEntry = (
 ): void => {
   const catalogReference = pdfReference(1, 0);
   const catalog = document.get(catalogReference);
-  if (catalog.kind !== 'dictionary') throw new Error('missing catalog');
+  if (catalog.kind !== 'dictionary') {
+    throw new Error('missing catalog');
+  }
   catalog.entries.set(pdfName(name).bytes, value);
   document.set(catalogReference, catalog);
 };

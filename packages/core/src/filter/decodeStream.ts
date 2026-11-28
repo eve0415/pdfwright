@@ -40,21 +40,29 @@ const NAMES: ReadonlyMap<string, string> = new Map([
 
 const latin1 = (bytes: Uint8Array): string => {
   let text = '';
-  for (const byte of bytes) text += String.fromCodePoint(byte);
+  for (const byte of bytes) {
+    text += String.fromCodePoint(byte);
+  }
   return text;
 };
 
 const asList = (value: PdfDirectObject | undefined, context: DecodeContext): (PdfObject | undefined)[] => {
   const deref = context.deref ?? ((item: PdfDirectObject | undefined): PdfObject | undefined => item);
   const resolved = deref(value);
-  if (resolved === undefined || resolved.kind === 'null') return [];
+  if (resolved === undefined || resolved.kind === 'null') {
+    return [];
+  }
   return resolved.kind === 'array' ? resolved.items.map(item => deref(item)) : [resolved];
 };
 
 const integerParameter = (parameters: PdfDictionaryEntries | undefined, key: string, fallback: number): number => {
   const value = parameters?.get(pdfName(key).bytes);
-  if (value === undefined) return fallback;
-  if (value.kind !== 'integer') throw new ParseError(`the decode parameter ${key} is not an integer`, 0);
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value.kind !== 'integer') {
+    throw new ParseError(`the decode parameter ${key} is not an integer`, 0);
+  }
   return value.value;
 };
 
@@ -123,7 +131,9 @@ export const decodeStream = (stream: PdfStream, context: DecodeContext): Uint8Ar
   const parameters = asList(stream.dictionary.get(DECODE_PARMS), context);
   let { data } = stream;
   for (const [index, filter] of filters.entries()) {
-    if (filter?.kind !== 'name') throw new ParseError('a stream filter is not a name', 0);
+    if (filter?.kind !== 'name') {
+      throw new ParseError('a stream filter is not a name', 0);
+    }
     const name = latin1(filter.bytes);
     const parameter = parameters[index];
     data = applyFilter({ name: NAMES.get(name) ?? name, parameters: parameter?.kind === 'dictionary' ? parameter.entries : undefined }, data, context);

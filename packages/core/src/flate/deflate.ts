@@ -16,7 +16,9 @@ const BLOCK_BYTES = 1024 * 1024;
 
 const compressionLevel = (options?: DeflateOptions): number => {
   const level = options?.level ?? 6;
-  if (!Number.isInteger(level) || level < 0 || level > 9) throw new InvalidArgumentError('compression level must be from 0 to 9');
+  if (!Number.isInteger(level) || level < 0 || level > 9) {
+    throw new InvalidArgumentError('compression level must be from 0 to 9');
+  }
   return level;
 };
 
@@ -39,7 +41,9 @@ const writeStored = (writer: BitWriter, data: Uint8Array, final: boolean): void 
 // Writes data as Huffman-coded blocks of at most BLOCK_BYTES; tokens holds at least min(data.length, BLOCK_BYTES) entries.
 const writeCompressed = (writer: BitWriter, data: Uint8Array, { final, level, tokens }: { final: boolean; level: number; tokens: Uint32Array }): void => {
   if (data.length === 0) {
-    if (final) writeCompressedBlock(writer, { words: new Uint32Array(), count: 0 }, true);
+    if (final) {
+      writeCompressedBlock(writer, { words: new Uint32Array(), count: 0 }, true);
+    }
     return;
   }
   for (let offset = 0; offset < data.length; offset += BLOCK_BYTES) {
@@ -53,8 +57,11 @@ const writeCompressed = (writer: BitWriter, data: Uint8Array, { final, level, to
 export const deflateRaw = (data: Uint8Array, options?: DeflateOptions): Uint8Array => {
   const level = compressionLevel(options);
   const writer = new BitWriter();
-  if (level === 0) writeStored(writer, data, true);
-  else writeCompressed(writer, data, { final: true, level, tokens: new Uint32Array(Math.min(data.length, BLOCK_BYTES)) });
+  if (level === 0) {
+    writeStored(writer, data, true);
+  } else {
+    writeCompressed(writer, data, { final: true, level, tokens: new Uint32Array(Math.min(data.length, BLOCK_BYTES)) });
+  }
   return writer.finish();
 };
 
@@ -77,9 +84,13 @@ export class ZlibDeflater {
     this.blockBytes = this.level === 0 ? 65535 * 16 : BLOCK_BYTES;
     // RFC 1950, 2.2 stores CMF/FLG with FCHECK making the header divisible by 31.
     let flevel = 3;
-    if (this.level <= 1) flevel = 0;
-    else if (this.level <= 5) flevel = 1;
-    else if (this.level === 6) flevel = 2;
+    if (this.level <= 1) {
+      flevel = 0;
+    } else if (this.level <= 5) {
+      flevel = 1;
+    } else if (this.level === 6) {
+      flevel = 2;
+    }
     const baseFlag = flevel << 6;
     this.writer.writeByte(0x78);
     this.writer.writeByte(baseFlag + ((31 - ((0x78 * 256 + baseFlag) % 31)) % 31));
@@ -90,7 +101,9 @@ export class ZlibDeflater {
       writeStored(this.writer, data, final);
       return;
     }
-    if (this.tokens.length < data.length) this.tokens = new Uint32Array(data.length);
+    if (this.tokens.length < data.length) {
+      this.tokens = new Uint32Array(data.length);
+    }
     writeCompressed(this.writer, data, { final, level: this.level, tokens: this.tokens });
   }
 
@@ -129,7 +142,9 @@ export class ZlibDeflater {
     this.encode(this.block.subarray(0, this.used), true);
     this.used = 0;
     this.writer.alignByte();
-    for (const shift of [24, 16, 8, 0]) this.writer.writeByte(Math.floor(this.checksum / 2 ** shift) % 256);
+    for (const shift of [24, 16, 8, 0]) {
+      this.writer.writeByte(Math.floor(this.checksum / 2 ** shift) % 256);
+    }
     return this.writer.finish();
   }
 }
@@ -146,17 +161,23 @@ export const createDeflateStream = (options?: DeflateOptions): DeflateStream => 
   let finished = false;
   return {
     push(data) {
-      if (finished) throw new InvalidArgumentError('deflate stream is finished');
+      if (finished) {
+        throw new InvalidArgumentError('deflate stream is finished');
+      }
       const parts: Uint8Array[] = [];
       for (let offset = 0; offset < data.length; offset += 65536) {
         encoder.write(data.subarray(offset, offset + 65536));
         const part = encoder.drain();
-        if (part.length > 0) parts.push(part);
+        if (part.length > 0) {
+          parts.push(part);
+        }
       }
       return parts;
     },
     finish() {
-      if (finished) throw new InvalidArgumentError('deflate stream is finished');
+      if (finished) {
+        throw new InvalidArgumentError('deflate stream is finished');
+      }
       finished = true;
       return encoder.finish();
     },

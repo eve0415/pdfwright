@@ -14,7 +14,9 @@ const xor = (left: number, right: number): number => {
   let result = 0;
   let place = 1;
   for (let index = 0; index < 32; index++) {
-    if (Math.floor(left / place) % 2 !== Math.floor(right / place) % 2) result += place;
+    if (Math.floor(left / place) % 2 !== Math.floor(right / place) % 2) {
+      result += place;
+    }
     place *= 2;
   }
   return result;

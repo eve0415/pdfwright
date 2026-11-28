@@ -19,7 +19,9 @@ const unsupportedReason = (bytes: Uint8Array): string | undefined => {
   try {
     decodeJpeg(bytes);
   } catch (error: unknown) {
-    if (error instanceof UnsupportedFeatureError) return error.reason;
+    if (error instanceof UnsupportedFeatureError) {
+      return error.reason;
+    }
     throw error;
   }
   throw new Error('JPEG was accepted');

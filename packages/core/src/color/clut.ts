@@ -5,7 +5,9 @@ const clip = (value: number): number => Math.min(1, Math.max(0, value));
 // ECMA-262, Number::exponentiate: the exponentiation operator is implementation-approximated, so corner counts and corner bits come from exact integer doubling and halving, computed once for the at most three axes an interpolation step spans.
 const cornerCount = (dimensions: number): number => {
   let count = 1;
-  for (let axis = 0; axis < dimensions; axis++) count *= 2;
+  for (let axis = 0; axis < dimensions; axis++) {
+    count *= 2;
+  }
   return count;
 };
 
@@ -24,7 +26,9 @@ const CORNER_BITS: readonly (readonly number[])[] = Array.from({ length: 8 }, (_
 
 const node = (clut: Clut, coordinates: readonly number[], channel: number): number => {
   let index = 0;
-  for (let axis = 0; axis < clut.inputChannels; axis++) index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
+  for (let axis = 0; axis < clut.inputChannels; axis++) {
+    index = index * (clut.gridPoints[axis] ?? 1) + (coordinates[axis] ?? 0);
+  }
   return (clut.values[index * clut.outputChannels + channel] ?? 0) / (clut.values instanceof Uint8Array ? 255 : 65535);
 };
 
@@ -42,13 +46,17 @@ const interpolateThree = (clut: Clut, state: { lower: number[]; fractions: numbe
         coordinate[first + axis] = (lower[first + axis] ?? 0) + bit;
         weight *= bit === 1 ? (fractions[first + axis] ?? 0) : 1 - (fractions[first + axis] ?? 0);
       }
-      for (let channel = 0; channel < output.length; channel++) output[channel] = (output[channel] ?? 0) + weight * node(clut, coordinate, channel);
+      for (let channel = 0; channel < output.length; channel++) {
+        output[channel] = (output[channel] ?? 0) + weight * node(clut, coordinate, channel);
+      }
     }
     return output;
   }
   const coordinate = [...lower];
   const order = [first, first + 1, first + 2].toSorted((left, right) => (fractions[right] ?? 0) - (fractions[left] ?? 0));
-  for (let channel = 0; channel < output.length; channel++) output[channel] = node(clut, coordinate, channel);
+  for (let channel = 0; channel < output.length; channel++) {
+    output[channel] = node(clut, coordinate, channel);
+  }
   for (const axis of order) {
     const previous = output.map((_, channel) => node(clut, coordinate, channel));
     coordinate[axis] = (coordinate[axis] ?? 0) + 1;
@@ -73,7 +81,9 @@ const interpolateSmall = (clut: Clut, state: { lower: number[]; fractions: numbe
       coordinate[first + axis] = (lower[first + axis] ?? 0) + bit;
       weight *= bit === 1 ? (fractions[first + axis] ?? 0) : 1 - (fractions[first + axis] ?? 0);
     }
-    for (let channel = 0; channel < result.length; channel++) result[channel] = (result[channel] ?? 0) + weight * node(clut, coordinate, channel);
+    for (let channel = 0; channel < result.length; channel++) {
+      result[channel] = (result[channel] ?? 0) + weight * node(clut, coordinate, channel);
+    }
   }
   return result;
 };
@@ -90,8 +100,12 @@ export const evaluateClut = (clut: Clut, input: readonly number[], mode: 'trilin
   }
   const recurse = (first: number): number[] => {
     const remaining = clut.inputChannels - first;
-    if (remaining === 3) return interpolateThree(clut, { lower, fractions, first, mode });
-    if (remaining < 3) return interpolateSmall(clut, { lower, fractions, first });
+    if (remaining === 3) {
+      return interpolateThree(clut, { lower, fractions, first, mode });
+    }
+    if (remaining < 3) {
+      return interpolateSmall(clut, { lower, fractions, first });
+    }
     const base = lower[first] ?? 0;
     lower[first] = base;
     const low = recurse(first + 1);

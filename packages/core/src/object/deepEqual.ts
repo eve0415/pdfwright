@@ -14,7 +14,9 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => left.length 
 const numeric = (value: number | Length): number => (typeof value === 'number' ? value : Number(value.numerator) / Number(value.denominator));
 
 const numberOf = (value: PdfObject): number | undefined => {
-  if (value.kind === 'integer') return value.value;
+  if (value.kind === 'integer') {
+    return value.value;
+  }
   return value.kind === 'real' ? numeric(value.value) : undefined;
 };
 
@@ -27,14 +29,24 @@ const sameString = (left: PdfString, right: PdfString, mode: EqualityMode): bool
 const sameReference = (left: PdfReference, right: PdfReference): boolean => left.objectNumber === right.objectNumber && left.generation === right.generation;
 
 const scalarEqual = (left: PdfObject, right: PdfObject, mode: EqualityMode): boolean => {
-  if (left.kind === 'string') return right.kind === 'string' && sameString(left, right, mode);
-  if (left.kind === 'reference') return right.kind === 'reference' && sameReference(left, right);
+  if (left.kind === 'string') {
+    return right.kind === 'string' && sameString(left, right, mode);
+  }
+  if (left.kind === 'reference') {
+    return right.kind === 'reference' && sameReference(left, right);
+  }
   if (left.kind === 'name' || left.kind === 'invalid') {
     return (right.kind === 'name' || right.kind === 'invalid') && right.kind === left.kind && sameBytes(left.bytes, right.bytes);
   }
-  if (left.kind === 'real') return right.kind === 'real' && numeric(left.value) === numeric(right.value);
-  if (left.kind === 'boolean') return right.kind === 'boolean' && left.value === right.value;
-  if (left.kind === 'integer') return right.kind === 'integer' && left.value === right.value;
+  if (left.kind === 'real') {
+    return right.kind === 'real' && numeric(left.value) === numeric(right.value);
+  }
+  if (left.kind === 'boolean') {
+    return right.kind === 'boolean' && left.value === right.value;
+  }
+  if (left.kind === 'integer') {
+    return right.kind === 'integer' && left.value === right.value;
+  }
   return left.kind === 'null' && right.kind === 'null';
 };
 
@@ -46,7 +58,9 @@ class Equality {
   }
 
   equal(left: PdfObject, right: PdfObject): boolean {
-    if (this.mode === 'lenient' && numberOf(left) !== undefined) return numberOf(left) === numberOf(right);
+    if (this.mode === 'lenient' && numberOf(left) !== undefined) {
+      return numberOf(left) === numberOf(right);
+    }
     if (left.kind === 'array') {
       return (
         right.kind === 'array' &&
@@ -54,16 +68,24 @@ class Equality {
         left.items.every((item, index) => this.equal(item, right.items[index] ?? { kind: 'null' }))
       );
     }
-    if (left.kind === 'dictionary') return right.kind === 'dictionary' && this.entries(left.entries, right.entries);
-    if (left.kind === 'stream') return right.kind === 'stream' && this.entries(left.dictionary, right.dictionary) && sameBytes(left.data, right.data);
+    if (left.kind === 'dictionary') {
+      return right.kind === 'dictionary' && this.entries(left.entries, right.entries);
+    }
+    if (left.kind === 'stream') {
+      return right.kind === 'stream' && this.entries(left.dictionary, right.dictionary) && sameBytes(left.data, right.data);
+    }
     return scalarEqual(left, right, this.mode);
   }
 
   private entries(left: PdfDictionaryEntries, right: PdfDictionaryEntries): boolean {
-    if (left.size !== right.size) return false;
+    if (left.size !== right.size) {
+      return false;
+    }
     for (const [key, value] of left.entries()) {
       const other = right.get(key);
-      if (other === undefined || !this.equal(value, other)) return false;
+      if (other === undefined || !this.equal(value, other)) {
+        return false;
+      }
     }
     return true;
   }

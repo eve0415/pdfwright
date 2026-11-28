@@ -50,13 +50,22 @@ const validDimension = (value: number): boolean => Number.isSafeInteger(value) &
 export const createImageRecord = (options: ImageOptions, resolveSeparation: (separation: Separation) => SeparationRecord): ImageRecord => {
   // ISO 32000-1:2008, 8.9.5.1, Table 89 defines image dimensions, colour space, and bits per component.
   const { width, height, colorSpace, samples, softMask } = options;
-  if (!validDimension(width) || !validDimension(height)) throw new ValidationError('image dimensions must be positive integers');
-  if (options.bitsPerComponent !== (colorSpace === 'ImageMask' ? 1 : 8)) throw new ValidationError('image bit depth does not match its colour space');
+  if (!validDimension(width) || !validDimension(height)) {
+    throw new ValidationError('image dimensions must be positive integers');
+  }
+  if (options.bitsPerComponent !== (colorSpace === 'ImageMask' ? 1 : 8)) {
+    throw new ValidationError('image bit depth does not match its colour space');
+  }
   let channels = 1;
-  if (colorSpace === 'DeviceRGB') channels = 3;
-  else if (colorSpace === 'DeviceCMYK') channels = 4;
+  if (colorSpace === 'DeviceRGB') {
+    channels = 3;
+  } else if (colorSpace === 'DeviceCMYK') {
+    channels = 4;
+  }
   const expected = colorSpace === 'ImageMask' ? Math.ceil(width / 8) * height : width * height * channels;
-  if (samples.length !== expected) throw new ValidationError('image sample length does not match dimensions and colour space');
+  if (samples.length !== expected) {
+    throw new ValidationError('image sample length does not match dimensions and colour space');
+  }
   if (
     softMask !== undefined &&
     (!validDimension(softMask.width) || !validDimension(softMask.height) || softMask.samples.length !== softMask.width * softMask.height)
@@ -93,7 +102,9 @@ export const imageObject = (image: ImageRecord, softMaskObjectNumber?: number): 
     // ISO 32000-1:2008, 8.9.5.2 and 8.6.6.4 NOTE 5: Separation samples are ink amounts, with 255 mapping to tint 1.
     dictionary.set(pdfName('Decode').bytes, pdfArray([pdfInteger(0), pdfInteger(1)]));
   }
-  if (softMaskObjectNumber !== undefined) dictionary.set(pdfName('SMask').bytes, pdfReference(softMaskObjectNumber, 0));
+  if (softMaskObjectNumber !== undefined) {
+    dictionary.set(pdfName('SMask').bytes, pdfReference(softMaskObjectNumber, 0));
+  }
   return { kind: 'stream', dictionary, data: deflateZlib(image.samples) };
 };
 

@@ -43,7 +43,9 @@ describe('image conversion performance', () => {
       const saved = document.save();
       expect(saved.kind).toBe('streamed');
       let written = 0;
-      for await (const chunk of saved.toStream()) written += chunk.length;
+      for await (const chunk of saved.toStream()) {
+        written += chunk.length;
+      }
       expect(written).toBeGreaterThan(0);
     },
     120_000,

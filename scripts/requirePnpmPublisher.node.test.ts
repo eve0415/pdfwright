@@ -7,8 +7,11 @@ const publisher = new URL('requirePnpmPublisher.ts', import.meta.url);
 
 const status = (userAgent: string | null): number | null => {
   const childEnv = { ...env };
-  if (userAgent === null) delete childEnv['npm_config_user_agent'];
-  else childEnv['npm_config_user_agent'] = userAgent;
+  if (userAgent === null) {
+    delete childEnv['npm_config_user_agent'];
+  } else {
+    childEnv['npm_config_user_agent'] = userAgent;
+  }
   return spawnSync(execPath, [publisher.pathname], { env: childEnv }).status;
 };
 

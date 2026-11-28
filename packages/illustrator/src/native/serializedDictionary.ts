@@ -38,7 +38,9 @@ export const createSerializedDictionaryWriter = (writer: NativeWriter): Serializ
     writer.line(' ,');
   };
   const closeDepth = (): void => {
-    if (depth === 0) throw new InvalidArgumentError('document-data container is already closed');
+    if (depth === 0) {
+      throw new InvalidArgumentError('document-data container is already closed');
+    }
     depth--;
   };
   return {
@@ -69,9 +71,11 @@ export const createSerializedDictionaryWriter = (writer: NativeWriter): Serializ
     },
     close: key => {
       closeDepth();
-      if (key === undefined) writer.line('%_;');
-      else if (key.length === 0) writer.line('%_; ,');
-      else {
+      if (key === undefined) {
+        writer.line('%_;');
+      } else if (key.length === 0) {
+        writer.line('%_; ,');
+      } else {
         text('%_; ');
         name(key);
         writer.line(' ,');

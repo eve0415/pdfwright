@@ -51,7 +51,9 @@ export const pdfName = (ascii: string): Extract<PdfObject, { kind: 'name' }> => 
   const bytes = new Uint8Array(ascii.length);
   for (let index = 0; index < ascii.length; index++) {
     const code = ascii.codePointAt(index) ?? 0;
-    if (code < 0x21 || code > 0x7e) throw new InvalidArgumentError('name must use printable ASCII');
+    if (code < 0x21 || code > 0x7e) {
+      throw new InvalidArgumentError('name must use printable ASCII');
+    }
     bytes[index] = code;
   }
   return pdfNameFromBytes(bytes);
@@ -77,7 +79,9 @@ export const pdfLiteralString = (text: string): Extract<PdfObject, { kind: 'stri
   const bytes = new Uint8Array(text.length);
   for (let index = 0; index < text.length; index++) {
     const code = text.codePointAt(index) ?? 0;
-    if (code > 127) throw new InvalidArgumentError('literal text must be ASCII');
+    if (code > 127) {
+      throw new InvalidArgumentError('literal text must be ASCII');
+    }
     bytes[index] = code;
   }
   return pdfString(bytes);
@@ -100,7 +104,9 @@ export const pdfInteger = (value: number): Extract<PdfObject, { kind: 'integer' 
  * @throws InvalidArgumentError with no reason for a nonfinite number or nonpositive denominator.
  */
 export const pdfReal = (value: number | Length): Extract<PdfObject, { kind: 'real' }> => {
-  if (typeof value === 'number' ? !Number.isFinite(value) : value.denominator <= 0n) throw new InvalidArgumentError('real must be finite');
+  if (typeof value === 'number' ? !Number.isFinite(value) : value.denominator <= 0n) {
+    throw new InvalidArgumentError('real must be finite');
+  }
   return { kind: 'real', value };
 };
 

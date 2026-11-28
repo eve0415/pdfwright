@@ -10,7 +10,9 @@ export class LoadLog {
 
   warn(warning: LoadWarning): void {
     this.warnings.push(warning);
-    if (!INTACT_CODES.has(warning.code)) this.tolerated = true;
+    if (!INTACT_CODES.has(warning.code)) {
+      this.tolerated = true;
+    }
   }
 
   /** Records a warning about a deviation no common reader reports, which leaves the status as it is. */
@@ -23,11 +25,16 @@ export class LoadLog {
     const held: LoadWarning[] = [];
     let settled = false;
     const result = attempt(warning => {
-      if (settled) this.warn(warning);
-      else held.push(warning);
+      if (settled) {
+        this.warn(warning);
+      } else {
+        held.push(warning);
+      }
     });
     settled = true;
-    for (const warning of held) this.warn(warning);
+    for (const warning of held) {
+      this.warn(warning);
+    }
     return result;
   }
 }

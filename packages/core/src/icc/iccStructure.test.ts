@@ -6,7 +6,9 @@ import { ResourceLimitError } from '../error/resourceLimitError.ts';
 import { parseIccStructure } from './iccStructure.ts';
 
 const ascii = (bytes: Uint8Array, offset: number, value: string): void => {
-  for (let index = 0; index < value.length; index++) bytes[offset + index] = value.codePointAt(index) ?? 0;
+  for (let index = 0; index < value.length; index++) {
+    bytes[offset + index] = value.codePointAt(index) ?? 0;
+  }
 };
 
 const profile = (): Uint8Array => {

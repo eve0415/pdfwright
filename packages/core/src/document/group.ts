@@ -37,7 +37,9 @@ export interface GroupAttributes {
 }
 
 export const groupAttributes = (options: GroupOptions, fractionDigits: number): GroupAttributes => {
-  if (options.colorSpace !== undefined && options.isolated !== true) throw new ValidationError('a transparency group colour space requires isolated: true');
+  if (options.colorSpace !== undefined && options.isolated !== true) {
+    throw new ValidationError('a transparency group colour space requires isolated: true');
+  }
   const bbox = rect(...options.bbox);
   const [left, bottom, right, top] = bbox.map(value => Number(formatLength(value, fractionDigits)));
   if (left === undefined || bottom === undefined || right === undefined || top === undefined || left >= right || bottom >= top) {
@@ -55,7 +57,9 @@ export const groupObject = (
     [pdfName('I').bytes, { kind: 'boolean', value: group.isolated }],
     [pdfName('K').bytes, { kind: 'boolean', value: group.knockout }],
   ]);
-  if (group.colorSpace !== undefined) attributes.set(pdfName('CS').bytes, pdfName(group.colorSpace));
+  if (group.colorSpace !== undefined) {
+    attributes.set(pdfName('CS').bytes, pdfName(group.colorSpace));
+  }
   const dictionary = new PdfDictionaryEntries([
     [pdfName('Type').bytes, pdfName('XObject')],
     [pdfName('Subtype').bytes, pdfName('Form')],
