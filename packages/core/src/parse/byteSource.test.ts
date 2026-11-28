@@ -82,6 +82,12 @@ describe('segmented byte source', () => {
     expect([source.lastIndexOf([]), source.lastIndexOf([...encode('obj')])]).toStrictEqual([source.length, -1]);
   });
 
+  it('looks past a later first byte that does not start the pattern', () => {
+    // In both sources the last 'a' does not begin a match, so the search has to step back to an earlier 'a' in the same segment.
+    expect(new ByteSource([encode('abac')]).lastIndexOf([...encode('ab')])).toBe(0);
+    expect(new ByteSource([encode('xaa'), encode('b')]).lastIndexOf([...encode('aab')])).toBe(1);
+  });
+
   it('finds every pattern, overlapping ones and ones crossing two boundaries included', () => {
     const source = new ByteSource([encode('aaab'), encode('c'), encode('dab')]);
     expect([source.indexesOf([...encode('aa')]), source.indexesOf([...encode('bcda')]), source.indexesOf([])]).toStrictEqual([[0, 1], [3], []]);
@@ -152,7 +158,7 @@ const naiveIndexes = (data: Uint8Array, wanted: Uint8Array): Array<number> =>
 
 describe('properties', () => {
   // Four byte values make patterns recur, and cut points split the input into segments, empty ones included.
-  const input = fc.tuple(fc.uint8Array({ max: 3, maxLength: 64 }), fc.array(fc.nat(), { maxLength: 6 })).map(([data, cuts]) => {
+  const input = fc.tuple(fc.uint8Array({ max: 3, maxLength: 64, size: 'max' }), fc.array(fc.nat(), { maxLength: 6 })).map(([data, cuts]) => {
     const points = [...new Set(cuts.map(cut => cut % (data.length + 1)))].toSorted((left, right) => left - right);
     const segments = [0, ...points].map((start, index) => data.subarray(start, points[index] ?? data.length));
     return { data, segments };
