@@ -260,6 +260,13 @@ const grayImage = (scan: MaskScan, image: PdfStream, rgbToGray: (values: Readonl
   return { kind: 'stream', dictionary, data: deflateZlib(output) };
 };
 
+// The image, shading and mesh passes convert calibrated gray to CMYK unless the caller keeps it, and inside a DeviceGray mask group that CMYK paint would change the mask values. A renderer converts calibrated gray into a device blending space in its own way, so no DeviceGray value reproduces the source mask, and that paint is refused.
+const checkGrayPaint = (scan: MaskScan, paint: 'image' | 'shading'): void => {
+  if ((scan.options.iccGray ?? 'convert') === 'convert') {
+    throw new UnsupportedFeatureError(`luminosity ${paint} has calibrated gray paint that would become CMYK`);
+  }
+};
+
 const cieLuminosity = (source: ColorSource, encoding: 'icc' | 'adobe'): ((values: ReadonlyArray<number>) => number) => {
   const profile = source.kind === 'icc' ? source.profile : calibratedProfile(source);
   const toPcs = sourceEvaluator(profile, 'relativeColorimetric', encoding);
@@ -301,6 +308,7 @@ const planGrayShadings = (
     }
     const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
     if (space.kind === 'gray') {
+      checkGrayPaint(scan, 'shading');
       continue;
     }
     if (space.kind !== 'rgb') {
@@ -365,6 +373,7 @@ const planGrayImage = (
   }
   const space = resolveSourceSpace(scan.document, color, { resources, sourceRgbProfile: scan.options.sourceRgbProfile });
   if (space.kind === 'gray') {
+    checkGrayPaint(scan, 'image');
     return undefined;
   }
   if (space.kind !== 'rgb') {
