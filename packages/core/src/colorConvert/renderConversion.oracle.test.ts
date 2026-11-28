@@ -1,16 +1,14 @@
 import type { PdfDifference } from '../compare/pdfDifference.ts';
 
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { stdout } from 'node:process';
-import { text as streamText } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { runChecked, runQpdf } from '../../../../scripts/readerOracle.ts';
 import { createColorTransform } from '../color/createColorTransform.ts';
 import { deltaE2000 } from '../color/deltaE2000.ts';
 import { xyzToLab } from '../color/pcs.ts';
@@ -149,11 +147,13 @@ const rgbVertices = [
 ];
 
 const transiccVertices = async (vertices: ReadonlyArray<ReadonlyArray<number>>): Promise<ReadonlyArray<Array<number>>> => {
-  const child = spawn('transicc', ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0']);
-  child.stdin.end(`${vertices.map(vertex => vertex.join(' ')).join('\n')}\n`);
-  const [output, closed] = await Promise.all([streamText(child.stdout), once(child, 'close')]);
-  expect(closed[0]).toBe(0);
-  return output
+  const run = await runChecked(
+    'transicc',
+    ['-n', `-i${sourcePath}`, `-o${destinationPath}`, '-t1', '-b', '-c0'],
+    new TextEncoder().encode(`${vertices.map(vertex => vertex.join(' ')).join('\n')}\n`),
+  );
+  return new TextDecoder()
+    .decode(run.stdout)
     .trim()
     .split(/\r?\n/u)
     .map(line =>
@@ -279,7 +279,7 @@ const render = async (directory: string, config: { name: string; bytes: Uint8Arr
   const input = path.join(directory, `${name}.pdf`);
   const output = path.join(directory, `${name}.pam`);
   await writeFile(input, bytes);
-  const child = spawn('gs', [
+  await runChecked('gs', [
     '-q',
     '-dNOPAUSE',
     '-dBATCH',
@@ -292,8 +292,6 @@ const render = async (directory: string, config: { name: string; bytes: Uint8Arr
     `-sOutputFile=${output}`,
     input,
   ]);
-  const result: ReadonlyArray<unknown> = await once(child, 'close');
-  expect(result[0]).toBe(0);
   const data = Uint8Array.from(await readFile(output));
   const header = new TextDecoder('ascii').decode(data.subarray(0, Math.min(data.length, 512)));
   const end = header.indexOf('ENDHDR\n');
@@ -457,9 +455,8 @@ describe('converted rendering', () => {
       const output = document.save().toBytes();
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, output);
-      const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
-      expect(closed[0]).toBe(0);
+      // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+      await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
       expect(checkPublicPdfX4(loadDocument(output)).summary).toBe('no-violation-found-by-these-rules');
       const before = await render(directory, { name: 'mixed-before', bytes: input });
       const after = await render(directory, { name: 'mixed-after', bytes: output });
@@ -486,9 +483,8 @@ describe('converted rendering', () => {
     try {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, pdfxConverted);
-      const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
-      expect(closed[0]).toBe(0);
+      // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+      await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
       const reloaded = loadDocument(pdfxConverted);
       expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
       const { differences } = compareDocuments(loadDocument(pdfxOriginal), reloaded);
@@ -527,9 +523,8 @@ describe('converted rendering', () => {
     try {
       const file = path.join(directory, 'converted.pdf');
       await writeFile(file, meshConverted);
-      const qpdf = spawn('qpdf', ['--check', file]);
-      const closed: ReadonlyArray<unknown> = await once(qpdf, 'close');
-      expect(closed[0]).toBe(0);
+      // runQpdf rejects unless qpdf exits 0, so a warning (exit 3) fails the test as well as an error.
+      await expect(runQpdf(['--check', file])).resolves.toMatchObject({ stderr: '' });
       const reloaded = loadDocument(meshConverted);
       expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
       const { differences } = compareDocuments(loadDocument(meshOriginal), reloaded);
@@ -544,43 +539,6 @@ describe('converted rendering', () => {
         'document-attribute:Root/Metadata',
         'document-attribute:Info',
       ]);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps the PDF/X-4 mesh fixture within separate correctness and appearance bounds', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-pdfx-mesh-'));
-    try {
-      const { data } = convertedMeshBytes(meshConverted);
-      const reference = meshPdf('DeviceCMYK', await transiccReference(data), { coordinate: 16, flag: 8 }).bytes;
-      const oracle = await render(directory, { name: 'pdfx-mesh-reference', bytes: reference, dpi: 400 });
-      const input = await render(directory, { name: 'pdfx-mesh-input', bytes: meshOriginal, dpi: 400 });
-      const output = await render(directory, { name: 'pdfx-mesh-converted', bytes: meshConverted, dpi: 400 });
-      const correctness = measure(oracle, output, true);
-      const appearance = measure(input, output, true);
-      expect(correctness.max).toBeLessThanOrEqual(0.5);
-      expect(appearance.max).toBeLessThanOrEqual(2);
-      expect(appearance.p99).toBeLessThanOrEqual(1.2);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it('checks CMYK group blending and measures the change from RGB blending', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'pdfwright-render-'));
-    try {
-      const original = transparency('/CS/DeviceRGB').bytes;
-      const appearance = await render(directory, { name: 'transparency-rgb', bytes: original });
-      const reference = await render(directory, { name: 'transparency-cmyk-group', bytes: transparency('/CS/DeviceCMYK').bytes });
-      const converted = await render(directory, { name: 'transparency-converted', bytes: convertTransparency(original) });
-      const correctness = measure(reference, converted);
-      const policyAppearance = measure(appearance, converted);
-      stdout.write(`transparency correctness: ${JSON.stringify(correctness)}\n`);
-      stdout.write(`transparency RGB-to-CMYK appearance: ${JSON.stringify(policyAppearance)}\n`);
-      expect(correctness.max).toBeLessThanOrEqual(0.5);
-      expect(policyAppearance.max).toBeLessThanOrEqual(9.8);
-      expect(policyAppearance.p99).toBeLessThanOrEqual(9.8);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

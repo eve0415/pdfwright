@@ -6,6 +6,9 @@ import { describe, expect, it } from 'vitest';
 
 import { runTool } from '../../../../scripts/readerOracle.ts';
 import { pdfDate } from '../date/pdfDate.ts';
+import { loadDocument } from '../document/loadDocument.ts';
+import { pdfName, pdfReference } from '../object/pdfObject.ts';
+import { checkPdfX4 } from '../pdfx/checkPdfX4.ts';
 import { buildPdf, latin1Text, streamBody } from '../testing/pdfBuilder.ts';
 
 import { preparePrintPdf } from './printConversionExample.ts';
@@ -58,11 +61,16 @@ describe('print conversion example', () => {
       metadataDate: pdfDate({ year: 2024, month: 3, day: 1, hour: 12, minute: 0, second: 0, offset: 'Z' }),
     });
     expect([result.conversion.images.converted, result.saved.kind]).toStrictEqual([1, 'streamed']);
-    let bytes = 0;
+    const chunks: Array<Uint8Array> = [];
     for await (const chunk of result.saved.toStream()) {
-      bytes += chunk.length;
+      chunks.push(chunk);
     }
-    expect(bytes).toBeGreaterThan(0);
     expect(result.structure.findings.map(finding => [finding.rule, finding.status])).toContainEqual(['X4-OI-PRESENT', 'passed']);
+    // The streamed bytes are the deliverable, so the PDF/X-4 checks and the converted image are read back from them rather than from the edited document.
+    const reloaded = loadDocument(chunks);
+    expect(checkPdfX4(reloaded).summary).toBe('no-violation-found-by-these-rules');
+    const image = reloaded.get(pdfReference(5, 0));
+    const entries = image.kind === 'stream' ? ['ColorSpace', 'Filter'].map(key => image.dictionary.get(pdfName(key).bytes)) : [];
+    expect(entries).toStrictEqual([pdfName('DeviceCMYK'), pdfName('FlateDecode')]);
   });
 });
