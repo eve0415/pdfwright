@@ -984,6 +984,22 @@ describe('text extraction', () => {
       expect(hidden).toStrictEqual([['none'], ['partly']]);
     });
 
+    it('marks a TrueType glyph hidden in part by a later fill over ink that rises above every advance box on the page', () => {
+      // At 10 points from (100, 700) the advance box spans 698.8–708.8, the ink 699–712 and the ink inset by 0.1 em 700–711; a fill from 709 lies above the advance box and cuts 0.2 em into the ink, and one from 711.5 misses the inset ink.
+      const program = syntheticTrueType({
+        name: 'Test',
+        glyphs: [{ advance: 1000 }, { advance: 1000, box: [100, -100, 900, 1200] }],
+        characters: [[0x5c_71, 1]],
+      });
+      const hidden = ['0 709 600 20 re f', '0 711.5 600 20 re f'].map(fill =>
+        glyphs(`BT /T 10 Tf 100 700 Td <0001> Tj ET 1 g ${fill}`, embeddedFont('Identity-H', program), '/Font<</T 105 0 R>>').map(glyph => [
+          glyph.covered,
+          glyph.coreHidden,
+        ]),
+      );
+      expect(hidden).toStrictEqual([[[false, 'partly']], [[false, 'none']]]);
+    });
+
     it('measures a vertical TrueType glyph by its ink, placed by the position vector', () => {
       // 9.2.4 and 9.7.4.3: origin 0 lies at −v = (−0.5, −0.88) em from the text position, so ink 500–900 across lies 0–0.4 em right of it: at 20 points from (80, 200), 80–88 in a box 70–90.
       const program = syntheticTrueType({
