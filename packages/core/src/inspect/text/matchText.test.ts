@@ -797,10 +797,12 @@ describe('text matching', () => {
       ['Ａ 399 wide is not', '/W[2[399]]', 'match'],
       ['Ｂ 980 wide keeps the font from being proportional', '/W[2[500]4[980]]', 'mismatch'],
       ['Ｂ 981 wide keeps the font from being proportional', '/W[2[500]4[981]]', 'mismatch'],
+      ['Ｂ 979.9999995 wide makes it proportional', '/W[2[500]4[979.9999995]]', 'match'],
       ['Ｂ 979.9 wide makes it proportional', '/W[2[500]4[979.9]]', 'match'],
       ['Ｂ 979 wide makes it proportional', '/W[2[500]4[979]]', 'match'],
       ['Ｂ 1020 wide keeps the font from being proportional', '/W[2[500]4[1020]]', 'mismatch'],
       ['Ｂ 1019 wide keeps the font from being proportional', '/W[2[500]4[1019]]', 'mismatch'],
+      ['Ｂ 1020.0000005 wide makes it proportional', '/W[2[500]4[1020.0000005]]', 'match'],
       ['Ｂ 1020.1 wide makes it proportional', '/W[2[500]4[1020.1]]', 'match'],
       ['Ｂ 1021 wide makes it proportional', '/W[2[500]4[1021]]', 'match'],
     ])('reads widths against the em: %s', (_, widths, status) => {
